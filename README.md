@@ -262,4 +262,4 @@ For questions about the platform:
 3. **Consent**: All interactions must be consensual
 4. **Privacy**: User privacy and discretion are paramount
 5. **Safety**: The platform prioritizes user safety and fraud prevention
-6. **Escrow**: All payments are held in escrow until service completion
+6. **Escrow**: All payments are held in escrow until service completion# Hkup

@@ -1,0 +1,21 @@
+{
+  "name": "hkup-platform",
+  "version": "1.0.0",
+  "description": "Secure service marketplace platform for kongi services",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "test": "jest",
+    "install-all": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "keywords": ["marketplace", "services", "escrow", "trust", "blockchain"],
+  "author": "Hkup Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "jest": "^29.7.0"
+  }
+}

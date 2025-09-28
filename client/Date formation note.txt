@@ -1,0 +1,39 @@
+User Data Categories & Usage
+1. Core Identity & Authentication Data
+Personal Information: First name, last name, email, phone number
+Account Details: Username, password, account type (client/provider)
+Verification Status: Verification tier (1-4), verification documents
+Authentication: JWT tokens, refresh tokens, login history
+2. Profile & Public Information
+Basic Profile: Full name, bio, location, avatar/profile picture
+Professional Details: Specialties, languages spoken, member since date
+Contact Preferences: Email notifications, SMS notifications, profile visibility
+Social Elements: Username display, public profile status
+3. Trust & Reputation Data
+Trust Score: Comprehensive trust rating (0-100)
+Reputation Score: Community reputation metrics
+Verification Tiers:
+Tier 1: Basic (phone, email)
+Tier 2: Advanced (ID verification, facial biometrics)
+Tier 3: Pro (behavioral analysis)
+Tier 4: Elite (decentralized ID)
+Trust Events: History of trust-affecting actions
+Risk Assessment: Transaction risk scores
+4. Service & Transaction Data
+Service Listings: Title, description, price, duration, location, requirements
+Service Categories: DGY, adventure, luxury, cultural, etc.
+Booking Information: Scheduled times, locations, special requests
+Transaction History: Completed services, earnings, payment methods
+Service Metrics: Views, bookings, ratings, completion rates
+5. Financial & Escrow Data
+Payment Information: Payment method IDs, transaction amounts
+Escrow Details: Transaction escrow status, completion proofs
+Earnings Data: Total earnings, service pricing, revenue analytics
+Dispute Information: Dispute history, resolution outcomes
+6. Behavioral & Analytics Data
+Activity Patterns: Response times, completion rates, last active status
+Location Data: Service locations, travel patterns, location preferences
+Communication Patterns: Message content analysis, response behaviors
+Fraud Detection: Risk factors, suspicious behavior patterns
+
+

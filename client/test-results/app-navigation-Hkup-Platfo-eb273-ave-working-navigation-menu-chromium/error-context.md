@@ -1,0 +1,177 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - link "Hkup" [ref=e6] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e7]:
+        - link "Browse Profiles" [ref=e8] [cursor=pointer]:
+          - /url: /profiles
+          - text: Browse Profiles
+        - link "Adult Services 🔥" [ref=e9] [cursor=pointer]:
+          - /url: /adult-services
+          - text: Adult Services 🔥
+      - generic [ref=e11]:
+        - link "Login" [ref=e12] [cursor=pointer]:
+          - /url: /login
+          - text: Login
+        - link "Register" [ref=e13] [cursor=pointer]:
+          - /url: /register
+          - text: Register
+  - main [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e18]:
+        - generic [ref=e20]:
+          - heading "Premium Adult Services 🔥" [level=1] [ref=e21]
+          - heading "Connect with verified adult service providers offering premium escort services with complete privacy, security, and discretion." [level=5] [ref=e22]
+          - generic [ref=e23]:
+            - link "Browse Profiles" [ref=e24] [cursor=pointer]:
+              - /url: /services
+              - text: Browse Profiles
+            - link "Create Profile" [ref=e25] [cursor=pointer]:
+              - /url: /register
+              - text: Create Profile
+        - heading "💕 Dating Platform" [level=3] [ref=e29]
+      - generic [ref=e31]:
+        - generic [ref=e33]:
+          - heading "Dating Service Categories" [level=2] [ref=e34]
+          - paragraph [ref=e35]: Choose from our carefully curated categories of premium dating services, each with verified providers and secure payment protection.
+        - generic [ref=e36]:
+          - generic [ref=e39]:
+            - generic [ref=e40]:
+              - heading "💕" [level=1] [ref=e41]
+              - heading "Long Term Escort" [level=6] [ref=e42]
+              - paragraph [ref=e43]: Professional long-term escort services with maximum discretion
+              - generic [ref=e45]: From $250
+            - generic [ref=e47]:
+              - img [ref=e48]
+              - paragraph [ref=e50]: Subscribe to Access
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - heading "🔥" [level=1] [ref=e55]
+              - heading "Short Term Escort" [level=6] [ref=e56]
+              - paragraph [ref=e57]: Professional short-term escort services with complete satisfaction
+              - generic [ref=e59]: From $180
+            - generic [ref=e61]:
+              - img [ref=e62]
+              - paragraph [ref=e64]: Subscribe to Access
+          - generic [ref=e67]:
+            - generic [ref=e68]:
+              - heading "💋" [level=1] [ref=e69]
+              - heading "Oral Services" [level=6] [ref=e70]
+              - paragraph [ref=e71]: Professional oral services and intimate wellness treatments
+              - generic [ref=e73]: From $120
+            - generic [ref=e75]:
+              - img [ref=e76]
+              - paragraph [ref=e78]: Subscribe to Access
+          - generic [ref=e81]:
+            - generic [ref=e82]:
+              - heading "⭐" [level=1] [ref=e83]
+              - heading "Premium Services" [level=6] [ref=e84]
+              - paragraph [ref=e85]: Exclusive high-end escort services for discerning clients
+              - generic [ref=e87]: From $500
+            - generic [ref=e89]:
+              - img [ref=e90]
+              - paragraph [ref=e92]: Subscribe to Access
+      - generic [ref=e95]:
+        - generic [ref=e97]:
+          - heading "Built on Trust & Safety" [level=2] [ref=e98]
+          - paragraph [ref=e99]: Our platform prioritizes your safety and security with advanced verification systems and fraud protection.
+        - generic [ref=e100]:
+          - generic [ref=e103]:
+            - img [ref=e105]
+            - heading "Verified Profiles" [level=6] [ref=e107]
+            - paragraph [ref=e108]: Multi-tier verification with photo ID and social media validation
+          - generic [ref=e111]:
+            - img [ref=e113]
+            - heading "Safe Connections" [level=6] [ref=e115]
+            - paragraph [ref=e116]: Advanced safety features protect you from scams and fake profiles
+          - generic [ref=e119]:
+            - img [ref=e121]
+            - heading "Smart Matching" [level=6] [ref=e123]
+            - paragraph [ref=e124]: AI-powered compatibility matching based on interests and values
+      - generic [ref=e127]:
+        - heading "Ready to Find Love?" [level=2] [ref=e128]
+        - heading "Join thousands of singles who have found meaningful connections on our platform." [level=6] [ref=e129]
+        - generic [ref=e130]:
+          - link "Create Profile" [ref=e131] [cursor=pointer]:
+            - /url: /register
+            - text: Create Profile
+          - link "Browse Profiles" [ref=e132] [cursor=pointer]:
+            - /url: /services
+            - text: Browse Profiles
+  - contentinfo [ref=e133]:
+    - generic [ref=e134]:
+      - generic [ref=e135]:
+        - generic [ref=e136]:
+          - heading "Hkup" [level=4] [ref=e137]
+          - paragraph [ref=e138]: The most secure marketplace for Kongi services. Built with trust, powered by advanced security.
+          - generic [ref=e139]:
+            - button [ref=e140] [cursor=pointer]:
+              - img [ref=e141] [cursor=pointer]
+            - button [ref=e143] [cursor=pointer]:
+              - img [ref=e144] [cursor=pointer]
+            - button [ref=e146] [cursor=pointer]:
+              - img [ref=e147] [cursor=pointer]
+        - generic [ref=e149]:
+          - heading "Services" [level=6] [ref=e150]
+          - generic [ref=e151]:
+            - link "Dgy Services" [ref=e152] [cursor=pointer]:
+              - /url: "#"
+            - link "Romans Experience" [ref=e153] [cursor=pointer]:
+              - /url: "#"
+            - link "Ridin Adventures" [ref=e154] [cursor=pointer]:
+              - /url: "#"
+            - link "Bb Suk Special" [ref=e155] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=e156]:
+          - heading "Platform" [level=6] [ref=e157]
+          - generic [ref=e158]:
+            - link "How it Works" [ref=e159] [cursor=pointer]:
+              - /url: "#"
+            - link "Trust & Safety" [ref=e160] [cursor=pointer]:
+              - /url: "#"
+            - link "Verification" [ref=e161] [cursor=pointer]:
+              - /url: "#"
+            - link "Dispute Resolution" [ref=e162] [cursor=pointer]:
+              - /url: "#"
+            - link "API Documentation" [ref=e163] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=e164]:
+          - heading "Company" [level=6] [ref=e165]
+          - generic [ref=e166]:
+            - link "About Us" [ref=e167] [cursor=pointer]:
+              - /url: "#"
+            - link "Careers" [ref=e168] [cursor=pointer]:
+              - /url: "#"
+            - link "Press" [ref=e169] [cursor=pointer]:
+              - /url: "#"
+            - link "Legal" [ref=e170] [cursor=pointer]:
+              - /url: "#"
+            - link "Privacy Policy" [ref=e171] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=e172]:
+          - heading "Contact" [level=6] [ref=e173]
+          - generic [ref=e174]:
+            - generic [ref=e175]:
+              - img [ref=e176]
+              - paragraph [ref=e178]: support@hkup.com
+            - generic [ref=e179]:
+              - img [ref=e180]
+              - paragraph [ref=e182]: +1 (555) 123-4567
+            - generic [ref=e183]:
+              - img [ref=e184]
+              - paragraph [ref=e186]: San Francisco, CA
+      - separator [ref=e187]
+      - generic [ref=e188]:
+        - paragraph [ref=e189]: © 2024 Hkup. All rights reserved.
+        - generic [ref=e190]:
+          - link "Terms of Service" [ref=e191] [cursor=pointer]:
+            - /url: "#"
+          - link "Privacy Policy" [ref=e192] [cursor=pointer]:
+            - /url: "#"
+          - link "Cookie Policy" [ref=e193] [cursor=pointer]:
+            - /url: "#"
+```

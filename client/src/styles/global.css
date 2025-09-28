@@ -1,0 +1,566 @@
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Global Reset and Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 
+              'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 
+              'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #FFFFFF;
+  color: #1A1A1A;
+  line-height: 1.6;
+}
+
+/* App Layout */
+.App {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main-content {
+  flex: 1;
+  padding-top: 80px; /* Account for fixed navbar */
+  min-height: calc(100vh - 200px);
+}
+
+/* Brand Color Utilities */
+.text-brand {
+  color: #DC143C !important;
+}
+
+.bg-brand {
+  background-color: #DC143C !important;
+}
+
+.border-brand {
+  border-color: #DC143C !important;
+}
+
+.text-white {
+  color: #FFFFFF !important;
+}
+
+.bg-white {
+  background-color: #FFFFFF !important;
+}
+
+.text-black {
+  color: #000000 !important;
+}
+
+.bg-black {
+  background-color: #000000 !important;
+}
+
+/* Gradients */
+.gradient-red-black {
+  background: linear-gradient(135deg, #DC143C 0%, #000000 100%);
+}
+
+.gradient-red-white {
+  background: linear-gradient(135deg, #DC143C 0%, #FFFFFF 100%);
+}
+
+.gradient-black-red {
+  background: linear-gradient(135deg, #000000 0%, #DC143C 100%);
+}
+
+/* Trust Score Colors */
+.trust-elite {
+  color: #FFD700 !important;
+}
+
+.trust-high {
+  color: #32CD32 !important;
+}
+
+.trust-medium {
+  color: #FFA500 !important;
+}
+
+.trust-low {
+  color: #FF4500 !important;
+}
+
+.trust-new {
+  color: #808080 !important;
+}
+
+/* Mobile-first responsive design */
+@media (max-width: 768px) {
+  .main-content {
+    padding-top: 60px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  
+  .MuiContainer-root {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+  
+  .MuiCard-root {
+    margin-bottom: 16px;
+  }
+  
+  .MuiButton-root {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+}
+
+/* Touch-friendly interactions */
+@media (hover: none) {
+  .MuiButton-root:hover {
+    transform: none !important;
+  }
+  
+  .MuiCard-root:hover {
+    transform: none !important;
+  }
+}
+
+/* Service Category Colors */
+.category-dgy {
+  color: #DC143C !important;
+}
+
+.category-romans {
+  color: #8B0000 !important;
+}
+
+.category-ridin {
+  color: #FF1493 !important;
+}
+
+.category-bb-suk {
+  color: #B22222 !important;
+}
+
+/* Animation Utilities */
+.fade-in {
+  animation: fadeIn 0.6s ease-in-out;
+}
+
+.slide-up {
+  animation: slideUp 0.6s ease-out;
+}
+
+.bounce-in {
+  animation: bounceIn 0.8s ease-out;
+}
+
+.glow-effect {
+  box-shadow: 0 0 20px rgba(220, 20, 60, 0.5);
+  transition: box-shadow 0.3s ease;
+}
+
+.hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #DC143C, #B22222);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #B22222, #DC143C);
+}
+
+/* Loading Spinner */
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #DC143C;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 20px auto;
+}
+
+/* Button Styles */
+.btn-primary {
+  background: linear-gradient(135deg, #DC143C 0%, #000000 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #000000 0%, #DC143C 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(220, 20, 60, 0.3);
+}
+
+.btn-outline {
+  background: transparent;
+  color: #DC143C;
+  border: 2px solid #DC143C;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}
+
+.btn-outline:hover {
+  background: #DC143C;
+  color: white;
+}
+
+/* Card Styles */
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #E5E5E5;
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+}
+
+/* Form Styles */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #E5E5E5;
+  border-radius: 8px;
+  font-size: 16px;
+  transition: border-color 0.3s ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #DC143C;
+}
+
+.form-error {
+  color: #DC3545;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+/* Grid System */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -15px;
+}
+
+.col {
+  flex: 1;
+  padding: 0 15px;
+}
+
+.col-half {
+  flex: 0 0 50%;
+  padding: 0 15px;
+}
+
+.col-third {
+  flex: 0 0 33.333%;
+  padding: 0 15px;
+}
+
+.col-quarter {
+  flex: 0 0 25%;
+  padding: 0 15px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .main-content {
+    padding-top: 60px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  
+  .col-half,
+  .col-third,
+  .col-quarter {
+    flex: 0 0 100%;
+    margin-bottom: 20px;
+  }
+  
+  .container {
+    padding: 0 15px;
+  }
+  
+  .MuiContainer-root {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+  
+  .MuiCard-root {
+    margin-bottom: 16px;
+  }
+  
+  .MuiButton-root {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  
+  .MuiTextField-root {
+    margin-bottom: 16px;
+  }
+  
+  .MuiGrid-container {
+    margin: 0 !important;
+  }
+  
+  .MuiGrid-item {
+    padding: 8px !important;
+  }
+}
+
+/* Touch-friendly interactions */
+@media (hover: none) {
+  .MuiButton-root:hover {
+    transform: none !important;
+  }
+  
+  .MuiCard-root:hover {
+    transform: none !important;
+  }
+  
+  .hover-lift:hover {
+    transform: none !important;
+  }
+}
+
+/* Enhanced mobile navigation */
+@media (max-width: 480px) {
+  .main-content {
+    padding-top: 50px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  
+  .MuiContainer-root {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+  
+  .MuiPaper-root {
+    padding: 16px !important;
+  }
+  
+  .MuiTypography-h4 {
+    font-size: 1.5rem !important;
+  }
+  
+  .MuiTypography-h6 {
+    font-size: 1.1rem !important;
+  }
+}
+
+/* Keyframes */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Toast Customization */
+.Toastify__toast--success {
+  background: linear-gradient(135deg, #28A745, #20C997);
+}
+
+.Toastify__toast--error {
+  background: linear-gradient(135deg, #DC143C, #B22222);
+}
+
+.Toastify__toast--warning {
+  background: linear-gradient(135deg, #FFC107, #FF8F00);
+}
+
+.Toastify__toast--info {
+  background: linear-gradient(135deg, #17A2B8, #138496);
+}
+
+/* Verification Badge Styles */
+.verification-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.verification-tier-1 {
+  background: #E0E0E0;
+  color: #666666;
+}
+
+.verification-tier-2 {
+  background: #FFF3CD;
+  color: #856404;
+}
+
+.verification-tier-3 {
+  background: #D1ECF1;
+  color: #0C5460;
+}
+
+.verification-tier-4 {
+  background: #FFD700;
+  color: #B8860B;
+}
+
+/* Enhanced Mobile Touch Optimization */
+@media (max-width: 768px) {
+  /* Minimum touch target size */
+  .MuiButton-root, 
+  .MuiIconButton-root,
+  .MuiChip-root {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+  
+  /* Enhanced spacing for touch */
+  .MuiGrid-container {
+    padding: 8px !important;
+  }
+  
+  .MuiCard-root {
+    margin-bottom: 12px !important;
+    border-radius: 12px !important;
+  }
+  
+  /* Improved form controls */
+  .MuiTextField-root {
+    margin-bottom: 16px !important;
+  }
+  
+  .MuiFormControl-root {
+    margin-bottom: 16px !important;
+  }
+  
+  /* Better navigation */
+  .MuiAppBar-root {
+    padding: 0 8px !important;
+  }
+  
+  /* Enhanced readability */
+  .MuiTypography-body1 {
+    font-size: 1rem !important;
+    line-height: 1.6 !important;
+  }
+  
+  .MuiTypography-body2 {
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+  }
+}
+
+/* Ultra-small mobile optimization */
+@media (max-width: 480px) {
+  .MuiContainer-root {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+  
+  .MuiButton-root {
+    font-size: 0.875rem !important;
+    padding: 8px 16px !important;
+  }
+  
+  .MuiCard-root {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12) !important;
+  }
+}

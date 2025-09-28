@@ -1,0 +1,363 @@
+<testsuites id="" name="" tests="21" failures="5" skipped="7" errors="0" time="265.949809">
+<testsuite name="app-navigation.spec.js" timestamp="2025-08-31T04:43:56.071Z" hostname="chromium" tests="21" failures="5" skipped="7" time="283.072" errors="0">
+<testcase name="Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should load homepage successfully" classname="app-navigation.spec.js" time="25.037">
+<failure message="app-navigation.spec.js:33:5 should load homepage successfully" type="FAILURE">
+<![CDATA[  [chromium] › app-navigation.spec.js:33:5 › Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should load homepage successfully 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator:  locator('nav')
+    Expected: visible
+    Received: <element(s) not found>
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for locator('nav')
+
+
+      41 |       
+      42 |       // Check for navigation elements
+    > 43 |       await expect(page.locator('nav')).toBeVisible();
+         |                                         ^
+      44 |       
+      45 |       console.log('✅ Homepage loaded successfully');
+      46 |     });
+        at C:\Users\aship\Desktop\Hookup\client\tests\app-navigation.spec.js:43:41
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[🧭 Testing homepage...
+
+🎉 COMPREHENSIVE APP TESTING COMPLETED!
+📊 Authentication Status: ❌ Not Authenticated
+📋 Check the test report for detailed results
+🔧 Fix any failing tests to ensure your app works properly
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should navigate to login page" classname="app-navigation.spec.js" time="11.79">
+<system-out>
+<![CDATA[🧭 Testing login page navigation...
+✅ Login page loaded successfully
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should navigate to registration page" classname="app-navigation.spec.js" time="37.312">
+<failure message="app-navigation.spec.js:62:5 should navigate to registration page" type="FAILURE">
+<![CDATA[  [chromium] › app-navigation.spec.js:62:5 › Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should navigate to registration page 
+
+    TimeoutError: page.goto: Timeout 10000ms exceeded.
+    Call log:
+      - navigating to "http://localhost:3000/register", waiting until "load"
+
+
+      63 |       console.log('🧭 Testing registration page navigation...');
+      64 |       
+    > 65 |       await page.goto('/register');
+         |                  ^
+      66 |       await expect(page).toHaveURL(/.*register/);
+      67 |       
+      68 |       // Check for registration form elements
+        at C:\Users\aship\Desktop\Hookup\client\tests\app-navigation.spec.js:65:18
+
+    attachment #1: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-8c8df-vigate-to-registration-page-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+]]>
+</failure>
+<system-out>
+<![CDATA[🧭 Testing registration page navigation...
+
+🎉 COMPREHENSIVE APP TESTING COMPLETED!
+📊 Authentication Status: ❌ Not Authenticated
+📋 Check the test report for detailed results
+🔧 Fix any failing tests to ensure your app works properly
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-8c8df-vigate-to-registration-page-chromium\video.webm]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should navigate to subscription page" classname="app-navigation.spec.js" time="14.864">
+<failure message="app-navigation.spec.js:75:5 should navigate to subscription page" type="FAILURE">
+<![CDATA[  [chromium] › app-navigation.spec.js:75:5 › Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should navigate to subscription page 
+
+    Error: expect(page).toHaveURL(expected) failed
+
+    Expected pattern: /.*subscription/
+    Received string:  "http://localhost:3000/register"
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toHaveURL" with timeout 5000ms
+        8 × unexpected value "http://localhost:3000/register"
+
+
+      77 |       
+      78 |       await page.goto('/subscription');
+    > 79 |       await expect(page).toHaveURL(/.*subscription/);
+         |                          ^
+      80 |       
+      81 |       // Check for subscription content
+      82 |       await expect(page.locator('main')).toBeVisible();
+        at C:\Users\aship\Desktop\Hookup\client\tests\app-navigation.spec.js:79:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[🧭 Testing subscription page navigation...
+
+🎉 COMPREHENSIVE APP TESTING COMPLETED!
+📊 Authentication Status: ❌ Not Authenticated
+📋 Check the test report for detailed results
+🔧 Fix any failing tests to ensure your app works properly
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should navigate to adult services browse page" classname="app-navigation.spec.js" time="8.518">
+<system-out>
+<![CDATA[🧭 Testing adult services browse page...
+✅ Adult services browse page loaded successfully
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Public Pages - No Authentication Required › should navigate to profiles browse page" classname="app-navigation.spec.js" time="10.992">
+<system-out>
+<![CDATA[🧭 Testing profiles browse page...
+✅ Profiles browse page loaded successfully
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Authentication Flow › should register a new user successfully" classname="app-navigation.spec.js" time="40.402">
+<system-out>
+<![CDATA[🧭 Testing user registration...
+⚠️ Registration may have failed or redirected elsewhere
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Authentication Flow › should login with existing user" classname="app-navigation.spec.js" time="21.753">
+<failure message="app-navigation.spec.js:147:5 should login with existing user" type="FAILURE">
+<![CDATA[  [chromium] › app-navigation.spec.js:147:5 › Hkup Platform - Complete App Navigation Test › Authentication Flow › should login with existing user 
+
+    TimeoutError: page.goto: Timeout 10000ms exceeded.
+    Call log:
+      - navigating to "http://localhost:3000/login", waiting until "load"
+
+
+      151 |       const testUser = TEST_CONFIG.testUsers[0];
+      152 |       
+    > 153 |       await page.goto('/login');
+          |                  ^
+      154 |       
+      155 |       // Fill login form
+      156 |       await page.fill('input[name="email"], input[type="email"]', testUser.email);
+        at C:\Users\aship\Desktop\Hookup\client\tests\app-navigation.spec.js:153:18
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[🧭 Testing user login...
+
+🎉 COMPREHENSIVE APP TESTING COMPLETED!
+📊 Authentication Status: ❌ Not Authenticated
+📋 Check the test report for detailed results
+🔧 Fix any failing tests to ensure your app works properly
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Protected Pages - Authentication Required › should access dashboard page" classname="app-navigation.spec.js" time="1.94">
+<properties>
+<property name="skip" value="User not authenticated">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Protected Pages - Authentication Required › should access user profile page" classname="app-navigation.spec.js" time="1.46">
+<properties>
+<property name="skip" value="User not authenticated">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Protected Pages - Authentication Required › should access verification page" classname="app-navigation.spec.js" time="1.331">
+<properties>
+<property name="skip" value="User not authenticated">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Protected Pages - Authentication Required › should access create service page" classname="app-navigation.spec.js" time="9.8">
+<properties>
+<property name="skip" value="User not authenticated">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Protected Pages - Authentication Required › should access transactions page" classname="app-navigation.spec.js" time="4.384">
+<properties>
+<property name="skip" value="User not authenticated">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Protected Pages - Authentication Required › should access trust score page" classname="app-navigation.spec.js" time="6.284">
+<properties>
+<property name="skip" value="User not authenticated">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Service Flow Testing › should create a new adult service" classname="app-navigation.spec.js" time="5.066">
+<properties>
+<property name="skip" value="User not authenticated">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Service Flow Testing › should view service details" classname="app-navigation.spec.js" time="9.369">
+<system-out>
+<![CDATA[🧭 Testing service detail view...
+ℹ️ No services found to test detail view
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Profile Flow Testing › should view user profiles" classname="app-navigation.spec.js" time="15.576">
+<system-out>
+<![CDATA[🧭 Testing profile browsing...
+ℹ️ No profiles found to test detail view
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Navigation and UI Testing › should have working navigation menu" classname="app-navigation.spec.js" time="15.78">
+<failure message="app-navigation.spec.js:335:5 should have working navigation menu" type="FAILURE">
+<![CDATA[  [chromium] › app-navigation.spec.js:335:5 › Hkup Platform - Complete App Navigation Test › Navigation and UI Testing › should have working navigation menu 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator:  locator('nav, .navbar, .navigation')
+    Expected: visible
+    Received: <element(s) not found>
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for locator('nav, .navbar, .navigation')
+
+
+      340 |       // Check if navigation menu is visible
+      341 |       const nav = page.locator('nav, .navbar, .navigation');
+    > 342 |       await expect(nav).toBeVisible();
+          |                         ^
+      343 |       
+      344 |       // Test navigation links (adjust selectors based on your navigation)
+      345 |       const navLinks = nav.locator('a, .nav-link');
+        at C:\Users\aship\Desktop\Hookup\client\tests\app-navigation.spec.js:342:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[🧭 Testing navigation menu...
+
+🎉 COMPREHENSIVE APP TESTING COMPLETED!
+📊 Authentication Status: ❌ Not Authenticated
+📋 Check the test report for detailed results
+🔧 Fix any failing tests to ensure your app works properly
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Navigation and UI Testing › should have responsive design" classname="app-navigation.spec.js" time="20.026">
+<system-out>
+<![CDATA[🧭 Testing responsive design...
+✅ Responsive design working
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Error Handling and Edge Cases › should handle invalid routes gracefully" classname="app-navigation.spec.js" time="10.384">
+<system-out>
+<![CDATA[🧭 Testing invalid route handling...
+⚠️ Invalid route may not be handled properly
+]]>
+</system-out>
+</testcase>
+<testcase name="Hkup Platform - Complete App Navigation Test › Error Handling and Edge Cases › should handle protected route access without auth" classname="app-navigation.spec.js" time="11.004">
+<system-out>
+<![CDATA[🧭 Testing protected route access without auth...
+✅ Protected route properly redirects to login
+
+🎉 COMPREHENSIVE APP TESTING COMPLETED!
+📊 Authentication Status: ❌ Not Authenticated
+📋 Check the test report for detailed results
+🔧 Fix any failing tests to ensure your app works properly
+]]>
+</system-out>
+</testcase>
+</testsuite>
+</testsuites>

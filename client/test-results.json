@@ -1,0 +1,1435 @@
+{
+  "config": {
+    "configFile": "C:\\Users\\aship\\Desktop\\Hookup\\client\\playwright.config.js",
+    "rootDir": "C:/Users/aship/Desktop/Hookup/client/tests",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results.json"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "test-results.xml"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "C:/Users/aship/Desktop/Hookup/client/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/aship/Desktop/Hookup/client/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/aship/Desktop/Hookup/client/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "C:/Users/aship/Desktop/Hookup/client/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/aship/Desktop/Hookup/client/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "C:/Users/aship/Desktop/Hookup/client/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/aship/Desktop/Hookup/client/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "C:/Users/aship/Desktop/Hookup/client/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/aship/Desktop/Hookup/client/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "C:/Users/aship/Desktop/Hookup/client/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.55.0",
+    "workers": 2,
+    "webServer": {
+      "command": "npm run start",
+      "url": "http://localhost:3000",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "app-navigation.spec.js",
+      "file": "app-navigation.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Hkup Platform - Complete App Navigation Test",
+          "file": "app-navigation.spec.js",
+          "line": 21,
+          "column": 6,
+          "specs": [],
+          "suites": [
+            {
+              "title": "Public Pages - No Authentication Required",
+              "file": "app-navigation.spec.js",
+              "line": 32,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should load homepage successfully",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "failed",
+                          "duration": 25037,
+                          "error": {
+                            "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  locator('nav')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('nav')\u001b[22m\n",
+                            "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  locator('nav')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('nav')\u001b[22m\n\n    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:43:41",
+                            "location": {
+                              "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                              "column": 41,
+                              "line": 43
+                            },
+                            "snippet": "\u001b[0m \u001b[90m 41 |\u001b[39m       \n \u001b[90m 42 |\u001b[39m       \u001b[90m// Check for navigation elements\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 43 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'nav'\u001b[39m))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 44 |\u001b[39m       \n \u001b[90m 45 |\u001b[39m       console\u001b[33m.\u001b[39mlog(\u001b[32m'✅ Homepage loaded successfully'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 46 |\u001b[39m     })\u001b[33m;\u001b[39m\u001b[0m"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "column": 41,
+                                "line": 43
+                              },
+                              "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  locator('nav')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('nav')\u001b[22m\n\n\n\u001b[0m \u001b[90m 41 |\u001b[39m       \n \u001b[90m 42 |\u001b[39m       \u001b[90m// Check for navigation elements\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 43 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'nav'\u001b[39m))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 44 |\u001b[39m       \n \u001b[90m 45 |\u001b[39m       console\u001b[33m.\u001b[39mlog(\u001b[32m'✅ Homepage loaded successfully'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 46 |\u001b[39m     })\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:43:41\u001b[22m"
+                            }
+                          ],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing homepage...\n"
+                            },
+                            {
+                              "text": "\n🎉 COMPREHENSIVE APP TESTING COMPLETED!\n"
+                            },
+                            {
+                              "text": "📊 Authentication Status: ❌ Not Authenticated\n"
+                            },
+                            {
+                              "text": "📋 Check the test report for detailed results\n"
+                            },
+                            {
+                              "text": "🔧 Fix any failing tests to ensure your app works properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:03.397Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "screenshot",
+                              "contentType": "image/png",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\\test-failed-1.png"
+                            },
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\\video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-605cd--load-homepage-successfully-chromium\\error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "column": 41,
+                            "line": 43
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-46823e99ec91016613a5",
+                  "file": "app-navigation.spec.js",
+                  "line": 33,
+                  "column": 5
+                },
+                {
+                  "title": "should navigate to login page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 2,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 11790,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing login page navigation...\n"
+                            },
+                            {
+                              "text": "✅ Login page loaded successfully\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:45:13.599Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-29bfbf3a9b524774c1fb",
+                  "file": "app-navigation.spec.js",
+                  "line": 48,
+                  "column": 5
+                },
+                {
+                  "title": "should navigate to registration page",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 2,
+                          "parallelIndex": 0,
+                          "status": "failed",
+                          "duration": 37312,
+                          "error": {
+                            "message": "TimeoutError: page.goto: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/register\", waiting until \"load\"\u001b[22m\n",
+                            "stack": "TimeoutError: page.goto: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/register\", waiting until \"load\"\u001b[22m\n\n    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:65:18",
+                            "location": {
+                              "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                              "column": 18,
+                              "line": 65
+                            },
+                            "snippet": "\u001b[0m \u001b[90m 63 |\u001b[39m       console\u001b[33m.\u001b[39mlog(\u001b[32m'🧭 Testing registration page navigation...'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 64 |\u001b[39m       \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 65 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m'/register'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 66 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/.*register/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 67 |\u001b[39m       \n \u001b[90m 68 |\u001b[39m       \u001b[90m// Check for registration form elements\u001b[39m\u001b[0m"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "column": 18,
+                                "line": 65
+                              },
+                              "message": "TimeoutError: page.goto: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/register\", waiting until \"load\"\u001b[22m\n\n\n\u001b[0m \u001b[90m 63 |\u001b[39m       console\u001b[33m.\u001b[39mlog(\u001b[32m'🧭 Testing registration page navigation...'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 64 |\u001b[39m       \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 65 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m'/register'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 66 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/.*register/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 67 |\u001b[39m       \n \u001b[90m 68 |\u001b[39m       \u001b[90m// Check for registration form elements\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:65:18\u001b[22m"
+                            }
+                          ],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing registration page navigation...\n"
+                            },
+                            {
+                              "text": "\n🎉 COMPREHENSIVE APP TESTING COMPLETED!\n"
+                            },
+                            {
+                              "text": "📊 Authentication Status: ❌ Not Authenticated\n"
+                            },
+                            {
+                              "text": "📋 Check the test report for detailed results\n"
+                            },
+                            {
+                              "text": "🔧 Fix any failing tests to ensure your app works properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:45:26.828Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-8c8df-vigate-to-registration-page-chromium\\video.webm"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "column": 18,
+                            "line": 65
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-5fb53e4282c273aae861",
+                  "file": "app-navigation.spec.js",
+                  "line": 62,
+                  "column": 5
+                },
+                {
+                  "title": "should navigate to subscription page",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 4,
+                          "parallelIndex": 0,
+                          "status": "failed",
+                          "duration": 14864,
+                          "error": {
+                            "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveURL\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected pattern: \u001b[32m/.*subscription/\u001b[39m\nReceived string:  \u001b[31m\"http://localhost:3000/register\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveURL\" with timeout 5000ms\u001b[22m\n\u001b[2m    8 × unexpected value \"http://localhost:3000/register\"\u001b[22m\n",
+                            "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveURL\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected pattern: \u001b[32m/.*subscription/\u001b[39m\nReceived string:  \u001b[31m\"http://localhost:3000/register\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveURL\" with timeout 5000ms\u001b[22m\n\u001b[2m    8 × unexpected value \"http://localhost:3000/register\"\u001b[22m\n\n    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:79:26",
+                            "location": {
+                              "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                              "column": 26,
+                              "line": 79
+                            },
+                            "snippet": "\u001b[0m \u001b[90m 77 |\u001b[39m       \n \u001b[90m 78 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m'/subscription'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 79 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/.*subscription/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 80 |\u001b[39m       \n \u001b[90m 81 |\u001b[39m       \u001b[90m// Check for subscription content\u001b[39m\n \u001b[90m 82 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'main'\u001b[39m))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "column": 26,
+                                "line": 79
+                              },
+                              "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveURL\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected pattern: \u001b[32m/.*subscription/\u001b[39m\nReceived string:  \u001b[31m\"http://localhost:3000/register\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveURL\" with timeout 5000ms\u001b[22m\n\u001b[2m    8 × unexpected value \"http://localhost:3000/register\"\u001b[22m\n\n\n\u001b[0m \u001b[90m 77 |\u001b[39m       \n \u001b[90m 78 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m'/subscription'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 79 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/.*subscription/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 80 |\u001b[39m       \n \u001b[90m 81 |\u001b[39m       \u001b[90m// Check for subscription content\u001b[39m\n \u001b[90m 82 |\u001b[39m       \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'main'\u001b[39m))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:79:26\u001b[22m"
+                            }
+                          ],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing subscription page navigation...\n"
+                            },
+                            {
+                              "text": "\n🎉 COMPREHENSIVE APP TESTING COMPLETED!\n"
+                            },
+                            {
+                              "text": "📊 Authentication Status: ❌ Not Authenticated\n"
+                            },
+                            {
+                              "text": "📋 Check the test report for detailed results\n"
+                            },
+                            {
+                              "text": "🔧 Fix any failing tests to ensure your app works properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:46:22.645Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "screenshot",
+                              "contentType": "image/png",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\\test-failed-1.png"
+                            },
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\\video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-e10ca-vigate-to-subscription-page-chromium\\error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "column": 26,
+                            "line": 79
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-39b9d40c832ae0c045f9",
+                  "file": "app-navigation.spec.js",
+                  "line": 75,
+                  "column": 5
+                },
+                {
+                  "title": "should navigate to adult services browse page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 5,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 8518,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing adult services browse page...\n"
+                            },
+                            {
+                              "text": "✅ Adult services browse page loaded successfully\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:46:45.787Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-2c0689b9f4b730857a08",
+                  "file": "app-navigation.spec.js",
+                  "line": 87,
+                  "column": 5
+                },
+                {
+                  "title": "should navigate to profiles browse page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 5,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 10992,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing profiles browse page...\n"
+                            },
+                            {
+                              "text": "✅ Profiles browse page loaded successfully\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:46:55.287Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-2f91c4dd8c4b854374d5",
+                  "file": "app-navigation.spec.js",
+                  "line": 99,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Authentication Flow",
+              "file": "app-navigation.spec.js",
+              "line": 112,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should register a new user successfully",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 5,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 40402,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing user registration...\n"
+                            },
+                            {
+                              "text": "⚠️ Registration may have failed or redirected elsewhere\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:47:06.414Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-ee09fa5f8d2bac882584",
+                  "file": "app-navigation.spec.js",
+                  "line": 113,
+                  "column": 5
+                },
+                {
+                  "title": "should login with existing user",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 5,
+                          "parallelIndex": 0,
+                          "status": "failed",
+                          "duration": 21753,
+                          "error": {
+                            "message": "TimeoutError: page.goto: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/login\", waiting until \"load\"\u001b[22m\n",
+                            "stack": "TimeoutError: page.goto: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/login\", waiting until \"load\"\u001b[22m\n\n    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:153:18",
+                            "location": {
+                              "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                              "column": 18,
+                              "line": 153
+                            },
+                            "snippet": "\u001b[0m \u001b[90m 151 |\u001b[39m       \u001b[36mconst\u001b[39m testUser \u001b[33m=\u001b[39m \u001b[33mTEST_CONFIG\u001b[39m\u001b[33m.\u001b[39mtestUsers[\u001b[35m0\u001b[39m]\u001b[33m;\u001b[39m\n \u001b[90m 152 |\u001b[39m       \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 153 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m'/login'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 154 |\u001b[39m       \n \u001b[90m 155 |\u001b[39m       \u001b[90m// Fill login form\u001b[39m\n \u001b[90m 156 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mfill(\u001b[32m'input[name=\"email\"], input[type=\"email\"]'\u001b[39m\u001b[33m,\u001b[39m testUser\u001b[33m.\u001b[39memail)\u001b[33m;\u001b[39m\u001b[0m"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "column": 18,
+                                "line": 153
+                              },
+                              "message": "TimeoutError: page.goto: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/login\", waiting until \"load\"\u001b[22m\n\n\n\u001b[0m \u001b[90m 151 |\u001b[39m       \u001b[36mconst\u001b[39m testUser \u001b[33m=\u001b[39m \u001b[33mTEST_CONFIG\u001b[39m\u001b[33m.\u001b[39mtestUsers[\u001b[35m0\u001b[39m]\u001b[33m;\u001b[39m\n \u001b[90m 152 |\u001b[39m       \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 153 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m'/login'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 154 |\u001b[39m       \n \u001b[90m 155 |\u001b[39m       \u001b[90m// Fill login form\u001b[39m\n \u001b[90m 156 |\u001b[39m       \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mfill(\u001b[32m'input[name=\"email\"], input[type=\"email\"]'\u001b[39m\u001b[33m,\u001b[39m testUser\u001b[33m.\u001b[39memail)\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:153:18\u001b[22m"
+                            }
+                          ],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing user login...\n"
+                            },
+                            {
+                              "text": "\n🎉 COMPREHENSIVE APP TESTING COMPLETED!\n"
+                            },
+                            {
+                              "text": "📊 Authentication Status: ❌ Not Authenticated\n"
+                            },
+                            {
+                              "text": "📋 Check the test report for detailed results\n"
+                            },
+                            {
+                              "text": "🔧 Fix any failing tests to ensure your app works properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:47:46.984Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "screenshot",
+                              "contentType": "image/png",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\\test-failed-1.png"
+                            },
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\\video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-bd43e-ld-login-with-existing-user-chromium\\error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "column": 18,
+                            "line": 153
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-859b7f629bd7f797ccc6",
+                  "file": "app-navigation.spec.js",
+                  "line": 147,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Protected Pages - Authentication Required",
+              "file": "app-navigation.spec.js",
+              "line": 177,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should access dashboard page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "description": "User not authenticated",
+                          "location": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "line": 180,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 6,
+                          "parallelIndex": 0,
+                          "status": "skipped",
+                          "duration": 1940,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:48:14.281Z",
+                          "annotations": [
+                            {
+                              "type": "skip",
+                              "description": "User not authenticated",
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "line": 180,
+                                "column": 12
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-df141f51c2e50c4580ee",
+                  "file": "app-navigation.spec.js",
+                  "line": 183,
+                  "column": 5
+                },
+                {
+                  "title": "should access user profile page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "description": "User not authenticated",
+                          "location": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "line": 180,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 6,
+                          "parallelIndex": 0,
+                          "status": "skipped",
+                          "duration": 1460,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:48:17.440Z",
+                          "annotations": [
+                            {
+                              "type": "skip",
+                              "description": "User not authenticated",
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "line": 180,
+                                "column": 12
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-2497b3ab32582cd38c4b",
+                  "file": "app-navigation.spec.js",
+                  "line": 195,
+                  "column": 5
+                },
+                {
+                  "title": "should access verification page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "description": "User not authenticated",
+                          "location": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "line": 180,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 6,
+                          "parallelIndex": 0,
+                          "status": "skipped",
+                          "duration": 1331,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "\n🎉 COMPREHENSIVE APP TESTING COMPLETED!\n"
+                            },
+                            {
+                              "text": "📊 Authentication Status: ❌ Not Authenticated\n"
+                            },
+                            {
+                              "text": "📋 Check the test report for detailed results\n"
+                            },
+                            {
+                              "text": "🔧 Fix any failing tests to ensure your app works properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:48:19.044Z",
+                          "annotations": [
+                            {
+                              "type": "skip",
+                              "description": "User not authenticated",
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "line": 180,
+                                "column": 12
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-8bbb0276e02408153f98",
+                  "file": "app-navigation.spec.js",
+                  "line": 207,
+                  "column": 5
+                },
+                {
+                  "title": "should access create service page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "description": "User not authenticated",
+                          "location": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "line": 180,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "skipped",
+                          "duration": 9800,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:03.463Z",
+                          "annotations": [
+                            {
+                              "type": "skip",
+                              "description": "User not authenticated",
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "line": 180,
+                                "column": 12
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-11173341a0f5c5de01a8",
+                  "file": "app-navigation.spec.js",
+                  "line": 219,
+                  "column": 5
+                },
+                {
+                  "title": "should access transactions page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "description": "User not authenticated",
+                          "location": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "line": 180,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "skipped",
+                          "duration": 4384,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:17.438Z",
+                          "annotations": [
+                            {
+                              "type": "skip",
+                              "description": "User not authenticated",
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "line": 180,
+                                "column": 12
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-80071e51948c0ca4361b",
+                  "file": "app-navigation.spec.js",
+                  "line": 231,
+                  "column": 5
+                },
+                {
+                  "title": "should access trust score page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "description": "User not authenticated",
+                          "location": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "line": 180,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "skipped",
+                          "duration": 6284,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:22.391Z",
+                          "annotations": [
+                            {
+                              "type": "skip",
+                              "description": "User not authenticated",
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "line": 180,
+                                "column": 12
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-be9972508b68bc4dff45",
+                  "file": "app-navigation.spec.js",
+                  "line": 243,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Service Flow Testing",
+              "file": "app-navigation.spec.js",
+              "line": 256,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should create a new adult service",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "description": "User not authenticated",
+                          "location": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "line": 260,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "skipped",
+                          "duration": 5066,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing adult service creation...\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:29.012Z",
+                          "annotations": [
+                            {
+                              "type": "skip",
+                              "description": "User not authenticated",
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "line": 260,
+                                "column": 12
+                              }
+                            }
+                          ],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-c27d2c20e9389738a579",
+                  "file": "app-navigation.spec.js",
+                  "line": 257,
+                  "column": 5
+                },
+                {
+                  "title": "should view service details",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 9369,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing service detail view...\n"
+                            },
+                            {
+                              "text": "ℹ️ No services found to test detail view\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:34.237Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-9542a555113b79c15ae8",
+                  "file": "app-navigation.spec.js",
+                  "line": 277,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Profile Flow Testing",
+              "file": "app-navigation.spec.js",
+              "line": 305,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should view user profiles",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 15576,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing profile browsing...\n"
+                            },
+                            {
+                              "text": "ℹ️ No profiles found to test detail view\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:43.715Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-2d815f85d06644c16551",
+                  "file": "app-navigation.spec.js",
+                  "line": 306,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Navigation and UI Testing",
+              "file": "app-navigation.spec.js",
+              "line": 334,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should have working navigation menu",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "failed",
+                          "duration": 15780,
+                          "error": {
+                            "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  locator('nav, .navbar, .navigation')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('nav, .navbar, .navigation')\u001b[22m\n",
+                            "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  locator('nav, .navbar, .navigation')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('nav, .navbar, .navigation')\u001b[22m\n\n    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:342:25",
+                            "location": {
+                              "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                              "column": 25,
+                              "line": 342
+                            },
+                            "snippet": "\u001b[0m \u001b[90m 340 |\u001b[39m       \u001b[90m// Check if navigation menu is visible\u001b[39m\n \u001b[90m 341 |\u001b[39m       \u001b[36mconst\u001b[39m nav \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'nav, .navbar, .navigation'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 342 |\u001b[39m       \u001b[36mawait\u001b[39m expect(nav)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 343 |\u001b[39m       \n \u001b[90m 344 |\u001b[39m       \u001b[90m// Test navigation links (adjust selectors based on your navigation)\u001b[39m\n \u001b[90m 345 |\u001b[39m       \u001b[36mconst\u001b[39m navLinks \u001b[33m=\u001b[39m nav\u001b[33m.\u001b[39mlocator(\u001b[32m'a, .nav-link'\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                                "column": 25,
+                                "line": 342
+                              },
+                              "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  locator('nav, .navbar, .navigation')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('nav, .navbar, .navigation')\u001b[22m\n\n\n\u001b[0m \u001b[90m 340 |\u001b[39m       \u001b[90m// Check if navigation menu is visible\u001b[39m\n \u001b[90m 341 |\u001b[39m       \u001b[36mconst\u001b[39m nav \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'nav, .navbar, .navigation'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 342 |\u001b[39m       \u001b[36mawait\u001b[39m expect(nav)\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 343 |\u001b[39m       \n \u001b[90m 344 |\u001b[39m       \u001b[90m// Test navigation links (adjust selectors based on your navigation)\u001b[39m\n \u001b[90m 345 |\u001b[39m       \u001b[36mconst\u001b[39m navLinks \u001b[33m=\u001b[39m nav\u001b[33m.\u001b[39mlocator(\u001b[32m'a, .nav-link'\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js:342:25\u001b[22m"
+                            }
+                          ],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing navigation menu...\n"
+                            },
+                            {
+                              "text": "\n🎉 COMPREHENSIVE APP TESTING COMPLETED!\n"
+                            },
+                            {
+                              "text": "📊 Authentication Status: ❌ Not Authenticated\n"
+                            },
+                            {
+                              "text": "📋 Check the test report for detailed results\n"
+                            },
+                            {
+                              "text": "🔧 Fix any failing tests to ensure your app works properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:44:59.415Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "screenshot",
+                              "contentType": "image/png",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\\test-failed-1.png"
+                            },
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\\video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "C:\\Users\\aship\\Desktop\\Hookup\\client\\test-results\\app-navigation-Hkup-Platfo-eb273-ave-working-navigation-menu-chromium\\error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "C:\\Users\\aship\\Desktop\\Hookup\\client\\tests\\app-navigation.spec.js",
+                            "column": 25,
+                            "line": 342
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-61910d797865b372b2a3",
+                  "file": "app-navigation.spec.js",
+                  "line": 335,
+                  "column": 5
+                },
+                {
+                  "title": "should have responsive design",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 3,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 20026,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing responsive design...\n"
+                            },
+                            {
+                              "text": "✅ Responsive design working\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:45:31.199Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-4fbc43ff1ba67e81c047",
+                  "file": "app-navigation.spec.js",
+                  "line": 362,
+                  "column": 5
+                }
+              ]
+            },
+            {
+              "title": "Error Handling and Edge Cases",
+              "file": "app-navigation.spec.js",
+              "line": 385,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should handle invalid routes gracefully",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 3,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 10384,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing invalid route handling...\n"
+                            },
+                            {
+                              "text": "⚠️ Invalid route may not be handled properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:45:53.647Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-e5bfaa59fae760c08a81",
+                  "file": "app-navigation.spec.js",
+                  "line": 386,
+                  "column": 5
+                },
+                {
+                  "title": "should handle protected route access without auth",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 3,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 11004,
+                          "errors": [],
+                          "stdout": [
+                            {
+                              "text": "🧭 Testing protected route access without auth...\n"
+                            },
+                            {
+                              "text": "✅ Protected route properly redirects to login\n"
+                            },
+                            {
+                              "text": "\n🎉 COMPREHENSIVE APP TESTING COMPLETED!\n"
+                            },
+                            {
+                              "text": "📊 Authentication Status: ❌ Not Authenticated\n"
+                            },
+                            {
+                              "text": "📋 Check the test report for detailed results\n"
+                            },
+                            {
+                              "text": "🔧 Fix any failing tests to ensure your app works properly\n"
+                            }
+                          ],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-08-31T04:46:04.181Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "f974d1af2dbe2f5f2c07-024538bede27c8951a3b",
+                  "file": "app-navigation.spec.js",
+                  "line": 403,
+                  "column": 5
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-08-31T04:43:55.472Z",
+    "duration": 265949.809,
+    "expected": 9,
+    "skipped": 7,
+    "unexpected": 5,
+    "flaky": 0
+  }
+}

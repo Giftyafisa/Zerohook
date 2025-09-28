@@ -1,0 +1,187 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - link "Hkup" [ref=e6] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e7]:
+        - link "Browse Profiles" [ref=e8] [cursor=pointer]:
+          - /url: /profiles
+          - text: Browse Profiles
+        - link "Adult Services 🔥" [ref=e9] [cursor=pointer]:
+          - /url: /adult-services
+          - text: Adult Services 🔥
+      - generic [ref=e11]:
+        - link "Login" [ref=e12] [cursor=pointer]:
+          - /url: /login
+          - text: Login
+        - link "Register" [ref=e13] [cursor=pointer]:
+          - /url: /register
+          - text: Register
+  - main [ref=e14]:
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - img [ref=e18]
+        - heading "Join Hkup" [level=4] [ref=e20]
+        - paragraph [ref=e21]: Create your account to access the most secure Kongi marketplace
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e25]:
+            - generic [ref=e26]:
+              - text: First Name
+              - generic [ref=e27]: "*"
+            - generic [ref=e28]:
+              - img [ref=e30]
+              - textbox "First Name" [ref=e32]
+              - group:
+                - generic: First Name *
+          - generic [ref=e34]:
+            - generic [ref=e35]:
+              - text: Last Name
+              - generic [ref=e36]: "*"
+            - generic [ref=e37]:
+              - img [ref=e39]
+              - textbox "Last Name" [ref=e41]
+              - group:
+                - generic: Last Name *
+          - generic [ref=e43]:
+            - generic [ref=e44]:
+              - text: Email Address
+              - generic [ref=e45]: "*"
+            - generic [ref=e46]:
+              - img [ref=e48]
+              - textbox "Email Address" [ref=e50]
+              - group:
+                - generic: Email Address *
+          - generic [ref=e52]:
+            - generic [ref=e53]:
+              - text: Phone Number
+              - generic [ref=e54]: "*"
+            - generic [ref=e55]:
+              - img [ref=e57]
+              - textbox "Phone Number" [ref=e59]
+              - group:
+                - generic: Phone Number *
+          - generic [ref=e61]:
+            - generic [ref=e62]: Account Type
+            - generic [ref=e63]:
+              - combobox "Client - Looking for services" [ref=e64] [cursor=pointer]
+              - textbox: client
+              - img
+              - group:
+                - generic: Account Type
+          - generic [ref=e66]:
+            - generic [ref=e67]:
+              - text: Password
+              - generic [ref=e68]: "*"
+            - generic [ref=e69]:
+              - img [ref=e71]
+              - textbox "Password" [ref=e73]
+              - button [ref=e75] [cursor=pointer]:
+                - img [ref=e76] [cursor=pointer]
+              - group:
+                - generic: Password *
+          - generic [ref=e79]:
+            - generic [ref=e80]:
+              - text: Confirm Password
+              - generic [ref=e81]: "*"
+            - generic [ref=e82]:
+              - img [ref=e84]
+              - textbox "Confirm Password" [ref=e86]
+              - button [ref=e88] [cursor=pointer]:
+                - img [ref=e89] [cursor=pointer]
+              - group:
+                - generic: Confirm Password *
+          - generic [ref=e92] [cursor=pointer]:
+            - generic [ref=e93] [cursor=pointer]:
+              - checkbox "I agree to the Terms of Service and Privacy Policy" [ref=e94] [cursor=pointer]
+              - img [ref=e95] [cursor=pointer]
+            - paragraph [ref=e97] [cursor=pointer]:
+              - text: I agree to the
+              - link "Terms of Service" [ref=e98] [cursor=pointer]:
+                - /url: /terms
+              - text: and
+              - link "Privacy Policy" [ref=e99] [cursor=pointer]:
+                - /url: /privacy
+          - button "Create Account" [ref=e101] [cursor=pointer]: Create Account
+        - separator [ref=e102]:
+          - paragraph [ref=e104]: or
+        - paragraph [ref=e106]:
+          - text: Already have an account?
+          - link "Sign In" [ref=e107] [cursor=pointer]:
+            - /url: /login
+  - contentinfo [ref=e108]:
+    - generic [ref=e109]:
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - heading "Hkup" [level=4] [ref=e112]
+          - paragraph [ref=e113]: The most secure marketplace for Kongi services. Built with trust, powered by advanced security.
+          - generic [ref=e114]:
+            - button [ref=e115] [cursor=pointer]:
+              - img [ref=e116] [cursor=pointer]
+            - button [ref=e118] [cursor=pointer]:
+              - img [ref=e119] [cursor=pointer]
+            - button [ref=e121] [cursor=pointer]:
+              - img [ref=e122] [cursor=pointer]
+        - generic [ref=e124]:
+          - heading "Services" [level=6] [ref=e125]
+          - generic [ref=e126]:
+            - link "Dgy Services" [ref=e127] [cursor=pointer]:
+              - /url: "#"
+            - link "Romans Experience" [ref=e128] [cursor=pointer]:
+              - /url: "#"
+            - link "Ridin Adventures" [ref=e129] [cursor=pointer]:
+              - /url: "#"
+            - link "Bb Suk Special" [ref=e130] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=e131]:
+          - heading "Platform" [level=6] [ref=e132]
+          - generic [ref=e133]:
+            - link "How it Works" [ref=e134] [cursor=pointer]:
+              - /url: "#"
+            - link "Trust & Safety" [ref=e135] [cursor=pointer]:
+              - /url: "#"
+            - link "Verification" [ref=e136] [cursor=pointer]:
+              - /url: "#"
+            - link "Dispute Resolution" [ref=e137] [cursor=pointer]:
+              - /url: "#"
+            - link "API Documentation" [ref=e138] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=e139]:
+          - heading "Company" [level=6] [ref=e140]
+          - generic [ref=e141]:
+            - link "About Us" [ref=e142] [cursor=pointer]:
+              - /url: "#"
+            - link "Careers" [ref=e143] [cursor=pointer]:
+              - /url: "#"
+            - link "Press" [ref=e144] [cursor=pointer]:
+              - /url: "#"
+            - link "Legal" [ref=e145] [cursor=pointer]:
+              - /url: "#"
+            - link "Privacy Policy" [ref=e146] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=e147]:
+          - heading "Contact" [level=6] [ref=e148]
+          - generic [ref=e149]:
+            - generic [ref=e150]:
+              - img [ref=e151]
+              - paragraph [ref=e153]: support@hkup.com
+            - generic [ref=e154]:
+              - img [ref=e155]
+              - paragraph [ref=e157]: +1 (555) 123-4567
+            - generic [ref=e158]:
+              - img [ref=e159]
+              - paragraph [ref=e161]: San Francisco, CA
+      - separator [ref=e162]
+      - generic [ref=e163]:
+        - paragraph [ref=e164]: © 2024 Hkup. All rights reserved.
+        - generic [ref=e165]:
+          - link "Terms of Service" [ref=e166] [cursor=pointer]:
+            - /url: "#"
+          - link "Privacy Policy" [ref=e167] [cursor=pointer]:
+            - /url: "#"
+          - link "Cookie Policy" [ref=e168] [cursor=pointer]:
+            - /url: "#"
+```

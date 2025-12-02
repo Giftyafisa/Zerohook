@@ -17,23 +17,23 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false  # Set manually - use your existing DB connection string
+        value: postgresql://zerohook:9gc8nNYOUAWP6fwcnogoANkLleKLcFYA@dpg-d4m9bqili9vc73emk150-a.oregon-postgres.render.com/zerohookdb?sslmode=require
       - key: JWT_SECRET
-        generateValue: true
+        value: zerohook-production-jwt-secret-2024-secure-key
       - key: JWT_EXPIRE
         value: 7d
       - key: CLIENT_URL
         value: https://zerohook.onrender.com
       - key: PAYSTACK_SECRET_KEY
-        sync: false # Set manually in dashboard
+        value: sk_test_9c8ed29806799887814242571899edf82071ac09
       - key: PAYSTACK_PUBLIC_KEY
-        sync: false
+        value: pk_test_7f3cabce055cc9cb562103752d9348c39d7fde9b
       - key: ENCRYPTION_KEY
-        generateValue: true
+        value: zerohook-32-byte-encryption-2024
       - key: RATE_LIMIT_WINDOW_MS
-        value: 900000
+        value: "900000"
       - key: RATE_LIMIT_MAX_REQUESTS
-        value: 100
+        value: "100"
       - key: DEFAULT_COUNTRY
         value: NG
       - key: SUPPORTED_COUNTRIES
@@ -60,12 +60,12 @@ services:
       - key: REACT_APP_SUPPORTED_COUNTRIES
         value: NG,GH,KE,ZA,UG,TZ,RW,BW,ZM,MW
       - key: REACT_APP_PAYSTACK_PUBLIC_KEY
-        sync: false
+        value: pk_test_7f3cabce055cc9cb562103752d9348c39d7fde9b
       - key: REACT_APP_ENABLE_VIDEO_CALLS
-        value: true
+        value: "true"
       - key: REACT_APP_ENABLE_CRYPTO_PAYMENTS
-        value: true
+        value: "true"
       - key: REACT_APP_ENABLE_TRUST_SYSTEM
-        value: true
+        value: "true"
 
 # No database section - using existing zerohookdb on Render

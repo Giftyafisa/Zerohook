@@ -108,7 +108,7 @@ const SubscriptionErrorPage = () => {
 
       <Box sx={{ mt: 6, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          Need help? Contact our support team at support@hkup.com
+          Need help? Contact our support team at support@zerohook.com
         </Typography>
       </Box>
     </Container>

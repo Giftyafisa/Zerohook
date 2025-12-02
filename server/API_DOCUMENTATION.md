@@ -1,7 +1,7 @@
-# 🚀 Hkup Platform API Documentation
+# 🚀 Zerohook Platform API Documentation
 
 ## Overview
-This document provides comprehensive API documentation for the Hkup dating platform, including all endpoints for authentication, chat, payments, file uploads, user connections, and verification.
+This document provides comprehensive API documentation for the Zerohook platform, including all endpoints for authentication, chat, payments, file uploads, user connections, and verification.
 
 ---
 

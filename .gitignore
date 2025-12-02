@@ -1,1 +1,14 @@
 node_modules
+
+# Ignore environment files containing secrets
+/server/.env
+/server/env.local
+/server/.env.*
+
+# Ignore test artifacts and reports
+/client/playwright-report/
+/client/test-results/
+
+# Archive/legacy folder
+/server/legacy/
+Zerohook/

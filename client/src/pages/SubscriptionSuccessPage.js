@@ -78,7 +78,7 @@ const SubscriptionSuccessPage = () => {
           🎉 Subscription Successful!
         </Typography>
         <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
-          Welcome to Hkup Premium!
+          Welcome to Zerohook Premium!
         </Typography>
         <Typography variant="body1" color="text.secondary">
           Your subscription has been activated and you now have full access to all platform features.
@@ -129,7 +129,7 @@ const SubscriptionSuccessPage = () => {
 
       <Box sx={{ mt: 6, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          Thank you for choosing Hkup! Your subscription is now active.
+          Thank you for choosing Zerohook! Your subscription is now active.
         </Typography>
       </Box>
     </Container>

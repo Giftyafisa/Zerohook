@@ -62,6 +62,7 @@ class AdultServiceManager {
   async createServiceListing(userId, serviceData) {
     const {
       category,
+      subcategory,
       title,
       description,
       price,
@@ -69,24 +70,32 @@ class AdultServiceManager {
       location,
       availability,
       photos,
-      specialRequirements,
-      privacyLevel
+      specialRequirements
     } = serviceData;
 
     try {
       const query = `
-        INSERT INTO services (
-          user_id, category_id, title, description, price, duration_minutes, 
-          location_type, location_data, media_urls, requirements, 
-          privacy_level, status, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+        INSERT INTO adult_services (
+          provider_id, category, subcategory, title, description, price, 
+          duration_minutes, location_type, location_data, availability, 
+          requirements, images, is_active, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW())
         RETURNING *
       `;
 
       const values = [
-        userId, category, title, description, price, duration,
-        { address: location }, availability, specialRequirements,
-        photos, 'active'
+        userId, 
+        category, 
+        subcategory || null,
+        title, 
+        description, 
+        price, 
+        duration,
+        'flexible',
+        JSON.stringify(location || {}),
+        JSON.stringify(availability || {}),
+        JSON.stringify(specialRequirements || {}),
+        photos || []
       ];
 
       const result = await this.pool.query(query, values);
@@ -106,11 +115,12 @@ class AdultServiceManager {
           u.username,
           u.verification_tier,
           u.trust_score,
-          u.avatar,
-          u.is_verified
-        FROM services s
+          u.profile_data->>'avatar' as avatar,
+          u.profile_data->>'profilePicture' as profile_picture,
+          s.is_verified as service_verified
+        FROM adult_services s
         JOIN users u ON s.provider_id = u.id
-        WHERE s.status = 'active'
+        WHERE s.is_active = true
       `;
 
       const values = [];
@@ -139,7 +149,7 @@ class AdultServiceManager {
 
       // Add location filter
       if (filters.location) {
-        query += ` AND s.location ILIKE $${valueIndex}`;
+        query += ` AND (s.location_data->>'city' ILIKE $${valueIndex} OR s.location_data->>'country' ILIKE $${valueIndex})`;
         values.push(`%${filters.location}%`);
         valueIndex++;
       }
@@ -190,12 +200,13 @@ class AdultServiceManager {
           u.username,
           u.verification_tier,
           u.trust_score,
-          u.avatar,
-          u.is_verified,
+          u.profile_data->>'avatar' as avatar,
+          u.profile_data->>'profilePicture' as profile_picture,
+          s.is_verified as service_verified,
           u.created_at as user_joined
-        FROM services s
+        FROM adult_services s
         JOIN users u ON s.provider_id = u.id
-        WHERE s.id = $1 AND s.status = 'active'
+        WHERE s.id = $1 AND s.is_active = true
       `;
 
       const result = await this.pool.query(query, [serviceId]);
@@ -210,8 +221,8 @@ class AdultServiceManager {
   async updateServiceListing(serviceId, userId, updateData) {
     try {
       const allowedFields = [
-        'title', 'description', 'price', 'duration', 'location',
-        'availability', 'photos', 'special_requirements', 'privacy_level'
+        'title', 'description', 'price', 'duration_minutes', 'category',
+        'subcategory', 'location_data', 'availability', 'requirements', 'images'
       ];
 
       const updates = [];
@@ -221,7 +232,7 @@ class AdultServiceManager {
       for (const [key, value] of Object.entries(updateData)) {
         if (allowedFields.includes(key)) {
           updates.push(`${key} = $${valueIndex}`);
-          values.push(value);
+          values.push(typeof value === 'object' ? JSON.stringify(value) : value);
           valueIndex++;
         }
       }
@@ -232,9 +243,9 @@ class AdultServiceManager {
 
       values.push(serviceId, userId);
       const query = `
-        UPDATE services 
+        UPDATE adult_services 
         SET ${updates.join(', ')}, updated_at = NOW()
-        WHERE id = $${valueIndex} AND user_id = $${valueIndex + 1}
+        WHERE id = $${valueIndex} AND provider_id = $${valueIndex + 1}
         RETURNING *
       `;
 
@@ -250,9 +261,9 @@ class AdultServiceManager {
   async deleteServiceListing(serviceId, userId) {
     try {
       const query = `
-        UPDATE services 
-        SET status = 'deleted', updated_at = NOW()
-        WHERE id = $1 AND user_id = $2
+        UPDATE adult_services 
+        SET is_active = false, updated_at = NOW()
+        WHERE id = $1 AND provider_id = $2
         RETURNING *
       `;
 
@@ -268,8 +279,8 @@ class AdultServiceManager {
   async getUserServices(userId) {
     try {
       const query = `
-        SELECT * FROM services 
-        WHERE provider_id = $1 AND status != 'deleted'
+        SELECT * FROM adult_services 
+        WHERE provider_id = $1 AND is_active = true
         ORDER BY created_at DESC
       `;
 
@@ -290,15 +301,17 @@ class AdultServiceManager {
           u.username,
           u.verification_tier,
           u.trust_score,
-          u.avatar,
-          u.is_verified
-        FROM services s
+          u.profile_data->>'avatar' as avatar,
+          u.profile_data->>'profilePicture' as profile_picture,
+          s.is_verified as service_verified
+        FROM adult_services s
         JOIN users u ON s.provider_id = u.id
-        WHERE s.status = 'active'
+        WHERE s.is_active = true
         AND (
           s.title ILIKE $1 
           OR s.description ILIKE $1 
-          OR s.location_data->>'address' ILIKE $1
+          OR s.location_data->>'city' ILIKE $1
+          OR s.location_data->>'country' ILIKE $1
         )
       `;
 
@@ -344,9 +357,9 @@ class AdultServiceManager {
           AVG(price) as avg_price,
           MIN(price) as min_price,
           MAX(price) as max_price
-        FROM services 
-        WHERE status = 'active'
-        GROUP BY category_id
+        FROM adult_services 
+        WHERE is_active = true
+        GROUP BY category
       `;
 
       const result = await this.pool.query(query);

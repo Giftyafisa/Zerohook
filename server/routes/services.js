@@ -1,7 +1,49 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const { query, isDatabaseAvailable } = require('../config/database');
 const router = express.Router();
+
+// Mock services for when database is unavailable
+const mockServices = [
+  {
+    id: 'mock-service-1',
+    title: 'Premium Dating Service',
+    description: 'High-quality dating service with verified profiles',
+    price: 150,
+    duration_minutes: 60,
+    location_type: 'flexible',
+    category_name: 'Long Term',
+    provider_username: 'sarah_professional',
+    verification_tier: 3,
+    reputation_score: 95,
+    rating: 4.8,
+    views: 127,
+    bookings: 45,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'mock-service-2',
+    title: 'Casual Encounters',
+    description: 'Casual dating and short-term connections',
+    price: 100,
+    duration_minutes: 120,
+    location_type: 'fixed',
+    category_name: 'Short Term',
+    provider_username: 'grace_elegant',
+    verification_tier: 2,
+    reputation_score: 88,
+    rating: 4.5,
+    views: 89,
+    bookings: 32,
+    created_at: new Date().toISOString()
+  }
+];
+
+const mockCategories = [
+  { id: 'cat-1', name: 'long_term', display_name: 'Long Term', description: 'Serious relationships', base_price: 100 },
+  { id: 'cat-2', name: 'short_term', display_name: 'Short Term', description: 'Casual encounters', base_price: 150 },
+  { id: 'cat-3', name: 'special', display_name: 'Special Services', description: 'Premium offerings', base_price: 200 }
+];
 
 /**
  * @route   GET /api/services
@@ -10,6 +52,16 @@ const router = express.Router();
  */
 router.get('/', async (req, res) => {
   try {
+    // Check if database is available - return mock data if not
+    if (!isDatabaseAvailable()) {
+      console.log('⚠️  Database unavailable, returning mock services');
+      return res.json({
+        services: mockServices,
+        pagination: { page: 1, limit: 20, hasMore: false },
+        metadata: { mockData: true, message: 'Database temporarily unavailable' }
+      });
+    }
+
     const { category, location, minPrice, maxPrice, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
@@ -42,7 +94,7 @@ router.get('/', async (req, res) => {
 
     const servicesResult = await query(`
       SELECT 
-        s.id, s.title, s.description, s.price, s.duration_minutes,
+        s.id, s.provider_id, s.title, s.description, s.price, s.duration_minutes,
         s.location_type, s.location_data, s.media_urls, s.views, 
         s.bookings, s.rating, s.created_at,
         c.display_name as category_name,
@@ -67,6 +119,16 @@ router.get('/', async (req, res) => {
 
   } catch (error) {
     console.error('Get services error:', error);
+    
+    // Return mock data on database error
+    if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
+      return res.json({
+        services: mockServices,
+        pagination: { page: 1, limit: 20, hasMore: false },
+        metadata: { mockData: true, message: 'Database temporarily unavailable' }
+      });
+    }
+    
     res.status(500).json({
       error: 'Failed to get services'
     });
@@ -80,6 +142,15 @@ router.get('/', async (req, res) => {
  */
 router.get('/categories', async (req, res) => {
   try {
+    // Check if database is available - return mock data if not
+    if (!isDatabaseAvailable()) {
+      console.log('⚠️  Database unavailable, returning mock categories');
+      return res.json({
+        categories: mockCategories,
+        metadata: { mockData: true }
+      });
+    }
+
     const categoriesResult = await query(`
       SELECT id, name, display_name, description, base_price
       FROM service_categories
@@ -92,6 +163,15 @@ router.get('/categories', async (req, res) => {
 
   } catch (error) {
     console.error('Get categories error:', error);
+    
+    // Return mock data on database error
+    if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
+      return res.json({
+        categories: mockCategories,
+        metadata: { mockData: true }
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to fetch categories' });
   }
 });

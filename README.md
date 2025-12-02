@@ -1,10 +1,10 @@
-# 🔥 Hkup - Secure Adult Service Marketplace
+# 🔥 Zerohook - Secure Adult Service Marketplace
 
 A comprehensive, trust-based marketplace platform for consensual adult services with advanced security, fraud detection, and escrow capabilities to prevent romance scams.
 
 ## 🌟 Platform Overview
 
-**Hkup** is designed to create the safest environment for consensual adult service transactions, protecting both service providers and clients from fraud while ensuring smooth, secure encounters.
+**Zerohook** is designed to create the safest environment for consensual adult service transactions, protecting both service providers and clients from fraud while ensuring smooth, secure encounters.
 
 ### ⚠️ **Important Notice**
 This platform facilitates consensual adult services between consenting adults. All users must be 18+ and comply with local laws. The platform operates on a strict verification and escrow system to prevent fraud and ensure safety.
@@ -39,10 +39,11 @@ This platform facilitates consensual adult services between consenting adults. A
 
 ## 🎨 Design Theme
 
-Beautiful, modern UI with brand colors:
-- **Primary Red**: `#DC143C` (Crimson)
-- **Pure White**: `#FFFFFF` 
-- **Deep Black**: `#000000`
+Beautiful, modern UI with Zerohook neon cyberpunk theme:
+- **Primary Neon Cyan**: `#00f2ea` 
+- **Secondary Neon Pink**: `#ff0055`
+- **Deep Dark Background**: `#0f0f13`
+- **Font**: Outfit
 - Gradient combinations and glow effects
 - Mobile-responsive design optimized for discretion
 

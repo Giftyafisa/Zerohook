@@ -49,10 +49,7 @@ import {
   getUserLocation
 } from '../config/locations';
 import { getDefaultImage } from '../config/images';
-import UserConnectionHub from '../components/UserConnectionHub';
 import ChatSystem from '../components/ChatSystem';
-import UserStatus from '../components/UserStatus'; // Added import for UserStatus
-import CallButton from '../components/CallButton'; // Added import for CallButton
 
 const ProfileBrowse = () => {
   const theme = useTheme();
@@ -1434,11 +1431,14 @@ const ProfileBrowse = () => {
               
               {/* Online Status Badge */}
               <Box sx={{ position: 'absolute', top: 8, right: 8 }}>
-                <UserStatus 
-                  user={profile} 
-                  variant="dot" 
-                  size="small" 
-                  showAvatar={false}
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    bgcolor: profile.isOnline ? '#00ff88' : '#6a6a7a',
+                    border: '2px solid #1a1a22',
+                  }}
                 />
               </Box>
               
@@ -1669,14 +1669,20 @@ const ProfileBrowse = () => {
                 <Box display="flex" gap={isMobile ? 0.5 : 1} mt="auto" flexDirection="column">
                   {/* Call Buttons */}
                   <Box display="flex" gap={1} justifyContent="center" mb={1}>
-                    <CallButton
-                      targetUser={profile}
-                      variant="icon"
+                    <IconButton
                       size="small"
-                      onCallStart={(callType, targetUser) => {
-                        console.log(`📞 Starting ${callType} call with ${targetUser.username}`);
+                      sx={{
+                        bgcolor: 'rgba(0, 242, 234, 0.1)',
+                        '&:hover': { bgcolor: 'rgba(0, 242, 234, 0.2)' },
                       }}
-                    />
+                      onClick={() => {
+                        if (window.startVideoCall) {
+                          window.startVideoCall(profile.id);
+                        }
+                      }}
+                    >
+                      <Message sx={{ color: '#00f2ea' }} />
+                    </IconButton>
                   </Box>
                   
                   <Button
@@ -1864,15 +1870,23 @@ const ProfileBrowse = () => {
         </Box>
       )}
 
-      {/* User Connection Hub Dialog */}
-              <UserConnectionHub
-          targetUser={selectedUser}
+      {/* User Connection Dialog */}
+      {connectionDialog && selectedUser && (
+        <Dialog
           open={connectionDialog}
           onClose={() => {
             setConnectionDialog(false);
             setSelectedUser(null);
           }}
-        />
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>Connect with {selectedUser.username}</DialogTitle>
+          <DialogContent sx={{ p: 0 }}>
+            <ChatSystem currentUser={selectedUser} />
+          </DialogContent>
+        </Dialog>
+      )}
 
         {/* Quick Chat Dialog */}
         {quickChatDialog && selectedUser && (

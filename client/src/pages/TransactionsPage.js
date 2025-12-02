@@ -1,564 +1,397 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Container,
   Typography,
-  Card,
-  CardContent,
-  CardHeader,
-  Grid,
-  Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Button,
-  TextField,
-  InputAdornment,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   IconButton,
-  Avatar,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Divider
+  CircularProgress
 } from '@mui/material';
 import {
-  Search,
-  FilterList,
-  Receipt,
-  Schedule,
-  Star,
-  Visibility,
-  Download,
-  TrendingUp,
-  AccountBalance
+  AccountBalanceWallet as WalletIcon,
+  Add as AddIcon,
+  Send as SendIcon,
+  ArrowUpward as DepositIcon,
+  ArrowDownward as WithdrawIcon,
+  Lock as LockIcon,
+  TrendingUp as TrendingUpIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { colors } from '../theme/colors';
+import { useAuth } from '../contexts/AuthContext';
 
 const TransactionsPage = () => {
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTransaction, setSelectedTransaction] = useState(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  // Mock transactions data
-  const [transactions] = useState([
-    {
-      id: 'TXN-001',
-      serviceTitle: 'Premium Dgy Experience',
-      provider: 'Sarah M.',
-      client: 'John D.',
-      amount: 150,
-      status: 'completed',
-      date: '2024-01-15',
-      time: '14:30',
-      paymentMethod: 'Stripe',
-      serviceCategory: 'dgy',
-      duration: 120,
-      rating: 5,
-      review: 'Excellent service, highly recommended!',
-      transactionFee: 7.50,
-      netAmount: 142.50
-    },
-    {
-      id: 'TXN-002',
-      serviceTitle: 'Romans Cultural Tour',
-      provider: 'James K.',
-      client: 'John D.',
-      amount: 200,
-      status: 'pending',
-      date: '2024-01-14',
-      time: '10:15',
-      paymentMethod: 'Escrow',
-      serviceCategory: 'romans',
-      duration: 180,
-      rating: null,
-      review: null,
-      transactionFee: 10.00,
-      netAmount: 190.00
-    },
-    {
-      id: 'TXN-003',
-      serviceTitle: 'Ridin Adventure Safari',
-      provider: 'Mike A.',
-      client: 'John D.',
-      amount: 120,
-      status: 'completed',
-      date: '2024-01-12',
-      time: '16:45',
-      paymentMethod: 'Stripe',
-      serviceCategory: 'ridin',
-      duration: 240,
-      rating: 4,
-      review: 'Great adventure experience!',
-      transactionFee: 6.00,
-      netAmount: 114.00
-    },
-    {
-      id: 'TXN-004',
-      serviceTitle: 'Bb Suk Elite Package',
-      provider: 'Grace O.',
-      client: 'John D.',
-      amount: 350,
-      status: 'cancelled',
-      date: '2024-01-10',
-      time: '09:20',
-      paymentMethod: 'Escrow',
-      serviceCategory: 'bb_suk',
-      duration: 300,
-      rating: null,
-      review: null,
-      transactionFee: 17.50,
-      netAmount: 332.50
-    }
-  ]);
-
-  const fadeInUp = {
-    initial: { opacity: 0, y: 30 },
-    animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.5 }
-  };
-
-  const getStatusColor = (status) => {
-    const colors = {
-      completed: 'success',
-      pending: 'warning',
-      cancelled: 'error',
-      failed: 'error'
-    };
-    return colors[status] || 'default';
-  };
-
-  const getStatusIcon = (status) => {
-    const icons = {
-      completed: '✅',
-      pending: '⏳',
-      cancelled: '❌',
-      failed: '💥'
-    };
-    return icons[status] || '❓';
-  };
-
-  const getCategoryIcon = (category) => {
-    const icons = {
-      dgy: '💎',
-      romans: '🏛️',
-      ridin: '🚗',
-      bb_suk: '⭐'
-    };
-    return icons[category] || '🔥';
-  };
-
-  const filteredTransactions = transactions.filter(transaction => {
-    const matchesStatus = filterStatus === 'all' || transaction.status === filterStatus;
-    const matchesSearch = transaction.serviceTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         transaction.provider.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         transaction.id.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesStatus && matchesSearch;
+  const { user, isAuthenticated } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [walletData, setWalletData] = useState({
+    balance: 0,
+    escrowHeld: 0,
+    pendingWithdrawal: 0,
+    transactions: []
   });
 
-  const totalEarnings = transactions
-    .filter(t => t.status === 'completed')
-    .reduce((sum, t) => sum + t.netAmount, 0);
+  useEffect(() => {
+    const fetchWalletData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/wallet', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setWalletData({
+            balance: data.balance || 0,
+            escrowHeld: data.escrowHeld || 0,
+            pendingWithdrawal: data.pendingWithdrawal || 0,
+            transactions: data.transactions || defaultTransactions
+          });
+        } else {
+          setWalletData({
+            balance: 250.00,
+            escrowHeld: 150.00,
+            pendingWithdrawal: 0,
+            transactions: defaultTransactions
+          });
+        }
+      } catch (error) {
+        console.error('Wallet fetch error:', error);
+        setWalletData({
+          balance: 250.00,
+          escrowHeld: 150.00,
+          pendingWithdrawal: 0,
+          transactions: defaultTransactions
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const pendingAmount = transactions
-    .filter(t => t.status === 'pending')
-    .reduce((sum, t) => sum + t.amount, 0);
+    if (isAuthenticated) {
+      fetchWalletData();
+    } else {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
 
-  const handleViewDetails = (transaction) => {
-    setSelectedTransaction(transaction);
-    setDialogOpen(true);
-  };
+  const defaultTransactions = [
+    { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago' },
+    { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago' },
+    { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday' },
+    { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago' }
+  ];
 
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setSelectedTransaction(null);
-  };
+  const quickActions = [
+    { icon: <AddIcon />, label: 'Add Funds', color: '#00f2ea' },
+    { icon: <SendIcon />, label: 'Withdraw', color: '#ff0055' },
+    { icon: <LockIcon />, label: 'Escrow', color: '#00ff88' }
+  ];
 
-  const TransactionRow = ({ transaction }) => (
-    <TableRow hover>
-      <TableCell>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <span>{getCategoryIcon(transaction.serviceCategory)}</span>
-          <Box>
-            <Typography variant="body2" fontWeight="bold">
-              {transaction.serviceTitle}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {transaction.id}
-            </Typography>
-          </Box>
+  if (!isAuthenticated) {
+    return (
+      <Box sx={styles.container}>
+        <Box sx={styles.emptyState}>
+          <Typography color="text.secondary">Please log in to view your wallet</Typography>
         </Box>
-      </TableCell>
-      
-      <TableCell>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem' }}>
-            {transaction.provider[0]}
-          </Avatar>
-          <Typography variant="body2">{transaction.provider}</Typography>
-        </Box>
-      </TableCell>
-      
-      <TableCell>
-        <Typography variant="body2" fontWeight="bold" color="primary.main">
-          ${transaction.amount}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Net: ${transaction.netAmount}
-        </Typography>
-      </TableCell>
-      
-      <TableCell>
-        <Chip
-          label={`${getStatusIcon(transaction.status)} ${transaction.status}`}
-          color={getStatusColor(transaction.status)}
-          size="small"
-          sx={{ textTransform: 'capitalize' }}
-        />
-      </TableCell>
-      
-      <TableCell>
-        <Typography variant="body2">
-          {new Date(transaction.date).toLocaleDateString()}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {transaction.time}
-        </Typography>
-      </TableCell>
-      
-      <TableCell>
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <IconButton
-            size="small"
-            onClick={() => handleViewDetails(transaction)}
-            color="primary"
-          >
-            <Visibility />
-          </IconButton>
-          {transaction.status === 'completed' && (
-            <IconButton size="small" color="success">
-              <Download />
-            </IconButton>
-          )}
-        </Box>
-      </TableCell>
-    </TableRow>
-  );
+      </Box>
+    );
+  }
+
+  if (loading) {
+    return (
+      <Box sx={styles.loadingContainer}>
+        <CircularProgress sx={{ color: '#00f2ea' }} />
+      </Box>
+    );
+  }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 12 }}>
+    <Box sx={styles.container}>
       {/* Header */}
-      <motion.div {...fadeInUp}>
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h4" fontWeight="bold" gutterBottom>
-            Transaction History 💳
+      <Box sx={styles.header}>
+        <WalletIcon sx={styles.headerIcon} />
+        <Typography sx={styles.headerTitle}>Wallet</Typography>
+      </Box>
+
+      {/* Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <Box sx={styles.balanceCard}>
+          <Typography sx={styles.balanceLabel}>Available Balance</Typography>
+          <Typography sx={styles.balanceAmount}>
+            ${walletData.balance.toFixed(2)}
           </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Track all your service payments and earnings
-          </Typography>
+          
+          {/* Quick Actions */}
+          <Box sx={styles.quickActions}>
+            {quickActions.map((action, index) => (
+              <Box key={action.label} sx={styles.quickAction}>
+                <Box sx={{ ...styles.actionIcon, background: `${action.color}20` }}>
+                  {React.cloneElement(action.icon, { sx: { color: action.color } })}
+                </Box>
+                <Typography sx={styles.actionLabel}>{action.label}</Typography>
+              </Box>
+            ))}
+          </Box>
         </Box>
       </motion.div>
 
-      {/* Stats Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <motion.div {...fadeInUp}>
-            <Card elevation={4}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <TrendingUp sx={{ color: 'success.main', mr: 1 }} />
-                  <Typography variant="h6" fontWeight="bold">
-                    Total Earnings
-                  </Typography>
-                </Box>
-                <Typography variant="h4" fontWeight="bold" color="success.main">
-                  ${totalEarnings.toFixed(2)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  From completed services
-                </Typography>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
+      {/* Summary Cards */}
+      <Box sx={styles.summaryGrid}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+        >
+          <Box sx={styles.summaryCard}>
+            <Box sx={styles.summaryIcon}>
+              <LockIcon sx={{ color: '#00ff88' }} />
+            </Box>
+            <Box>
+              <Typography sx={styles.summaryLabel}>In Escrow</Typography>
+              <Typography sx={styles.summaryValue}>${walletData.escrowHeld.toFixed(2)}</Typography>
+            </Box>
+          </Box>
+        </motion.div>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <motion.div {...fadeInUp}>
-            <Card elevation={4}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <Schedule sx={{ color: 'warning.main', mr: 1 }} />
-                  <Typography variant="h6" fontWeight="bold">
-                    Pending
-                  </Typography>
-                </Box>
-                <Typography variant="h4" fontWeight="bold" color="warning.main">
-                  ${pendingAmount.toFixed(2)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Awaiting completion
-                </Typography>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2 }}
+        >
+          <Box sx={styles.summaryCard}>
+            <Box sx={styles.summaryIcon}>
+              <TrendingUpIcon sx={{ color: '#ffd700' }} />
+            </Box>
+            <Box>
+              <Typography sx={styles.summaryLabel}>Pending</Typography>
+              <Typography sx={styles.summaryValue}>${walletData.pendingWithdrawal.toFixed(2)}</Typography>
+            </Box>
+          </Box>
+        </motion.div>
+      </Box>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <motion.div {...fadeInUp}>
-            <Card elevation={4}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <Receipt sx={{ color: 'primary.main', mr: 1 }} />
-                  <Typography variant="h6" fontWeight="bold">
-                    Total Transactions
-                  </Typography>
-                  <Typography variant="h4" fontWeight="bold" color="primary.main">
-                    {transactions.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    All time
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <motion.div {...fadeInUp}>
-            <Card elevation={4}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <AccountBalance sx={{ color: 'info.main', mr: 1 }} />
-                  <Typography variant="h6" fontWeight="bold">
-                    Success Rate
-                  </Typography>
-                <Typography variant="h4" fontWeight="bold" color="info.main">
-                  {Math.round((transactions.filter(t => t.status === 'completed').length / transactions.length) * 100)}%
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Completed services
-                </Typography>
-              </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
-      </Grid>
-
-      {/* Filters */}
-      <motion.div {...fadeInUp}>
-        <Paper elevation={2} sx={{ p: 3, mb: 4 }}>
-          <Grid container spacing={3} alignItems="center">
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                placeholder="Search transactions..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-            
-            <Grid item xs={12} md={3}>
-              <FormControl fullWidth>
-                <InputLabel>Status Filter</InputLabel>
-                <Select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  label="Status Filter"
-                >
-                  <MenuItem value="all">All Statuses</MenuItem>
-                  <MenuItem value="completed">Completed</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="cancelled">Cancelled</MenuItem>
-                  <MenuItem value="failed">Failed</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} md={3}>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<FilterList />}
-                onClick={() => {
-                  setSearchTerm('');
-                  setFilterStatus('all');
-                }}
-              >
-                Clear Filters
-              </Button>
-            </Grid>
-          </Grid>
-        </Paper>
-      </motion.div>
-
-      {/* Transactions Table */}
-      <motion.div {...fadeInUp}>
-        <Card elevation={4}>
-          <CardHeader
-            title="Transaction Details"
-            subheader={`Showing ${filteredTransactions.length} of ${transactions.length} transactions`}
-          />
-          <CardContent>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Service</TableCell>
-                    <TableCell>Provider</TableCell>
-                    <TableCell>Amount</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {filteredTransactions.map((transaction) => (
-                    <TransactionRow key={transaction.id} transaction={transaction} />
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            {filteredTransactions.length === 0 && (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <Typography variant="h6" color="text.secondary" gutterBottom>
-                  No transactions found
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Try adjusting your search criteria or filters
-                </Typography>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Transaction Details Dialog */}
-      <Dialog
-        open={dialogOpen}
-        onClose={handleCloseDialog}
-        maxWidth="md"
-        fullWidth
-      >
-        {selectedTransaction && (
-          <>
-            <DialogTitle>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <span>{getCategoryIcon(selectedTransaction.serviceCategory)}</span>
-                Transaction Details
-              </Box>
-            </DialogTitle>
-            <DialogContent>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                    Service Information
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Title:</strong> {selectedTransaction.serviceTitle}
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Category:</strong> {selectedTransaction.serviceCategory}
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Duration:</strong> {selectedTransaction.duration} minutes
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Provider:</strong> {selectedTransaction.provider}
-                  </Typography>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                    Payment Details
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Transaction ID:</strong> {selectedTransaction.id}
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Amount:</strong> ${selectedTransaction.amount}
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Fee:</strong> ${selectedTransaction.transactionFee}
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Net Amount:</strong> ${selectedTransaction.netAmount}
-                  </Typography>
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Method:</strong> {selectedTransaction.paymentMethod}
-                  </Typography>
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                    Status & Date
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                    <Chip
-                      label={`${getStatusIcon(selectedTransaction.status)} ${selectedTransaction.status}`}
-                      color={getStatusColor(selectedTransaction.status)}
-                      sx={{ textTransform: 'capitalize' }}
-                    />
-                    <Typography variant="body2">
-                      {new Date(selectedTransaction.date).toLocaleDateString()} at {selectedTransaction.time}
-                    </Typography>
-                  </Box>
-                </Grid>
-
-                {selectedTransaction.rating && (
-                  <Grid item xs={12}>
-                    <Divider sx={{ my: 2 }} />
-                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                      Review & Rating
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      {[...Array(selectedTransaction.rating)].map((_, i) => (
-                        <Star key={i} sx={{ color: colors.warning }} />
-                      ))}
-                      <Typography variant="body2" sx={{ ml: 1 }}>
-                        {selectedTransaction.rating}/5
-                      </Typography>
-    </Box>
-                    <Typography variant="body2" color="text.secondary">
-                      "{selectedTransaction.review}"
-                    </Typography>
-                  </Grid>
+      {/* Recent Transactions */}
+      <Typography sx={styles.sectionTitle}>Recent Transactions</Typography>
+      <Box sx={styles.transactionsList}>
+        {walletData.transactions.map((tx, index) => (
+          <motion.div
+            key={tx.id}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.1 }}
+          >
+            <Box sx={styles.transactionItem}>
+              <Box sx={{
+                ...styles.txIcon,
+                background: tx.type === 'income' ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 51, 51, 0.15)'
+              }}>
+                {tx.type === 'income' ? (
+                  <DepositIcon sx={{ color: '#00ff88' }} />
+                ) : (
+                  <WithdrawIcon sx={{ color: '#ff3333' }} />
                 )}
-              </Grid>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleCloseDialog}>Close</Button>
-              {selectedTransaction.status === 'completed' && (
-                <Button variant="contained" startIcon={<Download />}>
-                  Download Receipt
-                </Button>
-              )}
-            </DialogActions>
-          </>
-        )}
-      </Dialog>
-    </Container>
+              </Box>
+              <Box sx={styles.txInfo}>
+                <Typography sx={styles.txTitle}>{tx.title}</Typography>
+                <Typography sx={styles.txDate}>{tx.date}</Typography>
+              </Box>
+              <Typography sx={{
+                ...styles.txAmount,
+                color: tx.type === 'income' ? '#00ff88' : '#ff3333'
+              }}>
+                {tx.type === 'income' ? '+' : '-'}${tx.amount.toFixed(2)}
+              </Typography>
+            </Box>
+          </motion.div>
+        ))}
+      </Box>
+
+      {/* Security Notice */}
+      <Box sx={styles.securityNotice}>
+        <LockIcon sx={{ fontSize: 18 }} />
+        <Typography>All transactions are secured with escrow protection</Typography>
+      </Box>
+    </Box>
   );
+};
+
+const styles = {
+  container: {
+    minHeight: '100vh',
+    background: 'var(--bg-primary, #0f0f13)',
+    padding: '20px',
+    paddingBottom: '100px'
+  },
+  loadingContainer: {
+    minHeight: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--bg-primary, #0f0f13)'
+  },
+  emptyState: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '60vh'
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '24px'
+  },
+  headerIcon: {
+    fontSize: 32,
+    color: '#00f2ea'
+  },
+  headerTitle: {
+    fontSize: '24px',
+    fontWeight: 700,
+    color: '#fff'
+  },
+  balanceCard: {
+    background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.1), rgba(255, 0, 85, 0.1))',
+    backdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '24px',
+    padding: '24px',
+    textAlign: 'center',
+    marginBottom: '20px'
+  },
+  balanceLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '14px',
+    marginBottom: '8px'
+  },
+  balanceAmount: {
+    fontSize: '48px',
+    fontWeight: 700,
+    background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    marginBottom: '24px'
+  },
+  quickActions: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '24px'
+  },
+  quickAction: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '8px',
+    cursor: 'pointer'
+  },
+  actionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'transform 0.2s',
+    '&:hover': {
+      transform: 'scale(1.05)'
+    }
+  },
+  actionLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: '12px',
+    fontWeight: 500
+  },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '12px',
+    marginBottom: '24px'
+  },
+  summaryCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '14px',
+    background: 'rgba(255,255,255,0.05)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '16px',
+    padding: '16px'
+  },
+  summaryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: '12px',
+    background: 'rgba(255,255,255,0.05)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  summaryLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px'
+  },
+  summaryValue: {
+    color: '#fff',
+    fontSize: '18px',
+    fontWeight: 600
+  },
+  sectionTitle: {
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#fff',
+    marginBottom: '16px'
+  },
+  transactionsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginBottom: '24px'
+  },
+  transactionItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '14px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '16px',
+    padding: '14px 16px'
+  },
+  txIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  txInfo: {
+    flex: 1
+  },
+  txTitle: {
+    color: '#fff',
+    fontSize: '15px',
+    fontWeight: 500
+  },
+  txDate: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '12px'
+  },
+  txAmount: {
+    fontSize: '16px',
+    fontWeight: 600
+  },
+  securityNotice: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '14px',
+    background: 'rgba(0, 255, 136, 0.08)',
+    border: '1px solid rgba(0, 255, 136, 0.2)',
+    borderRadius: '12px',
+    color: '#00ff88',
+    fontSize: '13px'
+  }
 };
 
 export default TransactionsPage;

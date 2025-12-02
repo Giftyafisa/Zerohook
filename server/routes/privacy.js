@@ -287,9 +287,9 @@ router.get('/privacy-policy', async (req, res) => {
         'Security - end-to-end encryption and secure storage'
       ],
       contactInfo: {
-        email: 'privacy@hkup.com',
+        email: 'privacy@zerohook.com',
         phone: '+1-800-PRIVACY',
-        address: 'Privacy Office, Hkup Inc.'
+        address: 'Privacy Office, Zerohook Inc.'
       }
     };
     

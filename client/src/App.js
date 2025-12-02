@@ -7,7 +7,7 @@ import {
 } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { ThemeProvider } from '@mui/material/styles';
-import { CssBaseline } from '@mui/material';
+import { CssBaseline, Box, useMediaQuery, useTheme } from '@mui/material';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -18,10 +18,14 @@ import { SocketProvider } from './contexts/SocketContext';
 
 // Layout Components
 import Navbar from './components/layout/Navbar';
-import Footer from './components/layout/Footer';
+import Footer from './components/layout/FooterNew';
+import MainLayout from './components/layout/MainLayout';
+
+// UI Components
+import { AnimatedBackground, ToastProvider } from './components/ui';
 
 // Page Components
-import HomePage from './pages/HomePage';
+import HomePage from './pages/HomePageNew';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import SubscriptionPage from './pages/SubscriptionPage';
@@ -38,7 +42,11 @@ import AdultServiceBrowse from './pages/AdultServiceBrowse';
 import AdultServiceDetail from './pages/AdultServiceDetail';
 import ProfileBrowse from './pages/ProfileBrowse';
 import ProfileDetailPage from './pages/ProfileDetailPage';
-import FrontendIntegrationTest from './components/FrontendIntegrationTest';
+import MessagesPage from './pages/MessagesPage';
+import PrivacySettings from './pages/PrivacySettings';
+import BookingsPage from './pages/BookingsPage';
+import WalletPage from './pages/WalletPage';
+import HelpSupportPage from './pages/HelpSupportPage';
 
 // Protected Route Component
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -126,47 +134,77 @@ function App() {
     <Provider store={store}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <AuthProvider>
-          <SocketProvider>
-            <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <div className="App">
-                {/* Navigation */}
-                <Navbar />
-                
-                {/* Main Content */}
-                <main className="main-content">
-                  <Routes>
-                    {/* Public Routes */}
-                    <Route path="/" element={
-                      <ErrorBoundary>
-                        <HomePage />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/login" element={
-                      <ErrorBoundary>
-                        <LoginPage />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/register" element={
-                      <ErrorBoundary>
-                        <RegisterPage />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/subscription" element={
-                      <ErrorBoundary>
-                        <SubscriptionPage />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/subscription/success" element={
-                      <ErrorBoundary>
-                        <SubscriptionSuccessPage />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/subscription/error" element={
-                      <ErrorBoundary>
-                        <SubscriptionErrorPage />
-                      </ErrorBoundary>
-                    } />
+        <ToastProvider>
+          <AuthProvider>
+            <SocketProvider>
+              <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <AppContent />
+              </Router>
+            </SocketProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    </Provider>
+  );
+}
+
+// Separate component to access hooks within Router context
+function AppContent() {
+  const muiTheme = useTheme();
+  const isDesktop = useMediaQuery(muiTheme.breakpoints.up('lg')); // >= 1200px
+  const isMobile = useMediaQuery(muiTheme.breakpoints.down('md')); // < 900px
+  const isTablet = !isDesktop && !isMobile;
+  
+  return (
+    <MainLayout showNavigation={true}>
+      <Box className="App" sx={{ position: 'relative', minHeight: '100vh' }}>
+        {/* Animated Background */}
+        <AnimatedBackground />
+        
+        {/* Top Navigation - Only for tablet/mobile when not using sidebar */}
+        {!isDesktop && <Navbar />}
+        
+        {/* Main Content */}
+        <main 
+          className="main-content" 
+          style={{ 
+            position: 'relative', 
+            zIndex: 1,
+            paddingTop: isDesktop ? '0' : '80px', // No padding when using sidebar
+          }}
+        >
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={
+              <ErrorBoundary>
+                <HomePage />
+              </ErrorBoundary>
+            } />
+            <Route path="/login" element={
+              <ErrorBoundary>
+                <LoginPage />
+              </ErrorBoundary>
+            } />
+            <Route path="/register" element={
+              <ErrorBoundary>
+                <RegisterPage />
+              </ErrorBoundary>
+            } />
+            <Route path="/subscription" element={
+              <ErrorBoundary>
+                <SubscriptionPage />
+              </ErrorBoundary>
+            } />
+            <Route path="/subscription/success" element={
+              <ErrorBoundary>
+                <SubscriptionSuccessPage />
+              </ErrorBoundary>
+            } />
+            <Route path="/subscription/error" element={
+              <ErrorBoundary>
+                <SubscriptionErrorPage />
+              </ErrorBoundary>
+            } />
                     
                     {/* Browse Routes - Available to All */}
                     <Route path="/adult-services" element={
@@ -243,24 +281,79 @@ function App() {
                       </ProtectedRoute>
                     } />
                     
+                    {/* Chat/Messages Routes */}
+                    <Route path="/chat" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <MessagesPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/messages" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <MessagesPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    
+                    {/* Settings Routes */}
+                    <Route path="/settings" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <PrivacySettings />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/privacy-settings" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <PrivacySettings />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    
+                    {/* Bookings Route */}
+                    <Route path="/bookings" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <BookingsPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    
+                    {/* Wallet Route */}
+                    <Route path="/wallet" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <WalletPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    
+                    {/* Help & Support Route */}
+                    <Route path="/help" element={
+                      <ErrorBoundary>
+                        <HelpSupportPage />
+                      </ErrorBoundary>
+                    } />
+                    <Route path="/support" element={
+                      <ErrorBoundary>
+                        <HelpSupportPage />
+                      </ErrorBoundary>
+                    } />
+                    
                     {/* Redirects for Legacy Routes */}
                     <Route path="/services" element={<Navigate to="/adult-services" replace />} />
                     <Route path="/services/:id" element={<Navigate to="/adult-services" replace />} />
-                    
-                    {/* Test Route */}
-                    <Route path="/test" element={
-                      <ErrorBoundary>
-                        <FrontendIntegrationTest />
-                      </ErrorBoundary>
-                    } />
                     
                     {/* Catch All - Redirect to Home */}
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </main>
                 
-                {/* Footer */}
-                <Footer />
+                {/* Footer - Only show on desktop or when not using bottom nav */}
+                {isDesktop && <Footer />}
                 
                 {/* Global Call System */}
                 <CallSystem />
@@ -278,13 +371,9 @@ function App() {
                   pauseOnHover
                   theme="colored"
                 />
-              </div>
-            </Router>
-          </SocketProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </Provider>
-  );
-}
+              </Box>
+            </MainLayout>
+          );
+        }
 
 export default App;

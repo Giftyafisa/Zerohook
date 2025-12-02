@@ -41,7 +41,7 @@ const Footer = () => {
                 color: colors.primary.red
               }}
             >
-              Hkup
+              Zerohook
             </Typography>
             <Typography
               variant="body2"
@@ -219,7 +219,7 @@ const Footer = () => {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Email sx={{ fontSize: 18, opacity: 0.8 }} />
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  support@hkup.com
+                  support@zerohook.com
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -254,7 +254,7 @@ const Footer = () => {
             variant="body2"
             sx={{ opacity: 0.6 }}
           >
-            © 2024 Hkup. All rights reserved.
+            © 2024 Zerohook. All rights reserved.
           </Typography>
           
           <Box sx={{ display: 'flex', gap: 3 }}>

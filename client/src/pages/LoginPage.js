@@ -5,17 +5,12 @@ import { loginUser } from '../store/slices/authSlice';
 import {
   Box,
   Container,
-  Paper,
-  TextField,
-  Button,
   Typography,
   Alert,
-  CircularProgress,
   Divider,
-  IconButton,
-  InputAdornment
 } from '@mui/material';
-import { Visibility, VisibilityOff, Lock, Person } from '@mui/icons-material';
+import { Lock, Person, Email } from '@mui/icons-material';
+import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -26,7 +21,6 @@ const LoginPage = () => {
     email: '',
     password: ''
   });
-  const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState('');
 
   const handleChange = (e) => {
@@ -61,123 +55,161 @@ const LoginPage = () => {
 
   return (
     <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Paper 
-        elevation={8} 
+      <GlassCard 
+        variant="neon"
         sx={{ 
           p: 4, 
-          borderRadius: 3,
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-          border: '1px solid rgba(220, 20, 60, 0.1)'
+          borderRadius: 4,
         }}
       >
         {/* Header */}
         <Box textAlign="center" mb={4}>
-          <Lock sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-          <Typography variant="h4" fontWeight="bold" color="primary.main" gutterBottom>
+          <Box
+            sx={{
+              width: 80,
+              height: 80,
+              borderRadius: '20px',
+              background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.2), rgba(255, 0, 85, 0.2))',
+              border: '1px solid rgba(0, 242, 234, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+            }}
+          >
+            <Lock sx={{ fontSize: 40, color: '#00f2ea' }} />
+          </Box>
+          <Typography 
+            variant="h4" 
+            sx={{ 
+              fontWeight: 800, 
+              fontFamily: '"Outfit", sans-serif',
+              background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              mb: 1,
+            }}
+          >
             Welcome Back
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Sign in to your Hkup account
+          <Typography 
+            sx={{ 
+              color: 'rgba(255, 255, 255, 0.6)',
+              fontFamily: '"Outfit", sans-serif',
+            }}
+          >
+            Sign in to your Zerohook account
           </Typography>
         </Box>
 
         {/* Test Credentials Note */}
-        <Alert severity="info" sx={{ mb: 3 }}>
-          <Typography variant="body2">
-            <strong>Test Mode:</strong> Use <code>akua.mensah@ghana.com</code> / <code>AkuaPass123!</code> to login
+        <Box 
+          sx={{ 
+            mb: 3,
+            p: 2,
+            borderRadius: '12px',
+            background: 'rgba(0, 170, 255, 0.1)',
+            border: '1px solid rgba(0, 170, 255, 0.2)',
+          }}
+        >
+          <Typography 
+            sx={{ 
+              color: '#00aaff', 
+              fontSize: '14px',
+              fontFamily: '"Outfit", sans-serif',
+            }}
+          >
+            <strong>Test Mode:</strong> Use <code style={{ background: 'rgba(0, 170, 255, 0.2)', padding: '2px 6px', borderRadius: '4px' }}>akua.mensah@ghana.com</code> / <code style={{ background: 'rgba(0, 170, 255, 0.2)', padding: '2px 6px', borderRadius: '4px' }}>AkuaPass123!</code>
           </Typography>
-        </Alert>
+        </Box>
 
         {/* Error Alert */}
         {(authError || localError) && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {authError || localError}
-          </Alert>
+          <Box 
+            sx={{ 
+              mb: 3,
+              p: 2,
+              borderRadius: '12px',
+              background: 'rgba(255, 0, 85, 0.1)',
+              border: '1px solid rgba(255, 0, 85, 0.3)',
+            }}
+          >
+            <Typography sx={{ color: '#ff0055', fontFamily: '"Outfit", sans-serif' }}>
+              {authError || localError}
+            </Typography>
+          </Box>
         )}
 
         {/* Login Form */}
         <Box component="form" onSubmit={handleLogin}>
-          <TextField
-            fullWidth
-            name="email"
-            label="Email Address"
-            type="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-            sx={{ mb: 3 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Person sx={{ color: 'primary.main' }} />
-                </InputAdornment>
-              ),
-            }}
-          />
+          <Box sx={{ mb: 3 }}>
+            <GlassInput
+              name="email"
+              label="Email Address"
+              type="email"
+              value={formData.email}
+              onChange={handleChange}
+              required
+              startIcon={<Email sx={{ color: '#00f2ea' }} />}
+              placeholder="Enter your email"
+            />
+          </Box>
 
-          <TextField
-            fullWidth
-            name="password"
-            label="Password"
-            type={showPassword ? 'text' : 'password'}
-            value={formData.password}
-            onChange={handleChange}
-            required
-            sx={{ mb: 3 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Lock sx={{ color: 'primary.main' }} />
-                </InputAdornment>
-              ),
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={() => setShowPassword(!showPassword)}
-                    edge="end"
-                  >
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-          />
+          <Box sx={{ mb: 3 }}>
+            <GlassInput
+              name="password"
+              label="Password"
+              type="password"
+              value={formData.password}
+              onChange={handleChange}
+              required
+              startIcon={<Lock sx={{ color: '#00f2ea' }} />}
+              placeholder="Enter your password"
+            />
+          </Box>
 
-          <Button
+          <GlassButton
             type="submit"
             fullWidth
-            variant="contained"
-            size="large"
-            disabled={loading}
+            variant="primary"
+            loading={loading}
+            glowing
             sx={{ 
               mb: 3, 
-              py: 1.5,
-              fontSize: '1.1rem',
-              fontWeight: 'bold'
+              py: 2,
+              fontSize: '16px',
             }}
           >
-            {loading ? (
-              <CircularProgress size={24} color="inherit" />
-            ) : (
-              'Sign In'
-            )}
-          </Button>
+            Sign In
+          </GlassButton>
 
-          <Divider sx={{ mb: 3 }}>
-            <Typography variant="body2" color="text.secondary">
+          <Divider sx={{ mb: 3, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+            <Typography 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.4)',
+                fontFamily: '"Outfit", sans-serif',
+                px: 2,
+              }}
+            >
               or
             </Typography>
           </Divider>
 
           <Box textAlign="center">
-            <Typography variant="body2" color="text.secondary">
+            <Typography 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontFamily: '"Outfit", sans-serif',
+              }}
+            >
               Don't have an account?{' '}
               <Link 
                 to="/register" 
                 style={{ 
-                  color: '#DC143C', 
+                  color: '#00f2ea', 
                   textDecoration: 'none',
-                  fontWeight: 'bold'
+                  fontWeight: 700,
                 }}
               >
                 Create Account
@@ -185,7 +217,7 @@ const LoginPage = () => {
             </Typography>
           </Box>
         </Box>
-      </Paper>
+      </GlassCard>
     </Container>
   );
 };

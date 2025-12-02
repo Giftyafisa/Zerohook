@@ -65,6 +65,29 @@ router.post('/contact-request', authMiddleware, [
       connectionType
     );
 
+    // Emit socket event for real-time notification
+    if (req.io && result.success) {
+      req.io.to(`user_${toUserId}`).emit('connection_request', {
+        connectionId: result.connectionId,
+        fromUserId,
+        fromUsername: req.user.username,
+        message,
+        connectionType,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Also emit generic new_notification event
+      req.io.to(`user_${toUserId}`).emit('new_notification', {
+        id: Date.now(),
+        type: 'connection_request',
+        title: 'New Connection Request',
+        message: `${req.user.username || 'Someone'} wants to connect with you`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        data: { connectionId: result.connectionId, fromUserId, message }
+      });
+    }
+
     res.json(result);
 
   } catch (error) {
@@ -186,6 +209,25 @@ router.post('/service-inquiry', authMiddleware, [
       serviceId, 
       message
     );
+
+    // Emit socket event for real-time notification
+    if (req.io && result.success) {
+      req.io.to(`user_${toUserId}`).emit('new_notification', {
+        id: Date.now(),
+        type: 'service_inquiry',
+        title: 'New Service Inquiry',
+        message: `You have a new inquiry about your service`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        data: {
+          fromUserId,
+          fromUsername: req.user.username,
+          serviceId,
+          conversationId: result.conversationId,
+          serviceTitle: result.serviceTitle
+        }
+      });
+    }
 
     res.json(result);
 

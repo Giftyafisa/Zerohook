@@ -82,7 +82,7 @@ const uiAPI = {
             {
               id: 1,
               type: 'info',
-              title: 'Welcome to Hkup!',
+              title: 'Welcome to Zerohook!',
               message: 'Your account has been successfully created.',
               read: false,
               date: new Date().toISOString()

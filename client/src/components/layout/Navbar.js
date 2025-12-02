@@ -15,6 +15,7 @@ import {
   Divider,
   Chip
 } from '@mui/material';
+import { styled, keyframes } from '@mui/system';
 import {
   Menu as MenuIcon,
   Person,
@@ -22,12 +23,139 @@ import {
   Security,
   Payment,
   Add,
-  ExitToApp
+  ExitToApp,
+  Explore,
+  Whatshot,
+  Chat,
+  Close
 } from '@mui/icons-material';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsAuthenticated, selectIsSubscribed, logout } from '../../store/slices/authSlice';
 import NotificationSystem from '../NotificationSystem';
 import { colors } from '../../theme/colors';
+
+const glowPulse = keyframes`
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 242, 234, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(0, 242, 234, 0.5);
+  }
+`;
+
+const GlassAppBar = styled(AppBar)({
+  background: 'rgba(15, 15, 19, 0.85)',
+  backdropFilter: 'blur(20px)',
+  borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.3)',
+});
+
+const NavButton = styled(Button)({
+  fontFamily: '"Outfit", sans-serif',
+  fontWeight: 600,
+  fontSize: '14px',
+  color: 'rgba(255, 255, 255, 0.8)',
+  textTransform: 'none',
+  padding: '8px 16px',
+  borderRadius: '12px',
+  transition: 'all 0.3s ease',
+  
+  '&:hover': {
+    color: '#00f2ea',
+    background: 'rgba(0, 242, 234, 0.1)',
+  },
+});
+
+const LogoText = styled(Typography)({
+  fontFamily: '"Outfit", sans-serif',
+  fontWeight: 800,
+  fontSize: '28px',
+  background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
+  backgroundClip: 'text',
+  textDecoration: 'none',
+  letterSpacing: '-0.5px',
+  
+  '&:hover': {
+    opacity: 0.9,
+  },
+});
+
+const GlassMenu = styled(Menu)({
+  '& .MuiPaper-root': {
+    background: 'rgba(20, 20, 30, 0.95)',
+    backdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '16px',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+    minWidth: 220,
+    padding: '8px',
+  },
+});
+
+const GlassMenuItem = styled(MenuItem)({
+  fontFamily: '"Outfit", sans-serif',
+  fontSize: '14px',
+  color: 'rgba(255, 255, 255, 0.8)',
+  borderRadius: '10px',
+  margin: '2px 0',
+  padding: '12px 16px',
+  transition: 'all 0.2s ease',
+  
+  '&:hover': {
+    background: 'rgba(0, 242, 234, 0.15)',
+    color: '#00f2ea',
+  },
+});
+
+const PremiumChip = styled(Chip)({
+  background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.2), rgba(255, 0, 85, 0.2))',
+  color: '#00f2ea',
+  border: '1px solid rgba(0, 242, 234, 0.3)',
+  fontFamily: '"Outfit", sans-serif',
+  fontWeight: 600,
+  fontSize: '10px',
+  height: '22px',
+});
+
+const FreeChip = styled(Chip)({
+  background: 'rgba(255, 255, 255, 0.1)',
+  color: 'rgba(255, 255, 255, 0.6)',
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+  fontFamily: '"Outfit", sans-serif',
+  fontWeight: 600,
+  fontSize: '10px',
+  height: '22px',
+});
+
+const GlassAvatar = styled(Avatar)({
+  border: '2px solid rgba(0, 242, 234, 0.5)',
+  transition: 'all 0.3s ease',
+  
+  '&:hover': {
+    borderColor: '#00f2ea',
+    boxShadow: '0 0 15px rgba(0, 242, 234, 0.4)',
+  },
+});
+
+const RegisterButton = styled(Button)({
+  background: '#00f2ea',
+  color: '#0f0f13',
+  fontFamily: '"Outfit", sans-serif',
+  fontWeight: 600,
+  fontSize: '14px',
+  textTransform: 'none',
+  padding: '8px 20px',
+  borderRadius: '12px',
+  transition: 'all 0.3s ease',
+  
+  '&:hover': {
+    background: '#00f2ea',
+    boxShadow: '0 4px 20px rgba(0, 242, 234, 0.4)',
+    transform: 'translateY(-2px)',
+  },
+});
 
 const Navbar = () => {
   const theme = useTheme();
@@ -50,20 +178,16 @@ const Navbar = () => {
     if (isSubscribed) {
       const tier = user?.subscription_tier || 'premium';
       return (
-        <Chip 
+        <PremiumChip 
           label={tier.toUpperCase()} 
-          size="small" 
-          color="success" 
-          sx={{ ml: 1, fontSize: '0.7rem' }}
+          size="small"
         />
       );
     }
     return (
-      <Chip 
+      <FreeChip 
         label="FREE" 
-        size="small" 
-        color="default" 
-        sx={{ ml: 1, fontSize: '0.7rem' }}
+        size="small"
       />
     );
   };
@@ -111,7 +235,7 @@ const Navbar = () => {
   ];
 
   const renderMenu = (
-    <Menu
+    <GlassMenu
       anchorEl={anchorEl}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       keepMounted
@@ -119,40 +243,41 @@ const Navbar = () => {
       open={Boolean(anchorEl)}
       onClose={handleMenuClose}
       aria-label="User menu"
-      sx={{
-        '& .MuiPaper-root': {
-          minWidth: 200,
-          maxWidth: '90vw'
-        }
-      }}
     >
       {menuItems.map((item) => (
-        <MenuItem
+        <GlassMenuItem
           key={item.path}
           onClick={() => {
             navigate(item.path);
             handleMenuClose();
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {item.icon}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box sx={{ color: '#00f2ea' }}>{item.icon}</Box>
             {item.label}
           </Box>
-        </MenuItem>
+        </GlassMenuItem>
       ))}
-      <MenuItem 
+      <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.1)' }} />
+      <GlassMenuItem 
         onClick={handleLogout}
+        sx={{ 
+          '&:hover': { 
+            background: 'rgba(255, 0, 85, 0.15)', 
+            color: '#ff0055' 
+          } 
+        }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ExitToApp />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box sx={{ color: '#ff0055' }}><ExitToApp /></Box>
           Logout
         </Box>
-      </MenuItem>
-    </Menu>
+      </GlassMenuItem>
+    </GlassMenu>
   );
 
   const renderMobileMenu = (
-    <Menu
+    <GlassMenu
       anchorEl={mobileMenuAnchor}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       keepMounted
@@ -162,238 +287,270 @@ const Navbar = () => {
       aria-label="Mobile navigation menu"
       sx={{
         '& .MuiPaper-root': {
-          minWidth: 200,
-          maxWidth: '90vw',
           maxHeight: '80vh',
-          overflow: 'auto'
+          overflow: 'auto',
+          minWidth: 260,
         }
       }}
     >
-      <MenuItem
+      <GlassMenuItem
         onClick={() => {
           navigate('/profiles');
           handleMenuClose();
         }}
-        sx={{ py: 1.5 }}
       >
-        Browse Profiles
-      </MenuItem>
-      <MenuItem
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Explore sx={{ color: '#00f2ea' }} />
+          Browse Profiles
+        </Box>
+      </GlassMenuItem>
+      <GlassMenuItem
         onClick={() => {
           navigate('/adult-services');
           handleMenuClose();
         }}
-        sx={{ py: 1.5 }}
       >
-        Adult Services 🔥
-      </MenuItem>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Whatshot sx={{ color: '#ff0055' }} />
+          Adult Services
+        </Box>
+      </GlassMenuItem>
       {isAuthenticated && (
         <>
-          <MenuItem
+          <GlassMenuItem
+            onClick={() => {
+              navigate('/chat');
+              handleMenuClose();
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Chat sx={{ color: '#00f2ea' }} />
+              Messages
+            </Box>
+          </GlassMenuItem>
+          <GlassMenuItem
             onClick={() => {
               navigate('/create-service');
               handleMenuClose();
             }}
           >
-            Create Service
-          </MenuItem>
-          <MenuItem
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Add sx={{ color: '#00f2ea' }} />
+              Create Service
+            </Box>
+          </GlassMenuItem>
+          <GlassMenuItem
             onClick={() => {
               navigate('/dashboard');
               handleMenuClose();
             }}
           >
-            Dashboard
-          </MenuItem>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Dashboard sx={{ color: '#00f2ea' }} />
+              Dashboard
+            </Box>
+          </GlassMenuItem>
         </>
       )}
       {!isAuthenticated && (
         <>
-          <MenuItem
+          <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.1)' }} />
+          <GlassMenuItem
             onClick={() => {
               navigate('/login');
               handleMenuClose();
             }}
           >
-            Login
-          </MenuItem>
-          <MenuItem
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Person sx={{ color: '#00f2ea' }} />
+              Login
+            </Box>
+          </GlassMenuItem>
+          <GlassMenuItem
             onClick={() => {
               navigate('/register');
               handleMenuClose();
             }}
+            sx={{ 
+              background: 'rgba(0, 242, 234, 0.1)',
+              '&:hover': { background: 'rgba(0, 242, 234, 0.2)' }
+            }}
           >
-            Register
-          </MenuItem>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Add sx={{ color: '#00f2ea' }} />
+              Register
+            </Box>
+          </GlassMenuItem>
         </>
       )}
       {isAuthenticated && (
         <>
-          <Divider />
-          <MenuItem
+          <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.1)' }} />
+          <GlassMenuItem
             onClick={() => {
               navigate('/profile');
               handleMenuClose();
             }}
           >
-            My Profile
-          </MenuItem>
-          <MenuItem
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Person sx={{ color: '#00f2ea' }} />
+              My Profile
+            </Box>
+          </GlassMenuItem>
+          <GlassMenuItem
             onClick={handleLogout}
+            sx={{ 
+              '&:hover': { 
+                background: 'rgba(255, 0, 85, 0.15)', 
+                color: '#ff0055' 
+              } 
+            }}
           >
-            Logout
-          </MenuItem>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <ExitToApp sx={{ color: '#ff0055' }} />
+              Logout
+            </Box>
+          </GlassMenuItem>
         </>
       )}
-    </Menu>
+    </GlassMenu>
   );
 
   return (
     <>
-      <AppBar position="static" sx={{ bgcolor: colors.primary.red }}>
-        <Toolbar>
+      <GlassAppBar position="sticky">
+        <Toolbar sx={{ py: 1 }}>
           {/* Mobile Menu Button */}
           {isMobile && (
             <IconButton
               size="large"
               edge="start"
-              color="inherit"
               aria-label="menu"
               onClick={handleMobileMenuOpen}
-              sx={{ mr: 2 }}
+              sx={{ 
+                mr: 2,
+                color: 'rgba(255, 255, 255, 0.8)',
+                '&:hover': {
+                  color: '#00f2ea',
+                  background: 'rgba(0, 242, 234, 0.1)',
+                }
+              }}
             >
               <MenuIcon />
             </IconButton>
           )}
 
           {/* Logo */}
-          <Typography
-            variant="h4"
+          <LogoText
             component={Link}
             to="/"
             sx={{
-              fontWeight: 800,
-              color: 'white',
-              textDecoration: 'none',
               flexGrow: isMobile ? 1 : 0,
               mr: 4,
-              '&:hover': {
-                opacity: 0.8
-              }
             }}
           >
-            Hkup
-          </Typography>
+            Zerohook
+          </LogoText>
 
           {/* Desktop Navigation */}
           {!isMobile && (
-            <Box sx={{ flexGrow: 1, display: 'flex', gap: 2 }}>
-              <Button
-                color="inherit"
+            <Box sx={{ flexGrow: 1, display: 'flex', gap: 1 }}>
+              <NavButton
                 component={Link}
                 to="/profiles"
-                sx={{ 
-                  fontWeight: 600,
-                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
-                  minWidth: 'auto',
-                  px: 2
-                }}
+                startIcon={<Explore sx={{ fontSize: 18 }} />}
               >
-                Browse Profiles
-              </Button>
-              <Button
-                color="inherit"
+                Browse
+              </NavButton>
+              <NavButton
                 component={Link}
                 to="/adult-services"
-                sx={{ 
-                  fontWeight: 600,
-                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
-                  minWidth: 'auto',
-                  px: 2
-                }}
+                startIcon={<Whatshot sx={{ fontSize: 18, color: '#ff0055' }} />}
               >
-                Adult Services 🔥
-              </Button>
+                Adult Services
+              </NavButton>
               {isAuthenticated && (
-                <Button
-                  color="inherit"
-                  component={Link}
-                  to="/create-service"
-                  sx={{ 
-                    fontWeight: 600,
-                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
-                    minWidth: 'auto',
-                    px: 2
-                  }}
-                >
-                  Create Service
-                </Button>
+                <>
+                  <NavButton
+                    component={Link}
+                    to="/chat"
+                    startIcon={<Chat sx={{ fontSize: 18 }} />}
+                  >
+                    Messages
+                  </NavButton>
+                  <NavButton
+                    component={Link}
+                    to="/create-service"
+                    startIcon={<Add sx={{ fontSize: 18 }} />}
+                  >
+                    Create Service
+                  </NavButton>
+                </>
               )}
             </Box>
           )}
 
           {/* Right Side */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             {isAuthenticated ? (
               <>
                 {/* Notifications */}
                 <NotificationSystem />
 
                 {/* User Menu */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                    <Typography variant="body2" sx={{ color: 'white', fontWeight: 600 }}>
-                      {getUserDisplayName()}
-                    </Typography>
-                    {getSubscriptionBadge()}
-                  </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  {!isMobile && (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                      <Typography 
+                        sx={{ 
+                          color: '#ffffff', 
+                          fontWeight: 600,
+                          fontFamily: '"Outfit", sans-serif',
+                          fontSize: '14px',
+                        }}
+                      >
+                        {getUserDisplayName()}
+                      </Typography>
+                      {getSubscriptionBadge()}
+                    </Box>
+                  )}
                   <IconButton
                     onClick={handleProfileMenuOpen}
                     sx={{ p: 0 }}
                   >
-                    <Avatar
+                    <GlassAvatar
                       sx={{
-                        bgcolor: colors.primary.white,
-                        color: colors.primary.red,
-                        width: 40,
-                        height: 40
+                        bgcolor: 'rgba(0, 242, 234, 0.2)',
+                        color: '#00f2ea',
+                        width: 42,
+                        height: 42,
+                        fontWeight: 700,
                       }}
                     >
-                      {user?.username?.[0] || user?.email?.[0] || 'U'}
-                    </Avatar>
+                      {user?.username?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
+                    </GlassAvatar>
                   </IconButton>
                 </Box>
               </>
             ) : (
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  color="inherit"
+              <Box sx={{ display: 'flex', gap: 1.5 }}>
+                <NavButton
                   component={Link}
                   to="/login"
-                  sx={{ fontWeight: 600 }}
                 >
                   Login
-                </Button>
-                <Button
-                  variant="contained"
+                </NavButton>
+                <RegisterButton
                   component={Link}
                   to="/register"
-                  sx={{
-                    bgcolor: 'white',
-                    color: colors.primary.red,
-                    fontWeight: 600,
-                    '&:hover': {
-                      bgcolor: 'rgba(255,255,255,0.9)'
-                    }
-                  }}
                 >
-                  Register
-                </Button>
+                  Get Started
+                </RegisterButton>
               </Box>
             )}
           </Box>
         </Toolbar>
-      </AppBar>
+      </GlassAppBar>
 
       {/* Render Menus */}
       {renderMenu}

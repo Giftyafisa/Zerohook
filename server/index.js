@@ -40,27 +40,99 @@ const CryptoPaymentManager = require('./services/CryptoPaymentManager');
 const CountryManager = require('./services/CountryManager');
 const BitnobManager = require('./services/BitnobManager');
 const UserConnectionManager = require('./services/UserConnectionManager');
+const ConversationService = require('./services/ConversationService');
 const SystemHealthService = require('./services/SystemHealthService');
 const { connectDB, connectRedis } = require('./config/database');
 
 const app = express();
 const server = createServer(app);
 
-// Socket.io setup
+// Socket.io setup with CORS for web and mobile
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
-    methods: ["GET", "POST"]
+    origin: [
+      process.env.CLIENT_URL,
+      'https://zerohook.onrender.com',
+      'https://zerohook-web.onrender.com',
+      'http://localhost:3000',
+      'http://localhost:19006',
+      'http://localhost:8081'
+    ].filter(Boolean),
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
+// Socket.io authentication middleware (verify JWT on handshake)
+// Accept token either in socket.handshake.auth.token or in socket.handshake.headers.authorization
+io.use((socket, next) => {
+  try {
+    const auth = socket.handshake.auth || {};
+    const headers = socket.handshake.headers || {};
+    const tokenFromAuth = auth.token;
+    const headerAuth = headers.authorization || headers.Authorization;
+    const token = tokenFromAuth || (typeof headerAuth === 'string' && headerAuth.split(' ')[1]) || null;
+
+    if (!token) {
+      console.warn('Socket connection rejected - no token provided');
+      return next(new Error('Authentication error'));
+    }
+
+    const jwtSecret = process.env.JWT_SECRET || 'dev-secret';
+    let payload;
+    try {
+      payload = jwt.verify(token, jwtSecret);
+    } catch (err) {
+      console.warn('Socket connection rejected - invalid token');
+      return next(new Error('Authentication error'));
+    }
+
+    // Attach user information to socket for handlers
+    socket.userId = payload.userId || payload.id || null;
+    socket.username = payload.username || payload.user || payload.name || 'unknown';
+
+    if (!socket.userId) {
+      console.warn('Socket connection rejected - token missing userId');
+      return next(new Error('Authentication error'));
+    }
+
+    return next();
+  } catch (error) {
+    console.error('Socket auth middleware error:', error);
+    return next(new Error('Authentication error'));
   }
 });
 
-// Socket.io authentication middleware (moved to top)
-
 // Middleware
 app.use(helmet());
+
+// Trust proxy for rate limiting behind reverse proxies (Render, Heroku, etc.)
+app.set('trust proxy', 1);
+
+// CORS configuration - supports web frontend and mobile apps
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'https://zerohook.onrender.com',
+  'https://zerohook-web.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:19006', // Expo web
+  'http://localhost:8081',  // Metro bundler
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:3000",
-  credentials: true
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked origin: ${origin}`);
+      callback(null, true); // Allow anyway for now, tighten in production
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // Performance monitoring middleware
@@ -74,6 +146,7 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }, // Disable X-Forwarded-For validation warning
   skip: (req) => {
     // Skip rate limiting for health checks and authentication endpoints
     return req.path === '/api/health' || 
@@ -114,6 +187,7 @@ const UserActivityMonitor = require('./services/UserActivityMonitor');
 const PerformanceMetrics = require('./services/PerformanceMetrics');
 const userActivityMonitor = new UserActivityMonitor();
 const performanceMetrics = new PerformanceMetrics();
+const conversationService = new ConversationService();
 
 // Initialize all services
 (async () => {
@@ -212,6 +286,7 @@ app.use((req, res, next) => {
   req.bitnobManager = bitnobManager;
   req.userActivityMonitor = userActivityMonitor;
   req.performanceMetrics = performanceMetrics;
+  req.conversationService = conversationService;
   req.io = io;
   
   // Add database status to request for debugging
@@ -443,9 +518,31 @@ io.on('connection', async (socket) => {
     // ===== CHAT SYSTEM EVENTS =====
     
     // Handle joining conversation room
-    socket.on('join_conversation', (conversationId) => {
-      socket.join(`conversation_${conversationId}`);
-      console.log(`User ${socket.username} joined conversation ${conversationId}`);
+    socket.on('join_conversation', async (conversationId) => {
+      try {
+        // Verify membership via ConversationService
+        const isMember = await conversationService.isMember(conversationId, socket.userId);
+        if (!isMember) {
+          socket.emit('join_error', { error: 'Access denied to this conversation' });
+          return;
+        }
+
+        // Verify not blocked
+        const otherUserId = await conversationService.getOtherParticipant(conversationId, socket.userId);
+        if (otherUserId) {
+          const blocked = await conversationService.isBlockedBetween(socket.userId, otherUserId);
+          if (blocked) {
+            socket.emit('join_error', { error: 'Conversation is blocked' });
+            return;
+          }
+        }
+
+        socket.join(`conversation_${conversationId}`);
+        console.log(`User ${socket.username} joined conversation ${conversationId}`);
+      } catch (err) {
+        console.error('Error during join_conversation check:', err);
+        socket.emit('join_error', { error: 'Failed to join conversation' });
+      }
     });
 
     // Handle leaving conversation room
@@ -465,38 +562,64 @@ io.on('connection', async (socket) => {
       });
     });
 
-    // Handle sending messages
+    // Handle sending messages (transactional + moderation)
     socket.on('send_message', async (data) => {
+      const { conversationId, content, type = 'text', metadata = {} } = data || {};
       try {
-        console.log(`💬 Message from ${socket.username} to conversation ${data.conversationId}`);
-        
+        console.log(`💬 Message from ${socket.username} to conversation ${conversationId}`);
+
+        // Basic validation
+        if (!conversationId || !content) return socket.emit('message_error', { error: 'Invalid message payload' });
+
+        // Verify membership
+        const isMember = await conversationService.isMember(conversationId, socket.userId);
+        if (!isMember) return socket.emit('message_error', { error: 'Access denied to this conversation' });
+
+        const otherUserId = await conversationService.getOtherParticipant(conversationId, socket.userId);
+        if (otherUserId) {
+          const blocked = await conversationService.isBlockedBetween(socket.userId, otherUserId);
+          if (blocked) return socket.emit('message_error', { error: 'Cannot send messages to this user' });
+        }
+
+        // Content moderation via FraudDetection service
+        try {
+          if (fraudDetection && typeof fraudDetection.analyzeMessageRisk === 'function') {
+            const mod = await fraudDetection.analyzeMessageRisk({ senderId: socket.userId, conversationId, content, messageType: type, metadata });
+            const threshold = parseFloat(process.env.MESSAGE_RISK_BLOCK_THRESHOLD || '0.7');
+            if (mod && typeof mod.score === 'number' && mod.score >= threshold) {
+              return socket.emit('message_blocked', { error: 'Message blocked due to policy violation' });
+            }
+          }
+        } catch (modErr) {
+          console.error('Socket moderation error:', modErr);
+        }
+
+        // Persist message via ConversationService
+        const messageRow = await conversationService.insertMessageTx({ conversationId, senderId: socket.userId, content, messageType: type, metadata });
+
         const messageData = {
-          id: Date.now().toString(), // Simple ID generation
-          conversationId: data.conversationId,
+          id: messageRow.id,
+          conversationId,
           senderId: socket.userId,
           senderUsername: socket.username,
-          content: data.content,
-          timestamp: new Date().toISOString(),
-          type: data.type || 'text'
+          content,
+          timestamp: messageRow.created_at,
+          type
         };
 
-        // Broadcast message to all users in the conversation
-        io.to(`conversation_${data.conversationId}`).emit('new_message', messageData);
-        
+        // Broadcast message after commit
+        io.to(`conversation_${conversationId}`).emit('new_message', messageData);
+
         // Log message activity
         await userActivityMonitor.logUserActivity(socket.userId, {
           actionType: 'send_message',
-          actionData: { 
-            conversationId: data.conversationId,
-            messageId: messageData.id,
-            contentLength: data.content.length
-          },
+          actionData: { conversationId, messageId: messageRow.id, contentLength: content.length },
           ipAddress: socket.handshake.address,
           userAgent: socket.handshake.headers['user-agent'],
           responseTimeMs: 0,
           success: true
         });
-        
+
       } catch (error) {
         console.error('Error handling send_message:', error);
         socket.emit('message_error', { error: 'Failed to send message' });

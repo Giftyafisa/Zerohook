@@ -202,7 +202,7 @@ async function testCompleteSystem() {
     console.log(`   - Data Integrity: ${orphanedConnections.rows[0].count === 0 ? '✅ Clean' : '⚠️ Issues'}`);
     
     if (healthStatus.overall) {
-      console.log('\n🎊 All systems are operational! Your enhanced Hkup platform is ready.');
+      console.log('\n🎊 All systems are operational! Your enhanced Zerohook platform is ready.');
     } else {
       console.log('\n⚠️  Some issues were detected. Please review the logs above.');
     }

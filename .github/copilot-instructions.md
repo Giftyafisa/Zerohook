@@ -1,7 +1,7 @@
-# Hkup Platform - AI Coding Agent Instructions
+# Zerohook Platform - AI Coding Agent Instructions
 
 ## Project Overview
-Hkup is a secure adult service marketplace with advanced fraud detection, multi-tier trust scoring, and blockchain-based escrow. Built with React/Redux frontend and Node.js/Express backend, targeting African markets with Paystack integration.
+Zerohook is a secure adult service marketplace with advanced fraud detection, multi-tier trust scoring, and blockchain-based escrow. Built with React/Redux frontend and Node.js/Express backend, targeting African markets with Paystack integration.
 
 ## Architecture Patterns
 
@@ -15,7 +15,7 @@ Hkup is a secure adult service marketplace with advanced fraud detection, multi-
 req.trustEngine.recordTrustEvent(userId, 'login', metadata, trustImpact);
 req.escrowManager.createEscrow(transactionData);
 req.fraudDetection.assessRisk(userAction);
-# HKUP Platform – AI Coding Agent Instructions
+# Zerohook Platform – AI Coding Agent Instructions
    - Authentication: Login → Verify subscription status in navbar → Check user exclusion from browse
    - Navigation: Test all navigation links → Verify protected routes → Check error boundaries
    - Communication: Contact button → Connection request → Chat system → Real-time messaging

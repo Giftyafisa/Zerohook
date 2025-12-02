@@ -158,7 +158,7 @@ const CreateServicePage = () => {
             Create New Service ✨
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Share your expertise and start earning on the Hkup marketplace
+            Share your expertise and start earning on the Zerohook marketplace
           </Typography>
         </Box>
       </motion.div>

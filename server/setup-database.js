@@ -534,7 +534,7 @@ async function setupDatabase() {
         plan_name, description, price, currency, features
       ) VALUES (
         'Basic Access',
-        'Full access to the Hkup platform',
+        'Full access to the Zerohook platform',
         20.00,
         'USD',
         '["Full platform access", "Browse services", "Create services", "Secure messaging", "Trust system", "24/7 support"]'

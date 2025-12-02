@@ -116,7 +116,7 @@ const RegisterPage = () => {
         <Box textAlign="center" mb={4}>
           <AccountCircle sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
           <Typography variant="h4" fontWeight="bold" color="primary.main" gutterBottom>
-            Join Hkup
+            Join Zerohook
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Create your account to access the most secure Kongi marketplace

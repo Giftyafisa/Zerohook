@@ -78,28 +78,97 @@ router.get('/:code', async (req, res) => {
 
 /**
  * @route   POST /api/countries/detect
- * @desc    Detect user's country based on IP address
- * @access  Private
+ * @desc    Detect user's country - uses phone number for registered users, IP for visitors
+ * @access  Private (for registered users) or Public (for visitors)
  */
-router.post('/detect', authMiddleware, async (req, res) => {
+router.post('/detect', async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const { ipAddress } = req.body;
-    
-    if (!ipAddress) {
-      return res.status(400).json({ error: 'IP address is required' });
-    }
-    
+    const { query } = require('../config/database');
     const CountryManager = require('../services/CountryManager');
     const countryManager = new CountryManager();
+    
+    // Check if user is authenticated (registered user)
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    let userId = null;
+    let userPhone = null;
+    
+    if (token) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'zerohook-secret-key-2024');
+        userId = decoded.userId;
+        
+        // Get user's phone number from database
+        // Special case for mock user
+        if (userId === '00000000-0000-0000-0000-000000000001') {
+          userPhone = '+233241234567'; // Mock user is Ghanaian
+          console.log('🌍 Using mock user phone number:', userPhone);
+        } else {
+          const userResult = await query('SELECT phone, profile_data FROM users WHERE id = $1', [userId]);
+          if (userResult.rows.length > 0) {
+            userPhone = userResult.rows[0].phone || userResult.rows[0].profile_data?.phone;
+          }
+        }
+      } catch (jwtError) {
+        // Token invalid or expired - treat as visitor
+        console.log('🌍 Invalid token, treating as visitor');
+      }
+    }
+    
+    // METHOD 1: For REGISTERED USERS - Use phone number country code
+    if (userId && userPhone) {
+      console.log(`🌍 Detecting country for registered user from phone: ${userPhone}`);
+      const phoneDetection = countryManager.detectCountryFromPhone(userPhone);
+      
+      if (phoneDetection && phoneDetection.success) {
+        // Store detected country for user
+        try {
+          await countryManager.setDetectedCountry(userId, phoneDetection.country.code);
+        } catch (e) {
+          console.log('Could not store detected country:', e.message);
+        }
+        
+        return res.json({
+          success: true,
+          detectedCountry: phoneDetection.country,
+          method: phoneDetection.method,
+          confidence: phoneDetection.confidence,
+          message: `Country detected from phone number: ${phoneDetection.country.name}`
+        });
+      }
+    }
+    
+    // METHOD 2: For VISITORS/GUESTS - Use IP-based geolocation
+    let ipAddress = req.body.ipAddress;
+    if (!ipAddress) {
+      ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+                  req.headers['x-real-ip'] ||
+                  req.connection?.remoteAddress ||
+                  req.socket?.remoteAddress ||
+                  req.ip ||
+                  '127.0.0.1';
+      
+      // Handle IPv6 localhost
+      if (ipAddress === '::1' || ipAddress === '::ffff:127.0.0.1') {
+        ipAddress = '127.0.0.1';
+      }
+    }
+    
+    console.log(`🌍 Detecting country for visitor from IP: ${ipAddress}`);
     
     const detectionResult = await countryManager.detectUserCountry(ipAddress);
     
     if (detectionResult.success) {
-      // Store detected country for user
-      await countryManager.setDetectedCountry(userId, detectionResult.country.code);
+      // Store detected country for user if authenticated
+      if (userId) {
+        try {
+          await countryManager.setDetectedCountry(userId, detectionResult.country.code);
+        } catch (e) {
+          console.log('Could not store detected country:', e.message);
+        }
+      }
       
-      res.json({
+      return res.json({
         success: true,
         detectedCountry: detectionResult.country,
         method: detectionResult.method,
@@ -107,7 +176,16 @@ router.post('/detect', authMiddleware, async (req, res) => {
         message: `Country detected: ${detectionResult.country.name}`
       });
     } else {
-      res.status(400).json({ error: 'Country detection failed' });
+      // IP detection failed (localhost) - return default with notice
+      const defaultCountry = countryManager.getCountryByCode('NG');
+      return res.json({
+        success: true,
+        detectedCountry: defaultCountry,
+        method: 'default_fallback',
+        confidence: 'low',
+        message: 'Could not detect country (local network). Using default: Nigeria. Please set your country preference.',
+        requiresManualSelection: true
+      });
     }
   } catch (error) {
     console.error('Country detection error:', error);

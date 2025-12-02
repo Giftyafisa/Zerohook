@@ -1,480 +1,458 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Container,
-  Grid,
-  Card,
-  CardContent,
   Typography,
-  Button,
-  Tabs,
-  Tab,
   Avatar,
-  Chip,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemAvatar,
-  ListItemSecondaryAction,
-  // IconButton, // unused
-  Divider,
+  IconButton,
   Badge,
-  Paper,
-  Alert,
   CircularProgress
 } from '@mui/material';
 import {
-  Dashboard as DashboardIcon,
-  Chat as ChatIcon,
-  VideoCall as VideoCallIcon,
-  People as PeopleIcon,
   Notifications as NotificationsIcon,
-  Settings as SettingsIcon,
-  Phone as PhoneIcon,
-  Videocam as VideocamIcon,
+  Verified as VerifiedIcon,
+  TrendingUp as TrendingUpIcon,
   Message as MessageIcon,
-  PersonAdd as PersonAddIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
-  MoreVert as MoreVertIcon
+  People as PeopleIcon,
+  AccountBalanceWallet as WalletIcon,
+  Star as StarIcon,
+  ArrowForward as ArrowForwardIcon
 } from '@mui/icons-material';
+import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useSocket } from '../contexts/SocketContext';
-import UserConnectionHub from '../components/UserConnectionHub';
 
 const DashboardPage = () => {
+  const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
-  const { isConnected } = useSocket();
-  const [activeTab, setActiveTab] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    walletBalance: 0,
+    escrowHeld: 0,
+    trustScore: 0,
+    unreadMessages: 0,
+    activeConnections: 0,
+    pendingRequests: 0
+  });
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/dashboard/stats', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setStats({
+            walletBalance: data.walletBalance || 0,
+            escrowHeld: data.escrowHeld || 0,
+            trustScore: data.trustScore || user?.reputationScore || 85,
+            unreadMessages: data.unreadMessages || 0,
+            activeConnections: data.activeConnections || 0,
+            pendingRequests: data.pendingRequests || 0
+          });
+        }
+      } catch (error) {
+        console.error('Dashboard fetch error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (isAuthenticated) {
+      fetchDashboardData();
+    } else {
+      setLoading(false);
+    }
+  }, [isAuthenticated, user]);
 
   if (!isAuthenticated) {
     return (
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        <Alert severity="warning">
-          Please log in to access your dashboard.
-        </Alert>
-      </Container>
+      <Box sx={styles.container}>
+        <Box sx={styles.emptyState}>
+          <Typography variant="h6" color="text.secondary">
+            Please log in to access your dashboard
+          </Typography>
+        </Box>
+      </Box>
     );
   }
 
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
-  };
+  if (loading) {
+    return (
+      <Box sx={styles.loadingContainer}>
+        <CircularProgress sx={{ color: 'var(--accent-cyan)' }} />
+      </Box>
+    );
+  }
+
+  const quickActions = [
+    { icon: <MessageIcon />, label: 'Messages', badge: stats.unreadMessages, path: '/messages', color: '#00f2ea' },
+    { icon: <PeopleIcon />, label: 'Connections', badge: stats.pendingRequests, path: '/browse', color: '#ff0055' },
+    { icon: <WalletIcon />, label: 'Wallet', badge: null, path: '/transactions', color: '#8b5cf6' },
+    { icon: <StarIcon />, label: 'Trust Score', badge: null, path: '/trust', color: '#ffd700' }
+  ];
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      {/* Header Section */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h3" component="h1" gutterBottom>
-          Welcome back, {user?.profileData?.firstName || user?.username || 'User'}! 👋
-        </Typography>
-        <Typography variant="h6" color="text.secondary" gutterBottom>
-          Manage your connections, communications, and profile
-        </Typography>
-        
-        {/* Status Indicators */}
-        <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-          <Chip 
-            icon={<CheckCircleIcon />} 
-            label="Online" 
-            color="success" 
-            variant="outlined"
-          />
-          <Chip 
-            icon={<PeopleIcon />} 
-            label={`${user?.connectionCount || 0} Connections`} 
-            color="primary" 
-            variant="outlined"
-          />
-          <Chip 
-            icon={<NotificationsIcon />} 
-            label={`${user?.notificationCount || 0} Notifications`} 
-            color="secondary" 
-            variant="outlined"
-          />
+    <Box sx={styles.container}>
+      {/* Header */}
+      <Box sx={styles.header}>
+        <Box sx={styles.headerLeft}>
+          <Avatar
+            src={user?.profilePicture}
+            sx={styles.avatar}
+          >
+            {user?.username?.[0]?.toUpperCase() || 'U'}
+          </Avatar>
+          <Box>
+            <Typography variant="h5" sx={styles.greeting}>
+              Hey, {user?.profileData?.firstName || user?.username || 'there'}! 👋
+            </Typography>
+            <Box sx={styles.verifiedRow}>
+              {user?.verificationTier >= 2 && (
+                <Box sx={styles.verifiedBadge}>
+                  <VerifiedIcon sx={{ fontSize: 14 }} />
+                  <span>Verified</span>
+                </Box>
+              )}
+              <Typography variant="body2" sx={styles.memberSince}>
+                Member since {new Date(user?.createdAt || Date.now()).getFullYear()}
+              </Typography>
+            </Box>
+          </Box>
         </Box>
+        <IconButton sx={styles.notificationBtn}>
+          <Badge badgeContent={stats.unreadMessages} color="error">
+            <NotificationsIcon />
+          </Badge>
+        </IconButton>
       </Box>
 
-      {/* Main Dashboard Grid */}
-      <Grid container spacing={3}>
-        {/* Left Sidebar - Quick Actions */}
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, height: 'fit-content' }}>
-            <Typography variant="h6" gutterBottom>
-              Quick Actions
-            </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Button
-                variant="contained"
-                startIcon={<MessageIcon />}
-                fullWidth
-                onClick={() => setActiveTab(1)}
-              >
-                New Message
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<VideocamIcon />}
-                fullWidth
-                onClick={() => setActiveTab(2)}
-              >
-                Start Video Call
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<PhoneIcon />}
-                fullWidth
-                onClick={() => setActiveTab(2)}
-              >
-                Start Audio Call
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<PersonAddIcon />}
-                fullWidth
-                onClick={() => setActiveTab(3)}
-              >
-                Find Connections
-              </Button>
+      {/* Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <Box sx={styles.balanceCard}>
+          <Typography sx={styles.balanceLabel}>Available Balance</Typography>
+          <Typography sx={styles.balanceAmount}>
+            ${stats.walletBalance.toFixed(2)}
+          </Typography>
+          <Box sx={styles.escrowRow}>
+            <Box sx={styles.escrowItem}>
+              <Typography sx={styles.escrowLabel}>In Escrow</Typography>
+              <Typography sx={styles.escrowValue}>${stats.escrowHeld.toFixed(2)}</Typography>
             </Box>
-          </Paper>
-
-          {/* Connection Status */}
-          <Paper sx={{ p: 2, mt: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Connection Status
-            </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">Online Friends</Typography>
-                <Chip label="12" size="small" color="success" />
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">Pending Requests</Typography>
-                <Chip label="3" size="small" color="warning" />
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">Total Connections</Typography>
-                <Chip label="45" size="small" color="primary" />
-              </Box>
+            <Box sx={styles.divider} />
+            <Box sx={styles.escrowItem}>
+              <Typography sx={styles.escrowLabel}>Trust Score</Typography>
+              <Typography sx={styles.escrowValue}>{stats.trustScore}%</Typography>
             </Box>
-          </Paper>
-        </Grid>
+          </Box>
+        </Box>
+      </motion.div>
 
-        {/* Main Content Area */}
-        <Grid item xs={12} md={9}>
-          <Paper sx={{ p: 3 }}>
-            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-              <Tabs value={activeTab} onChange={handleTabChange}>
-                <Tab label="Overview" icon={<DashboardIcon />} />
-                <Tab label="Communication Hub" icon={<ChatIcon />} />
-                <Tab label="Video & Call Center" icon={<VideoCallIcon />} />
-                <Tab label="Connection Hub" icon={<PeopleIcon />} />
-                <Tab label="Notifications" icon={<NotificationsIcon />} />
-              </Tabs>
+      {/* Quick Actions */}
+      <Typography sx={styles.sectionTitle}>Quick Actions</Typography>
+      <Box sx={styles.quickActionsGrid}>
+        {quickActions.map((action, index) => (
+          <motion.div
+            key={action.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: index * 0.1 }}
+          >
+            <Box
+              sx={styles.quickActionCard}
+              onClick={() => navigate(action.path)}
+            >
+              <Badge badgeContent={action.badge} color="error" sx={styles.actionBadge}>
+                <Box sx={{ ...styles.actionIcon, background: `${action.color}20` }}>
+                  {React.cloneElement(action.icon, { sx: { color: action.color } })}
+                </Box>
+              </Badge>
+              <Typography sx={styles.actionLabel}>{action.label}</Typography>
             </Box>
+          </motion.div>
+        ))}
+      </Box>
 
-            {/* Tab Content */}
-            {activeTab === 0 && (
-              <Box>
-                <Typography variant="h5" gutterBottom>
-                  Dashboard Overview
-                </Typography>
-                
-                {/* Stats Grid */}
-                <Grid container spacing={3} sx={{ mb: 4 }}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Typography color="textSecondary" gutterBottom>
-                          Active Connections
-                        </Typography>
-                        <Typography variant="h4">
-                          {user?.connectionCount || 0}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Typography color="textSecondary" gutterBottom>
-                          Unread Messages
-                        </Typography>
-                        <Typography variant="h4">
-                          {user?.unreadMessageCount || 0}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Typography color="textSecondary" gutterBottom>
-                          Pending Requests
-                        </Typography>
-                        <Typography variant="h4">
-                          {user?.pendingRequestCount || 0}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Typography color="textSecondary" gutterBottom>
-                          Trust Score
-                        </Typography>
-                        <Typography variant="h4">
-                          {user?.reputationScore || 0}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
+      {/* Stats Overview */}
+      <Typography sx={styles.sectionTitle}>Overview</Typography>
+      <Box sx={styles.statsGrid}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3 }}
+        >
+          <Box sx={styles.statCard}>
+            <Box sx={styles.statHeader}>
+              <TrendingUpIcon sx={{ color: '#00ff88' }} />
+              <Typography sx={styles.statLabel}>Active Connections</Typography>
+            </Box>
+            <Typography sx={styles.statValue}>{stats.activeConnections}</Typography>
+          </Box>
+        </motion.div>
 
-                {/* Recent Activity */}
-                <Typography variant="h6" gutterBottom>
-                  Recent Activity
-                </Typography>
-                <List>
-                  <ListItem>
-                    <ListItemAvatar>
-                      <Avatar>J</Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary="New connection request from John"
-                      secondary="2 hours ago"
-                    />
-                    <ListItemSecondaryAction>
-                      <Button size="small" color="primary">Accept</Button>
-                      <Button size="small" color="error" sx={{ ml: 1 }}>Decline</Button>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                  <Divider />
-                  <ListItem>
-                    <ListItemAvatar>
-                      <Avatar>S</Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary="Sarah sent you a message"
-                      secondary="4 hours ago"
-                    />
-                    <ListItemSecondaryAction>
-                      <Button size="small" color="primary">Reply</Button>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                </List>
-              </Box>
-            )}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+        >
+          <Box sx={styles.statCard}>
+            <Box sx={styles.statHeader}>
+              <PeopleIcon sx={{ color: '#ff0055' }} />
+              <Typography sx={styles.statLabel}>Pending Requests</Typography>
+            </Box>
+            <Typography sx={styles.statValue}>{stats.pendingRequests}</Typography>
+          </Box>
+        </motion.div>
 
-            {activeTab === 1 && (
-              <Box>
-                <Typography variant="h5" gutterBottom>
-                  Communication Hub
-                </Typography>
-                <Typography variant="body1" color="text.secondary" paragraph>
-                  Manage all your conversations and messages in one place.
-                </Typography>
-                
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={4}>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom>
-                          Recent Conversations
-                        </Typography>
-                        <List>
-                          <ListItem button>
-                            <ListItemAvatar>
-                              <Badge badgeContent={2} color="error">
-                                <Avatar>M</Avatar>
-                              </Badge>
-                            </ListItemAvatar>
-                            <ListItemText
-                              primary="Maria Santos"
-                              secondary="Hey! Are you available for a call?"
-                            />
-                          </ListItem>
-                          <ListItem button>
-                            <ListItemAvatar>
-                              <Avatar>D</Avatar>
-                            </ListItemAvatar>
-                            <ListItemText
-                              primary="David Chen"
-                              secondary="Thanks for the great service!"
-                            />
-                          </ListItem>
-                        </List>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  
-                  <Grid item xs={12} md={8}>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom>
-                          Quick Actions
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                          <Button
-                            variant="contained"
-                            startIcon={<MessageIcon />}
-                            onClick={() => {/* Open new message dialog */}}
-                          >
-                            New Message
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            startIcon={<VideocamIcon />}
-                            onClick={() => {/* Open video call dialog */}}
-                          >
-                            Video Call
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            startIcon={<PhoneIcon />}
-                            onClick={() => {/* Open audio call dialog */}}
-                          >
-                            Audio Call
-                          </Button>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-              </Box>
-            )}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3, delay: 0.2 }}
+        >
+          <Box sx={styles.statCard}>
+            <Box sx={styles.statHeader}>
+              <MessageIcon sx={{ color: '#00f2ea' }} />
+              <Typography sx={styles.statLabel}>Unread Messages</Typography>
+            </Box>
+            <Typography sx={styles.statValue}>{stats.unreadMessages}</Typography>
+          </Box>
+        </motion.div>
+      </Box>
 
-            {activeTab === 2 && (
-              <Box>
-                <Typography variant="h5" gutterBottom>
-                  Video & Call Center
-                </Typography>
-                <Typography variant="body1" color="text.secondary" paragraph>
-                  Start calls, manage ongoing calls, and view call history.
-                </Typography>
-                
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={6}>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom>
-                          Start a Call
-                        </Typography>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <Button
-                            variant="contained"
-                            startIcon={<VideocamIcon />}
-                            size="large"
-                            fullWidth
-                            onClick={() => {/* Open video call dialog */}}
-                          >
-                            Start Video Call
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            startIcon={<PhoneIcon />}
-                            size="large"
-                            fullWidth
-                            onClick={() => {/* Open audio call dialog */}}
-                          >
-                            Start Audio Call
-                          </Button>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  
-                  <Grid item xs={12} md={6}>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom>
-                          Call History
-                        </Typography>
-                        <List>
-                          <ListItem>
-                            <ListItemAvatar>
-                              <Avatar>L</Avatar>
-                            </ListItemAvatar>
-                            <ListItemText
-                              primary="Lisa Johnson - Video Call"
-                              secondary="Yesterday, 15:30 - 25 min"
-                            />
-                            <Chip label="Completed" color="success" size="small" />
-                          </ListItem>
-                          <ListItem>
-                            <ListItemAvatar>
-                              <Avatar>R</Avatar>
-                            </ListItemAvatar>
-                            <ListItemText
-                              primary="Robert Kim - Audio Call"
-                              secondary="2 days ago, 10:15 - 18 min"
-                            />
-                            <Chip label="Completed" color="success" size="small" />
-                          </ListItem>
-                        </List>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-              </Box>
-            )}
-
-            {activeTab === 3 && (
-              <Box>
-                <Typography variant="h5" gutterBottom>
-                  Connection Hub
-                </Typography>
-                <UserConnectionHub />
-              </Box>
-            )}
-
-            {activeTab === 4 && (
-              <Box>
-                <Typography variant="h5" gutterBottom>
-                  Notifications
-                </Typography>
-                <Typography variant="body1" color="text.secondary" paragraph>
-                  Stay updated with your latest notifications and alerts.
-                </Typography>
-                
-                <List>
-                  <ListItem>
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'primary.main' }}>N</Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary="New connection request"
-                      secondary="John Doe wants to connect with you"
-                    />
-                    <ListItemSecondaryAction>
-                      <Button size="small" color="primary">Accept</Button>
-                      <Button size="small" color="error" sx={{ ml: 1 }}>Decline</Button>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                  <Divider />
-                  <ListItem>
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'success.main' }}>M</Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary="Message received"
-                      secondary="New message from Sarah Wilson"
-                    />
-                    <ListItemSecondaryAction>
-                      <Button size="small" color="primary">View</Button>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                </List>
-              </Box>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
-    </Container>
+      {/* View Profile Button */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.3 }}
+      >
+        <Box sx={styles.viewProfileBtn} onClick={() => navigate('/profile')}>
+          <Typography>View My Profile</Typography>
+          <ArrowForwardIcon />
+        </Box>
+      </motion.div>
+    </Box>
   );
+};
+
+const styles = {
+  container: {
+    minHeight: '100vh',
+    background: 'var(--bg-primary, #0f0f13)',
+    padding: '20px',
+    paddingBottom: '100px'
+  },
+  loadingContainer: {
+    minHeight: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--bg-primary, #0f0f13)'
+  },
+  emptyState: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '60vh'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '24px'
+  },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '14px'
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    border: '2px solid var(--accent-cyan, #00f2ea)',
+    background: 'linear-gradient(135deg, #00f2ea, #ff0055)'
+  },
+  greeting: {
+    fontWeight: 700,
+    color: '#fff',
+    fontSize: '1.25rem'
+  },
+  verifiedRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginTop: '4px'
+  },
+  verifiedBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '2px 8px',
+    background: 'rgba(0, 242, 234, 0.15)',
+    borderRadius: '12px',
+    fontSize: '12px',
+    color: '#00f2ea',
+    fontWeight: 500
+  },
+  memberSince: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px'
+  },
+  notificationBtn: {
+    background: 'rgba(255,255,255,0.05)',
+    color: '#fff',
+    '&:hover': {
+      background: 'rgba(255,255,255,0.1)'
+    }
+  },
+  balanceCard: {
+    background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.1), rgba(255, 0, 85, 0.1))',
+    backdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '24px',
+    padding: '24px',
+    textAlign: 'center',
+    marginBottom: '24px'
+  },
+  balanceLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '14px',
+    marginBottom: '8px'
+  },
+  balanceAmount: {
+    fontSize: '42px',
+    fontWeight: 700,
+    background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    marginBottom: '20px'
+  },
+  escrowRow: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: '24px'
+  },
+  escrowItem: {
+    textAlign: 'center'
+  },
+  escrowLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px'
+  },
+  escrowValue: {
+    color: '#fff',
+    fontSize: '18px',
+    fontWeight: 600
+  },
+  divider: {
+    width: '1px',
+    height: '30px',
+    background: 'rgba(255,255,255,0.1)'
+  },
+  sectionTitle: {
+    color: '#fff',
+    fontWeight: 600,
+    fontSize: '16px',
+    marginBottom: '16px'
+  },
+  quickActionsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: '12px',
+    marginBottom: '24px',
+    '@media (max-width: 600px)': {
+      gridTemplateColumns: 'repeat(2, 1fr)'
+    }
+  },
+  quickActionCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '16px',
+    background: 'rgba(255,255,255,0.05)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '16px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      background: 'rgba(255,255,255,0.1)',
+      transform: 'translateY(-2px)'
+    }
+  },
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: '14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  actionBadge: {
+    '& .MuiBadge-badge': {
+      top: 5,
+      right: 5
+    }
+  },
+  actionLabel: {
+    color: '#fff',
+    fontSize: '13px',
+    fontWeight: 500
+  },
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: '12px',
+    marginBottom: '24px',
+    '@media (max-width: 600px)': {
+      gridTemplateColumns: '1fr'
+    }
+  },
+  statCard: {
+    background: 'rgba(255,255,255,0.05)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '16px',
+    padding: '16px'
+  },
+  statHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginBottom: '8px'
+  },
+  statLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '13px'
+  },
+  statValue: {
+    color: '#fff',
+    fontSize: '28px',
+    fontWeight: 700
+  },
+  viewProfileBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '16px',
+    background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
+    borderRadius: '14px',
+    color: '#000',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      transform: 'scale(0.98)',
+      boxShadow: '0 4px 20px rgba(0, 242, 234, 0.3)'
+    }
+  }
 };
 
 export default DashboardPage;

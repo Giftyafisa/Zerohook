@@ -2,72 +2,87 @@ import { createTheme } from '@mui/material/styles';
 
 export const theme = createTheme({
   palette: {
+    mode: 'dark',
     primary: {
-      main: '#DC143C', // Crimson Red
-      dark: '#B22222', // Dark red
-      light: '#FFB6C1', // Light pink-red
-      contrastText: '#FFFFFF',
+      main: '#00f2ea', // Neon Cyan
+      dark: '#00c5be',
+      light: '#33f4ed',
+      contrastText: '#0f0f13',
     },
     secondary: {
-      main: '#000000', // Black
-      dark: '#1A1A1A', // Charcoal
-      light: '#CCCCCC', // Medium gray
+      main: '#ff0055', // Neon Pink
+      dark: '#cc0044',
+      light: '#ff3377',
       contrastText: '#FFFFFF',
     },
     background: {
-      default: '#FFFFFF',
-      paper: '#F8F8F8',
+      default: '#0f0f13',
+      paper: '#1a1a1f',
     },
     text: {
-      primary: '#1A1A1A',
-      secondary: '#666666',
+      primary: '#FFFFFF',
+      secondary: 'rgba(255, 255, 255, 0.7)',
     },
     error: {
-      main: '#DC3545',
+      main: '#ff0055',
     },
     success: {
-      main: '#28A745',
+      main: '#00f2ea',
     },
     warning: {
-      main: '#FFC107',
+      main: '#ffaa00',
+    },
+    info: {
+      main: '#00aaff',
     },
   },
   typography: {
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Inter", "Helvetica Neue", "Arial", sans-serif',
+    fontFamily: '"Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Inter", "Helvetica Neue", "Arial", sans-serif',
     h1: {
-      fontSize: '2.5rem',
-      fontWeight: 700,
+      fontSize: '3rem',
+      fontWeight: 800,
     },
     h2: {
-      fontSize: '2rem',
-      fontWeight: 600,
+      fontSize: '2.25rem',
+      fontWeight: 700,
     },
     h3: {
-      fontSize: '1.5rem',
-      fontWeight: 600,
+      fontSize: '1.75rem',
+      fontWeight: 700,
     },
     h4: {
-      fontSize: '1.25rem',
+      fontSize: '1.5rem',
       fontWeight: 600,
     },
     body1: {
       fontSize: '1rem',
-      lineHeight: 1.6,
+      lineHeight: 1.7,
     },
     body2: {
       fontSize: '0.875rem',
-      lineHeight: 1.6,
+      lineHeight: 1.7,
     },
     button: {
       textTransform: 'none',
       fontWeight: 600,
     },
   },
+  shape: {
+    borderRadius: 12,
+  },
   components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        body: {
+          backgroundColor: '#0f0f13',
+          color: '#ffffff',
+        },
+      },
+    },
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: 8,
+          borderRadius: 12,
           padding: '12px 24px',
           fontWeight: 600,
           fontSize: '1rem',
@@ -85,7 +100,7 @@ export const theme = createTheme({
         },
         text: {
           '&:hover': {
-            backgroundColor: 'rgba(220, 20, 60, 0.1)',
+            backgroundColor: 'rgba(0, 242, 234, 0.1)',
           },
         },
       },
@@ -93,7 +108,10 @@ export const theme = createTheme({
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
+          borderRadius: 16,
+          background: 'rgba(255, 255, 255, 0.05)',
+          backdropFilter: 'blur(12px)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
           '&:hover': {
             transform: 'translateY(-4px)',
           },
@@ -131,9 +149,6 @@ export const theme = createTheme({
         },
       },
     },
-  },
-  shape: {
-    borderRadius: 8,
   },
   shadows: [
     'none',

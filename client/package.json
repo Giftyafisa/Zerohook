@@ -1,7 +1,7 @@
 {
-  "name": "hkup-client",
+  "name": "zerohook-client",
   "version": "1.0.0",
-  "description": "Hkup platform frontend",
+  "description": "Zerohook platform frontend",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.1",

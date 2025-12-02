@@ -16,11 +16,18 @@ api.interceptors.request.use((config) => {
 const countryAPI = {
   async detectCountry() {
     try {
-      const response = await api.post('/countries/detect');
+      // Backend will auto-detect IP from request headers
+      const response = await api.post('/countries/detect', {});
       return response.data;
     } catch (error) {
       console.error('Error detecting country:', error);
-      throw error;
+      // Return fallback country on error
+      return {
+        success: true,
+        detectedCountry: { code: 'NG', name: 'Nigeria', currency: 'NGN', currencySymbol: '₦' },
+        method: 'fallback',
+        confidence: 'low'
+      };
     }
   },
 

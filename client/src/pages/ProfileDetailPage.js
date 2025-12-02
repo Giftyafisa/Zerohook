@@ -34,8 +34,6 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { getDefaultImage } from '../config/images';
-import CallButton from '../components/CallButton';
-import UserStatus from '../components/UserStatus';
 import { useSocket } from '../contexts/SocketContext';
 
 const ProfileDetailPage = () => {
@@ -331,11 +329,14 @@ const ProfileDetailPage = () => {
                   </Typography>
                   {/* Online Status Badge */}
                   <Box sx={{ position: 'absolute', top: 0, right: -40 }}>
-                    <UserStatus 
-                      user={profile} 
-                      variant="dot" 
-                      size="medium" 
-                      showAvatar={false}
+                    <Box
+                      sx={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        bgcolor: profile.isOnline ? '#00ff88' : '#6a6a7a',
+                        border: '2px solid #1a1a22',
+                      }}
                     />
                   </Box>
                 </Box>
@@ -463,18 +464,23 @@ const ProfileDetailPage = () => {
                     'Contact'
                   }
                 </Button>
-                <CallButton
-                  targetUser={profile}
-                  variant="icon"
+                <IconButton
                   size="large"
-                  onCallStart={(callType, targetUser) => {
-                    console.log(`📞 Starting ${callType} call with ${targetUser.username}`);
-                    // Show call dialog with appropriate message
-                    setContactType('video_call');
-                    setContactMessage(`Initiating ${callType} call with ${targetUser.username}...`);
-                    setContactDialog(true);
+                  sx={{
+                    bgcolor: 'rgba(0, 242, 234, 0.1)',
+                    '&:hover': { bgcolor: 'rgba(0, 242, 234, 0.2)' },
                   }}
-                />
+                  onClick={() => {
+                    if (window.startVideoCall) {
+                      window.startVideoCall(profile.id);
+                      setContactType('video_call');
+                      setContactMessage(`Initiating video call with ${profile.username}...`);
+                      setContactDialog(true);
+                    }
+                  }}
+                >
+                  <VideoCall sx={{ color: '#00f2ea' }} />
+                </IconButton>
                 
                 {/* Enhanced Debug Panel */}
                 <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1, fontSize: '0.75rem' }}>

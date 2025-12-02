@@ -587,4 +587,137 @@ router.post('/coinbase-webhook', async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/payments/balance
+ * @desc    Get user's wallet balance (mobile app compatibility)
+ * @access  Private
+ */
+router.get('/balance', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { query } = require('../config/database');
+    
+    // Default response for mock user or when tables don't exist
+    let earnings = 0;
+    let pendingEarnings = 0;
+    let totalSpent = 0;
+    let completedTransactions = 0;
+    let pendingTransactions = 0;
+    let currency = 'NGN';
+    
+    // Try to get transaction summary - transactions table uses client_id/provider_id not user_id
+    try {
+      const transactionResult = await query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN status = 'confirmed' OR status = 'completed' THEN amount ELSE 0 END), 0) as total_spent,
+          COUNT(CASE WHEN status = 'confirmed' OR status = 'completed' THEN 1 END) as completed_transactions,
+          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_transactions
+        FROM transactions 
+        WHERE client_id = $1
+      `, [userId]);
+      
+      if (transactionResult.rows[0]) {
+        totalSpent = parseFloat(transactionResult.rows[0].total_spent) || 0;
+        completedTransactions = parseInt(transactionResult.rows[0].completed_transactions) || 0;
+        pendingTransactions = parseInt(transactionResult.rows[0].pending_transactions) || 0;
+      }
+    } catch (dbError) {
+      console.log('Transactions query failed, using defaults:', dbError.message);
+    }
+    
+    // Try to get earnings as a provider (provider_id = user receiving money)
+    try {
+      const escrowResult = await query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as earnings,
+          COALESCE(SUM(CASE WHEN status = 'pending' OR status = 'held' THEN amount ELSE 0 END), 0) as pending_earnings
+        FROM transactions
+        WHERE provider_id = $1
+      `, [userId]);
+      
+      if (escrowResult.rows[0]) {
+        earnings = parseFloat(escrowResult.rows[0].earnings) || 0;
+        pendingEarnings = parseFloat(escrowResult.rows[0].pending_earnings) || 0;
+      }
+    } catch (dbError) {
+      console.log('Escrow query failed, using defaults:', dbError.message);
+    }
+    
+    // Get user's country for currency
+    try {
+      const userCountry = await req.countryManager?.getUserCountry(userId);
+      if (userCountry?.success && userCountry?.country?.currency) {
+        currency = userCountry.country.currency;
+      }
+    } catch (e) {
+      // Use default currency
+    }
+    
+    res.json({
+      success: true,
+      balance: {
+        available: earnings,
+        pending: pendingEarnings,
+        total: earnings + pendingEarnings,
+        currency: currency
+      },
+      stats: {
+        totalSpent: totalSpent,
+        completedTransactions: completedTransactions,
+        pendingTransactions: pendingTransactions
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get balance error:', error);
+    res.status(500).json({ error: 'Failed to get balance' });
+  }
+});
+
+/**
+ * @route   GET /api/payments/wallet
+ * @desc    Alias for /balance - Get wallet info (mobile app compatibility)
+ * @access  Private
+ */
+router.get('/wallet', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { query } = require('../config/database');
+    
+    let balance = 0;
+    let pendingBalance = 0;
+    
+    // Try to get balance from transactions as provider
+    try {
+      const escrowResult = await query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as balance,
+          COALESCE(SUM(CASE WHEN status = 'pending' OR status = 'held' THEN amount ELSE 0 END), 0) as pending_balance
+        FROM transactions 
+        WHERE provider_id = $1
+      `, [userId]);
+      
+      if (escrowResult.rows[0]) {
+        balance = parseFloat(escrowResult.rows[0].balance) || 0;
+        pendingBalance = parseFloat(escrowResult.rows[0].pending_balance) || 0;
+      }
+    } catch (dbError) {
+      console.log('Wallet query failed, using defaults:', dbError.message);
+    }
+    
+    res.json({
+      success: true,
+      wallet: {
+        balance: balance,
+        pendingBalance: pendingBalance,
+        currency: 'NGN'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get wallet error:', error);
+    res.status(500).json({ error: 'Failed to get wallet info' });
+  }
+});
+
 module.exports = router;

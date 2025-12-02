@@ -168,10 +168,66 @@ class CountryManager {
   }
 
   /**
+   * Detect country from phone number using country code
+   * This is the PRIMARY method for registered users
+   */
+  detectCountryFromPhone(phoneNumber) {
+    if (!phoneNumber) return null;
+    
+    // Clean the phone number
+    const cleanPhone = phoneNumber.replace(/\s+/g, '').replace(/-/g, '');
+    
+    // Phone code to country mapping (ordered by specificity - longer codes first)
+    const phoneCodeMap = {
+      '+234': 'NG',  // Nigeria
+      '+233': 'GH',  // Ghana
+      '+254': 'KE',  // Kenya
+      '+27': 'ZA',   // South Africa
+      '+256': 'UG',  // Uganda
+      '+255': 'TZ',  // Tanzania
+      '+250': 'RW',  // Rwanda
+      '+267': 'BW',  // Botswana
+      '+260': 'ZM',  // Zambia
+      '+265': 'MW',  // Malawi
+    };
+    
+    // Check each phone code
+    for (const [code, countryCode] of Object.entries(phoneCodeMap)) {
+      if (cleanPhone.startsWith(code)) {
+        const country = this.supportedCountries.find(c => c.code === countryCode);
+        if (country) {
+          return {
+            success: true,
+            country: country,
+            method: 'phone_number_detection',
+            confidence: 'high',
+            phoneCode: code
+          };
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Detect user's country based on IP address using IP2Location
+   * This is for VISITORS/GUESTS who are not registered
    */
   async detectUserCountry(ipAddress) {
     try {
+      // Skip localhost/private IPs - return null to indicate we can't detect
+      if (ipAddress === '127.0.0.1' || ipAddress === 'localhost' || 
+          ipAddress.startsWith('192.168.') || ipAddress.startsWith('10.') ||
+          ipAddress.startsWith('172.')) {
+        console.log('🌍 Local/private IP detected, cannot determine country from IP');
+        return {
+          success: false,
+          method: 'ip_local',
+          message: 'Cannot detect country from local IP address'
+        };
+      }
+
       // Use IP2Location service for better accuracy
       const response = await axios.get(`https://api.ip2location.io/?key=${this.ip2locationKey}&ip=${ipAddress}`);
       
@@ -426,13 +482,14 @@ class CountryManager {
    */
   async getUserCountry(userId) {
     try {
+      // Use profile_data JSONB field for country info since dedicated columns don't exist
       const result = await query(`
         SELECT 
           c.*,
-          u.country_preference,
-          u.detected_country
+          COALESCE(u.profile_data->>'country', 'NG') as country_preference,
+          COALESCE(u.profile_data->>'detected_country', 'NG') as detected_country
         FROM users u
-        LEFT JOIN countries c ON u.country_preference = c.code
+        LEFT JOIN countries c ON COALESCE(u.profile_data->>'country', 'NG') = c.code
         WHERE u.id = $1
       `, [userId]);
 

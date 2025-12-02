@@ -2,19 +2,22 @@ require('dotenv').config({ path: process.env.NODE_ENV === 'production' ? './env.
 const { Pool } = require('pg');
 const Redis = require('redis');
 
-// PostgreSQL connection
+// PostgreSQL connection - Optimized for Render.com free tier (may sleep after inactivity)
+const isRenderDB = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('render.com');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 
-    `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'password'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'hkup_db'}`,
-  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('render.com') ? 
-    { rejectUnauthorized: false } : 
+    `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'password'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'zerohook_db'}`,
+  ssl: isRenderDB ? { rejectUnauthorized: false } : 
     (process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false),
-  max: 20,
-  idleTimeoutMillis: 60000, // Increased from 30000 to 60000 (1 minute)
-  connectionTimeoutMillis: 10000, // Increased from 2000 to 10000 (10 seconds)
-  acquireTimeoutMillis: 10000, // Added: 10 seconds to acquire connection
-  reapIntervalMillis: 1000, // Added: Check for dead connections every second
-  createTimeoutMillis: 10000, // Added: 10 seconds to create connection
+  max: isRenderDB ? 5 : 20, // Lower pool size for free tier
+  idleTimeoutMillis: isRenderDB ? 30000 : 60000, // 30s for Render, 60s otherwise
+  connectionTimeoutMillis: isRenderDB ? 30000 : 10000, // 30s for Render (wake-up time)
+  allowExitOnIdle: true, // Allow process to exit when pool is idle
+});
+
+// Handle pool errors gracefully
+pool.on('error', (err, client) => {
+  console.error('⚠️  Unexpected PostgreSQL pool error:', err.message);
 });
 
 console.log('🔧 Database configuration loaded:');
@@ -22,7 +25,7 @@ console.log('   Environment:', process.env.NODE_ENV);
 console.log('   Using DATABASE_URL:', !!process.env.DATABASE_URL);
 console.log('   Render.com detected:', process.env.DATABASE_URL && process.env.DATABASE_URL.includes('render.com'));
 console.log('   SSL enabled:', process.env.DATABASE_URL && process.env.DATABASE_URL.includes('render.com') ? 'Yes (Render.com)' : (process.env.NODE_ENV === 'production' ? 'Yes (Production)' : 'No (Local)'));
-console.log('   Connection string:', process.env.DATABASE_URL || `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'password'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'hkup_db'}`);
+console.log('   Connection string:', process.env.DATABASE_URL || `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'password'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'zerohook_db'}`);
 
 // Redis connection
 const redisClient = Redis.createClient({
@@ -370,17 +373,18 @@ const initializeTables = async () => {
     `);
     console.log('✅ Subscriptions table created');
 
-    // Insert default subscription plan
+    // Insert default subscription plan (skip if already exists)
     await client.query(`
       INSERT INTO subscription_plans (
         plan_name, description, price, currency, features
       ) VALUES (
         'Basic Access',
-        'Full access to the Hkup platform',
+        'Full access to the Zerohook platform',
         20.00,
         'USD',
         '["Full platform access", "Browse services", "Create services", "Secure messaging", "Trust system", "24/7 support"]'
-      );
+      )
+      ON CONFLICT (plan_name) DO NOTHING;
     `);
     console.log('✅ Default subscription plan created');
 
@@ -469,6 +473,34 @@ const initializeTables = async () => {
     `);
     console.log('✅ New table indexes created');
 
+    // Create api_performance_logs table for tracking API performance metrics
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS api_performance_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        endpoint VARCHAR(255) NOT NULL,
+        method VARCHAR(10) NOT NULL,
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        response_time_ms INTEGER NOT NULL,
+        status_code INTEGER NOT NULL,
+        request_size_bytes INTEGER DEFAULT 0,
+        response_size_bytes INTEGER DEFAULT 0,
+        ip_address INET,
+        user_agent TEXT,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ API performance logs table created');
+
+    // Create indexes for api_performance_logs
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_api_performance_logs_endpoint ON api_performance_logs(endpoint);
+      CREATE INDEX IF NOT EXISTS idx_api_performance_logs_user_id ON api_performance_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_api_performance_logs_created_at ON api_performance_logs(created_at);
+      CREATE INDEX IF NOT EXISTS idx_api_performance_logs_status_code ON api_performance_logs(status_code);
+    `);
+    console.log('✅ API performance logs indexes created');
+
     await client.query('COMMIT');
     console.log('✅ Database tables initialized successfully');
     
@@ -481,20 +513,37 @@ const initializeTables = async () => {
   }
 };
 
+// Track database availability
+let dbAvailable = false;
+
 // Helper functions
 const query = async (text, params, retries = 3) => {
+  // If database is known to be unavailable, fail fast
+  if (!dbAvailable && retries === 3) {
+    // Try once to check if it's back
+    try {
+      const client = await pool.connect();
+      client.release();
+      dbAvailable = true;
+    } catch (e) {
+      throw new Error('Database unavailable');
+    }
+  }
+  
   let client;
   try {
     client = await pool.connect();
     const result = await client.query(text, params);
+    dbAvailable = true; // Mark as available on success
     return result;
   } catch (error) {
     // If it's a connection error and we have retries left, try again
-    if (retries > 0 && (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND' || error.message.includes('Connection terminated'))) {
+    if (retries > 0 && (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND' || error.message.includes('Connection terminated') || error.message.includes('timeout'))) {
       console.log(`🔄 Database connection error, retrying... (${retries} retries left)`);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
       return query(text, params, retries - 1);
     }
+    dbAvailable = false; // Mark as unavailable on persistent failure
     throw error;
   } finally {
     if (client) {
@@ -505,12 +554,18 @@ const query = async (text, params, retries = 3) => {
 
 const getClient = async () => {
   try {
-    return await pool.connect();
+    const client = await pool.connect();
+    dbAvailable = true;
+    return client;
   } catch (error) {
+    dbAvailable = false;
     console.error('❌ Failed to get database client:', error.message);
     throw error;
   }
 };
+
+// Check if database is available
+const isDatabaseAvailable = () => dbAvailable;
 
 module.exports = {
   pool,
@@ -518,5 +573,6 @@ module.exports = {
   connectDB,
   connectRedis,
   query,
-  getClient
+  getClient,
+  isDatabaseAvailable
 };

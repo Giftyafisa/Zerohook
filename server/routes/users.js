@@ -1,8 +1,50 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const { query, isDatabaseAvailable } = require('../config/database');
 const router = express.Router();
+
+// Mock profiles for when database is unavailable
+const mockProfiles = [
+  {
+    id: 'mock-1',
+    username: 'sarah_professional',
+    profile_data: {
+      firstName: 'Sarah',
+      lastName: 'Johnson',
+      age: 28,
+      bio: 'Professional escort with 5+ years experience.',
+      location: { city: 'Lagos', country: 'Nigeria' },
+      languages: ['English', 'Yoruba'],
+      basePrice: 250
+    },
+    verification_tier: 3,
+    reputation_score: 95,
+    is_subscribed: true,
+    subscription_tier: 'premium',
+    created_at: new Date().toISOString(),
+    last_active: new Date().toISOString()
+  },
+  {
+    id: 'mock-2',
+    username: 'grace_elegant',
+    profile_data: {
+      firstName: 'Grace',
+      lastName: 'Williams',
+      age: 25,
+      bio: 'Elegant companion for discerning clients.',
+      location: { city: 'Accra', country: 'Ghana' },
+      languages: ['English', 'Twi'],
+      basePrice: 400
+    },
+    verification_tier: 2,
+    reputation_score: 88,
+    is_subscribed: true,
+    subscription_tier: 'elite',
+    created_at: new Date().toISOString(),
+    last_active: new Date().toISOString()
+  }
+];
 
 /**
  * @route   GET /api/users/profile
@@ -83,6 +125,17 @@ router.put('/profile', authMiddleware, async (req, res) => {
  */
 router.get('/profiles', async (req, res) => {
   try {
+    // Check if database is available - return mock data if not
+    if (!isDatabaseAvailable()) {
+      console.log('⚠️  Database unavailable, returning mock profiles');
+      return res.json({
+        success: true,
+        users: mockProfiles, // Client expects 'users' not 'profiles'
+        pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
+        metadata: { mockData: true, message: 'Database temporarily unavailable' }
+      });
+    }
+
     const {
       page = 1,
       limit = 20,
@@ -255,6 +308,17 @@ router.get('/profiles', async (req, res) => {
     });
   } catch (error) {
     console.error('Get profiles error:', error);
+    
+    // Return mock data on database error
+    if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
+      return res.json({
+        success: true,
+        users: mockProfiles, // Client expects 'users' not 'profiles'
+        pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
+        metadata: { mockData: true, message: 'Database temporarily unavailable' }
+      });
+    }
+    
     res.status(500).json({ 
       error: 'Failed to fetch profiles',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined

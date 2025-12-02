@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
 import {
   Box,
   Container,
@@ -35,10 +36,103 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { getDefaultImage } from '../config/images';
+import { selectUser } from '../store/slices/authSlice';
+import { selectExchangeRates, selectUserCountry, selectDetectedCountry } from '../store/slices/countrySlice';
 
 const AdultServiceBrowse = () => {
   const navigate = useNavigate();
+  const user = useSelector(selectUser);
+  const exchangeRates = useSelector(selectExchangeRates);
+  const userCountryFromSlice = useSelector(selectUserCountry);
+  const detectedCountry = useSelector(selectDetectedCountry);
   
+  // Currency mapping based on country
+  const currencyMap = {
+    'Nigeria': { code: 'NG', symbol: '₦', currency: 'NGN' },
+    'Ghana': { code: 'GH', symbol: '₵', currency: 'GHS' },
+    'Kenya': { code: 'KE', symbol: 'KSh', currency: 'KES' },
+    'South Africa': { code: 'ZA', symbol: 'R', currency: 'ZAR' },
+    'Uganda': { code: 'UG', symbol: 'USh', currency: 'UGX' },
+    'Tanzania': { code: 'TZ', symbol: 'TSh', currency: 'TZS' },
+    'Rwanda': { code: 'RW', symbol: 'FRw', currency: 'RWF' },
+    'Botswana': { code: 'BW', symbol: 'P', currency: 'BWP' },
+    'Zambia': { code: 'ZM', symbol: 'ZK', currency: 'ZMW' },
+    'Malawi': { code: 'MW', symbol: 'MK', currency: 'MWK' }
+  };
+
+  // Country code to name mapping
+  const countryCodeToName = {
+    'NG': 'Nigeria', 'GH': 'Ghana', 'KE': 'Kenya', 'ZA': 'South Africa',
+    'UG': 'Uganda', 'TZ': 'Tanzania', 'RW': 'Rwanda', 'BW': 'Botswana',
+    'ZM': 'Zambia', 'MW': 'Malawi'
+  };
+
+  // Get user's currency based on their profile location OR detected country
+  const getUserCurrency = () => {
+    // First try: user profile data
+    const userCountryFromProfile = user?.profileData?.location?.country || user?.profile_data?.location?.country;
+    if (userCountryFromProfile && currencyMap[userCountryFromProfile]) {
+      console.log('💰 Using currency from user profile:', userCountryFromProfile);
+      return currencyMap[userCountryFromProfile];
+    }
+    
+    // Second try: detected country from countrySlice (has name, code, currency, currencySymbol)
+    const detectedCountryData = userCountryFromSlice || detectedCountry;
+    if (detectedCountryData) {
+      // Country detection API returns { code, name, currency, currencySymbol }
+      const countryName = detectedCountryData.name;
+      const countryCode = detectedCountryData.code;
+      
+      if (countryName && currencyMap[countryName]) {
+        console.log('💰 Using currency from detected country:', countryName);
+        return currencyMap[countryName];
+      }
+      
+      // If country has direct currency info
+      if (detectedCountryData.currency && detectedCountryData.currencySymbol) {
+        console.log('💰 Using direct currency from detection:', detectedCountryData.currency);
+        return { 
+          code: countryCode, 
+          symbol: detectedCountryData.currencySymbol, 
+          currency: detectedCountryData.currency 
+        };
+      }
+      
+      // Try from exchange rates
+      if (countryCode) {
+        const rateInfo = exchangeRates[countryCode];
+        if (rateInfo) {
+          console.log('💰 Using currency from exchange rates:', countryCode);
+          return { code: countryCode, symbol: rateInfo.symbol, currency: rateInfo.currency };
+        }
+      }
+    }
+    
+    console.log('💰 Using default currency: NGN (no country detected)');
+    return { code: 'NG', symbol: '₦', currency: 'NGN' }; // Default to Nigeria
+  };
+
+  // Format price in a specific currency
+  const formatPrice = (price, serviceCurrency, serviceCountry) => {
+    const userCurrency = getUserCurrency();
+    const serviceCurrencyInfo = currencyMap[serviceCountry] || { symbol: '₦', currency: 'NGN' };
+    
+    // If user's currency matches service currency, just display directly
+    if (userCurrency.currency === serviceCurrencyInfo.currency) {
+      return `${serviceCurrencyInfo.symbol}${price.toLocaleString()}`;
+    }
+    
+    // Convert to user's currency
+    const serviceRate = exchangeRates[serviceCurrencyInfo.code]?.rate || 1;
+    const userRate = exchangeRates[userCurrency.code]?.rate || 1;
+    
+    // Convert: service price -> USD -> user currency
+    const priceInUSD = price / serviceRate;
+    const convertedPrice = Math.round(priceInUSD * userRate);
+    
+    return `${userCurrency.symbol}${convertedPrice.toLocaleString()}`;
+  };
+
   // State
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +143,7 @@ const AdultServiceBrowse = () => {
   const [filters, setFilters] = useState({
     category: 'all',
     location: '',
-    priceRange: [0, 1000], // Fixed: Adjusted to real service price range
+    priceRange: [0, 1000000], // Fixed: Adjusted to real service price range (NGN)
     verificationTier: 'all',
     trustScore: [0, 100],
     privacyLevel: 'all'
@@ -74,7 +168,8 @@ const AdultServiceBrowse = () => {
     const fetchServices = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/services');
+        const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${API_BASE}/api/services`);
         if (response.ok) {
           const data = await response.json();
           console.log('🔍 Raw API Response:', data);
@@ -82,10 +177,14 @@ const AdultServiceBrowse = () => {
           
           const realServices = data.services.map(service => ({
             id: service.id,
+            providerId: service.provider_id, // Add provider ID for messaging
+            providerUsername: service.provider_username, // Add provider username
             title: service.title,
             description: service.description,
             category: service.category_name,
-            price: parseFloat(service.price), // Fixed: Remove incorrect * 100 multiplication
+            price: parseFloat(service.price),
+            currency: service.currency || 'NGN', // Store original currency
+            serviceCountry: service.location_data?.country || 'Nigeria', // Store provider's country
             location: `${service.location_data?.city || 'Various'}, ${service.location_data?.country || 'Unknown'}`,
             verificationTier: service.verification_tier === 3 ? 'Elite' : service.verification_tier === 2 ? 'Advanced' : 'Basic',
             trustScore: parseFloat(service.reputation_score),
@@ -151,9 +250,10 @@ const AdultServiceBrowse = () => {
 
     setSendingMessage(true);
     try {
+      const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
       // Get current user info from localStorage or context
       const token = localStorage.getItem('token');
-              const userResponse = await fetch('/api/users/profile', {
+      const userResponse = await fetch(`${API_BASE}/api/users/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -166,7 +266,7 @@ const AdultServiceBrowse = () => {
       const userData = await userResponse.json();
       
       // Send service inquiry
-              const inquiryResponse = await fetch('/api/connections/service-inquiry', {
+      const inquiryResponse = await fetch(`${API_BASE}/api/connections/service-inquiry`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -315,18 +415,18 @@ const AdultServiceBrowse = () => {
               </Grid>
               
               <Grid item xs={12} md={3}>
-                <Typography gutterBottom>Price Range (₦)</Typography>
+                <Typography gutterBottom>Price Range ({getUserCurrency().symbol})</Typography>
                 <Slider
                   value={filters.priceRange}
                   onChange={(e, newValue) => handleFilterChange('priceRange', newValue)}
                   valueLabelDisplay="auto"
                   min={0}
-                  max={100000}
-                  step={1000}
+                  max={1000000}
+                  step={10000}
                 />
                 <Box display="flex" justifyContent="space-between">
-                  <Typography variant="caption">₦{filters.priceRange[0].toLocaleString()}</Typography>
-                  <Typography variant="caption">₦{filters.priceRange[1].toLocaleString()}</Typography>
+                  <Typography variant="caption">{getUserCurrency().symbol}{filters.priceRange[0].toLocaleString()}</Typography>
+                  <Typography variant="caption">{getUserCurrency().symbol}{filters.priceRange[1].toLocaleString()}</Typography>
                 </Box>
               </Grid>
               
@@ -405,7 +505,7 @@ const AdultServiceBrowse = () => {
                     variant="outlined"
                   />
                   <Typography variant="h6" color="primary" sx={{ fontWeight: 'bold' }}>
-                    ₦{service.price.toLocaleString()}
+                    {formatPrice(service.price, service.currency, service.serviceCountry)}
                   </Typography>
                 </Box>
 

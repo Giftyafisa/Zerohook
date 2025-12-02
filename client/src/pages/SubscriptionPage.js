@@ -175,7 +175,7 @@ const SubscriptionPage = () => {
     <Container maxWidth="lg" sx={{ py: 6 }}>
       <Box textAlign="center" mb={6}>
         <Typography variant="h3" fontWeight="bold" color="primary.main" gutterBottom>
-          Welcome to Hkup! 🎉
+          Welcome to Zerohook! 🎉
         </Typography>
         <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
           Complete your registration with a subscription to access the platform
@@ -283,7 +283,7 @@ const SubscriptionPage = () => {
 
       <Box sx={{ mt: 8, textAlign: 'center' }}>
         <Typography variant="h6" color="text.secondary" gutterBottom>
-          Why Subscribe to Hkup?
+          Why Subscribe to Zerohook?
         </Typography>
         <Grid container spacing={3} justifyContent="center" sx={{ mt: 2 }}>
           <Grid item xs={12} sm={6} md={3}>

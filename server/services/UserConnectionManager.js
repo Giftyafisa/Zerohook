@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const ConversationService = require('./ConversationService');
 
 class UserConnectionManager {
   constructor() {
@@ -153,10 +154,11 @@ class UserConnectionManager {
       `, [newStatus, connectionId]);
 
       if (action === 'accept') {
-        // Create conversation between users
+        // Create conversation between users (conversations table has no 'status' column)
         await query(`
-          INSERT INTO conversations (participant1_id, participant2_id, status, created_at)
-          VALUES ($1, $2, 'active', CURRENT_TIMESTAMP)
+          INSERT INTO conversations (participant1_id, participant2_id, created_at, updated_at)
+          VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ON CONFLICT DO NOTHING
         `, [connection.from_user_id, connection.to_user_id]);
 
         // Send welcome message
@@ -262,14 +264,14 @@ class UserConnectionManager {
     try {
       // Check if service exists and belongs to the recipient
       const serviceCheck = await query(`
-        SELECT id, title, user_id FROM services WHERE id = $1
+        SELECT id, title, provider_id FROM services WHERE id = $1
       `, [serviceId]);
 
       if (serviceCheck.rows.length === 0) {
         throw new Error('Service not found');
       }
 
-      if (serviceCheck.rows[0].user_id !== toUserId) {
+      if (serviceCheck.rows[0].provider_id !== toUserId) {
         throw new Error('Service does not belong to the specified user');
       }
 
@@ -283,8 +285,8 @@ class UserConnectionManager {
       if (conversation.rows.length === 0) {
         // Create new conversation
         conversation = await query(`
-          INSERT INTO conversations (participant1_id, participant2_id, status, created_at)
-          VALUES ($1, $2, 'active', CURRENT_TIMESTAMP)
+          INSERT INTO conversations (participant1_id, participant2_id, created_at)
+          VALUES ($1, $2, CURRENT_TIMESTAMP)
           RETURNING id
         `, [fromUserId, toUserId]);
       }
@@ -294,13 +296,12 @@ class UserConnectionManager {
       // Send service inquiry message
       const inquiryMessage = `Service Inquiry: ${serviceCheck.rows[0].title}\n\n${message}`;
       await query(`
-        INSERT INTO messages (conversation_id, sender_id, content, message_type, metadata, created_at)
-        VALUES ($1, $2, $3, 'service_inquiry', $4, CURRENT_TIMESTAMP)
+        INSERT INTO messages (conversation_id, sender_id, content, message_type, created_at)
+        VALUES ($1, $2, $3, 'service_inquiry', CURRENT_TIMESTAMP)
       `, [
         conversationId, 
         fromUserId, 
-        inquiryMessage, 
-        JSON.stringify({ serviceId, serviceTitle: serviceCheck.rows[0].title })
+        inquiryMessage
       ]);
 
       // Update conversation last message
@@ -384,33 +385,9 @@ class UserConnectionManager {
    */
   async blockUser(blockerId, blockedId) {
     try {
-      // Add to blocked users
-      await query(`
-        INSERT INTO blocked_users (blocker_id, blocked_id, created_at)
-        VALUES ($1, $2, CURRENT_TIMESTAMP)
-        ON CONFLICT (blocker_id, blocked_id) DO NOTHING
-      `, [blockerId, blockedId]);
-
-      // Close any existing conversations
-      await query(`
-        UPDATE conversations 
-        SET status = 'blocked', updated_at = CURRENT_TIMESTAMP
-        WHERE (participant1_id = $1 AND participant2_id = $2) 
-           OR (participant1_id = $2 AND participant2_id = $1)
-      `, [blockerId, blockedId]);
-
-      // Reject any pending connection requests
-      await query(`
-        UPDATE user_connections 
-        SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
-        WHERE (from_user_id = $1 AND to_user_id = $2) 
-           OR (from_user_id = $2 AND to_user_id = $1)
-      `, [blockerId, blockedId]);
-
-      return {
-        success: true,
-        message: 'User blocked successfully'
-      };
+      // Delegate to ConversationService to centralize block behavior
+      const cs = new ConversationService();
+      return await cs.blockUser(blockerId, blockedId);
 
     } catch (error) {
       console.error('Block user error:', error);

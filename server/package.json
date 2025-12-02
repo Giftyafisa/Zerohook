@@ -1,7 +1,7 @@
 {
-  "name": "hkup-server",
+  "name": "zerohook-server",
   "version": "1.0.0",
-  "description": "Hkup platform backend API",
+  "description": "Zerohook platform backend API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -39,7 +39,8 @@
     "rate-limiter-flexible": "^4.0.1",
     "redis": "^4.6.10",
     "socket.io": "^4.7.4",
-    "stripe": "^14.25.0"
+    "stripe": "^14.25.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "jest": "^29.7.0",

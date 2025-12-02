@@ -273,3 +273,4 @@ async function removeOfflineAction(id) {
 }
 
 console.log('🔧 Service Worker loaded successfully');
+

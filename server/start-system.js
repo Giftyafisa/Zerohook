@@ -2,7 +2,7 @@ const { testSystemIntegration } = require('./test-system-integration');
 const { connectDB, connectRedis } = require('./config/database');
 
 async function startSystem() {
-  console.log('🚀 Starting Hkup Platform...\n');
+  console.log('🚀 Starting Zerohook Platform...\n');
   
   try {
     // Step 1: Initialize Database

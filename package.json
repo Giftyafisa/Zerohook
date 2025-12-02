@@ -1,7 +1,7 @@
 {
-  "name": "hkup-platform",
+  "name": "zerohook-platform",
   "version": "1.0.0",
-  "description": "Secure service marketplace platform for kongi services",
+  "description": "Zerohook - Secure service marketplace platform",
   "main": "server/index.js",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
@@ -12,7 +12,7 @@
     "install-all": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "keywords": ["marketplace", "services", "escrow", "trust", "blockchain"],
-  "author": "Hkup Team",
+  "author": "Zerohook Team",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2",

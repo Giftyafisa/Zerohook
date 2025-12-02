@@ -179,7 +179,7 @@ async function testFinalIntegration() {
     
     if (allTablesExist) {
       console.log('\n🎊 SUCCESS: All systems are properly wired up and operational!');
-      console.log('\n🚀 Your enhanced Hkup platform is ready with:');
+      console.log('\n🚀 Your enhanced Zerohook platform is ready with:');
       console.log('   - User connection management');
       console.log('   - Video upload and management');
       console.log('   - Enhanced chat with rich media');

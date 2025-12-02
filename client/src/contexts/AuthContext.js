@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction } from '../store/slices/authSlice';
+import { detectUserCountry, getSupportedCountries } from '../store/slices/countrySlice';
 
 const AuthContext = createContext({});
 
@@ -32,6 +33,23 @@ export const AuthProvider = ({ children }) => {
       dispatch(setSubscriptionStatus(user.is_subscribed));
     }
   }, [isAuthenticated, user?.is_subscribed, dispatch]);
+
+  // Country detection after authentication
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const detectCountry = async () => {
+        try {
+          console.log('🌍 Detecting user country...');
+          await dispatch(detectUserCountry()).unwrap();
+          await dispatch(getSupportedCountries()).unwrap();
+          console.log('✅ Country detection complete');
+        } catch (error) {
+          console.log('⚠️ Country detection failed, using defaults:', error.message);
+        }
+      };
+      detectCountry();
+    }
+  }, [isAuthenticated, user, dispatch]);
 
   const updateUser = (userData) => {
     if (user) {

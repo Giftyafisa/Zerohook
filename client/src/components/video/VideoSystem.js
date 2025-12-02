@@ -1,142 +1,181 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
+import { Box, IconButton, Typography, LinearProgress, Alert } from '@mui/material';
 import {
-  Box,
-  Button,
-  Typography,
-  IconButton,
-  Grid,
-  Alert,
-  CircularProgress,
-  useTheme,
-  TextField
-} from '@mui/material';
-import {
-  Videocam,
-  VideocamOff,
-  Mic,
-  MicOff,
-  Call,
-  CallEnd,
-  ScreenShare,
-  StopScreenShare,
-  Upload,
+  CloudUpload,
   PlayArrow,
   Pause,
   VolumeUp,
   VolumeOff,
   Fullscreen,
-  FullscreenExit
+  FullscreenExit,
+  Delete,
+  Videocam,
+  Close
 } from '@mui/icons-material';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// Glass-morphism styles matching Zerohook mobile design
+const styles = {
+  container: {
+    background: 'rgba(255, 255, 255, 0.05)',
+    backdropFilter: 'blur(20px)',
+    borderRadius: '16px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+  },
+
+  videoWrapper: {
+    position: 'relative',
+    width: '100%',
+    aspectRatio: '16/9',
+    background: '#0f0f13',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+
+  video: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+  },
+
+  placeholder: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '16px',
+    color: '#6a6a7a',
+  },
+
+  uploadArea: {
+    padding: '40px',
+    border: '2px dashed rgba(0, 242, 234, 0.3)',
+    borderRadius: '16px',
+    background: 'rgba(0, 242, 234, 0.05)',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    textAlign: 'center',
+    '&:hover': {
+      borderColor: 'rgba(0, 242, 234, 0.6)',
+      background: 'rgba(0, 242, 234, 0.1)',
+    },
+  },
+
+  controls: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: '16px',
+    background: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+
+  controlsRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+
+  progressBar: {
+    flex: 1,
+    height: '4px',
+    borderRadius: '2px',
+    cursor: 'pointer',
+    '& .MuiLinearProgress-bar': {
+      background: 'linear-gradient(90deg, #00f2ea, #ff0055)',
+    },
+  },
+
+  controlBtn: {
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    background: 'rgba(255, 255, 255, 0.1)',
+    color: '#fff',
+    transition: 'all 0.3s ease',
+    '&:hover': {
+      background: 'rgba(255, 255, 255, 0.2)',
+      transform: 'scale(1.1)',
+    },
+  },
+
+  playBtn: {
+    width: '56px',
+    height: '56px',
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #00f2ea, #8b5cf6)',
+    color: '#fff',
+    boxShadow: '0 4px 20px rgba(0, 242, 234, 0.3)',
+    '&:hover': {
+      transform: 'scale(1.1)',
+    },
+  },
+
+  time: {
+    color: '#fff',
+    fontSize: '13px',
+    fontFamily: 'monospace',
+  },
+
+  uploadProgress: {
+    padding: '20px',
+    textAlign: 'center',
+  },
+
+  deleteBtn: {
+    position: 'absolute',
+    top: '12px',
+    right: '12px',
+    background: 'rgba(255, 0, 85, 0.2)',
+    border: '1px solid rgba(255, 0, 85, 0.3)',
+    color: '#ff0055',
+    '&:hover': {
+      background: 'rgba(255, 0, 85, 0.4)',
+    },
+  },
+};
 
 const VideoSystem = ({ 
-  mode = 'upload', // 'upload', 'call', 'player', 'messaging'
-  onVideoUpload,
-  onCallStart,
-  onCallEnd,
-  onMessageSend,
-  initialVideo = null,
-  isIncomingCall = false,
-  callerInfo = null
+  mode = 'player', // 'player', 'upload', 'preview'
+  videoUrl = null,
+  onUpload = null,
+  onDelete = null,
+  showControls = true,
+  autoPlay = false,
+  muted = false,
+  loop = false,
 }) => {
-  const theme = useTheme();
   const videoRef = useRef(null);
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
   const fileInputRef = useRef(null);
   
-  // State
-  const [videoFile, setVideoFile] = useState(null);
-  const [videoUrl, setVideoUrl] = useState('');
+  // Player state
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(muted);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [showPlayerControls, setShowPlayerControls] = useState(true);
+  
+  // Upload state
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [error, setError] = useState('');
-  
-  // Video call state
-  const [isInCall, setIsInCall] = useState(false);
-  const [isLocalVideoEnabled, setIsLocalVideoEnabled] = useState(true);
-  const [isLocalAudioEnabled, setIsLocalAudioEnabled] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [callDuration, setCallDuration] = useState(0);
-  const [callTimer, setCallTimer] = useState(null);
-  
-  // Video messaging state
-  const [messageText, setMessageText] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
 
-  useEffect(() => {
-    if (initialVideo) {
-      setVideoUrl(initialVideo.url);
-    }
-    
-    return () => {
-      if (callTimer) {
-        clearInterval(callTimer);
-      }
-    };
-  }, [initialVideo, callTimer]);
-
-  // Video Upload Functions
-  const handleVideoSelect = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      if (file.size > 50 * 1024 * 1024) { // 50MB limit
-        setError('Video file size must be less than 50MB');
-        return;
-      }
-      
-      if (!file.type.startsWith('video/')) {
-        setError('Please select a valid video file');
-        return;
-      }
-      
-      setVideoFile(file);
-      setVideoUrl(URL.createObjectURL(file));
-      setError('');
-    }
+  // Format time
+  const formatTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleVideoUpload = async () => {
-    if (!videoFile) return;
-    
-    setUploading(true);
-    setUploadProgress(0);
-    
-    try {
-      const formData = new FormData();
-      formData.append('video', videoFile);
-      
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/uploads/user-video', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        setUploadProgress(100);
-        if (onVideoUpload) {
-          onVideoUpload(result.video);
-        }
-        setError('');
-      } else {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
-      }
-    } catch (error) {
-      setError(`Upload failed: ${error.message}`);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  // Video Player Functions
-  const togglePlayPause = () => {
+  // Play/Pause toggle
+  const togglePlay = () => {
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause();
@@ -147,6 +186,7 @@ const VideoSystem = ({
     }
   };
 
+  // Mute toggle
   const toggleMute = () => {
     if (videoRef.current) {
       videoRef.current.muted = !isMuted;
@@ -154,373 +194,257 @@ const VideoSystem = ({
     }
   };
 
+  // Fullscreen toggle
   const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      videoRef.current?.parentElement?.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  // Seek video
+  const handleSeek = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percent = x / rect.width;
     if (videoRef.current) {
-      if (!isFullscreen) {
-        if (videoRef.current.requestFullscreen) {
-          videoRef.current.requestFullscreen();
+      videoRef.current.currentTime = percent * duration;
+    }
+  };
+
+  // Handle file select
+  const handleFileSelect = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('video/')) {
+      setUploadError('Please select a valid video file');
+      return;
+    }
+
+    // Validate file size (100MB max)
+    if (file.size > 100 * 1024 * 1024) {
+      setUploadError('Video file must be less than 100MB');
+      return;
+    }
+
+    setUploadError(null);
+    
+    // Create preview URL
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+
+    // Simulate upload (or call actual upload function)
+    if (onUpload) {
+      setIsUploading(true);
+      
+      // Simulated progress
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += 10;
+        setUploadProgress(progress);
+        if (progress >= 100) {
+          clearInterval(interval);
+          setIsUploading(false);
+          onUpload(file, url);
         }
-      } else {
-        if (document.exitFullscreen) {
-          document.exitFullscreen();
-        }
-      }
-      setIsFullscreen(!isFullscreen);
+      }, 200);
     }
-  };
+  }, [onUpload]);
 
-  // Video Call Functions
-  const startCall = () => {
-    setIsInCall(true);
-    setCallDuration(0);
-    
-    const timer = setInterval(() => {
-      setCallDuration(prev => prev + 1);
-    }, 1000);
-    setCallTimer(timer);
-    
-    if (onCallStart) {
-      onCallStart();
+  // Handle delete
+  const handleDelete = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
     }
+    if (onDelete) onDelete();
   };
 
-  const endCall = () => {
-    setIsInCall(false);
-    if (callTimer) {
-      clearInterval(callTimer);
-      setCallTimer(null);
-    }
-    setCallDuration(0);
-    
-    if (onCallEnd) {
-      onCallEnd();
-    }
-  };
-
-  const toggleLocalVideo = () => {
-    setIsLocalVideoEnabled(!isLocalVideoEnabled);
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-  };
-
-  const toggleLocalAudio = () => {
-    setIsLocalAudioEnabled(!isLocalAudioEnabled);
-  };
-
-  const toggleScreenShare = () => {
-    setIsScreenSharing(!isScreenSharing);
-  };
-
-  // Video Messaging Functions
-  const sendVideoMessage = async () => {
-    if (!videoFile || !messageText.trim()) return;
-    
-    setSendingMessage(true);
-    try {
-      if (onMessageSend) {
-        await onMessageSend({
-          video: videoFile,
-          message: messageText,
-          timestamp: new Date().toISOString()
-        });
-      }
-      setMessageText('');
-      setVideoFile(null);
-      setVideoUrl('');
-    } catch (error) {
-      setError(`Failed to send message: ${error.message}`);
-    } finally {
-      setSendingMessage(false);
-    }
-  };
-
-  // Format call duration
-  const formatDuration = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Render based on mode
-  if (mode === 'upload') {
-    return (
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Upload Video
-        </Typography>
-        
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          onChange={handleVideoSelect}
-          style={{ display: 'none' }}
-        />
-        
-        <Button
-          variant="outlined"
-          startIcon={<Upload />}
-          onClick={() => fileInputRef.current?.click()}
-          sx={{ mb: 2 }}
-        >
-          Select Video File
-        </Button>
-        
-        {videoFile && (
-          <Box mb={2}>
-            <Typography variant="body2" gutterBottom>
-              Selected: {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(2)} MB)
-            </Typography>
-            
-            {videoUrl && (
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                controls
-                style={{ width: '100%', maxWidth: '400px' }}
+  // Render upload mode
+  const renderUploadMode = () => (
+    <Box sx={styles.container}>
+      {previewUrl ? (
+        <Box sx={styles.videoWrapper}>
+          <video
+            ref={videoRef}
+            src={previewUrl}
+            style={styles.video}
+            autoPlay={false}
+            muted
+          />
+          <IconButton sx={styles.deleteBtn} onClick={handleDelete}>
+            <Delete />
+          </IconButton>
+          {isUploading && (
+            <Box sx={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              p: 2,
+              background: 'rgba(0,0,0,0.8)',
+            }}>
+              <Typography sx={{ color: '#fff', mb: 1, fontSize: 13 }}>
+                Uploading... {uploadProgress}%
+              </Typography>
+              <LinearProgress 
+                variant="determinate" 
+                value={uploadProgress}
+                sx={{
+                  height: 4,
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.1)',
+                  '& .MuiLinearProgress-bar': {
+                    background: 'linear-gradient(90deg, #00f2ea, #ff0055)',
+                  },
+                }}
               />
-            )}
-            
-            <Button
-              variant="contained"
-              onClick={handleVideoUpload}
-              disabled={uploading}
-              sx={{ mt: 1 }}
-            >
-              {uploading ? (
-                <Box display="flex" alignItems="center" gap={1}>
-                  <CircularProgress size={20} />
-                  Uploading... {uploadProgress}%
-                </Box>
-              ) : (
-                'Upload Video'
-              )}
-            </Button>
-          </Box>
-        )}
-        
-        {error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error}
-          </Alert>
-        )}
-      </Box>
-    );
-  }
-
-  if (mode === 'call') {
-    return (
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          {isIncomingCall ? 'Incoming Call' : 'Video Call'}
-        </Typography>
-        
-        {isIncomingCall && callerInfo && (
-          <Box mb={2}>
-            <Typography variant="body1">
-              {callerInfo.username} is calling...
-            </Typography>
-          </Box>
-        )}
-        
-        {isInCall && (
-          <Box mb={2}>
-            <Typography variant="body2" color="text.secondary">
-              Call Duration: {formatDuration(callDuration)}
-            </Typography>
-          </Box>
-        )}
-        
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
-            <Typography variant="subtitle2" gutterBottom>
-              Local Video
-            </Typography>
-            <video
-              ref={localVideoRef}
-              autoPlay
-              muted
-              style={{
-                width: '100%',
-                maxWidth: '300px',
-                border: '2px solid',
-                borderColor: isLocalVideoEnabled ? theme.palette.primary.main : theme.palette.grey[400]
-              }}
-            />
-          </Grid>
-          
-          <Grid item xs={12} md={6}>
-            <Typography variant="subtitle2" gutterBottom>
-              Remote Video
-            </Typography>
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              style={{
-                width: '100%',
-                maxWidth: '300px',
-                border: '2px solid',
-                borderColor: theme.palette.secondary.main
-              }}
-            />
-          </Grid>
-        </Grid>
-        
-        <Box display="flex" gap={1} mt={2} flexWrap="wrap">
-          {!isInCall ? (
-            <Button
-              variant="contained"
-              color="success"
-              startIcon={<Call />}
-              onClick={startCall}
-            >
-              Start Call
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              color="error"
-              startIcon={<CallEnd />}
-              onClick={endCall}
-            >
-              End Call
-            </Button>
+            </Box>
           )}
-          
-          <IconButton
-            onClick={toggleLocalVideo}
-            color={isLocalVideoEnabled ? 'primary' : 'default'}
-          >
-            {isLocalVideoEnabled ? <Videocam /> : <VideocamOff />}
-          </IconButton>
-          
-          <IconButton
-            onClick={toggleLocalAudio}
-            color={isLocalAudioEnabled ? 'primary' : 'default'}
-          >
-            {isLocalAudioEnabled ? <Mic /> : <MicOff />}
-          </IconButton>
-          
-          <IconButton
-            onClick={toggleScreenShare}
-            color={isScreenSharing ? 'secondary' : 'default'}
-          >
-            {isScreenSharing ? <StopScreenShare /> : <ScreenShare />}
-          </IconButton>
         </Box>
-      </Box>
-    );
-  }
+      ) : (
+        <Box 
+          sx={styles.uploadArea}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <motion.div
+            animate={{ y: [0, -5, 0] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <CloudUpload sx={{ fontSize: 48, color: '#00f2ea', mb: 2 }} />
+          </motion.div>
+          <Typography sx={{ color: '#fff', fontWeight: 600, mb: 1 }}>
+            Upload Video
+          </Typography>
+          <Typography sx={{ color: '#6a6a7a', fontSize: 14 }}>
+            Click or drag to upload (MP4, MOV, max 100MB)
+          </Typography>
+        </Box>
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        style={{ display: 'none' }}
+        onChange={handleFileSelect}
+      />
+      {uploadError && (
+        <Alert severity="error" sx={{ m: 2 }}>
+          {uploadError}
+        </Alert>
+      )}
+    </Box>
+  );
 
-  if (mode === 'player') {
-    return (
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Video Player
-        </Typography>
-        
-        {videoUrl && (
-          <Box>
+  // Render player mode
+  const renderPlayerMode = () => (
+    <Box 
+      sx={styles.container}
+      onMouseEnter={() => setShowPlayerControls(true)}
+      onMouseLeave={() => setShowPlayerControls(false)}
+    >
+      <Box sx={styles.videoWrapper}>
+        {videoUrl || previewUrl ? (
+          <>
             <video
               ref={videoRef}
-              src={videoUrl}
-              controls
-              style={{ width: '100%', maxWidth: '600px' }}
+              src={videoUrl || previewUrl}
+              style={styles.video}
+              autoPlay={autoPlay}
+              muted={isMuted}
+              loop={loop}
+              onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
+              onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
             />
             
-            <Box display="flex" gap={1} mt={1}>
-              <IconButton onClick={togglePlayPause}>
-                {isPlaying ? <Pause /> : <PlayArrow />}
-              </IconButton>
-              
-              <IconButton onClick={toggleMute}>
-                {isMuted ? <VolumeOff /> : <VolumeUp />}
-              </IconButton>
-              
-              <IconButton onClick={toggleFullscreen}>
-                {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
-              </IconButton>
-            </Box>
-          </Box>
-        )}
-      </Box>
-    );
-  }
-
-  if (mode === 'messaging') {
-    return (
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Video Message
-        </Typography>
-        
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          onChange={handleVideoSelect}
-          style={{ display: 'none' }}
-        />
-        
-        <Button
-          variant="outlined"
-          startIcon={<Upload />}
-          onClick={() => fileInputRef.current?.click()}
-          sx={{ mb: 2 }}
-        >
-          Select Video
-        </Button>
-        
-        {videoFile && (
-          <Box mb={2}>
-            <Typography variant="body2" gutterBottom>
-              Selected: {videoFile.name}
-            </Typography>
-            
-            {videoUrl && (
-              <video
-                src={videoUrl}
-                controls
-                style={{ width: '100%', maxWidth: '400px' }}
-              />
+            {/* Play button overlay */}
+            {!isPlaying && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                style={{
+                  position: 'absolute',
+                  cursor: 'pointer',
+                }}
+                onClick={togglePlay}
+              >
+                <IconButton sx={styles.playBtn}>
+                  <PlayArrow sx={{ fontSize: 28 }} />
+                </IconButton>
+              </motion.div>
             )}
-            
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              label="Add a message"
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              placeholder="Add a message to your video..."
-              sx={{ mt: 2 }}
-            />
-            
-            <Button
-              variant="contained"
-              onClick={sendVideoMessage}
-              disabled={sendingMessage || !messageText.trim()}
-              sx={{ mt: 2 }}
-            >
-              {sendingMessage ? 'Sending...' : 'Send Video Message'}
-            </Button>
+
+            {/* Controls */}
+            <AnimatePresence>
+              {showControls && showPlayerControls && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  style={styles.controls}
+                >
+                  {/* Progress bar */}
+                  <Box 
+                    sx={styles.progressBar}
+                    onClick={handleSeek}
+                  >
+                    <LinearProgress
+                      variant="determinate"
+                      value={duration ? (currentTime / duration) * 100 : 0}
+                      sx={{
+                        height: 4,
+                        borderRadius: 2,
+                        bgcolor: 'rgba(255,255,255,0.2)',
+                        '& .MuiLinearProgress-bar': {
+                          background: 'linear-gradient(90deg, #00f2ea, #ff0055)',
+                        },
+                      }}
+                    />
+                  </Box>
+
+                  {/* Control buttons */}
+                  <Box sx={styles.controlsRow}>
+                    <IconButton sx={styles.controlBtn} onClick={togglePlay}>
+                      {isPlaying ? <Pause /> : <PlayArrow />}
+                    </IconButton>
+                    
+                    <Typography sx={styles.time}>
+                      {formatTime(currentTime)} / {formatTime(duration)}
+                    </Typography>
+
+                    <Box sx={{ flex: 1 }} />
+
+                    <IconButton sx={styles.controlBtn} onClick={toggleMute}>
+                      {isMuted ? <VolumeOff /> : <VolumeUp />}
+                    </IconButton>
+                    
+                    <IconButton sx={styles.controlBtn} onClick={toggleFullscreen}>
+                      {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
+                    </IconButton>
+                  </Box>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </>
+        ) : (
+          <Box sx={styles.placeholder}>
+            <Videocam sx={{ fontSize: 64, opacity: 0.3 }} />
+            <Typography>No video available</Typography>
           </Box>
         )}
-        
-        {error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error}
-          </Alert>
-        )}
       </Box>
-    );
-  }
+    </Box>
+  );
 
-  return null;
+  // Render based on mode
+  return mode === 'upload' ? renderUploadMode() : renderPlayerMode();
 };
 
 export default VideoSystem;
-
-
-

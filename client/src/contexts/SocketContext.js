@@ -22,7 +22,7 @@ export const SocketProvider = ({ children }) => {
     if (isAuthenticated && user && localStorage.getItem('token')) {
       console.log('🔌 Attempting socket connection...');
       
-      const newSocket = io(process.env.REACT_APP_SERVER_URL || 'http://localhost:5000', {
+      const newSocket = io(process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000', {
         auth: {
           token: localStorage.getItem('token')
         },

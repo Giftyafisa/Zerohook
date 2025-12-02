@@ -1,6 +1,7 @@
 // API Configuration
 export const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
-export const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
+export const SERVER_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
+export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
 
 // Service Categories
 export const SERVICE_CATEGORIES = [

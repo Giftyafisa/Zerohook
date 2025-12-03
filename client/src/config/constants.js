@@ -1,7 +1,18 @@
 // API Configuration
-export const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
-export const SERVER_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
-export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
+// In production, REACT_APP_API_URL should be set to https://zerohook-api.onrender.com/api
+// The fallback uses production URL to ensure API calls work even if env var is missing
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 
+  (process.env.NODE_ENV === 'production' 
+    ? 'https://zerohook-api.onrender.com/api' 
+    : '/api');
+export const SERVER_URL = process.env.REACT_APP_SOCKET_URL || 
+  (process.env.NODE_ENV === 'production'
+    ? 'https://zerohook-api.onrender.com'
+    : 'http://localhost:5000');
+export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 
+  (process.env.NODE_ENV === 'production'
+    ? 'https://zerohook-api.onrender.com'
+    : 'http://localhost:5000');
 
 // Service Categories
 export const SERVICE_CATEGORIES = [

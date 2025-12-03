@@ -9,6 +9,7 @@ import {
   Tabs,
   Avatar
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   CalendarToday as CalendarIcon,
   AccessTime as TimeIcon,
@@ -34,7 +35,7 @@ const BookingsPage = () => {
     const fetchBookings = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/api/bookings', {
+        const response = await fetch(`${API_BASE_URL}/bookings`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {

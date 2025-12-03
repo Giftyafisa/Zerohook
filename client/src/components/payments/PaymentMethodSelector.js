@@ -22,6 +22,7 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { colors } from '../../theme/colors';
+import { API_BASE_URL } from '../../config/constants';
 
 const PaymentMethodSelector = ({ 
   amount, 
@@ -51,7 +52,7 @@ const PaymentMethodSelector = ({
 
   const fetchPaymentMethods = async () => {
     try {
-      const response = await fetch('/api/payments/methods', {
+      const response = await fetch(`${API_BASE_URL}/payments/methods`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -67,7 +68,7 @@ const PaymentMethodSelector = ({
 
   const fetchCurrencies = async () => {
     try {
-      const response = await fetch('/api/payments/currencies', {
+      const response = await fetch(`${API_BASE_URL}/payments/currencies`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }

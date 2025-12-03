@@ -26,6 +26,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../config/constants';
 
 const ChatSystem = () => {
   const { socket, isConnected } = useSocket();
@@ -85,7 +86,7 @@ const ChatSystem = () => {
   const loadConversations = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/chat/conversations', {
+      const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -147,7 +148,7 @@ const ChatSystem = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/chat/send', {
+      const response = await fetch(`${API_BASE_URL}/chat/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

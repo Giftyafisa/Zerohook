@@ -31,6 +31,7 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { colors } from '../../theme/colors';
+import { API_BASE_URL } from '../../config/constants';
 
 const CountrySelector = ({ 
   onCountryChange, 
@@ -53,7 +54,7 @@ const CountrySelector = ({
 
   const fetchCountries = async () => {
     try {
-      const response = await fetch('/api/countries');
+      const response = await fetch(`${API_BASE_URL}/countries`);
       const data = await response.json();
       
       if (data.success) {
@@ -74,7 +75,7 @@ const CountrySelector = ({
       const ipResponse = await fetch('https://api.ipify.org?format=json');
       const ipData = await ipResponse.json();
       
-      const response = await fetch('/api/countries/detect', {
+      const response = await fetch(`${API_BASE_URL}/countries/detect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

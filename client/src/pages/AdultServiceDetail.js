@@ -59,6 +59,7 @@ import {
   Lock
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config/constants';
 import VideoSystem from '../components/video/VideoSystem';
 
 const AdultServiceDetail = () => {
@@ -88,7 +89,7 @@ const AdultServiceDetail = () => {
     const fetchService = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/services/${id}`);
+        const response = await fetch(`${API_BASE_URL}/services/${id}`);
         
         if (response.ok) {
           const data = await response.json();

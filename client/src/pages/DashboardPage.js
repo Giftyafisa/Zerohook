@@ -7,6 +7,7 @@ import {
   Badge,
   CircularProgress
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   Notifications as NotificationsIcon,
   Verified as VerifiedIcon,
@@ -38,7 +39,7 @@ const DashboardPage = () => {
     const fetchDashboardData = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/api/dashboard/stats', {
+        const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {

@@ -5,6 +5,7 @@ import {
   CircularProgress,
   LinearProgress
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   Verified as VerifiedIcon,
   Shield as ShieldIcon,
@@ -35,7 +36,7 @@ const TrustScorePage = () => {
     const fetchTrustData = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/api/trust/score', {
+        const response = await fetch(`${API_BASE_URL}/trust/score`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {

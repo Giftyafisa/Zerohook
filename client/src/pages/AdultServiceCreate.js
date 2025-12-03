@@ -28,6 +28,7 @@ import {
   PhotoCamera
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config/constants';
 
 const AdultServiceCreate = () => {
   const navigate = useNavigate();
@@ -81,7 +82,7 @@ const AdultServiceCreate = () => {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await fetch('/api/services/categories');
+        const response = await fetch(`${API_BASE_URL}/services/categories`);
         if (response.ok) {
           const data = await response.json();
           if (data.success) {
@@ -242,7 +243,7 @@ const AdultServiceCreate = () => {
       };
       
       // Create service first to get serviceId
-      const serviceResponse = await fetch('/api/services', {
+      const serviceResponse = await fetch(`${API_BASE_URL}/services`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -266,7 +267,7 @@ const AdultServiceCreate = () => {
         });
         formDataPhotos.append('serviceId', serviceId);
         
-        const uploadResponse = await fetch('/api/uploads/service-media', {
+        const uploadResponse = await fetch(`${API_BASE_URL}/uploads/service-media`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`

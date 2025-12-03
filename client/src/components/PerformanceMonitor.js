@@ -20,6 +20,7 @@ import {
   Refresh,
   Warning
 } from '@mui/icons-material';
+import { API_BASE_URL } from '../config/constants';
 
 const PerformanceMonitor = ({ show = false }) => {
   const [expanded, setExpanded] = useState(false);
@@ -72,7 +73,7 @@ const PerformanceMonitor = ({ show = false }) => {
   const measureNetworkLatency = async () => {
     const start = performance.now();
     try {
-      await fetch('/api/health', { method: 'HEAD' });
+      await fetch(`${API_BASE_URL}/health`, { method: 'HEAD' });
       return Math.round(performance.now() - start);
     } catch {
       return 0;

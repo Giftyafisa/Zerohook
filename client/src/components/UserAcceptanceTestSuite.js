@@ -44,6 +44,7 @@ import {
   Storage
 } from '@mui/icons-material';
 import { authenticatedGet } from '../utils/apiUtils';
+import { API_BASE_URL } from '../config/constants';
 
 const UserAcceptanceTestSuite = () => {
   const theme = useTheme();
@@ -68,7 +69,7 @@ const UserAcceptanceTestSuite = () => {
       ],
       test: async () => {
         try {
-          const response = await fetch('/api/health');
+          const response = await fetch(`${API_BASE_URL}/health`);
           if (response.ok) {
             return { status: 'pass', details: 'Video system endpoints accessible' };
           }
@@ -137,7 +138,7 @@ const UserAcceptanceTestSuite = () => {
       ],
       test: async () => {
         try {
-          const response = await fetch('/api/health');
+          const response = await fetch(`${API_BASE_URL}/health`);
           if (response.ok) {
             return { status: 'pass', details: 'Mobile endpoints accessible' };
           }
@@ -161,7 +162,7 @@ const UserAcceptanceTestSuite = () => {
       test: async () => {
         try {
           const startTime = Date.now();
-          const response = await fetch('/api/health');
+          const response = await fetch(`${API_BASE_URL}/health`);
           const endTime = Date.now();
           const responseTime = endTime - startTime;
           

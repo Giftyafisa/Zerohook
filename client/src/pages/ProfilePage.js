@@ -14,6 +14,7 @@ import {
   Snackbar,
   Alert
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   Edit as EditIcon,
   PhotoCamera as CameraIcon,
@@ -63,7 +64,7 @@ const ProfilePage = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/dashboard/stats', {
+      const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -103,7 +104,7 @@ const ProfilePage = () => {
     setSaving(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/users/me', {
+      const response = await fetch(`${API_BASE_URL}/users/me`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

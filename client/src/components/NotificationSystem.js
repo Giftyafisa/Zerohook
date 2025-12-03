@@ -15,6 +15,7 @@ import {
   useTheme,
   useMediaQuery
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   Notifications,
   NotificationsActive,
@@ -152,7 +153,7 @@ const NotificationSystem = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/notifications', {
+      const response = await fetch(`${API_BASE_URL}/notifications`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -196,7 +197,7 @@ const NotificationSystem = () => {
   const markAsRead = async (notificationId) => {
     try {
       const token = localStorage.getItem('token');
-      await fetch(`/api/notifications/${notificationId}/read`, {
+      await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -217,7 +218,7 @@ const NotificationSystem = () => {
   const markAllAsRead = async () => {
     try {
       const token = localStorage.getItem('token');
-      await fetch('/api/notifications/mark-all-read', {
+      await fetch(`${API_BASE_URL}/notifications/mark-all-read`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`

@@ -13,6 +13,7 @@ import {
   TextField,
   MenuItem
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   AccountBalanceWallet as WalletIcon,
   Add as AddIcon,
@@ -47,7 +48,7 @@ const WalletPage = () => {
     const fetchWalletData = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/api/payments/wallet', {
+        const response = await fetch(`${API_BASE_URL}/payments/wallet`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {

@@ -103,7 +103,11 @@ io.use((socket, next) => {
 });
 
 // Middleware
-app.use(helmet());
+// Configure Helmet with relaxed CORP for uploaded files
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin access to uploaded files
+  crossOriginEmbedderPolicy: false // Disable COEP to allow embedding resources
+}));
 
 // Trust proxy for rate limiting behind reverse proxies (Render, Heroku, etc.)
 app.set('trust proxy', 1);
@@ -295,8 +299,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static files from uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Serve static files from uploads directory with CORS headers
+app.use('/uploads', (req, res, next) => {
+  // Set CORS headers for uploaded files
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);

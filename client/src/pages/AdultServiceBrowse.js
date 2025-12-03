@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogActions
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   FilterList,
   ViewModule,
@@ -168,8 +169,7 @@ const AdultServiceBrowse = () => {
     const fetchServices = async () => {
       try {
         setLoading(true);
-        const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-        const response = await fetch(`${API_BASE}/api/services`);
+        const response = await fetch(`${API_BASE_URL}/services`);
         if (response.ok) {
           const data = await response.json();
           console.log('🔍 Raw API Response:', data);
@@ -250,10 +250,9 @@ const AdultServiceBrowse = () => {
 
     setSendingMessage(true);
     try {
-      const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
       // Get current user info from localStorage or context
       const token = localStorage.getItem('token');
-      const userResponse = await fetch(`${API_BASE}/api/users/profile`, {
+      const userResponse = await fetch(`${API_BASE_URL}/users/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -266,7 +265,7 @@ const AdultServiceBrowse = () => {
       const userData = await userResponse.json();
       
       // Send service inquiry
-      const inquiryResponse = await fetch(`${API_BASE}/api/connections/service-inquiry`, {
+      const inquiryResponse = await fetch(`${API_BASE_URL}/connections/service-inquiry`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

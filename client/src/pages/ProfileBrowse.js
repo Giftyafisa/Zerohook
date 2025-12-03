@@ -50,6 +50,7 @@ import {
 } from '../config/locations';
 import { getDefaultImage } from '../config/images';
 import ChatSystem from '../components/ChatSystem';
+import { API_BASE_URL } from '../config/constants';
 
 const ProfileBrowse = () => {
   const theme = useTheme();
@@ -179,9 +180,6 @@ const ProfileBrowse = () => {
   const allCities = getAllCities();
   const ghanaCities = getCitiesByCountry('ghana');
   const nigeriaCities = getCitiesByCountry('nigeria');
-
-  // API base URL from environment
-  const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
   // FIXED: Stable callback with proper dependencies
   const detectUserLocation = useCallback(async () => {

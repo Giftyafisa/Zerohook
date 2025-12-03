@@ -35,6 +35,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { getDefaultImage } from '../config/images';
 import { useSocket } from '../contexts/SocketContext';
+import { API_BASE_URL } from '../config/constants';
 
 const ProfileDetailPage = () => {
   const { isAuthenticated, user } = useAuth();
@@ -52,8 +53,6 @@ const ProfileDetailPage = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState(null);
-
-  const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
   // Debug authentication state
   console.log('🔍 ProfileDetailPage auth state:', { 

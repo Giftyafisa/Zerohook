@@ -117,7 +117,7 @@ const ChatSystem = () => {
   const loadMessages = async (conversationId) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/chat/messages/${conversationId}`, {
+      const response = await fetch(`${API_BASE_URL}/chat/messages/${conversationId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {

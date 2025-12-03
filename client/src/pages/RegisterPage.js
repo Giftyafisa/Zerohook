@@ -1,18 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-// import { useDispatch } from 'react-redux'; // TODO: Connect to Redux auth actions
+import { useDispatch, useSelector } from 'react-redux';
+import { registerUser } from '../store/slices/authSlice';
 import {
   Box,
   Container,
-  Paper,
-  TextField,
-  Button,
   Typography,
-  Alert,
   CircularProgress,
   Divider,
-  IconButton,
-  InputAdornment,
   FormControlLabel,
   Checkbox,
   Grid,
@@ -22,18 +17,19 @@ import {
   MenuItem
 } from '@mui/material';
 import { 
-  Visibility, 
-  VisibilityOff, 
   Lock, 
   Person, 
   Email,
   Phone,
-  AccountCircle 
+  PersonAdd
 } from '@mui/icons-material';
+import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 
 const RegisterPage = () => {
   const navigate = useNavigate();
-  // const dispatch = useDispatch(); // TODO: Connect to Redux auth actions
+  const dispatch = useDispatch();
+  const { loading, error: authError } = useSelector((state) => state.auth);
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -44,10 +40,7 @@ const RegisterPage = () => {
     accountType: 'client',
     agreeTerms: false
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [localError, setLocalError] = useState('');
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -55,20 +48,20 @@ const RegisterPage = () => {
       ...formData,
       [name]: type === 'checkbox' ? checked : value
     });
-    setError(''); // Clear error when user types
+    setLocalError(''); // Clear error when user types
   };
 
   const validateForm = () => {
     if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
+      setLocalError('Passwords do not match');
       return false;
     }
     if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long');
+      setLocalError('Password must be at least 6 characters long');
       return false;
     }
     if (!formData.agreeTerms) {
-      setError('You must agree to the Terms of Service');
+      setLocalError('You must agree to the Terms of Service');
       return false;
     }
     return true;
@@ -76,148 +69,216 @@ const RegisterPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
+    setLocalError('');
 
     if (!validateForm()) {
-      setLoading(false);
       return;
     }
 
     try {
-      // TODO: Connect to actual registration API
-      console.log('Registration attempt:', formData);
+      const resultAction = await dispatch(registerUser({
+        email: formData.email,
+        password: formData.password,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        phone: formData.phone,
+        accountType: formData.accountType
+      }));
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // For now, redirect to subscription page (replace with actual auth logic)
-      navigate('/subscription');
-      
+      if (registerUser.fulfilled.match(resultAction)) {
+        navigate('/subscription');
+      } else {
+        console.error('Registration failed:', resultAction.error);
+      }
     } catch (err) {
-      setError('Registration failed. Please try again.');
-    } finally {
-      setLoading(false);
+      setLocalError('Registration failed. Please try again.');
     }
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 6 }}>
-      <Paper 
-        elevation={8} 
+    <Container maxWidth="sm" sx={{ py: 8 }}>
+      <GlassCard 
+        variant="default"
+        hoverable={false}
         sx={{ 
           p: 4, 
-          borderRadius: 3,
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-          border: '1px solid rgba(220, 20, 60, 0.1)'
+          borderRadius: 4,
         }}
       >
         {/* Header */}
         <Box textAlign="center" mb={4}>
-          <AccountCircle sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-          <Typography variant="h4" fontWeight="bold" color="primary.main" gutterBottom>
+          <Box
+            sx={{
+              width: 80,
+              height: 80,
+              borderRadius: '20px',
+              background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.2), rgba(255, 0, 85, 0.2))',
+              border: '1px solid rgba(0, 242, 234, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+            }}
+          >
+            <PersonAdd sx={{ fontSize: 40, color: '#00f2ea' }} />
+          </Box>
+          <Typography 
+            variant="h4" 
+            sx={{ 
+              fontWeight: 800, 
+              fontFamily: '"Outfit", sans-serif',
+              background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              mb: 1,
+            }}
+          >
             Join Zerohook
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Create your account to access the most secure Kongi marketplace
+          <Typography 
+            sx={{ 
+              color: 'rgba(255, 255, 255, 0.6)',
+              fontFamily: '"Outfit", sans-serif',
+            }}
+          >
+            Create your account to get started
           </Typography>
         </Box>
 
         {/* Error Alert */}
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
+        {(authError || localError) && (
+          <Box 
+            sx={{ 
+              mb: 3,
+              p: 2,
+              borderRadius: '12px',
+              background: 'rgba(255, 0, 85, 0.1)',
+              border: '1px solid rgba(255, 0, 85, 0.3)',
+            }}
+          >
+            <Typography sx={{ color: '#ff0055', fontFamily: '"Outfit", sans-serif' }}>
+              {authError || localError}
+            </Typography>
+          </Box>
         )}
 
         {/* Registration Form */}
         <Box component="form" onSubmit={handleSubmit}>
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             {/* Name Fields */}
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
+              <GlassInput
                 name="firstName"
                 label="First Name"
                 value={formData.firstName}
                 onChange={handleChange}
                 required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Person sx={{ color: 'primary.main' }} />
-                    </InputAdornment>
-                  ),
-                }}
+                startIcon={<Person sx={{ color: '#00f2ea' }} />}
+                placeholder="Enter first name"
               />
             </Grid>
             
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
+              <GlassInput
                 name="lastName"
                 label="Last Name"
                 value={formData.lastName}
                 onChange={handleChange}
                 required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Person sx={{ color: 'primary.main' }} />
-                    </InputAdornment>
-                  ),
-                }}
+                startIcon={<Person sx={{ color: '#00f2ea' }} />}
+                placeholder="Enter last name"
               />
             </Grid>
 
             {/* Contact Fields */}
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
+              <GlassInput
                 name="email"
                 label="Email Address"
                 type="email"
                 value={formData.email}
                 onChange={handleChange}
                 required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Email sx={{ color: 'primary.main' }} />
-                    </InputAdornment>
-                  ),
-                }}
+                startIcon={<Email sx={{ color: '#00f2ea' }} />}
+                placeholder="Enter your email"
               />
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
+              <GlassInput
                 name="phone"
                 label="Phone Number"
                 type="tel"
                 value={formData.phone}
                 onChange={handleChange}
                 required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Phone sx={{ color: 'primary.main' }} />
-                    </InputAdornment>
-                  ),
-                }}
+                startIcon={<Phone sx={{ color: '#00f2ea' }} />}
+                placeholder="Enter phone number"
               />
             </Grid>
 
             {/* Account Type */}
             <Grid item xs={12}>
-              <FormControl fullWidth>
+              <FormControl 
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: '16px',
+                    color: '#ffffff',
+                    '& fieldset': {
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '16px',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(0, 242, 234, 0.5)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#00f2ea',
+                      borderWidth: '2px',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    fontFamily: '"Outfit", sans-serif',
+                    '&.Mui-focused': {
+                      color: '#00f2ea',
+                    },
+                  },
+                  '& .MuiSelect-icon': {
+                    color: 'rgba(255, 255, 255, 0.5)',
+                  },
+                }}
+              >
                 <InputLabel>Account Type</InputLabel>
                 <Select
                   name="accountType"
                   value={formData.accountType}
                   onChange={handleChange}
                   label="Account Type"
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        background: '#1a1a1f',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        '& .MuiMenuItem-root': {
+                          fontFamily: '"Outfit", sans-serif',
+                          color: '#ffffff',
+                          '&:hover': {
+                            background: 'rgba(0, 242, 234, 0.1)',
+                          },
+                          '&.Mui-selected': {
+                            background: 'rgba(0, 242, 234, 0.2)',
+                            '&:hover': {
+                              background: 'rgba(0, 242, 234, 0.3)',
+                            },
+                          },
+                        },
+                      },
+                    },
+                  }}
                 >
                   <MenuItem value="client">Client - Looking for services</MenuItem>
                   <MenuItem value="provider">Provider - Offering services</MenuItem>
@@ -228,60 +289,28 @@ const RegisterPage = () => {
 
             {/* Password Fields */}
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
+              <GlassInput
                 name="password"
                 label="Password"
-                type={showPassword ? 'text' : 'password'}
+                type="password"
                 value={formData.password}
                 onChange={handleChange}
                 required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Lock sx={{ color: 'primary.main' }} />
-                    </InputAdornment>
-                  ),
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={() => setShowPassword(!showPassword)}
-                        edge="end"
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
+                startIcon={<Lock sx={{ color: '#00f2ea' }} />}
+                placeholder="Create password"
               />
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
+              <GlassInput
                 name="confirmPassword"
                 label="Confirm Password"
-                type={showConfirmPassword ? 'text' : 'password'}
+                type="password"
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Lock sx={{ color: 'primary.main' }} />
-                    </InputAdornment>
-                  ),
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        edge="end"
-                      >
-                        {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
+                startIcon={<Lock sx={{ color: '#00f2ea' }} />}
+                placeholder="Confirm password"
               />
             </Grid>
 
@@ -293,17 +322,28 @@ const RegisterPage = () => {
                     name="agreeTerms"
                     checked={formData.agreeTerms}
                     onChange={handleChange}
-                    sx={{ color: 'primary.main' }}
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.5)',
+                      '&.Mui-checked': {
+                        color: '#00f2ea',
+                      },
+                    }}
                   />
                 }
                 label={
-                  <Typography variant="body2">
+                  <Typography 
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.6)',
+                      fontFamily: '"Outfit", sans-serif',
+                      fontSize: '14px',
+                    }}
+                  >
                     I agree to the{' '}
-                    <Link to="/terms" style={{ color: '#DC143C', textDecoration: 'none' }}>
+                    <Link to="/terms" style={{ color: '#00f2ea', textDecoration: 'none' }}>
                       Terms of Service
                     </Link>{' '}
                     and{' '}
-                    <Link to="/privacy" style={{ color: '#DC143C', textDecoration: 'none' }}>
+                    <Link to="/privacy" style={{ color: '#00f2ea', textDecoration: 'none' }}>
                       Privacy Policy
                     </Link>
                   </Typography>
@@ -313,50 +353,56 @@ const RegisterPage = () => {
 
             {/* Submit Button */}
             <Grid item xs={12}>
-              <Button
+              <GlassButton
                 type="submit"
                 fullWidth
-                variant="contained"
-                size="large"
-                disabled={loading}
+                variant="primary"
+                loading={loading}
+                glowing
                 sx={{ 
-                  py: 1.5,
-                  fontSize: '1.1rem',
-                  fontWeight: 'bold'
+                  py: 2,
+                  fontSize: '16px',
                 }}
               >
-                {loading ? (
-                  <CircularProgress size={24} color="inherit" />
-                ) : (
-                  'Create Account'
-                )}
-              </Button>
+                Create Account
+              </GlassButton>
             </Grid>
           </Grid>
 
-          <Divider sx={{ my: 3 }}>
-            <Typography variant="body2" color="text.secondary">
+          <Divider sx={{ my: 3, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+            <Typography 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.4)',
+                fontFamily: '"Outfit", sans-serif',
+                px: 2,
+              }}
+            >
               or
             </Typography>
           </Divider>
 
           <Box textAlign="center">
-            <Typography variant="body2" color="text.secondary">
+            <Typography 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontFamily: '"Outfit", sans-serif',
+              }}
+            >
               Already have an account?{' '}
               <Link 
                 to="/login" 
                 style={{ 
-                  color: '#DC143C', 
+                  color: '#00f2ea', 
                   textDecoration: 'none',
-                  fontWeight: 'bold'
+                  fontWeight: 700,
                 }}
               >
                 Sign In
               </Link>
             </Typography>
           </Box>
-    </Box>
-      </Paper>
+        </Box>
+      </GlassCard>
     </Container>
   );
 };

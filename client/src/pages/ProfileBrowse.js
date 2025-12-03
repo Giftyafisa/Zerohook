@@ -50,7 +50,7 @@ import {
 } from '../config/locations';
 import { getDefaultImage } from '../config/images';
 import ChatSystem from '../components/ChatSystem';
-import { API_BASE_URL } from '../config/constants';
+import { API_BASE_URL, getUploadUrl } from '../config/constants';
 
 const ProfileBrowse = () => {
   const theme = useTheme();
@@ -1418,7 +1418,7 @@ const ProfileBrowse = () => {
               <CardMedia
                 component="img"
                 height={isMobile ? "200" : "250"}
-                image={profile.profileData?.profilePicture || getDefaultImage('PROFILE', profile.profileData?.gender)}
+                image={getUploadUrl(profile.profileData?.profilePicture) || getDefaultImage('PROFILE', profile.profileData?.gender)}
                 alt={`${profile.profileData?.firstName} ${profile.profileData?.lastName}`}
                 sx={{ objectFit: 'cover' }}
                 onError={(e) => {

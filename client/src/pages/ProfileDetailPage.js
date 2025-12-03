@@ -35,7 +35,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { getDefaultImage } from '../config/images';
 import { useSocket } from '../contexts/SocketContext';
-import { API_BASE_URL } from '../config/constants';
+import { API_BASE_URL, getUploadUrl } from '../config/constants';
 
 const ProfileDetailPage = () => {
   const { isAuthenticated, user } = useAuth();
@@ -303,7 +303,7 @@ const ProfileDetailPage = () => {
                   component="img"
                   height="300"
                   width="300"
-                  image={profileData.profilePicture || getDefaultImage('PROFILE', profileData.gender)}
+                  image={getUploadUrl(profileData.profilePicture) || getDefaultImage('PROFILE', profileData.gender)}
                   alt={`${profileData.firstName} ${profileData.lastName}`}
                   sx={{ 
                     objectFit: 'cover',

@@ -7,7 +7,7 @@ import {
   Badge,
   CircularProgress
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
+import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import {
   Notifications as NotificationsIcon,
   Verified as VerifiedIcon,
@@ -100,7 +100,7 @@ const DashboardPage = () => {
       <Box sx={styles.header}>
         <Box sx={styles.headerLeft}>
           <Avatar
-            src={user?.profilePicture}
+            src={getUploadUrl(user?.profilePicture)}
             sx={styles.avatar}
           >
             {user?.username?.[0]?.toUpperCase() || 'U'}

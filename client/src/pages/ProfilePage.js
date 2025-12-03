@@ -14,7 +14,7 @@ import {
   Snackbar,
   Alert
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
+import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import {
   Edit as EditIcon,
   PhotoCamera as CameraIcon,
@@ -188,7 +188,7 @@ const ProfilePage = () => {
           {/* Avatar */}
           <Box sx={styles.avatarContainer}>
             <Avatar
-              src={profileData.profilePicture}
+              src={getUploadUrl(profileData.profilePicture)}
               sx={styles.avatar}
             >
               {fullName[0]?.toUpperCase()}

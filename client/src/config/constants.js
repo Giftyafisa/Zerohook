@@ -14,6 +14,29 @@ export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL ||
     ? 'https://zerohook-api.onrender.com'
     : 'http://localhost:5000');
 
+/**
+ * Get the full URL for uploaded files (profile pictures, service images, etc.)
+ * Handles both relative paths (/uploads/...) and full URLs
+ * @param {string} path - The file path or URL
+ * @returns {string|null} - Full URL or null if no path provided
+ */
+export const getUploadUrl = (path) => {
+  if (!path) return null;
+  // If it's already a full URL, return as-is
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  // If it's a relative path starting with /uploads, prepend the server URL
+  if (path.startsWith('/uploads')) {
+    return `${SERVER_URL}${path}`;
+  }
+  // If it's just a filename, add /uploads/ prefix
+  if (!path.startsWith('/')) {
+    return `${SERVER_URL}/uploads/${path}`;
+  }
+  return `${SERVER_URL}${path}`;
+};
+
 // Service Categories
 export const SERVICE_CATEGORIES = [
   {

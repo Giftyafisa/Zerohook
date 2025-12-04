@@ -314,7 +314,7 @@ const AdultServiceDetail = () => {
             <CardMedia
               component="img"
               height={isMobile ? "250" : "400"}
-              image={service?.photos?.[selectedPhoto] || service?.photos?.[0] || '/default-service-image.jpg'}
+              image={service?.photos?.[selectedPhoto] || service?.photos?.[0] || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWExYTJlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyMCIgZmlsbD0iIzAwZjJlYSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIEltYWdlIEF2YWlsYWJsZTwvdGV4dD48L3N2Zz4='}
               alt={service?.title || 'Service'}
               sx={{ objectFit: 'cover' }}
             />

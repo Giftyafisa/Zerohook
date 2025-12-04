@@ -92,21 +92,25 @@ router.post('/create', authMiddleware, [
     let paymentMethod = 'paystack';
     
     try {
-      // Get country-specific currency for Paystack
-      const countryCurrency = await getCountryCurrency(countryCode);
+      // Use the currency sent from the frontend (local currency)
+      // Paystack supports: NGN, GHS, ZAR, KES
+      const supportedCurrencies = ['NGN', 'GHS', 'ZAR', 'KES'];
+      const paystackCurrency = supportedCurrencies.includes(currency) ? currency : 'USD';
       
-      // For testing, use USD if Paystack doesn't support the local currency
-      // In production, this would use the actual country currency
-      const paystackCurrency = countryCurrency === 'NGN' ? 'USD' : countryCurrency;
-      
-      // Create Paystack transaction with country-specific currency
+      // Create Paystack transaction with the local currency amount
       const paystackData = {
-        amount: amount, // Pass raw amount, PaystackManager will convert
+        amount: amount, // Local currency amount from frontend
         email: req.user.email || 'user@example.com',
-        currency: paystackCurrency, // Use USD for testing, country currency in production
+        currency: paystackCurrency,
         reference: `SUB_${Date.now()}_${userId}`,
         callback_url: `${process.env.BASE_URL || 'http://localhost:5000'}/api/subscriptions/paystack-callback`,
-        metadata: { userId, planId: actualPlanId, countryCode, originalCurrency: countryCurrency }
+        metadata: { 
+          userId, 
+          planId: actualPlanId, 
+          countryCode, 
+          originalAmount: amount,
+          originalCurrency: currency 
+        }
       };
 
       console.log('🔄 Attempting Paystack transaction with:', paystackData);

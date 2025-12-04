@@ -252,14 +252,6 @@ const SubscriptionPage = () => {
         <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
           Complete your registration with a subscription to access the platform
         </Typography>
-        {selectedCountry && (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 2 }}>
-            <LocationOn sx={{ color: 'success.main' }} />
-            <Typography variant="body1" color="success.main" fontWeight="bold">
-              {selectedCountry.flag} Paying from {selectedCountry.name} in {selectedCountry.currency}
-            </Typography>
-          </Box>
-        )}
       </Box>
 
       {error && (
@@ -271,6 +263,27 @@ const SubscriptionPage = () => {
       <Grid container spacing={4} justifyContent="center">
         <Grid item xs={12} md={6} lg={5}>
           <Card elevation={4} sx={{ height: '100%', border: '2px solid', borderColor: 'primary.main' }}>
+            {/* Country Badge at Top */}
+            {selectedCountry && (
+              <Box 
+                sx={{ 
+                  bgcolor: 'primary.main', 
+                  color: 'white', 
+                  py: 1.5, 
+                  px: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}
+              >
+                <LocationOn />
+                <Typography variant="body1" fontWeight="bold">
+                  {selectedCountry.flag} Paying from {selectedCountry.name}
+                </Typography>
+              </Box>
+            )}
+            
             <CardContent sx={{ p: 4, textAlign: 'center' }}>
               <Typography variant="h4" fontWeight="bold" color="primary.main" gutterBottom>
                 Basic Access
@@ -316,34 +329,6 @@ const SubscriptionPage = () => {
               </List>
             </CardContent>
 
-            {/* Country Selector */}
-            <Box sx={{ px: 4, pb: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom align="center">
-                Not in {selectedCountry?.name}? Select your country:
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {SUPPORTED_COUNTRIES.map((country) => (
-                  <Button
-                    key={country.code}
-                    variant={selectedCountry?.code === country.code ? 'contained' : 'outlined'}
-                    size="small"
-                    onClick={() => setSelectedCountry(country)}
-                    sx={{ 
-                      minWidth: 'auto', 
-                      px: 1.5, 
-                      py: 0.5,
-                      fontSize: '0.75rem',
-                      ...(selectedCountry?.code === country.code && {
-                        boxShadow: '0 0 10px rgba(0, 242, 234, 0.5)'
-                      })
-                    }}
-                  >
-                    {country.flag} {country.code}
-                  </Button>
-                ))}
-              </Box>
-            </Box>
-
             <CardActions sx={{ p: 4, pt: 2 }}>
               <Button
                 fullWidth
@@ -358,7 +343,7 @@ const SubscriptionPage = () => {
                   fontWeight: 'bold'
                 }}
               >
-                {paymentLoading ? 'Processing...' : `Pay ${selectedCountry?.symbol}${formatPrice(selectedCountry?.price || 0)}`}
+                {paymentLoading ? 'Processing...' : `Pay ${selectedCountry?.symbol}${formatPrice(selectedCountry?.price || 0)} ${selectedCountry?.currency || ''}`}
               </Button>
             </CardActions>
           </Card>

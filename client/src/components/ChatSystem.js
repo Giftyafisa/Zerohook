@@ -7,7 +7,14 @@ import {
   Avatar,
   Badge,
   InputAdornment,
-  CircularProgress
+  CircularProgress,
+  Menu,
+  MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -21,16 +28,22 @@ import {
   Check as CheckIcon,
   DoneAll as DoneAllIcon,
   EmojiEmotions as EmojiIcon,
-  Mic as MicIcon
+  Mic as MicIcon,
+  Block as BlockIcon,
+  Report as ReportIcon,
+  Delete as DeleteIcon,
+  Person as PersonIcon
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
 
 const ChatSystem = () => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
+  const navigate = useNavigate();
   
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -40,6 +53,15 @@ const ChatSystem = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
+  
+  // Call states
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [callType, setCallType] = useState(null); // 'audio' or 'video'
+  const [isCallActive, setIsCallActive] = useState(false);
+  
+  // Menu state
+  const [menuAnchorEl, setMenuAnchorEl] = useState(null);
+  const menuOpen = Boolean(menuAnchorEl);
   
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -206,6 +228,117 @@ const ChatSystem = () => {
     return date.toLocaleDateString();
   };
 
+  // Handle voice call
+  const handleVoiceCall = () => {
+    if (!selectedConversation) return;
+    setCallType('audio');
+    setCallDialogOpen(true);
+    
+    // Emit call request via socket
+    if (socket && isConnected) {
+      socket.emit('call_request', {
+        conversationId: selectedConversation.id,
+        targetUserId: selectedConversation.participantId,
+        callType: 'audio'
+      });
+    }
+  };
+
+  // Handle video call
+  const handleVideoCall = () => {
+    if (!selectedConversation) return;
+    setCallType('video');
+    setCallDialogOpen(true);
+    
+    // Emit call request via socket
+    if (socket && isConnected) {
+      socket.emit('call_request', {
+        conversationId: selectedConversation.id,
+        targetUserId: selectedConversation.participantId,
+        callType: 'video'
+      });
+    }
+  };
+
+  // Cancel/end call
+  const handleEndCall = () => {
+    setCallDialogOpen(false);
+    setIsCallActive(false);
+    setCallType(null);
+    
+    if (socket && isConnected && selectedConversation) {
+      socket.emit('call_end', {
+        conversationId: selectedConversation.id,
+        targetUserId: selectedConversation.participantId
+      });
+    }
+  };
+
+  // View user profile
+  const handleViewProfile = () => {
+    if (selectedConversation?.participantId) {
+      navigate(`/profile/${selectedConversation.participantId}`);
+    }
+    setMenuAnchorEl(null);
+  };
+
+  // Open more menu
+  const handleMenuOpen = (event) => {
+    setMenuAnchorEl(event.currentTarget);
+  };
+
+  // Close menu
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null);
+  };
+
+  // Block user
+  const handleBlockUser = async () => {
+    if (!selectedConversation?.participantId) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_BASE_URL}/users/block/${selectedConversation.participantId}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      // Remove conversation from list
+      setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
+      setSelectedConversation(null);
+      setShowMobileChat(false);
+    } catch (error) {
+      console.error('Failed to block user:', error);
+    }
+    setMenuAnchorEl(null);
+  };
+
+  // Report user
+  const handleReportUser = () => {
+    if (selectedConversation?.participantId) {
+      navigate(`/report?userId=${selectedConversation.participantId}&type=user`);
+    }
+    setMenuAnchorEl(null);
+  };
+
+  // Delete conversation
+  const handleDeleteConversation = async () => {
+    if (!selectedConversation) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_BASE_URL}/chat/conversations/${selectedConversation.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
+      setSelectedConversation(null);
+      setShowMobileChat(false);
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+    }
+    setMenuAnchorEl(null);
+  };
+
   const filteredConversations = conversations.filter(conv =>
     conv.participantName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -231,7 +364,11 @@ const ChatSystem = () => {
               >
                 <BackIcon />
               </IconButton>
-              <Box sx={styles.chatHeaderInfo}>
+              <Box 
+                sx={{ ...styles.chatHeaderInfo, cursor: 'pointer' }}
+                onClick={handleViewProfile}
+                title="View Profile"
+              >
                 <Avatar src={selectedConversation.participantAvatar} sx={styles.chatAvatar}>
                   {selectedConversation.participantName?.[0]}
                 </Avatar>
@@ -245,16 +382,59 @@ const ChatSystem = () => {
                 </Box>
               </Box>
               <Box sx={styles.chatHeaderActions}>
-                <IconButton sx={styles.headerActionBtn}>
+                <IconButton 
+                  sx={styles.headerActionBtn}
+                  onClick={handleVoiceCall}
+                  title="Voice Call"
+                >
                   <PhoneIcon />
                 </IconButton>
-                <IconButton sx={styles.headerActionBtn}>
+                <IconButton 
+                  sx={styles.headerActionBtn}
+                  onClick={handleVideoCall}
+                  title="Video Call"
+                >
                   <VideoIcon />
                 </IconButton>
-                <IconButton sx={styles.headerActionBtn}>
+                <IconButton 
+                  sx={styles.headerActionBtn}
+                  onClick={handleMenuOpen}
+                  title="More Options"
+                >
                   <MoreIcon />
                 </IconButton>
               </Box>
+              
+              {/* More Options Menu */}
+              <Menu
+                anchorEl={menuAnchorEl}
+                open={menuOpen}
+                onClose={handleMenuClose}
+                PaperProps={{
+                  sx: {
+                    bgcolor: '#1a1a2e',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    '& .MuiMenuItem-root': {
+                      color: '#fff',
+                      gap: 1.5,
+                      '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' }
+                    }
+                  }
+                }}
+              >
+                <MenuItem onClick={handleViewProfile}>
+                  <PersonIcon fontSize="small" /> View Profile
+                </MenuItem>
+                <MenuItem onClick={handleBlockUser} sx={{ color: '#ff6b6b !important' }}>
+                  <BlockIcon fontSize="small" /> Block User
+                </MenuItem>
+                <MenuItem onClick={handleReportUser} sx={{ color: '#ffa726 !important' }}>
+                  <ReportIcon fontSize="small" /> Report
+                </MenuItem>
+                <MenuItem onClick={handleDeleteConversation} sx={{ color: '#ff6b6b !important' }}>
+                  <DeleteIcon fontSize="small" /> Delete Chat
+                </MenuItem>
+              </Menu>
             </Box>
 
             {/* Escrow Bar */}
@@ -456,6 +636,64 @@ const ChatSystem = () => {
           )}
         </Box>
       </Box>
+      
+      {/* Call Dialog */}
+      <Dialog 
+        open={callDialogOpen} 
+        onClose={handleEndCall}
+        PaperProps={{
+          sx: {
+            bgcolor: '#1a1a2e',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '20px',
+            minWidth: 300
+          }
+        }}
+      >
+        <DialogTitle sx={{ color: '#fff', textAlign: 'center' }}>
+          {callType === 'video' ? '📹 Video Call' : '📞 Voice Call'}
+        </DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', py: 3 }}>
+          <Avatar 
+            src={selectedConversation?.participantAvatar}
+            sx={{ 
+              width: 80, 
+              height: 80, 
+              margin: '0 auto 16px',
+              border: '3px solid #00f2ea'
+            }}
+          >
+            {selectedConversation?.participantName?.[0]}
+          </Avatar>
+          <Typography sx={{ color: '#fff', fontSize: '18px', fontWeight: 600 }}>
+            {selectedConversation?.participantName}
+          </Typography>
+          <Typography sx={{ color: 'rgba(255,255,255,0.5)', mt: 1 }}>
+            {isCallActive ? 'Call in progress...' : 'Calling...'}
+          </Typography>
+          {!isCallActive && (
+            <CircularProgress 
+              sx={{ color: '#00f2ea', mt: 2 }} 
+              size={30}
+            />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>
+          <Button 
+            onClick={handleEndCall}
+            variant="contained"
+            sx={{
+              bgcolor: '#ff4444',
+              color: '#fff',
+              borderRadius: '12px',
+              px: 4,
+              '&:hover': { bgcolor: '#cc3333' }
+            }}
+          >
+            {isCallActive ? 'End Call' : 'Cancel'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

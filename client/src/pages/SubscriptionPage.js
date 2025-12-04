@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import {
   Box,
   Container,
@@ -22,23 +22,82 @@ import {
   DialogContent,
   DialogActions
 } from '@mui/material';
-import { CheckCircle, Star, Payment, OpenInNew } from '@mui/icons-material';
+import { CheckCircle, Star, Payment, OpenInNew, LocationOn } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import { selectUser, setSubscriptionStatus } from '../store/slices/authSlice';
+import { detectUserCountry } from '../store/slices/countrySlice';
 import subscriptionAPI from '../services/subscriptionAPI';
-import { useDispatch } from 'react-redux';
+
+// Supported countries with pricing
+const SUPPORTED_COUNTRIES = [
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', price: 30000, phoneCode: '+234' },
+  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', price: 500, phoneCode: '+233' },
+  { code: 'KE', name: 'Kenya', flag: '🇰🇪', currency: 'KES', symbol: 'KSh', price: 6500, phoneCode: '+254' },
+  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', symbol: 'R', price: 750, phoneCode: '+27' },
+  { code: 'UG', name: 'Uganda', flag: '🇺🇬', currency: 'UGX', symbol: 'USh', price: 150000, phoneCode: '+256' },
+  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', currency: 'TZS', symbol: 'TSh', price: 100000, phoneCode: '+255' },
+  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', currency: 'RWF', symbol: 'FRw', price: 50000, phoneCode: '+250' },
+  { code: 'BW', name: 'Botswana', flag: '🇧🇼', currency: 'BWP', symbol: 'P', price: 550, phoneCode: '+267' },
+  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', currency: 'ZMW', symbol: 'ZK', price: 1000, phoneCode: '+260' },
+  { code: 'MW', name: 'Malawi', flag: '🇲🇼', currency: 'MWK', symbol: 'MK', price: 70000, phoneCode: '+265' }
+];
 
 const SubscriptionPage = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
+  const { userCountry, detectedCountry, loading: countryLoading } = useSelector(state => state.country);
   
   const [loading] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [paymentData, setPaymentData] = useState(null);
   const [error, setError] = useState('');
-  const [selectedCountry, setSelectedCountry] = useState('NG');
+  const [selectedCountry, setSelectedCountry] = useState(null);
+  const [detectingLocation, setDetectingLocation] = useState(true);
+
+  // Detect country on mount
+  useEffect(() => {
+    const detectCountry = async () => {
+      try {
+        // Check if country already detected in Redux
+        if (userCountry?.code || detectedCountry?.code) {
+          const countryCode = userCountry?.code || detectedCountry?.code;
+          const country = SUPPORTED_COUNTRIES.find(c => c.code === countryCode);
+          if (country) {
+            setSelectedCountry(country);
+            console.log('📍 Using stored country:', country.name);
+          }
+          setDetectingLocation(false);
+          return;
+        }
+
+        // Otherwise detect from API
+        const result = await dispatch(detectUserCountry()).unwrap();
+        if (result.success && result.detectedCountry) {
+          const country = SUPPORTED_COUNTRIES.find(c => c.code === result.detectedCountry.code);
+          if (country) {
+            setSelectedCountry(country);
+            console.log('📍 Country auto-detected:', country.name);
+            toast.success(`📍 Location detected: ${country.flag} ${country.name}`);
+          }
+        }
+      } catch (error) {
+        console.log('Country detection failed, defaulting to Nigeria:', error);
+      } finally {
+        setDetectingLocation(false);
+      }
+    };
+
+    detectCountry();
+  }, [dispatch, userCountry, detectedCountry]);
+
+  // Set default country if none detected
+  useEffect(() => {
+    if (!detectingLocation && !selectedCountry) {
+      setSelectedCountry(SUPPORTED_COUNTRIES[0]); // Default to Nigeria
+    }
+  }, [detectingLocation, selectedCountry]);
 
   useEffect(() => {
     if (!user) {
@@ -47,16 +106,21 @@ const SubscriptionPage = () => {
   }, [user, navigate]);
 
   const handleSubscribe = async () => {
+    if (!selectedCountry) {
+      toast.error('Please select your country first');
+      return;
+    }
+
     try {
       setPaymentLoading(true);
       setError('');
 
-      // Use the selected country for the subscription
+      // Use the selected country for the subscription with local pricing
       const response = await subscriptionAPI.createSubscription({
         planId: 'Basic Access',
-        amount: 20,
-        currency: 'USD',
-        countryCode: selectedCountry
+        amount: selectedCountry.price,
+        currency: selectedCountry.currency,
+        countryCode: selectedCountry.code
       });
 
                 if (response.success) {
@@ -160,16 +224,24 @@ const SubscriptionPage = () => {
     }
   };
 
-  if (loading) {
+  if (loading || detectingLocation) {
     return (
       <Container maxWidth="md" sx={{ py: 8, textAlign: 'center' }}>
         <CircularProgress size={60} />
         <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading...
+          {detectingLocation ? '📍 Detecting your location...' : 'Loading...'}
         </Typography>
       </Container>
     );
   }
+
+  // Format price with proper formatting
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(price);
+  };
 
   return (
     <Container maxWidth="lg" sx={{ py: 6 }}>
@@ -180,9 +252,14 @@ const SubscriptionPage = () => {
         <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
           Complete your registration with a subscription to access the platform
         </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Your account has been created successfully. Now choose your subscription plan to get started.
-        </Typography>
+        {selectedCountry && (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 2 }}>
+            <LocationOn sx={{ color: 'success.main' }} />
+            <Typography variant="body1" color="success.main" fontWeight="bold">
+              {selectedCountry.flag} Paying from {selectedCountry.name} in {selectedCountry.currency}
+            </Typography>
+          </Box>
+        )}
       </Box>
 
       {error && (
@@ -192,22 +269,26 @@ const SubscriptionPage = () => {
       )}
 
       <Grid container spacing={4} justifyContent="center">
-        <Grid item xs={12} md={6} lg={4}>
-          <Card elevation={4} sx={{ height: '100%' }}>
+        <Grid item xs={12} md={6} lg={5}>
+          <Card elevation={4} sx={{ height: '100%', border: '2px solid', borderColor: 'primary.main' }}>
             <CardContent sx={{ p: 4, textAlign: 'center' }}>
               <Typography variant="h4" fontWeight="bold" color="primary.main" gutterBottom>
                 Basic Access
               </Typography>
               
               <Box sx={{ my: 3 }}>
-                <Typography variant="h2" fontWeight="bold" color="primary.main">
-                  $20
-                </Typography>
-                <Typography variant="h6" color="text.secondary">
-                  USD
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  One-time payment
+                {selectedCountry && (
+                  <>
+                    <Typography variant="h2" fontWeight="bold" color="primary.main">
+                      {selectedCountry.symbol}{formatPrice(selectedCountry.price)}
+                    </Typography>
+                    <Typography variant="h6" color="text.secondary">
+                      {selectedCountry.currency}
+                    </Typography>
+                  </>
+                )}
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  One-time payment • Lifetime access
                 </Typography>
               </Box>
 
@@ -238,35 +319,38 @@ const SubscriptionPage = () => {
             {/* Country Selector */}
             <Box sx={{ px: 4, pb: 2 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom align="center">
-                Select your country for localized payment:
+                Not in {selectedCountry?.name}? Select your country:
               </Typography>
               <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {[
-                  { code: 'NG', name: '🇳🇬 Nigeria', currency: 'NGN' },
-                  { code: 'GH', name: '🇬🇭 Ghana', currency: 'GHS' },
-                  { code: 'KE', name: '🇰🇪 Kenya', currency: 'KES' },
-                  { code: 'ZA', name: '🇿🇦 South Africa', currency: 'ZAR' }
-                ].map((country) => (
+                {SUPPORTED_COUNTRIES.map((country) => (
                   <Button
                     key={country.code}
-                    variant={selectedCountry === country.code ? 'contained' : 'outlined'}
+                    variant={selectedCountry?.code === country.code ? 'contained' : 'outlined'}
                     size="small"
-                    onClick={() => setSelectedCountry(country.code)}
-                    sx={{ minWidth: 'auto', px: 2, fontSize: '0.8rem' }}
+                    onClick={() => setSelectedCountry(country)}
+                    sx={{ 
+                      minWidth: 'auto', 
+                      px: 1.5, 
+                      py: 0.5,
+                      fontSize: '0.75rem',
+                      ...(selectedCountry?.code === country.code && {
+                        boxShadow: '0 0 10px rgba(0, 242, 234, 0.5)'
+                      })
+                    }}
                   >
-                    {country.name} ({country.currency})
+                    {country.flag} {country.code}
                   </Button>
                 ))}
               </Box>
             </Box>
 
-            <CardActions sx={{ p: 4, pt: 0 }}>
+            <CardActions sx={{ p: 4, pt: 2 }}>
               <Button
                 fullWidth
                 variant="contained"
                 size="large"
                 onClick={handleSubscribe}
-                disabled={paymentLoading}
+                disabled={paymentLoading || !selectedCountry}
                 startIcon={paymentLoading ? <CircularProgress size={20} /> : <Payment />}
                 sx={{
                   py: 1.5,
@@ -274,7 +358,7 @@ const SubscriptionPage = () => {
                   fontWeight: 'bold'
                 }}
               >
-                {paymentLoading ? 'Processing...' : 'Subscribe Now'}
+                {paymentLoading ? 'Processing...' : `Pay ${selectedCountry?.symbol}${formatPrice(selectedCountry?.price || 0)}`}
               </Button>
             </CardActions>
           </Card>
@@ -311,19 +395,16 @@ const SubscriptionPage = () => {
           </Box>
         </DialogTitle>
         <DialogContent>
-          {paymentData && (
+          {paymentData && selectedCountry && (
             <Box>
               <Typography variant="h6" gutterBottom>
                 Subscription: Basic Access
               </Typography>
               <Typography variant="body1" color="text.secondary" gutterBottom>
-                Amount: USD 20
+                Amount: {selectedCountry.symbol}{formatPrice(selectedCountry.price)} {selectedCountry.currency}
               </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Country: {selectedCountry === 'NG' ? '🇳🇬 Nigeria' : 
-                         selectedCountry === 'GH' ? '🇬🇭 Ghana' : 
-                         selectedCountry === 'KE' ? '🇰🇪 Kenya' : 
-                         selectedCountry === 'ZA' ? '🇿🇦 South Africa' : selectedCountry}
+                Country: {selectedCountry.flag} {selectedCountry.name}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {paymentData.isTestMode 

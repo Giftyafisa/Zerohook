@@ -16,11 +16,14 @@ api.interceptors.request.use((config) => {
 const countryAPI = {
   async detectCountry() {
     try {
+      console.log('🌍 countryAPI.detectCountry() called');
       // Backend will auto-detect IP from request headers
       const response = await api.post('/countries/detect', {});
+      console.log('🌍 countryAPI response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error detecting country:', error);
+      console.error('❌ Error detecting country:', error);
+      console.error('❌ Error details:', error.response?.data || error.message);
       // Return fallback country on error
       return {
         success: true,

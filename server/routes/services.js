@@ -254,13 +254,45 @@ router.get('/:id', async (req, res) => {
     const service = serviceResult.rows[0];
     console.log('✅ Service found:', service.title);
 
-    // Parse profile data
+    // Parse profile data - handle both JSON string and object
     let profileData = {};
     try {
-      profileData = JSON.parse(service.profile_data || '{}');
+      if (typeof service.profile_data === 'string') {
+        profileData = JSON.parse(service.profile_data || '{}');
+      } else if (typeof service.profile_data === 'object' && service.profile_data !== null) {
+        profileData = service.profile_data;
+      }
     } catch (e) {
-      console.error('Error parsing profile data:', e);
+      console.error('Error parsing profile data:', e.message);
       profileData = {};
+    }
+
+    // Parse media_urls - handle both JSON string and array
+    let mediaUrls = [];
+    try {
+      if (Array.isArray(service.media_urls)) {
+        mediaUrls = service.media_urls;
+      } else if (typeof service.media_urls === 'string') {
+        mediaUrls = JSON.parse(service.media_urls || '[]');
+      }
+    } catch (e) {
+      console.error('Error parsing media_urls:', e.message);
+      mediaUrls = [];
+    }
+
+    // Parse requirements - handle both JSON string and array/object
+    let requirements = [];
+    try {
+      if (Array.isArray(service.requirements)) {
+        requirements = service.requirements;
+      } else if (typeof service.requirements === 'string') {
+        requirements = JSON.parse(service.requirements || '[]');
+      } else if (typeof service.requirements === 'object' && service.requirements !== null) {
+        requirements = service.requirements;
+      }
+    } catch (e) {
+      console.error('Error parsing requirements:', e.message);
+      requirements = [];
     }
 
     // Format response to match frontend expectations
@@ -276,10 +308,10 @@ router.get('/:id', async (req, res) => {
       location: service.location_type || 'Location not specified',
       availableHours: 'Hours not specified',
       availableDays: [],
-      photos: service.media_urls ? JSON.parse(service.media_urls) : [],
+      photos: mediaUrls,
       tags: [],
       services: [],
-      requirements: service.requirements ? JSON.parse(service.requirements) : [],
+      requirements: requirements,
       safety: [],
       available: service.status === 'active',
       rating: parseFloat(service.rating) || 0,

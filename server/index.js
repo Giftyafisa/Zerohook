@@ -30,6 +30,7 @@ const subscriptionRoutes = require('./routes/subscriptions');
 const userConnectionRoutes = require('./routes/userConnections');
 const notificationRoutes = require('./routes/notifications');
 const callRoutes = require('./routes/calls');
+const geolocationRoutes = require('./routes/geolocation');
 
 // Import services
 const TrustEngine = require('./services/TrustEngine');
@@ -327,6 +328,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/connections', userConnectionRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calls', callRoutes);
+app.use('/api/geolocation', geolocationRoutes);
 app.use('/api/status', require('./routes/status'));
 
 // Health check endpoint

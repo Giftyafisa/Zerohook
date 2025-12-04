@@ -30,9 +30,10 @@ router.get('/score', authMiddleware, async (req, res) => {
       trustScoreData = await req.trustEngine.calculateTrustScore(userId);
     } else {
       // Fallback calculation
+      const baseScore = user.reputation_score || 75;
       trustScoreData = {
-        score: user.reputation_score || 75,
-        level: user.reputation_score >= 90 ? 'Elite' : user.reputation_score >= 75 ? 'Pro' : user.reputation_score >= 50 ? 'Advanced' : 'Basic',
+        score: baseScore,
+        level: baseScore >= 90 ? 'Elite' : baseScore >= 75 ? 'Pro' : baseScore >= 50 ? 'Advanced' : 'Basic',
         components: {
           verification: user.verification_tier === 'verified' ? 100 : user.verification_tier === 'basic' ? 50 : 25,
           transactions: 0,
@@ -42,18 +43,25 @@ router.get('/score', authMiddleware, async (req, res) => {
       };
     }
 
+    // Ensure score is a clean integer (0-100)
+    const finalScore = Math.round(Math.min(100, Math.max(0, trustScoreData.score || user.reputation_score || 75)));
+    const level = finalScore >= 90 ? 'Elite' : finalScore >= 75 ? 'Pro' : finalScore >= 50 ? 'Advanced' : 'Basic';
+
     res.json({
       username: user.username,
       verificationTier: user.verification_tier,
-      score: trustScoreData.score || user.reputation_score || 75,
-      level: trustScoreData.level || 'Basic',
-      nextLevel: getNextLevel(trustScoreData.level || 'Basic'),
-      pointsToNext: getPointsToNext(trustScoreData.score || 75),
+      score: finalScore,
+      level: level,
+      nextLevel: getNextLevel(level),
+      pointsToNext: getPointsToNext(finalScore),
       responseRate: 95,
       completionRate: 98,
       customerSatisfaction: 4.8,
       badges: [],
-      trustScore: trustScoreData
+      trustScore: {
+        ...trustScoreData,
+        score: finalScore
+      }
     });
 
   } catch (error) {

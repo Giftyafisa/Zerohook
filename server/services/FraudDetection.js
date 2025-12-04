@@ -1,8 +1,10 @@
 const { query } = require('../config/database');
+const IPGeolocation = require('./IPGeolocation');
 
 class FraudDetection {
   constructor() {
     this.initialized = false;
+    this.ipGeolocation = new IPGeolocation();
     this.riskThresholds = {
       low: 0.3,
       medium: 0.6,
@@ -35,6 +37,10 @@ class FraudDetection {
   async initialize() {
     try {
       console.log('🛡️ Initializing Fraud Detection System...');
+      
+      // Initialize IP Geolocation service
+      await this.ipGeolocation.initialize();
+      
       // In production, load ML models here
       this.initialized = true;
       return true;
@@ -46,6 +52,13 @@ class FraudDetection {
 
   isHealthy() {
     return this.initialized;
+  }
+
+  /**
+   * Get IP Geolocation service instance
+   */
+  getIPGeolocation() {
+    return this.ipGeolocation;
   }
 
   /**
@@ -367,21 +380,25 @@ class FraudDetection {
   }
 
   async checkIPReputation(ip) {
-    // In production, integrate with IP reputation services
-    // For now, implement basic checks
-    const knownBadIPs = ['tor_exit', 'vpn_detected', 'proxy_detected'];
-    
-    // Simple check for private/local IPs
-    if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
-      return { isSuspicious: false };
+    try {
+      // Use IP Geolocation service for comprehensive IP analysis
+      const ipRisk = await this.ipGeolocation.analyzeIPRisk(ip);
+      
+      return { 
+        isSuspicious: ipRisk.isSuspicious,
+        reason: ipRisk.riskFactors.join(', ') || null,
+        riskScore: ipRisk.riskScore,
+        location: ipRisk.location,
+        security: ipRisk.security
+      };
+    } catch (error) {
+      console.error('IP reputation check failed:', error);
+      return { 
+        isSuspicious: false,
+        reason: null,
+        riskScore: 0
+      };
     }
-    
-    // Mock implementation - in production, use services like VirusTotal, AbuseIPDB
-    return { 
-      isSuspicious: false,
-      reason: null,
-      riskScore: 0
-    };
   }
 
   async getMarketPrice(category, duration) {
@@ -478,13 +495,50 @@ class FraudDetection {
         score += 0.4;
       }
       
-      // Check for login from unusual location (if location data available)
+      // Comprehensive IP-based risk assessment using IP Geolocation
       if (context.ip && context.ip !== '::1' && context.ip !== '127.0.0.1') {
-        // Basic IP-based risk assessment
-        const suspiciousIPs = ['0.0.0.0', '255.255.255.255'];
-        if (suspiciousIPs.includes(context.ip)) {
-          factors.push('suspicious_ip_address');
-          score += 0.3;
+        const ipRisk = await this.ipGeolocation.analyzeIPRisk(context.ip);
+        
+        if (ipRisk.isSuspicious) {
+          factors.push(...ipRisk.riskFactors);
+          score += ipRisk.riskScore;
+        }
+        
+        // Log IP location for user
+        if (ipRisk.location) {
+          console.log(`📍 Login from: ${ipRisk.location.city}, ${ipRisk.location.country} (${context.ip})`);
+        }
+        
+        // Check for impossible travel (if we have previous login IP)
+        const lastLogin = await query(`
+          SELECT ip_address, created_at 
+          FROM user_sessions 
+          WHERE user_id = $1 
+          AND ip_address IS NOT NULL
+          ORDER BY created_at DESC 
+          LIMIT 1 OFFSET 1
+        `, [userId]);
+        
+        if (lastLogin.rows.length > 0 && lastLogin.rows[0].ip_address) {
+          const previousIP = lastLogin.rows[0].ip_address;
+          const timeDiff = Date.now() - new Date(lastLogin.rows[0].created_at).getTime();
+          
+          // Only check if the IPs are different
+          if (previousIP !== context.ip) {
+            const velocity = await this.ipGeolocation.calculateTravelVelocity(
+              previousIP, 
+              context.ip, 
+              timeDiff
+            );
+            
+            if (velocity.isImpossibleTravel) {
+              factors.push(`impossible_travel: ${velocity.velocityKmH}km/h from ${velocity.location1} to ${velocity.location2}`);
+              score += 0.8;
+            } else if (velocity.isSuspiciousTravel) {
+              factors.push(`suspicious_travel: ${velocity.velocityKmH}km/h`);
+              score += 0.4;
+            }
+          }
         }
       }
       

@@ -56,8 +56,7 @@ router.post('/register', rateLimitMiddleware, [
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters'),
   body('phone')
-    .optional()
-    .withMessage('Please provide a valid phone number'),
+    .optional(),
   body('firstName')
     .optional()
     .isLength({ min: 1, max: 50 })
@@ -143,7 +142,6 @@ router.post('/register', rateLimitMiddleware, [
       phone || null,
       1, // Default to basic verification tier
       JSON.stringify(profileData)
-    ]);
     ]);
 
     const user = userResult.rows[0];

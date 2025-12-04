@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { registerUser } from '../store/slices/authSlice';
@@ -14,7 +14,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  InputAdornment
 } from '@mui/material';
 import { 
   Lock, 
@@ -24,6 +25,21 @@ import {
   PersonAdd
 } from '@mui/icons-material';
 import { GlassCard, GlassButton, GlassInput } from '../components/ui';
+import { API_BASE_URL } from '../config/constants';
+
+// Supported African countries with phone codes
+const AFRICAN_COUNTRIES = [
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', phoneCode: '+234' },
+  { code: 'GH', name: 'Ghana', flag: '🇬🇭', phoneCode: '+233' },
+  { code: 'KE', name: 'Kenya', flag: '🇰🇪', phoneCode: '+254' },
+  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', phoneCode: '+27' },
+  { code: 'UG', name: 'Uganda', flag: '🇺🇬', phoneCode: '+256' },
+  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', phoneCode: '+255' },
+  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', phoneCode: '+250' },
+  { code: 'BW', name: 'Botswana', flag: '🇧🇼', phoneCode: '+267' },
+  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', phoneCode: '+260' },
+  { code: 'MW', name: 'Malawi', flag: '🇲🇼', phoneCode: '+265' }
+];
 
 const RegisterPage = () => {
   const navigate = useNavigate();
@@ -41,6 +57,37 @@ const RegisterPage = () => {
     agreeTerms: false
   });
   const [localError, setLocalError] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState(AFRICAN_COUNTRIES[0]); // Default to Nigeria
+  const [detectingLocation, setDetectingLocation] = useState(true);
+
+  // Detect user's country on mount
+  useEffect(() => {
+    const detectCountry = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/countries/detect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.detectedCountry) {
+            const detected = AFRICAN_COUNTRIES.find(c => c.code === data.detectedCountry.code);
+            if (detected) {
+              setSelectedCountry(detected);
+              console.log('📍 Country detected for phone:', detected.name, detected.phoneCode);
+            }
+          }
+        }
+      } catch (error) {
+        console.log('Country detection failed, using default:', error);
+      } finally {
+        setDetectingLocation(false);
+      }
+    };
+
+    detectCountry();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -75,14 +122,18 @@ const RegisterPage = () => {
       return;
     }
 
+    // Combine country code with phone number
+    const fullPhoneNumber = `${selectedCountry.phoneCode}${formData.phone.replace(/^0+/, '')}`;
+
     try {
       const resultAction = await dispatch(registerUser({
         email: formData.email,
         password: formData.password,
         firstName: formData.firstName,
         lastName: formData.lastName,
-        phone: formData.phone,
-        accountType: formData.accountType
+        phone: fullPhoneNumber,
+        accountType: formData.accountType,
+        countryCode: selectedCountry.code
       }));
       
       if (registerUser.fulfilled.match(resultAction)) {
@@ -191,31 +242,186 @@ const RegisterPage = () => {
               />
             </Grid>
 
-            {/* Contact Fields */}
+            {/* Contact Fields - Email and Phone on same row */}
             <Grid item xs={12} sm={6}>
-              <GlassInput
-                name="email"
-                label="Email Address"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                startIcon={<Email sx={{ color: '#00f2ea' }} />}
-                placeholder="Enter your email"
-              />
+              <Box>
+                <Typography 
+                  sx={{ 
+                    color: 'rgba(255, 255, 255, 0.6)', 
+                    fontSize: '14px', 
+                    mb: 1,
+                    fontFamily: '"Outfit", sans-serif'
+                  }}
+                >
+                  Email Address *
+                </Typography>
+                <Box 
+                  sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    height: '56px',
+                    px: 2,
+                    overflow: 'hidden',
+                    '&:hover': {
+                      borderColor: 'rgba(0, 242, 234, 0.5)',
+                    },
+                    '&:focus-within': {
+                      borderColor: '#00f2ea',
+                      borderWidth: '2px',
+                    }
+                  }}
+                >
+                  <Email sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
+                  <input
+                    name="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    autoComplete="off"
+                    placeholder="Enter your email"
+                    style={{
+                      flex: 1,
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: '#fff',
+                      fontSize: '16px',
+                      fontFamily: '"Outfit", sans-serif',
+                      height: '100%',
+                      width: '100%',
+                      WebkitBoxShadow: '0 0 0 1000px rgba(30, 30, 35, 0.8) inset',
+                      WebkitTextFillColor: '#fff'
+                    }}
+                  />
+                </Box>
+              </Box>
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <GlassInput
-                name="phone"
-                label="Phone Number"
-                type="tel"
-                value={formData.phone}
-                onChange={handleChange}
-                required
-                startIcon={<Phone sx={{ color: '#00f2ea' }} />}
-                placeholder="Enter phone number"
-              />
+              <Box>
+                <Typography 
+                  sx={{ 
+                    color: 'rgba(255, 255, 255, 0.6)', 
+                    fontSize: '14px', 
+                    mb: 1,
+                    fontFamily: '"Outfit", sans-serif'
+                  }}
+                >
+                  Phone Number *
+                </Typography>
+                <Box 
+                  sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    height: '56px',
+                    overflow: 'hidden',
+                    '&:hover': {
+                      borderColor: 'rgba(0, 242, 234, 0.5)',
+                    },
+                    '&:focus-within': {
+                      borderColor: '#00f2ea',
+                      borderWidth: '2px',
+                    }
+                  }}
+                >
+                  {/* Country Code Selector */}
+                  <Select
+                    value={selectedCountry.code}
+                    onChange={(e) => {
+                      const country = AFRICAN_COUNTRIES.find(c => c.code === e.target.value);
+                      if (country) setSelectedCountry(country);
+                    }}
+                    disabled={detectingLocation}
+                    sx={{
+                      minWidth: 100,
+                      height: '100%',
+                      color: '#fff',
+                      '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                      '& .MuiSelect-select': { 
+                        py: 0,
+                        pl: 1.5,
+                        pr: 0.5,
+                        display: 'flex',
+                        alignItems: 'center'
+                      },
+                      '& .MuiSelect-icon': { color: 'rgba(255,255,255,0.5)', right: 2 }
+                    }}
+                    MenuProps={{
+                      PaperProps: {
+                        sx: {
+                          background: '#1a1a1f',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          maxHeight: 300,
+                          '& .MuiMenuItem-root': {
+                            fontFamily: '"Outfit", sans-serif',
+                            color: '#ffffff',
+                            gap: 1,
+                            '&:hover': { background: 'rgba(0, 242, 234, 0.1)' },
+                            '&.Mui-selected': { background: 'rgba(0, 242, 234, 0.2)' },
+                          },
+                        },
+                      },
+                    }}
+                    renderValue={(value) => {
+                      const country = AFRICAN_COUNTRIES.find(c => c.code === value);
+                      return (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <span>{country?.flag}</span>
+                          <span style={{ color: '#00f2ea', fontWeight: 600, fontSize: '14px' }}>{country?.phoneCode}</span>
+                        </Box>
+                      );
+                    }}
+                  >
+                    {AFRICAN_COUNTRIES.map((country) => (
+                      <MenuItem key={country.code} value={country.code}>
+                        <span>{country.flag}</span>
+                        <span>{country.name}</span>
+                        <span style={{ color: '#00f2ea', marginLeft: 'auto' }}>{country.phoneCode}</span>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  
+                  {/* Divider */}
+                  <Box sx={{ width: '1px', height: '30px', bgcolor: 'rgba(255,255,255,0.15)' }} />
+                  
+                  {/* Phone Number Input */}
+                  <input
+                    name="phone"
+                    type="tel"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    required
+                    autoComplete="off"
+                    placeholder="Enter phone number"
+                    style={{
+                      flex: 1,
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: '#fff',
+                      fontSize: '16px',
+                      padding: '0 12px',
+                      fontFamily: '"Outfit", sans-serif',
+                      WebkitBoxShadow: '0 0 0 1000px transparent inset',
+                      WebkitTextFillColor: '#fff'
+                    }}
+                  />
+                </Box>
+                {detectingLocation && (
+                  <Typography sx={{ color: 'rgba(0, 242, 234, 0.7)', fontSize: '11px', mt: 0.5 }}>
+                    🔍 Detecting your location...
+                  </Typography>
+                )}
+              </Box>
             </Grid>
 
             {/* Account Type */}

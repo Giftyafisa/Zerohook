@@ -85,6 +85,84 @@ router.get('/profile', authMiddleware, async (req, res) => {
 });
 
 /**
+ * @route   GET /api/users/me
+ * @desc    Get current user profile (alias for /profile)
+ * @access  Private
+ */
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const userResult = await query(`
+      SELECT 
+        id, username, email, verification_tier, 
+        reputation_score, profile_data, 
+        is_subscribed, subscription_tier, subscription_expires_at,
+        created_at, last_active
+      FROM users 
+      WHERE id = $1
+    `, [userId]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+    
+    res.json({
+      success: true,
+      user: user
+    });
+
+  } catch (error) {
+    console.error('Get profile (me) error:', error);
+    res.status(500).json({
+      error: 'Failed to get profile',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/users/me
+ * @desc    Update current user profile (alias for PUT /profile)
+ * @access  Private
+ */
+router.put('/me', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { profile_data } = req.body;
+
+    // Update user profile - merge with existing data
+    const updateResult = await query(`
+      UPDATE users 
+      SET profile_data = COALESCE(profile_data, '{}'::jsonb) || $1::jsonb,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING id, username, email, verification_tier, 
+               reputation_score, profile_data, is_subscribed, subscription_tier, subscription_expires_at
+    `, [JSON.stringify(profile_data || {}), userId]);
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: updateResult.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Update profile (me) error:', error);
+    res.status(500).json({
+      error: 'Failed to update profile',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
  * @route   PUT /api/users/profile
  * @desc    Update user profile
  * @access  Private

@@ -12,7 +12,13 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
-  Alert
+  Alert,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  Autocomplete,
+  Paper
 } from '@mui/material';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import {
@@ -42,12 +48,19 @@ const ProfilePage = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
+  // Countries and cities state
+  const [countries, setCountries] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [cityInputValue, setCityInputValue] = useState('');
+  const [loadingCities, setLoadingCities] = useState(false);
+  
   const [profileData, setProfileData] = useState({
     firstName: '',
     lastName: '',
     bio: '',
     city: '',
     country: '',
+    countryCode: '',
     age: 25,
     profilePicture: null,
     trustScore: 0,
@@ -55,6 +68,48 @@ const ProfilePage = () => {
     completedServices: 0
   });
   const [editData, setEditData] = useState({});
+
+  // Fetch supported countries on mount
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/countries`);
+        if (response.ok) {
+          const data = await response.json();
+          setCountries(data.countries || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch countries:', error);
+      }
+    };
+    fetchCountries();
+  }, []);
+
+  // Fetch cities when country changes
+  useEffect(() => {
+    const fetchCities = async () => {
+      if (!editData.countryCode) {
+        setCities([]);
+        return;
+      }
+      
+      setLoadingCities(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/cities?search=${cityInputValue}`);
+        if (response.ok) {
+          const data = await response.json();
+          setCities(data.cities || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch cities:', error);
+      } finally {
+        setLoadingCities(false);
+      }
+    };
+    
+    const debounceTimer = setTimeout(fetchCities, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [editData.countryCode, cityInputValue]);
 
   const fetchProfile = useCallback(async () => {
     if (!user?.id) {
@@ -74,6 +129,7 @@ const ProfilePage = () => {
         bio: user.profile_data?.bio || '',
         city: user.profile_data?.location?.city || '',
         country: user.profile_data?.location?.country || '',
+        countryCode: user.profile_data?.location?.countryCode || '',
         age: user.profile_data?.age || 25,
         profilePicture: user.profile_data?.profile_picture?.url || user.profile_data?.profilePicture || null,
         trustScore: user.reputation_score || 75,
@@ -89,6 +145,7 @@ const ProfilePage = () => {
 
       setProfileData(data);
       setEditData(data);
+      setCityInputValue(data.city);
     } catch (error) {
       console.error('Profile fetch error:', error);
     } finally {
@@ -118,24 +175,45 @@ const ProfilePage = () => {
             age: editData.age,
             location: {
               city: editData.city,
-              country: editData.country
+              country: editData.country,
+              countryCode: editData.countryCode
             }
           }
         })
       });
 
       if (response.ok) {
+        const result = await response.json();
         setProfileData(editData);
         setEditing(false);
         setSnackbar({ open: true, message: 'Profile updated!', severity: 'success' });
+        // Update user context if available
+        if (updateUser && result.user) {
+          updateUser(result.user);
+        }
       } else {
-        throw new Error('Update failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Update failed');
       }
     } catch (error) {
-      setSnackbar({ open: true, message: 'Failed to update profile', severity: 'error' });
+      console.error('Profile update error:', error);
+      setSnackbar({ open: true, message: error.message || 'Failed to update profile', severity: 'error' });
     } finally {
       setSaving(false);
     }
+  };
+
+  // Handle country selection
+  const handleCountryChange = (countryCode) => {
+    const selectedCountry = countries.find(c => c.code === countryCode);
+    setEditData(prev => ({
+      ...prev,
+      countryCode: countryCode,
+      country: selectedCountry?.name || '',
+      city: '' // Reset city when country changes
+    }));
+    setCityInputValue('');
+    setCities([]);
   };
 
   const handleFileSelect = (e) => {
@@ -284,19 +362,85 @@ const ProfilePage = () => {
               />
             </Box>
             <Box sx={styles.formRow}>
-              <TextField
-                label="City"
-                value={editData.city}
-                onChange={(e) => setEditData({ ...editData, city: e.target.value })}
-                sx={styles.textField}
+              {/* Country Dropdown */}
+              <FormControl fullWidth sx={styles.selectField}>
+                <InputLabel id="country-label" sx={{ color: 'rgba(255,255,255,0.5)' }}>Country</InputLabel>
+                <Select
+                  labelId="country-label"
+                  value={editData.countryCode || ''}
+                  label="Country"
+                  onChange={(e) => handleCountryChange(e.target.value)}
+                  sx={styles.select}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        bgcolor: '#1a1a2e',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        '& .MuiMenuItem-root': {
+                          color: '#fff',
+                          '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' },
+                          '&.Mui-selected': { bgcolor: 'rgba(0,242,234,0.2)' }
+                        }
+                      }
+                    }
+                  }}
+                >
+                  {countries.map((country) => (
+                    <MenuItem key={country.code} value={country.code}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <span>{country.flag}</span>
+                        <span>{country.name}</span>
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              
+              {/* City Autocomplete */}
+              <Autocomplete
                 fullWidth
-              />
-              <TextField
-                label="Country"
-                value={editData.country}
-                onChange={(e) => setEditData({ ...editData, country: e.target.value })}
-                sx={styles.textField}
-                fullWidth
+                freeSolo
+                options={cities}
+                value={editData.city || ''}
+                inputValue={cityInputValue}
+                onInputChange={(event, newInputValue) => {
+                  setCityInputValue(newInputValue);
+                }}
+                onChange={(event, newValue) => {
+                  setEditData({ ...editData, city: newValue || '' });
+                }}
+                loading={loadingCities}
+                disabled={!editData.countryCode}
+                PaperComponent={({ children }) => (
+                  <Paper sx={{
+                    bgcolor: '#1a1a2e',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    '& .MuiAutocomplete-option': {
+                      color: '#fff',
+                      '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' },
+                      '&[aria-selected="true"]': { bgcolor: 'rgba(0,242,234,0.2)' }
+                    }
+                  }}>
+                    {children}
+                  </Paper>
+                )}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="City"
+                    placeholder={editData.countryCode ? "Start typing your city..." : "Select country first"}
+                    sx={styles.textField}
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {loadingCities ? <CircularProgress color="inherit" size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
               />
             </Box>
             <TextField
@@ -555,6 +699,24 @@ const styles = {
     },
     '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.5)' },
     '& .MuiInputBase-input': { color: '#fff' }
+  },
+  selectField: {
+    '& .MuiOutlinedInput-root': {
+      background: 'rgba(255,255,255,0.05)',
+      borderRadius: '12px',
+      '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' },
+      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+      '&.Mui-focused fieldset': { borderColor: '#00f2ea' }
+    },
+    '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.5)' },
+    '& .MuiSelect-select': { color: '#fff' },
+    '& .MuiSelect-icon': { color: 'rgba(255,255,255,0.5)' }
+  },
+  select: {
+    color: '#fff',
+    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#00f2ea' }
   },
   linksGrid: {
     display: 'grid',

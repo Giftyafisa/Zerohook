@@ -37,6 +37,53 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Major cities for African countries (for autocomplete)
+const AFRICAN_CITIES = {
+  NG: ['Lagos', 'Abuja', 'Kano', 'Ibadan', 'Port Harcourt', 'Benin City', 'Kaduna', 'Enugu', 'Onitsha', 'Calabar', 'Warri', 'Aba', 'Jos', 'Ilorin', 'Abeokuta', 'Oyo', 'Owerri', 'Uyo', 'Asaba', 'Akure', 'Maiduguri', 'Sokoto', 'Zaria', 'Lokoja', 'Makurdi', 'Ado-Ekiti', 'Osogbo', 'Bauchi', 'Yola', 'Lafia'],
+  GH: ['Accra', 'Kumasi', 'Tamale', 'Takoradi', 'Sekondi', 'Cape Coast', 'Koforidua', 'Tema', 'Ho', 'Sunyani', 'Techiman', 'Wa', 'Bolgatanga', 'Obuasi', 'Teshie', 'Madina', 'Kasoa', 'Dunkwa', 'Nkawkaw', 'Winneba', 'Aflao', 'Agona Swedru', 'Berekum', 'Ejura', 'Hohoe', 'Nsawam', 'Kintampo', 'Akim Oda', 'Bawku', 'Elmina'],
+  KE: ['Nairobi', 'Mombasa', 'Kisumu', 'Nakuru', 'Eldoret', 'Thika', 'Malindi', 'Kitale', 'Garissa', 'Nyeri', 'Machakos', 'Meru', 'Lamu', 'Naivasha', 'Kakamega', 'Kericho', 'Nanyuki', 'Bungoma', 'Isiolo', 'Embu', 'Kiambu', 'Ruiru', 'Kangundo', 'Kilifi', 'Voi', 'Migori', 'Homa Bay', 'Wote', 'Kajiado', 'Kerugoya'],
+  ZA: ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Port Elizabeth', 'Bloemfontein', 'East London', 'Nelspruit', 'Kimberley', 'Polokwane', 'Pietermaritzburg', 'Rustenburg', 'Witbank', 'Welkom', 'Vereeniging', 'Benoni', 'Springs', 'Boksburg', 'Alberton', 'George', 'Stellenbosch', 'Sandton', 'Soweto', 'Centurion', 'Midrand', 'Randburg', 'Roodepoort', 'Germiston', 'Krugersdorp', 'Tembisa'],
+  UG: ['Kampala', 'Gulu', 'Lira', 'Mbarara', 'Jinja', 'Mbale', 'Mukono', 'Masaka', 'Kasese', 'Hoima', 'Entebbe', 'Fort Portal', 'Soroti', 'Arua', 'Kabale', 'Iganga', 'Tororo', 'Mityana', 'Njeru', 'Wakiso', 'Lugazi', 'Masindi', 'Busia', 'Pallisa', 'Kitgum', 'Moroto', 'Moyo', 'Kotido', 'Kalangala', 'Kayunga'],
+  TZ: ['Dar es Salaam', 'Mwanza', 'Arusha', 'Dodoma', 'Mbeya', 'Zanzibar City', 'Morogoro', 'Tanga', 'Kigoma', 'Moshi', 'Tabora', 'Iringa', 'Shinyanga', 'Singida', 'Sumbawanga', 'Mtwara', 'Lindi', 'Bukoba', 'Musoma', 'Songea', 'Mpanda', 'Babati', 'Njombe', 'Bagamoyo', 'Kahama', 'Kibaha', 'Kondoa', 'Korogwe', 'Makambako', 'Same'],
+  RW: ['Kigali', 'Butare', 'Gitarama', 'Ruhengeri', 'Gisenyi', 'Byumba', 'Cyangugu', 'Kibuye', 'Nyanza', 'Kabuga', 'Rwamagana', 'Muhanga', 'Huye', 'Musanze', 'Rubavu', 'Nyagatare', 'Rusizi', 'Karongi', 'Bugesera', 'Kayonza', 'Gicumbi', 'Gatsibo', 'Kirehe', 'Ngoma', 'Ruhango', 'Burera', 'Gakenke', 'Rutsiro', 'Nyamasheke', 'Nyaruguru'],
+  BW: ['Gaborone', 'Francistown', 'Maun', 'Molepolole', 'Serowe', 'Selibe Phikwe', 'Kanye', 'Mahalapye', 'Mogoditshane', 'Mochudi', 'Lobatse', 'Palapye', 'Ramotswa', 'Jwaneng', 'Kasane', 'Tlokweng', 'Letlhakane', 'Orapa', 'Sowa Town', 'Tonota', 'Thamaga', 'Bobonong', 'Tutume', 'Nata', 'Tshabong', 'Shakawe', 'Ghanzi', 'Gumare', 'Hukuntsi', 'Kang'],
+  ZM: ['Lusaka', 'Kitwe', 'Ndola', 'Kabwe', 'Chingola', 'Mufulira', 'Livingstone', 'Luanshya', 'Kasama', 'Chipata', 'Choma', 'Solwezi', 'Mansa', 'Mongu', 'Mazabuka', 'Kafue', 'Monze', 'Chililabombwe', 'Kalulushi', 'Kapiri Mposhi', 'Petauke', 'Sesheke', 'Siavonga', 'Mpika', 'Nakonde', 'Mbala', 'Nchelenge', 'Senanga', 'Kaoma', 'Kawambwa'],
+  MW: ['Lilongwe', 'Blantyre', 'Mzuzu', 'Zomba', 'Kasungu', 'Mangochi', 'Karonga', 'Salima', 'Nkhotakota', 'Liwonde', 'Nsanje', 'Rumphi', 'Dedza', 'Ntcheu', 'Mchinji', 'Chitipa', 'Thyolo', 'Mulanje', 'Phalombe', 'Machinga', 'Balaka', 'Ntchisi', 'Dowa', 'Nkhata Bay', 'Likoma', 'Chiradzulu', 'Mwanza', 'Chikwawa', 'Neno', 'Luchenza']
+};
+
+/**
+ * @route   GET /api/countries/:code/cities
+ * @desc    Get cities for a specific country (for autocomplete)
+ * @access  Public
+ */
+router.get('/:code/cities', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const { search = '' } = req.query;
+    
+    const countryCode = code.toUpperCase();
+    const cities = AFRICAN_CITIES[countryCode] || [];
+    
+    // Filter cities by search term if provided
+    let filteredCities = cities;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredCities = cities.filter(city => 
+        city.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    res.json({
+      success: true,
+      countryCode: countryCode,
+      cities: filteredCities.slice(0, 20) // Limit to 20 results
+    });
+  } catch (error) {
+    console.error('Get cities error:', error);
+    res.status(500).json({ error: 'Failed to fetch cities' });
+  }
+});
+
 /**
  * @route   GET /api/countries/:code
  * @desc    Get specific country details

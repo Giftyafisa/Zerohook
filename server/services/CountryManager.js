@@ -1,17 +1,21 @@
 const { query } = require('../config/database');
 const axios = require('axios');
+const IPGeolocation = require('./IPGeolocation');
 
 class CountryManager {
   constructor() {
     this.initialized = false;
     this.supportedCountries = this.getSupportedAfricanCountries();
     this.defaultCountry = 'NG'; // Nigeria as default
-    this.ip2locationKey = process.env.IP_GEOLOCATION_SERVICE || '5A450BE24829C58B116F1D83533D4858';
+    this.ipGeolocation = new IPGeolocation(); // Use the new ipgeolocation.io service
   }
 
   async initialize() {
     try {
       console.log('🌍 Initializing Country Manager...');
+      
+      // Initialize IP Geolocation service
+      await this.ipGeolocation.initialize();
       
       // Initialize country data in database if needed
       await this.initializeCountryData();
@@ -211,15 +215,13 @@ class CountryManager {
   }
 
   /**
-   * Detect user's country based on IP address using IP2Location
+   * Detect user's country based on IP address using ipgeolocation.io
    * This is for VISITORS/GUESTS who are not registered
    */
   async detectUserCountry(ipAddress) {
     try {
       // Skip localhost/private IPs - return null to indicate we can't detect
-      if (ipAddress === '127.0.0.1' || ipAddress === 'localhost' || 
-          ipAddress.startsWith('192.168.') || ipAddress.startsWith('10.') ||
-          ipAddress.startsWith('172.')) {
+      if (this.ipGeolocation.isPrivateIP(ipAddress)) {
         console.log('🌍 Local/private IP detected, cannot determine country from IP');
         return {
           success: false,
@@ -228,50 +230,59 @@ class CountryManager {
         };
       }
 
-      // Use IP2Location service for better accuracy
-      const response = await axios.get(`https://api.ip2location.io/?key=${this.ip2locationKey}&ip=${ipAddress}`);
+      // Use ipgeolocation.io service for accurate detection
+      const geoData = await this.ipGeolocation.lookup(ipAddress);
       
-      if (response.data && response.data.country_code) {
-        const countryCode = response.data.country_code;
+      if (geoData && geoData.countryCode && geoData.countryCode !== 'XX') {
+        const countryCode = geoData.countryCode;
         const detectedCountry = this.supportedCountries.find(c => c.code === countryCode);
+        
+        console.log(`🌍 IP Geolocation detected: ${geoData.city}, ${geoData.country} (${countryCode})`);
         
         if (detectedCountry) {
           return {
             success: true,
             country: detectedCountry,
-            method: 'ip2location_detection',
+            method: 'ipgeolocation_io',
             confidence: 'high',
             ipInfo: {
               ip: ipAddress,
-              country: response.data.country_name,
-              region: response.data.region_name,
-              city: response.data.city_name,
-              latitude: response.data.latitude,
-              longitude: response.data.longitude
+              country: geoData.country,
+              countryCode: geoData.countryCode,
+              region: geoData.region,
+              city: geoData.city,
+              latitude: geoData.latitude,
+              longitude: geoData.longitude,
+              timezone: geoData.timezone,
+              isp: geoData.isp
             }
           };
         } else {
-          // Return default country if detected country not supported
+          // Country detected but not in supported list - return detected info with default
+          console.log(`🌍 Detected country ${countryCode} not in supported list, using default`);
           const defaultCountry = this.supportedCountries.find(c => c.code === this.defaultCountry);
           return {
             success: true,
             country: defaultCountry,
-            method: 'ip2location_detection_fallback',
-            confidence: 'low',
-            detectedCountry: countryCode,
+            method: 'ipgeolocation_io_unsupported',
+            confidence: 'medium',
+            detectedCountryCode: countryCode,
+            detectedCountryName: geoData.country,
             ipInfo: {
               ip: ipAddress,
-              country: response.data.country_name,
-              region: response.data.region_name,
-              city: response.data.city_name
-            }
+              country: geoData.country,
+              countryCode: geoData.countryCode,
+              region: geoData.region,
+              city: geoData.city
+            },
+            message: `Your country (${geoData.country}) is not yet fully supported. Using Nigeria as default.`
           };
         }
       }
       
-      throw new Error('IP2Location geolocation failed');
+      throw new Error('IP geolocation lookup failed');
     } catch (error) {
-      console.error('Country detection failed:', error);
+      console.error('Country detection failed:', error.message);
       
       // Fallback to default country
       const defaultCountry = this.supportedCountries.find(c => c.code === this.defaultCountry);
@@ -279,7 +290,8 @@ class CountryManager {
         success: true,
         country: defaultCountry,
         method: 'fallback',
-        confidence: 'low'
+        confidence: 'low',
+        error: error.message
       };
     }
   }

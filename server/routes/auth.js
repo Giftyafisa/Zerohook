@@ -25,39 +25,71 @@ const JWT_SECRET = process.env.JWT_SECRET || 'zerohook_secret_key_change_in_prod
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 
 /**
+ * Generate a unique username from firstName and lastName
+ */
+const generateUsername = async (firstName, lastName) => {
+  const base = `${firstName || 'user'}${lastName ? '_' + lastName : ''}`.toLowerCase().replace(/[^a-z0-9_]/g, '');
+  let username = base;
+  let counter = 1;
+  
+  while (true) {
+    const existing = await query('SELECT id FROM users WHERE username = $1', [username]);
+    if (existing.rows.length === 0) break;
+    username = `${base}${counter}`;
+    counter++;
+  }
+  
+  return username.substring(0, 30); // Ensure max 30 chars
+};
+
+/**
  * @route   POST /api/auth/register
  * @desc    Register new user
  * @access  Public
  */
 router.post('/register', rateLimitMiddleware, [
-  body('username')
-    .isLength({ min: 3, max: 30 })
-    .matches(/^[a-zA-Z0-9_]+$/)
-    .withMessage('Username must be 3-30 characters and contain only letters, numbers, and underscores'),
   body('email')
     .isEmail()
     .normalizeEmail()
     .withMessage('Please provide a valid email'),
   body('password')
-    .isLength({ min: 8 })
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must be at least 8 characters with uppercase, lowercase, number, and special character'),
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters'),
   body('phone')
     .optional()
-    .isMobilePhone()
-    .withMessage('Please provide a valid phone number')
+    .withMessage('Please provide a valid phone number'),
+  body('firstName')
+    .optional()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('First name must be 1-50 characters'),
+  body('lastName')
+    .optional()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Last name must be 1-50 characters'),
+  body('username')
+    .optional()
+    .isLength({ min: 3, max: 30 })
+    .matches(/^[a-zA-Z0-9_]+$/)
+    .withMessage('Username must be 3-30 characters and contain only letters, numbers, and underscores')
 ], async (req, res) => {
   try {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log('Registration validation errors:', errors.array());
       return res.status(400).json({
         error: 'Validation failed',
         details: errors.array()
       });
     }
 
-    const { username, email, password, phone, referralCode } = req.body;
+    const { email, password, phone, referralCode, firstName, lastName, accountType } = req.body;
+    let { username } = req.body;
+    
+    // Generate username if not provided
+    if (!username) {
+      username = await generateUsername(firstName, lastName);
+    }
 
     // Fraud detection analysis
     const fraudAnalysis = await req.fraudDetection.analyzeFraudRisk(null, 'registration', {
@@ -90,22 +122,28 @@ router.post('/register', rateLimitMiddleware, [
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Create user
+    // Create user with profile data including firstName and lastName
+    const profileData = {
+      firstName: firstName || '',
+      lastName: lastName || '',
+      accountType: accountType || 'client',
+      registration_ip: req.ip,
+      registration_user_agent: req.get('User-Agent'),
+      referral_code: referralCode || null
+    };
+
     const userResult = await query(`
       INSERT INTO users (username, email, password_hash, phone, verification_tier, profile_data)
       VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, username, email, verification_tier, reputation_score, trust_score, created_at
+      RETURNING id, username, email, verification_tier, reputation_score, trust_score, created_at, profile_data
     `, [
       username,
       email,
       passwordHash,
       phone || null,
       1, // Default to basic verification tier
-      JSON.stringify({
-        registration_ip: req.ip,
-        registration_user_agent: req.get('User-Agent'),
-        referral_code: referralCode || null
-      })
+      JSON.stringify(profileData)
+    ]);
     ]);
 
     const user = userResult.rows[0];
@@ -137,18 +175,19 @@ router.post('/register', rateLimitMiddleware, [
     res.status(201).json({
       message: 'Registration successful',
       token,
-             user: {
-         id: user.id,
-         username: user.username,
-         email: user.email,
-         verificationTier: user.verification_tier,
-         reputationScore: user.reputation_score,
-         trustScore: user.trust_score,
-         createdAt: user.created_at,
-         is_subscribed: false,
-         subscription_tier: null,
-         subscription_expires_at: null
-       },
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        verificationTier: user.verification_tier,
+        reputationScore: user.reputation_score,
+        trustScore: user.trust_score,
+        createdAt: user.created_at,
+        profile_data: user.profile_data,
+        is_subscribed: false,
+        subscription_tier: null,
+        subscription_expires_at: null
+      },
       fraudAnalysis: {
         riskLevel: fraudAnalysis.riskLevel,
         requiresVerification: fraudAnalysis.requiresVerification

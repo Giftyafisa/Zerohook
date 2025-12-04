@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import {
   Box,
   Container,
@@ -38,14 +38,25 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { getDefaultImage } from '../config/images';
 import { selectUser } from '../store/slices/authSlice';
-import { selectExchangeRates, selectUserCountry, selectDetectedCountry } from '../store/slices/countrySlice';
+import { selectExchangeRates, selectUserCountry, selectDetectedCountry, detectUserCountry } from '../store/slices/countrySlice';
 
 const AdultServiceBrowse = () => {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const exchangeRates = useSelector(selectExchangeRates);
   const userCountryFromSlice = useSelector(selectUserCountry);
   const detectedCountry = useSelector(selectDetectedCountry);
+  
+  // Trigger country detection if not already detected
+  useEffect(() => {
+    if (!userCountryFromSlice && !detectedCountry) {
+      console.log('🌍 No country detected, triggering detection...');
+      dispatch(detectUserCountry());
+    } else {
+      console.log('🌍 Country already detected:', userCountryFromSlice || detectedCountry);
+    }
+  }, [dispatch, userCountryFromSlice, detectedCountry]);
   
   // Currency mapping based on country
   const currencyMap = {
@@ -70,6 +81,9 @@ const AdultServiceBrowse = () => {
 
   // Get user's currency based on their profile location OR detected country
   const getUserCurrency = () => {
+    console.log('🔍 Currency detection - userCountryFromSlice:', userCountryFromSlice);
+    console.log('🔍 Currency detection - detectedCountry:', detectedCountry);
+    
     // First try: user profile data
     const userCountryFromProfile = user?.profileData?.location?.country || user?.profile_data?.location?.country;
     if (userCountryFromProfile && currencyMap[userCountryFromProfile]) {
@@ -80,12 +94,14 @@ const AdultServiceBrowse = () => {
     // Second try: detected country from countrySlice (has name, code, currency, currencySymbol)
     const detectedCountryData = userCountryFromSlice || detectedCountry;
     if (detectedCountryData) {
+      console.log('🔍 detectedCountryData:', detectedCountryData);
+      
       // Country detection API returns { code, name, currency, currencySymbol }
       const countryName = detectedCountryData.name;
       const countryCode = detectedCountryData.code;
       
       if (countryName && currencyMap[countryName]) {
-        console.log('💰 Using currency from detected country:', countryName);
+        console.log('💰 Using currency from detected country name:', countryName);
         return currencyMap[countryName];
       }
       

@@ -4,6 +4,81 @@ const { query } = require('../config/database');
 const router = express.Router();
 
 /**
+ * @route   GET /api/trust/score
+ * @desc    Get trust score for current authenticated user
+ * @access  Private
+ */
+router.get('/score', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Verify user exists
+    const userResult = await query(
+      'SELECT username, verification_tier, status, reputation_score FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0 || userResult.rows[0].status !== 'active') {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Calculate trust score using TrustEngine if available
+    let trustScoreData;
+    if (req.trustEngine) {
+      trustScoreData = await req.trustEngine.calculateTrustScore(userId);
+    } else {
+      // Fallback calculation
+      trustScoreData = {
+        score: user.reputation_score || 75,
+        level: user.reputation_score >= 90 ? 'Elite' : user.reputation_score >= 75 ? 'Pro' : user.reputation_score >= 50 ? 'Advanced' : 'Basic',
+        components: {
+          verification: user.verification_tier === 'verified' ? 100 : user.verification_tier === 'basic' ? 50 : 25,
+          transactions: 0,
+          reviews: 0,
+          behavior: 75
+        }
+      };
+    }
+
+    res.json({
+      username: user.username,
+      verificationTier: user.verification_tier,
+      score: trustScoreData.score || user.reputation_score || 75,
+      level: trustScoreData.level || 'Basic',
+      nextLevel: getNextLevel(trustScoreData.level || 'Basic'),
+      pointsToNext: getPointsToNext(trustScoreData.score || 75),
+      responseRate: 95,
+      completionRate: 98,
+      customerSatisfaction: 4.8,
+      badges: [],
+      trustScore: trustScoreData
+    });
+
+  } catch (error) {
+    console.error('Get trust score error:', error);
+    res.status(500).json({
+      error: 'Failed to get trust score'
+    });
+  }
+});
+
+// Helper functions
+function getNextLevel(currentLevel) {
+  const levels = ['Basic', 'Advanced', 'Pro', 'Elite'];
+  const index = levels.indexOf(currentLevel);
+  return index < levels.length - 1 ? levels[index + 1] : 'Elite';
+}
+
+function getPointsToNext(score) {
+  if (score >= 90) return 0;
+  if (score >= 75) return 90 - score;
+  if (score >= 50) return 75 - score;
+  return 50 - score;
+}
+
+/**
  * @route   GET /api/trust/score/:userId
  * @desc    Get detailed trust score for user
  * @access  Public

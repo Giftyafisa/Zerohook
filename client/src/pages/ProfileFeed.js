@@ -1032,71 +1032,7 @@ const ProfileFeed = () => {
   const isSubscribed = useSelector(selectIsSubscribed);
   const reduxUser = useSelector(selectUser);
 
-  // ============================================
-  // SUBSCRIPTION CHECK - Must be subscribed to browse
-  // ============================================
-  if (!isAuthenticated) {
-    // Not logged in - redirect to login
-    return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          background: 'linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          p: 3,
-        }}
-      >
-        <Card
-          sx={{
-            maxWidth: 400,
-            width: '100%',
-            background: 'rgba(30,30,35,0.95)',
-            borderRadius: '24px',
-            p: 4,
-            textAlign: 'center',
-          }}
-        >
-          <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-            Login Required
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', mb: 3 }}>
-            Please login to browse profiles
-          </Typography>
-          <Button
-            fullWidth
-            variant="contained"
-            onClick={() => navigate('/login', { state: { from: '/profiles' } })}
-            sx={{
-              background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
-              color: '#000',
-              fontWeight: 700,
-              py: 1.5,
-              borderRadius: '12px',
-            }}
-          >
-            Login
-          </Button>
-          <Button
-            fullWidth
-            variant="text"
-            onClick={() => navigate('/register')}
-            sx={{ color: '#00f2ea', mt: 1 }}
-          >
-            Create Account
-          </Button>
-        </Card>
-      </Box>
-    );
-  }
-
-  if (!isSubscribed) {
-    // Logged in but not subscribed - show paywall
-    return <SubscriptionPaywall />;
-  }
-
-  // State
+  // State - ALL hooks must be called unconditionally
   const [profiles, setProfiles] = useState([]);
   const [displayedProfiles, setDisplayedProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1124,6 +1060,9 @@ const ProfileFeed = () => {
 
   // Get user's location on mount
   useEffect(() => {
+    // Skip if not authenticated or not subscribed
+    if (!isAuthenticated || !isSubscribed) return;
+    
     const getIPLocation = async () => {
       try {
         const response = await fetch(
@@ -1260,6 +1199,12 @@ const ProfileFeed = () => {
 
   // Fetch profiles from backend recommendation engine
   const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
+    // Guard: Only fetch if authenticated and subscribed
+    if (!isAuthenticated || !isSubscribed) {
+      setLoading(false);
+      return;
+    }
+    
     try {
       if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
@@ -1351,27 +1296,31 @@ const ProfileFeed = () => {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [activeFilter, searchQuery, isAuthenticated, currentUser, reduxUser, userLocation]);
+  }, [activeFilter, searchQuery, isAuthenticated, isSubscribed, currentUser, reduxUser, userLocation]);
 
-  // Initial load - wait for location to be available
+  // Initial load - wait for location to be available and user to be subscribed
   useEffect(() => {
+    if (!isAuthenticated || !isSubscribed) return;
     if (!locationLoading) {
       fetchProfiles(1);
     }
-  }, [activeFilter, locationLoading]); // Refetch when filter changes or location becomes available
+  }, [activeFilter, locationLoading, isAuthenticated, isSubscribed, fetchProfiles]);
 
   // Debounced search
   useEffect(() => {
+    if (!isAuthenticated || !isSubscribed) return;
     const timer = setTimeout(() => {
       if (searchQuery !== '') {
         fetchProfiles(1);
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, isAuthenticated, isSubscribed, fetchProfiles]);
 
   // Infinite scroll observer
   useEffect(() => {
+    if (!isAuthenticated || !isSubscribed) return;
+    
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
@@ -1386,7 +1335,7 @@ const ProfileFeed = () => {
     }
 
     return () => observer.disconnect();
-  }, [hasMore, loadingMore, loading, page, fetchProfiles]);
+  }, [hasMore, loadingMore, loading, page, fetchProfiles, isAuthenticated, isSubscribed]);
 
   // Handle like
   const handleLike = useCallback((profileId) => {
@@ -1432,6 +1381,72 @@ const ProfileFeed = () => {
     return 4;
   };
 
+  // ============================================
+  // SUBSCRIPTION/AUTH CHECK - Render appropriate UI
+  // ============================================
+  
+  // Not logged in - show login prompt
+  if (!isAuthenticated) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          background: 'linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          p: 3,
+        }}
+      >
+        <Card
+          sx={{
+            maxWidth: 400,
+            width: '100%',
+            background: 'rgba(30,30,35,0.95)',
+            borderRadius: '24px',
+            p: 4,
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
+            Login Required
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', mb: 3 }}>
+            Please login to browse profiles
+          </Typography>
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={() => navigate('/login', { state: { from: '/profiles' } })}
+            sx={{
+              background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
+              color: '#000',
+              fontWeight: 700,
+              py: 1.5,
+              borderRadius: '12px',
+            }}
+          >
+            Login
+          </Button>
+          <Button
+            fullWidth
+            variant="text"
+            onClick={() => navigate('/register')}
+            sx={{ color: '#00f2ea', mt: 1 }}
+          >
+            Create Account
+          </Button>
+        </Card>
+      </Box>
+    );
+  }
+
+  // Logged in but not subscribed - show paywall
+  if (!isSubscribed) {
+    return <SubscriptionPaywall />;
+  }
+
+  // Subscribed user - show profile feed
   return (
     <Box
       sx={{

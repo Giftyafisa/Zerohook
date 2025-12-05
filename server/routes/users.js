@@ -2,7 +2,11 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('./auth');
 const { query, isDatabaseAvailable } = require('../config/database');
+const RecommendationEngine = require('../services/RecommendationEngine');
 const router = express.Router();
+
+// Initialize recommendation engine
+const recommendationEngine = new RecommendationEngine();
 
 // Mock profiles for when database is unavailable
 const mockProfiles = [
@@ -198,8 +202,17 @@ router.put('/profile', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/users/profiles
- * @desc    Get all user profiles for browsing (public) with advanced filtering and pagination
+ * @desc    Get recommended user profiles with advanced TikTok-style algorithm
  * @access  Public
+ * 
+ * ALGORITHM FEATURES:
+ * 1. Geolocation-based proximity ranking (closest first)
+ * 2. Quality scoring (verification, reviews, success rate)
+ * 3. User preference learning from browsing history
+ * 4. Engagement scoring (response rate, booking completion)
+ * 5. Freshness boost for new/recently active profiles
+ * 6. Diversity injection to prevent filter bubbles
+ * 7. Real-time online status priority
  */
 router.get('/profiles', async (req, res) => {
   try {
@@ -208,7 +221,7 @@ router.get('/profiles', async (req, res) => {
       console.log('⚠️  Database unavailable, returning mock profiles');
       return res.json({
         success: true,
-        users: mockProfiles, // Client expects 'users' not 'profiles'
+        users: mockProfiles,
         pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
         metadata: { mockData: true, message: 'Database temporarily unavailable' }
       });
@@ -227,10 +240,23 @@ router.get('/profiles', async (req, res) => {
       category,
       minPrice,
       maxPrice,
-      availability
+      availability,
+      filter, // Frontend filter type (all, nearby, online, verified, trending)
+      search, // Search query
+      // Location parameters for recommendation (support both naming conventions)
+      lat,
+      lng,
+      userLat,
+      userLng,
+      userCity,
+      userCountry
     } = req.query;
 
-    // Get current user ID if authenticated (for filtering out own profile)
+    // Use userLat/userLng if provided, otherwise fall back to lat/lng
+    const latitude = userLat || lat;
+    const longitude = userLng || lng;
+
+    // Get current user ID if authenticated
     const authHeader = req.headers.authorization;
     let currentUserId = null;
     
@@ -239,135 +265,75 @@ router.get('/profiles', async (req, res) => {
         const token = authHeader.substring(7);
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         currentUserId = decoded.userId;
-        console.log('🔒 Filtering out profile for authenticated user:', currentUserId);
+        console.log('🔒 Authenticated user requesting profiles:', currentUserId);
       } catch (tokenError) {
-        // Token invalid, continue as unauthenticated user
-        console.log('Invalid token in profiles request, continuing as unauthenticated');
+        console.log('Invalid token, continuing as unauthenticated');
       }
     }
 
-    // ENHANCED: More lenient validation - only require basic identifying fields
-    let whereClause = `WHERE u.profile_data IS NOT NULL 
-      AND (u.profile_data ? 'firstName' OR u.profile_data ? 'username')
-      AND u.profile_data ? 'age'`;
-    
-    const params = [];
-    let paramIndex = 1;
-    
-    // Filter out current user if authenticated
-    if (currentUserId) {
-      whereClause += ` AND u.id != $${paramIndex++}`;
-      params.push(currentUserId);
+    // Build user location from request
+    let userLocation = null;
+    if (latitude && longitude) {
+      userLocation = {
+        lat: parseFloat(latitude),
+        lng: parseFloat(longitude),
+        city: userCity || null,
+        country: userCountry || null
+      };
+      console.log('📍 User location from coordinates:', userLocation);
+    } else if (userCity || userCountry) {
+      userLocation = {
+        city: userCity,
+        country: userCountry
+      };
+      console.log('📍 User location from city/country:', userLocation);
     }
 
-    // Build dynamic filters
-    if (country) {
-      whereClause += ` AND (u.profile_data->'location'->>'country') = $${paramIndex++}`;
-      params.push(country);
-    }
+    // Build filters
+    const filters = {
+      country: country || 'all',
+      city: city || null,
+      minAge: minAge ? parseInt(minAge) : 18,
+      maxAge: maxAge ? parseInt(maxAge) : 60,
+      verificationTier: verificationTier || null,
+      category: category || 'all',
+      minPrice: minPrice ? parseFloat(minPrice) : null,
+      maxPrice: maxPrice ? parseFloat(maxPrice) : null,
+      availability: availability || null,
+      // Frontend filter modes
+      filterMode: filter || 'all', // all, nearby, online, verified, trending
+      searchQuery: search || null
+    };
 
-    if (city) {
-      whereClause += ` AND (u.profile_data->'location'->>'city') ILIKE $${paramIndex++}`;
-      params.push(`%${city}%`);
-    }
-
-    if (minAge || maxAge) {
-      if (minAge && maxAge) {
-        whereClause += ` AND (u.profile_data->>'age')::int BETWEEN $${paramIndex++} AND $${paramIndex++}`;
-        params.push(minAge, maxAge);
-      } else if (minAge) {
-        whereClause += ` AND (u.profile_data->>'age')::int >= $${paramIndex++}`;
-        params.push(minAge);
-      } else if (maxAge) {
-        whereClause += ` AND (u.profile_data->>'age')::int <= $${paramIndex++}`;
-        params.push(maxAge);
-      }
-    }
-
-    if (verificationTier) {
-      whereClause += ` AND u.verification_tier = $${paramIndex++}`;
-      params.push(verificationTier);
-    }
-
-    if (minTrustScore || maxTrustScore) {
-      if (minTrustScore && maxTrustScore) {
-        whereClause += ` AND u.reputation_score BETWEEN $${paramIndex++} AND $${paramIndex++}`;
-        params.push(minTrustScore, maxTrustScore);
-      } else if (minTrustScore) {
-        whereClause += ` AND u.reputation_score >= $${paramIndex++}`;
-        params.push(minTrustScore);
-      } else if (maxTrustScore) {
-        whereClause += ` AND u.reputation_score <= $${paramIndex++}`;
-        params.push(maxTrustScore);
-      }
-    }
-
-    if (category) {
-      whereClause += ` AND u.profile_data->'serviceCategories' ? $${paramIndex++}`;
-      params.push(category);
-    }
-
-    if (minPrice || maxPrice) {
-      if (minPrice && maxPrice) {
-        whereClause += ` AND (u.profile_data->>'basePrice')::numeric BETWEEN $${paramIndex++} AND $${paramIndex++}`;
-        params.push(minPrice, maxPrice);
-      } else if (minPrice) {
-        whereClause += ` AND (u.profile_data->>'basePrice')::numeric >= $${paramIndex++}`;
-        params.push(minPrice);
-      } else if (maxPrice) {
-        whereClause += ` AND (u.profile_data->>'basePrice')::numeric <= $${paramIndex++}`;
-        params.push(maxPrice);
-      }
-    }
-
-    if (availability) {
-      whereClause += ` AND u.profile_data->'availability' ? $${paramIndex++}`;
-      params.push(availability);
-    }
-
-    const offset = (page - 1) * limit;
-    params.push(limit, offset);
-
-    // Get total count with filters
-    const countResult = await query(`
-      SELECT COUNT(*) FROM users u ${whereClause}
-    `, params.slice(0, -2));
-    
-    const totalCount = parseInt(countResult.rows[0].count);
-
-    // Get filtered results with enhanced validation
-    const result = await query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.email,
-        u.profile_data,
-        u.verification_tier,
-        u.reputation_score,
-        u.is_subscribed,
-        u.subscription_tier,
-        u.created_at,
-        COALESCE(u.last_active, u.created_at) as last_active
-      FROM users u
-      ${whereClause}
-      ORDER BY u.created_at DESC
-      LIMIT $${paramIndex++} OFFSET $${paramIndex++}
-    `, params);
-
-    // ENHANCED: More lenient validation to ensure basic data integrity
-    const validProfiles = result.rows.filter(user => {
-      const profileData = user.profile_data;
-      return profileData && 
-             (profileData.firstName || profileData.username) && 
-             profileData.age;
+    // Use recommendation engine for advanced ranking
+    const result = await recommendationEngine.getRecommendedProfiles({
+      userId: currentUserId,
+      userLocation,
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
+      filters
     });
 
-    // Add subscription status indicators for better user differentiation
-    const enhancedProfiles = validProfiles.map(user => ({
-      ...user,
-      subscriptionStatus: user.is_subscribed ? 'subscribed' : 'free',
-      subscriptionTier: user.subscription_tier || 'basic',
-      isPremium: user.is_subscribed && (user.subscription_tier === 'premium' || user.subscription_tier === 'elite')
+    // Transform profiles for frontend
+    const enhancedProfiles = result.profiles.map(profile => ({
+      id: profile.id,
+      username: profile.username,
+      email: profile.email,
+      profile_data: profile.profile_data,
+      verification_tier: profile.verification_tier,
+      reputation_score: profile.reputation_score,
+      is_subscribed: profile.is_subscribed,
+      subscription_tier: profile.subscription_tier,
+      created_at: profile.created_at,
+      last_active: profile.last_active,
+      // Recommendation data
+      distance: profile.distance,
+      isOnline: profile.isOnline,
+      lastSeen: profile.lastSeen,
+      recommendationScore: profile.recommendationScore,
+      // Status indicators
+      subscriptionStatus: profile.is_subscribed ? 'subscribed' : 'free',
+      isPremium: profile.is_subscribed && (profile.subscription_tier === 'premium' || profile.subscription_tier === 'elite')
     }));
 
     res.json({
@@ -376,13 +342,11 @@ router.get('/profiles', async (req, res) => {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: enhancedProfiles.length,
-        pages: Math.ceil(enhancedProfiles.length / limit)
+        total: result.total,
+        pages: Math.ceil(result.total / parseInt(limit))
       },
-      filters: {
-        country, city, minAge, maxAge, verificationTier,
-        minTrustScore, maxTrustScore, category, minPrice, maxPrice, availability
-      }
+      metadata: result.metadata,
+      filters
     });
   } catch (error) {
     console.error('Get profiles error:', error);
@@ -391,7 +355,7 @@ router.get('/profiles', async (req, res) => {
     if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
       return res.json({
         success: true,
-        users: mockProfiles, // Client expects 'users' not 'profiles'
+        users: mockProfiles,
         pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
         metadata: { mockData: true, message: 'Database temporarily unavailable' }
       });
@@ -401,6 +365,25 @@ router.get('/profiles', async (req, res) => {
       error: 'Failed to fetch profiles',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  }
+});
+
+/**
+ * @route   POST /api/users/track-activity
+ * @desc    Track user activity for recommendation learning
+ * @access  Private
+ */
+router.post('/track-activity', authMiddleware, async (req, res) => {
+  try {
+    const { actionType, actionData } = req.body;
+    const userId = req.user.userId;
+
+    await recommendationEngine.trackActivity(userId, actionType, actionData);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Track activity error:', error);
+    res.status(500).json({ error: 'Failed to track activity' });
   }
 });
 

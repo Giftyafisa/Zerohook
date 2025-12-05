@@ -40,7 +40,7 @@ import TransactionsPage from './pages/TransactionsPage';
 import TrustScorePage from './pages/TrustScorePage';
 import AdultServiceBrowse from './pages/AdultServiceBrowse';
 import AdultServiceDetail from './pages/AdultServiceDetail';
-import ProfileBrowse from './pages/ProfileBrowse';
+import ProfileFeed from './pages/ProfileFeed';
 import ProfileDetailPage from './pages/ProfileDetailPage';
 import MessagesPage from './pages/MessagesPage';
 import PrivacySettings from './pages/PrivacySettings';
@@ -219,7 +219,7 @@ function AppContent() {
                     } />
                     <Route path="/profiles" element={
                       <ErrorBoundary>
-                        <ProfileBrowse />
+                        <ProfileFeed />
                       </ErrorBoundary>
                     } />
                     <Route path="/profile/:profileId" element={

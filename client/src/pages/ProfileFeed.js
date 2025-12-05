@@ -18,7 +18,16 @@ import {
   Badge,
   Tooltip,
   useTheme,
-  useMediaQuery
+  useMediaQuery,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Divider
 } from '@mui/material';
 import {
   LocationOn,
@@ -36,7 +45,10 @@ import {
   Whatshot,
   FilterList,
   NearMe,
-  Speed
+  Speed,
+  MyLocation,
+  EditLocation,
+  CheckCircle
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -44,6 +56,307 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import ChatSystem from '../components/ChatSystem';
+
+// ============================================
+// GHANA TOWN COORDINATES - For precise location matching
+// ============================================
+const GHANA_LOCATIONS = {
+  'Greater Accra': [
+    { name: 'Adjei-Kojo, Tema West', lat: 5.6750, lng: -0.0100, district: 'Tema West' },
+    { name: 'Tema', lat: 5.6698, lng: -0.0166, district: 'Tema Metro' },
+    { name: 'Tema New Town', lat: 5.6550, lng: -0.0050, district: 'Tema Metro' },
+    { name: 'Community 1, Tema', lat: 5.6600, lng: -0.0200, district: 'Tema Metro' },
+    { name: 'Community 25, Tema', lat: 5.6850, lng: 0.0100, district: 'Tema Metro' },
+    { name: 'Sakumono', lat: 5.6250, lng: -0.0350, district: 'Tema Metro' },
+    { name: 'Lashibi', lat: 5.6150, lng: -0.0400, district: 'Tema Metro' },
+    { name: 'Spintex', lat: 5.6300, lng: -0.1000, district: 'Accra Metro' },
+    { name: 'Baatsonaa', lat: 5.6200, lng: -0.0800, district: 'Accra Metro' },
+    { name: 'Nungua', lat: 5.5933, lng: -0.0653, district: 'Accra Metro' },
+    { name: 'Teshie', lat: 5.5850, lng: -0.1000, district: 'Accra Metro' },
+    { name: 'La', lat: 5.5611, lng: -0.1489, district: 'Accra Metro' },
+    { name: 'Osu', lat: 5.5550, lng: -0.1800, district: 'Accra Metro' },
+    { name: 'Labadi', lat: 5.5583, lng: -0.1467, district: 'Accra Metro' },
+    { name: 'Labone', lat: 5.5700, lng: -0.1700, district: 'Accra Metro' },
+    { name: 'Airport Residential', lat: 5.6050, lng: -0.1700, district: 'Accra Metro' },
+    { name: 'East Legon', lat: 5.6400, lng: -0.1500, district: 'Accra Metro' },
+    { name: 'Madina', lat: 5.6833, lng: -0.1644, district: 'La Nkwantanang' },
+    { name: 'Adenta', lat: 5.7200, lng: -0.1550, district: 'Adenta' },
+    { name: 'Dome', lat: 5.6500, lng: -0.2300, district: 'Ga East' },
+    { name: 'Achimota', lat: 5.6100, lng: -0.2300, district: 'Ga East' },
+    { name: 'Dzorwulu', lat: 5.5950, lng: -0.2000, district: 'Accra Metro' },
+    { name: 'Cantonments', lat: 5.5700, lng: -0.1850, district: 'Accra Metro' },
+    { name: 'Ridge', lat: 5.5650, lng: -0.2000, district: 'Accra Metro' },
+    { name: 'Accra Central', lat: 5.5560, lng: -0.2010, district: 'Accra Metro' },
+    { name: 'Circle', lat: 5.5700, lng: -0.2200, district: 'Accra Metro' },
+    { name: 'Darkuman', lat: 5.5700, lng: -0.2450, district: 'Accra Metro' },
+    { name: 'Dansoman', lat: 5.5325, lng: -0.2622, district: 'Accra Metro' },
+    { name: 'Mamprobi', lat: 5.5350, lng: -0.2300, district: 'Accra Metro' },
+    { name: 'Korle Bu', lat: 5.5350, lng: -0.2250, district: 'Accra Metro' },
+    { name: 'Kaneshie', lat: 5.5650, lng: -0.2450, district: 'Accra Metro' },
+    { name: 'Tesano', lat: 5.5800, lng: -0.2400, district: 'Accra Metro' },
+    { name: 'Abeka', lat: 5.5900, lng: -0.2350, district: 'Accra Metro' },
+    { name: 'Lapaz', lat: 5.5950, lng: -0.2600, district: 'Ga West' },
+    { name: 'Kasoa', lat: 5.5333, lng: -0.4250, district: 'Ga South' },
+    { name: 'Weija', lat: 5.5550, lng: -0.3500, district: 'Ga South' },
+    { name: 'Gbawe', lat: 5.5700, lng: -0.3200, district: 'Ga South' },
+    { name: 'Awoshie', lat: 5.5900, lng: -0.2850, district: 'Ga South' },
+    { name: 'Ablekuma', lat: 5.5800, lng: -0.2700, district: 'Ablekuma' },
+    { name: 'Ashaiman', lat: 5.6889, lng: -0.0306, district: 'Ashaiman' },
+    { name: 'Prampram', lat: 5.7167, lng: 0.1167, district: 'Ningo-Prampram' },
+    { name: 'Kpone', lat: 5.7000, lng: 0.0300, district: 'Kpone-Katamanso' },
+  ],
+  'Ashanti': [
+    { name: 'Kumasi', lat: 6.6885, lng: -1.6244, district: 'Kumasi Metro' },
+    { name: 'Adum', lat: 6.6900, lng: -1.6250, district: 'Kumasi Metro' },
+    { name: 'Oforikrom', lat: 6.6800, lng: -1.5650, district: 'Oforikrom' },
+    { name: 'Asokwa', lat: 6.6600, lng: -1.5800, district: 'Asokwa' },
+    { name: 'Tafo', lat: 6.7100, lng: -1.5850, district: 'Old Tafo' },
+    { name: 'Suame', lat: 6.7200, lng: -1.6200, district: 'Suame' },
+    { name: 'Bantama', lat: 6.7000, lng: -1.6450, district: 'Bantama' },
+    { name: 'Ejisu', lat: 6.7333, lng: -1.4500, district: 'Ejisu' },
+    { name: 'Obuasi', lat: 6.2063, lng: -1.6603, district: 'Obuasi' },
+  ],
+  'Central': [
+    { name: 'Cape Coast', lat: 5.1054, lng: -1.2466, district: 'Cape Coast Metro' },
+    { name: 'Kasoa', lat: 5.5333, lng: -0.4250, district: 'Awutu Senya East' },
+    { name: 'Winneba', lat: 5.3525, lng: -0.6228, district: 'Effutu' },
+  ],
+  'Western': [
+    { name: 'Takoradi', lat: 4.8832, lng: -1.7554, district: 'Sekondi-Takoradi' },
+    { name: 'Sekondi', lat: 4.9167, lng: -1.7167, district: 'Sekondi-Takoradi' },
+    { name: 'Tarkwa', lat: 5.3000, lng: -1.9833, district: 'Tarkwa-Nsuaem' },
+  ],
+  'Eastern': [
+    { name: 'Koforidua', lat: 6.0941, lng: -0.2593, district: 'New Juaben' },
+    { name: 'Nsawam', lat: 5.8000, lng: -0.3500, district: 'Nsawam-Adoagyiri' },
+    { name: 'Nkawkaw', lat: 6.5500, lng: -0.7667, district: 'Kwahu West' },
+  ],
+  'Volta': [
+    { name: 'Ho', lat: 6.6000, lng: 0.4700, district: 'Ho Municipality' },
+    { name: 'Hohoe', lat: 7.1500, lng: 0.4700, district: 'Hohoe Municipality' },
+    { name: 'Aflao', lat: 6.1167, lng: 1.1833, district: 'Ketu South' },
+  ],
+  'Northern': [
+    { name: 'Tamale', lat: 9.4034, lng: -0.8393, district: 'Tamale Metro' },
+    { name: 'Yendi', lat: 9.4500, lng: -0.0167, district: 'Yendi Municipal' },
+  ],
+  'Upper East': [
+    { name: 'Bolgatanga', lat: 10.7856, lng: -0.8514, district: 'Bolgatanga' },
+    { name: 'Navrongo', lat: 10.8933, lng: -1.0950, district: 'Kassena Nankana' },
+  ],
+  'Upper West': [
+    { name: 'Wa', lat: 10.0667, lng: -2.5000, district: 'Wa Municipal' },
+  ],
+};
+
+// Flatten for search
+const ALL_GHANA_LOCATIONS = Object.entries(GHANA_LOCATIONS).flatMap(([region, towns]) =>
+  towns.map(town => ({ ...town, region }))
+);
+
+// ============================================
+// LOCATION PICKER COMPONENT
+// ============================================
+const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const theme = useTheme();
+
+  const filteredLocations = useMemo(() => {
+    if (!searchQuery.trim()) {
+      // Show Tema and nearby areas by default
+      return ALL_GHANA_LOCATIONS.filter(loc => 
+        loc.region === 'Greater Accra'
+      ).slice(0, 15);
+    }
+    const query = searchQuery.toLowerCase();
+    return ALL_GHANA_LOCATIONS.filter(loc =>
+      loc.name.toLowerCase().includes(query) ||
+      loc.district.toLowerCase().includes(query) ||
+      loc.region.toLowerCase().includes(query)
+    ).slice(0, 20);
+  }, [searchQuery]);
+
+  const handleGPSLocation = async () => {
+    setGpsLoading(true);
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+        });
+      });
+      
+      const { latitude, longitude } = position.coords;
+      
+      // Find nearest town
+      let nearestTown = null;
+      let minDistance = Infinity;
+      
+      ALL_GHANA_LOCATIONS.forEach(loc => {
+        const dist = Math.sqrt(
+          Math.pow(loc.lat - latitude, 2) + Math.pow(loc.lng - longitude, 2)
+        );
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestTown = loc;
+        }
+      });
+
+      if (nearestTown) {
+        onSelectLocation({
+          ...nearestTown,
+          lat: latitude,
+          lng: longitude,
+          method: 'gps',
+          precision: 'exact'
+        });
+      }
+      onClose();
+    } catch (error) {
+      console.error('GPS Error:', error);
+      alert('Could not get GPS location. Please select manually.');
+    } finally {
+      setGpsLoading(false);
+    }
+  };
+
+  return (
+    <Dialog 
+      open={open} 
+      onClose={onClose} 
+      fullWidth 
+      maxWidth="sm"
+      PaperProps={{
+        sx: {
+          bgcolor: '#1a1a2e',
+          color: '#fff',
+          borderRadius: 3,
+          maxHeight: '80vh'
+        }
+      }}
+    >
+      <DialogTitle sx={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        borderBottom: '1px solid rgba(255,255,255,0.1)'
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <EditLocation sx={{ color: '#00f2ea' }} />
+          <Typography variant="h6">Select Your Location</Typography>
+        </Box>
+        <IconButton onClick={onClose} sx={{ color: 'rgba(255,255,255,0.6)' }}>
+          <Close />
+        </IconButton>
+      </DialogTitle>
+      
+      <DialogContent sx={{ p: 2 }}>
+        {/* GPS Button */}
+        <Button
+          fullWidth
+          variant="outlined"
+          startIcon={gpsLoading ? <CircularProgress size={20} /> : <MyLocation />}
+          onClick={handleGPSLocation}
+          disabled={gpsLoading}
+          sx={{
+            mb: 2,
+            py: 1.5,
+            borderColor: '#00f2ea',
+            color: '#00f2ea',
+            '&:hover': {
+              borderColor: '#00d4aa',
+              bgcolor: 'rgba(0,242,234,0.1)',
+            }
+          }}
+        >
+          {gpsLoading ? 'Detecting...' : 'Use My Current GPS Location'}
+        </Button>
+
+        <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.1)' }}>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+            Or select manually
+          </Typography>
+        </Divider>
+
+        {/* Search Box */}
+        <TextField
+          fullWidth
+          placeholder="Search town or area..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          sx={{
+            mb: 2,
+            '& .MuiOutlinedInput-root': {
+              bgcolor: 'rgba(255,255,255,0.05)',
+              color: '#fff',
+              '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+              '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+              '&.Mui-focused fieldset': { borderColor: '#00f2ea' },
+            },
+            '& .MuiInputBase-input::placeholder': {
+              color: 'rgba(255,255,255,0.4)',
+            }
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search sx={{ color: 'rgba(255,255,255,0.4)' }} />
+              </InputAdornment>
+            )
+          }}
+        />
+
+        {/* Location List */}
+        <List sx={{ maxHeight: 300, overflow: 'auto' }}>
+          {filteredLocations.map((location, index) => {
+            const isSelected = currentLocation?.name === location.name;
+            return (
+              <ListItem key={`${location.name}-${index}`} disablePadding>
+                <ListItemButton
+                  onClick={() => {
+                    onSelectLocation({
+                      ...location,
+                      method: 'manual',
+                      precision: 'town'
+                    });
+                    onClose();
+                  }}
+                  sx={{
+                    borderRadius: 2,
+                    mb: 0.5,
+                    bgcolor: isSelected ? 'rgba(0,242,234,0.15)' : 'transparent',
+                    '&:hover': {
+                      bgcolor: 'rgba(0,242,234,0.1)',
+                    }
+                  }}
+                >
+                  <ListItemIcon>
+                    {isSelected ? (
+                      <CheckCircle sx={{ color: '#00f2ea' }} />
+                    ) : (
+                      <LocationOn sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={location.name}
+                    secondary={`${location.district}, ${location.region}`}
+                    primaryTypographyProps={{
+                      sx: { color: isSelected ? '#00f2ea' : '#fff', fontWeight: isSelected ? 600 : 400 }
+                    }}
+                    secondaryTypographyProps={{
+                      sx: { color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            );
+          })}
+        </List>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 // ============================================
 // ACTIVITY TRACKER - Sends to Backend
@@ -582,6 +895,130 @@ const ProfileSkeleton = () => (
 );
 
 // ============================================
+// SUBSCRIPTION PAYWALL COMPONENT
+// ============================================
+
+const SubscriptionPaywall = ({ onSubscribe }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const navigate = useNavigate();
+
+  return (
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background: 'linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        p: 3,
+      }}
+    >
+      <Card
+        sx={{
+          maxWidth: 500,
+          width: '100%',
+          background: 'rgba(30,30,35,0.95)',
+          borderRadius: '24px',
+          border: '1px solid rgba(0,242,234,0.2)',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header with gradient */}
+        <Box
+          sx={{
+            background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
+            py: 4,
+            px: 3,
+            textAlign: 'center',
+          }}
+        >
+          <Box
+            sx={{
+              width: 80,
+              height: 80,
+              borderRadius: '50%',
+              bgcolor: 'rgba(0,0,0,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              mx: 'auto',
+              mb: 2,
+            }}
+          >
+            <Verified sx={{ fontSize: 48, color: '#fff' }} />
+          </Box>
+          <Typography variant="h5" sx={{ color: '#000', fontWeight: 800, mb: 1 }}>
+            Subscription Required
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.7)' }}>
+            Get full access to verified profiles
+          </Typography>
+        </Box>
+
+        <CardContent sx={{ p: 4 }}>
+          {/* Benefits */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="subtitle2" sx={{ color: '#00f2ea', mb: 2, fontWeight: 600 }}>
+              SUBSCRIPTION BENEFITS:
+            </Typography>
+            {[
+              'Browse unlimited verified profiles',
+              'Send unlimited messages',
+              'See who viewed your profile',
+              'Priority support & assistance',
+              'Access to premium features',
+              'Location-based matching',
+            ].map((benefit, index) => (
+              <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                <CheckCircle sx={{ color: '#4ade80', fontSize: 20 }} />
+                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
+                  {benefit}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+
+          {/* CTA Button */}
+          <Button
+            fullWidth
+            variant="contained"
+            size="large"
+            onClick={() => navigate('/subscription')}
+            sx={{
+              background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
+              color: '#000',
+              fontWeight: 700,
+              py: 1.5,
+              borderRadius: '12px',
+              fontSize: '1rem',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #00d4aa 0%, #00f2ea 100%)',
+                transform: 'scale(1.02)',
+              },
+            }}
+          >
+            Subscribe Now
+          </Button>
+
+          <Typography
+            variant="caption"
+            sx={{
+              display: 'block',
+              textAlign: 'center',
+              color: 'rgba(255,255,255,0.4)',
+              mt: 2,
+            }}
+          >
+            Secure payment • Cancel anytime
+          </Typography>
+        </CardContent>
+      </Card>
+    </Box>
+  );
+};
+
+// ============================================
 // MAIN PROFILE FEED COMPONENT
 // ============================================
 
@@ -594,6 +1031,70 @@ const ProfileFeed = () => {
   const { user: currentUser, isAuthenticated } = useAuth();
   const isSubscribed = useSelector(selectIsSubscribed);
   const reduxUser = useSelector(selectUser);
+
+  // ============================================
+  // SUBSCRIPTION CHECK - Must be subscribed to browse
+  // ============================================
+  if (!isAuthenticated) {
+    // Not logged in - redirect to login
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          background: 'linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          p: 3,
+        }}
+      >
+        <Card
+          sx={{
+            maxWidth: 400,
+            width: '100%',
+            background: 'rgba(30,30,35,0.95)',
+            borderRadius: '24px',
+            p: 4,
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
+            Login Required
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', mb: 3 }}>
+            Please login to browse profiles
+          </Typography>
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={() => navigate('/login', { state: { from: '/profiles' } })}
+            sx={{
+              background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
+              color: '#000',
+              fontWeight: 700,
+              py: 1.5,
+              borderRadius: '12px',
+            }}
+          >
+            Login
+          </Button>
+          <Button
+            fullWidth
+            variant="text"
+            onClick={() => navigate('/register')}
+            sx={{ color: '#00f2ea', mt: 1 }}
+          >
+            Create Account
+          </Button>
+        </Card>
+      </Box>
+    );
+  }
+
+  if (!isSubscribed) {
+    // Logged in but not subscribed - show paywall
+    return <SubscriptionPaywall />;
+  }
 
   // State
   const [profiles, setProfiles] = useState([]);
@@ -610,6 +1111,7 @@ const ProfileFeed = () => {
   const [hasMore, setHasMore] = useState(true);
   const [userLocation, setUserLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(true);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   
   const observerRef = useRef(null);
   const loadMoreRef = useRef(null);
@@ -643,8 +1145,34 @@ const ProfileFeed = () => {
       return null;
     };
 
+    // Known Ghana locations with precise coordinates for manual selection
+    const KNOWN_LOCATIONS = {
+      'tema-west-adjei-kojo': { lat: 5.6647, lng: -0.0175, city: 'Tema West (Adjei-Kojo)', country: 'Ghana' },
+      'tema-community-1': { lat: 5.6698, lng: -0.0166, city: 'Tema Community 1', country: 'Ghana' },
+      'accra-central': { lat: 5.5560, lng: -0.1969, city: 'Accra Central', country: 'Ghana' },
+      'osu': { lat: 5.5571, lng: -0.1818, city: 'Osu', country: 'Ghana' },
+      'east-legon': { lat: 5.6350, lng: -0.1550, city: 'East Legon', country: 'Ghana' },
+      'madina': { lat: 5.6700, lng: -0.1650, city: 'Madina', country: 'Ghana' },
+      'spintex': { lat: 5.6350, lng: -0.0850, city: 'Spintex', country: 'Ghana' },
+      'airport-residential': { lat: 5.6050, lng: -0.1700, city: 'Airport Residential', country: 'Ghana' },
+    };
+
     const getUserLocation = async () => {
       setLocationLoading(true);
+      
+      // Check for saved manual location first
+      const savedLocation = localStorage.getItem('userManualLocation');
+      if (savedLocation) {
+        try {
+          const parsed = JSON.parse(savedLocation);
+          setUserLocation({ ...parsed, source: 'manual' });
+          setLocationLoading(false);
+          console.log('📍 Using saved manual location:', parsed.city);
+          return;
+        } catch (e) {
+          localStorage.removeItem('userManualLocation');
+        }
+      }
       
       // Start IP detection immediately (as backup)
       const ipLocationPromise = getIPLocation();
@@ -654,13 +1182,17 @@ const ProfileFeed = () => {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             // GPS success - use precise location
-            setUserLocation({
+            const gpsLocation = {
               lat: position.coords.latitude,
               lng: position.coords.longitude,
               accuracy: position.coords.accuracy,
+              city: 'Current Location',
+              country: 'Ghana', // Assume Ghana for now
               source: 'gps'
-            });
+            };
+            setUserLocation(gpsLocation);
             setLocationLoading(false);
+            console.log('📍 GPS location:', gpsLocation.lat, gpsLocation.lng, '(accuracy:', gpsLocation.accuracy, 'm)');
           },
           async (error) => {
             console.log('Geolocation denied/blocked, using IP detection:', error.message);
@@ -669,13 +1201,14 @@ const ProfileFeed = () => {
             if (ipLocation) {
               setUserLocation(ipLocation);
               console.log('📍 IP-based location:', ipLocation.city, ipLocation.country);
+              console.log('⚠️ IP location is city-level only. For precise results, enable GPS or set location manually.');
             }
             setLocationLoading(false);
           },
           { 
-            enableHighAccuracy: false, // Faster response
-            timeout: 5000, // Shorter timeout
-            maximumAge: 600000 // Cache for 10 minutes
+            enableHighAccuracy: true, // Request high accuracy
+            timeout: 10000, 
+            maximumAge: 300000 // Cache for 5 minutes
           }
         );
       } else {
@@ -689,6 +1222,31 @@ const ProfileFeed = () => {
     };
 
     getUserLocation();
+  }, []);
+
+  // Function to set manual location (for testing or when GPS blocked)
+  const setManualLocation = useCallback((locationKey) => {
+    const KNOWN_LOCATIONS = {
+      'tema-west-adjei-kojo': { lat: 5.6647, lng: -0.0175, city: 'Tema West (Adjei-Kojo)', country: 'Ghana' },
+      'tema-community-1': { lat: 5.6698, lng: -0.0166, city: 'Tema Community 1', country: 'Ghana' },
+      'accra-central': { lat: 5.5560, lng: -0.1969, city: 'Accra Central', country: 'Ghana' },
+      'osu': { lat: 5.5571, lng: -0.1818, city: 'Osu', country: 'Ghana' },
+      'east-legon': { lat: 5.6350, lng: -0.1550, city: 'East Legon', country: 'Ghana' },
+      'madina': { lat: 5.6700, lng: -0.1650, city: 'Madina', country: 'Ghana' },
+      'spintex': { lat: 5.6350, lng: -0.0850, city: 'Spintex', country: 'Ghana' },
+    };
+    
+    const location = KNOWN_LOCATIONS[locationKey];
+    if (location) {
+      const manualLocation = { ...location, source: 'manual' };
+      setUserLocation(manualLocation);
+      localStorage.setItem('userManualLocation', JSON.stringify(manualLocation));
+      console.log('📍 Manual location set:', location.city);
+      // Refresh profiles with new location
+      setPage(1);
+      setProfiles([]);
+      setDisplayedProfiles([]);
+    }
   }, []);
 
   // Filter options - Simple and clean
@@ -757,16 +1315,16 @@ const ProfileFeed = () => {
           id: user.id,
           username: user.username,
           profileData: user.profile_data || {},
-          verificationTier: user.verification_tier || 1,
-          trustScore: user.reputation_score || 75,
+          verificationTier: parseInt(user.verification_tier) || 1,
+          trustScore: parseFloat(user.reputation_score) || 75,
           isPremium: user.is_subscribed,
           isOnline: user.isOnline || false, // From recommendation engine
           lastActive: user.lastSeen || user.last_active || user.created_at,
           createdAt: user.created_at,
-          // Recommendation engine data
-          distance: user.distance, // Distance in km from backend
-          recommendationScore: user.recommendationScore,
-          successRate: user.successRate,
+          // Recommendation engine data - ensure numbers
+          distance: user.distance != null ? parseFloat(user.distance) : null,
+          recommendationScore: parseFloat(user.recommendationScore) || 0,
+          successRate: parseFloat(user.successRate) || 0,
           sameCountry: user.sameCountry,
         }));
 
@@ -904,17 +1462,46 @@ const ProfileFeed = () => {
               Find verified profiles
             </Typography>
             {userLocation && (
+              <Tooltip title="Click to change location">
+                <Chip
+                  size="small"
+                  icon={<NearMe sx={{ fontSize: 14, color: '#00f2ea !important' }} />}
+                  label={userLocation.city || userLocation.name || 'Location enabled'}
+                  onClick={() => setShowLocationPicker(true)}
+                  deleteIcon={<EditLocation sx={{ fontSize: 14 }} />}
+                  onDelete={() => setShowLocationPicker(true)}
+                  sx={{
+                    bgcolor: 'rgba(0,242,234,0.1)',
+                    color: '#00f2ea',
+                    border: '1px solid rgba(0,242,234,0.2)',
+                    fontSize: '0.75rem',
+                    height: 24,
+                    cursor: 'pointer',
+                    '&:hover': {
+                      bgcolor: 'rgba(0,242,234,0.2)',
+                    },
+                    '& .MuiChip-icon': { color: '#00f2ea' },
+                    '& .MuiChip-deleteIcon': { color: '#00f2ea', fontSize: 14 },
+                  }}
+                />
+              </Tooltip>
+            )}
+            {!userLocation && !locationLoading && (
               <Chip
                 size="small"
-                icon={<NearMe sx={{ fontSize: 14, color: '#00f2ea !important' }} />}
-                label={userLocation.city ? `${userLocation.city}` : 'Location enabled'}
+                icon={<EditLocation sx={{ fontSize: 14 }} />}
+                label="Set Location"
+                onClick={() => setShowLocationPicker(true)}
                 sx={{
-                  bgcolor: 'rgba(0,242,234,0.1)',
-                  color: '#00f2ea',
-                  border: '1px solid rgba(0,242,234,0.2)',
+                  bgcolor: 'rgba(255,165,0,0.15)',
+                  color: '#ffa500',
+                  border: '1px solid rgba(255,165,0,0.3)',
                   fontSize: '0.75rem',
                   height: 24,
-                  '& .MuiChip-icon': { color: '#00f2ea' },
+                  cursor: 'pointer',
+                  '&:hover': {
+                    bgcolor: 'rgba(255,165,0,0.25)',
+                  },
                 }}
               />
             )}
@@ -1090,6 +1677,42 @@ const ProfileFeed = () => {
           }}
         />
       )}
+
+      {/* Location Picker Dialog */}
+      <LocationPicker
+        open={showLocationPicker}
+        onClose={() => setShowLocationPicker(false)}
+        currentLocation={userLocation}
+        onSelectLocation={(location) => {
+          console.log('📍 Location selected:', location.name, location.lat, location.lng);
+          
+          // Save to localStorage for persistence
+          localStorage.setItem('userManualLocation', JSON.stringify({
+            lat: location.lat,
+            lng: location.lng,
+            city: location.name,
+            country: 'Ghana',
+            district: location.district,
+            region: location.region,
+            method: location.method,
+            precision: location.precision
+          }));
+          
+          setUserLocation({
+            lat: location.lat,
+            lng: location.lng,
+            city: location.name,
+            country: 'Ghana',
+            source: location.method,
+            precision: location.precision
+          });
+          
+          // Refetch profiles with new location
+          setPage(1);
+          setProfiles([]);
+          setDisplayedProfiles([]);
+        }}
+      />
     </Box>
   );
 };

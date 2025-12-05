@@ -203,7 +203,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/users/profiles
  * @desc    Get recommended user profiles with advanced TikTok-style algorithm
- * @access  Public
+ * @access  Private - Requires Authentication AND Active Subscription
  * 
  * ALGORITHM FEATURES:
  * 1. Geolocation-based proximity ranking (closest first)
@@ -216,17 +216,67 @@ router.put('/profile', authMiddleware, async (req, res) => {
  */
 router.get('/profiles', async (req, res) => {
   try {
-    // Check if database is available - return mock data if not
-    if (!isDatabaseAvailable()) {
-      console.log('⚠️  Database unavailable, returning mock profiles');
-      return res.json({
-        success: true,
-        users: mockProfiles,
-        pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
-        metadata: { mockData: true, message: 'Database temporarily unavailable' }
+    // ============================================
+    // AUTHENTICATION & SUBSCRIPTION CHECK
+    // ============================================
+    const authHeader = req.headers.authorization;
+    let currentUserId = null;
+    let currentUser = null;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        message: 'Please login to browse profiles'
       });
     }
 
+    try {
+      const token = authHeader.substring(7);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      currentUserId = decoded.userId;
+      
+      // Get user's subscription status from database
+      const userResult = await query(`
+        SELECT id, username, is_subscribed, subscription_tier, subscription_expires_at
+        FROM users WHERE id = $1
+      `, [currentUserId]);
+      
+      if (userResult.rows.length === 0) {
+        return res.status(401).json({
+          success: false,
+          error: 'User not found',
+          message: 'Please login again'
+        });
+      }
+      
+      currentUser = userResult.rows[0];
+      
+      // Check subscription status
+      const isSubscribed = currentUser.is_subscribed && (
+        !currentUser.subscription_expires_at || 
+        new Date(currentUser.subscription_expires_at) > new Date()
+      );
+      
+      if (!isSubscribed) {
+        return res.status(403).json({
+          success: false,
+          error: 'Subscription required',
+          message: 'Please subscribe to browse profiles',
+          requiresSubscription: true
+        });
+      }
+      
+      console.log('🔒 Subscribed user browsing profiles:', currentUser.username);
+      
+    } catch (tokenError) {
+      console.log('Invalid token:', tokenError.message);
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token',
+        message: 'Please login again'
+      });
+    }
     const {
       page = 1,
       limit = 20,
@@ -255,21 +305,6 @@ router.get('/profiles', async (req, res) => {
     // Use userLat/userLng if provided, otherwise fall back to lat/lng
     const latitude = userLat || lat;
     const longitude = userLng || lng;
-
-    // Get current user ID if authenticated
-    const authHeader = req.headers.authorization;
-    let currentUserId = null;
-    
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.substring(7);
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        currentUserId = decoded.userId;
-        console.log('🔒 Authenticated user requesting profiles:', currentUserId);
-      } catch (tokenError) {
-        console.log('Invalid token, continuing as unauthenticated');
-      }
-    }
 
     // Build user location from request
     let userLocation = null;

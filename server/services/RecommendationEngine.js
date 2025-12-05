@@ -354,9 +354,11 @@ class RecommendationEngine {
       }
 
       // Build query with filters
-      // IMPORTANT: Only show providers (accountType = 'provider')
+      // IMPORTANT: Only show VERIFIED providers (accountType = 'provider' AND verification_tier >= 1)
+      // Unverified providers should NOT appear in the marketplace
       let whereClause = `WHERE u.profile_data IS NOT NULL 
         AND u.profile_data->>'accountType' = 'provider'
+        AND u.verification_tier >= 1
         AND (u.profile_data ? 'firstName' OR u.profile_data ? 'username')`;
       const params = [];
       let paramIndex = 1;
@@ -446,62 +448,73 @@ class RecommendationEngine {
       // UBER/BOLT-STYLE SORTING: Country first, then distance, then quality
       // Adjust sorting based on filter mode
       if (filters.filterMode === 'nearby' && userLocation) {
-        // "Nearby" filter: Pure distance-based (like Uber closest drivers)
+        // "Nearby" filter: PURE DISTANCE ONLY (like Uber closest drivers)
         scoredProfiles.sort((a, b) => {
           // Same country first
           if (a.sameCountry && !b.sameCountry) return -1;
           if (!a.sameCountry && b.sameCountry) return 1;
-          // Online profiles first within similar distance
-          if (a.isOnline && !b.isOnline) return -1;
-          if (!a.isOnline && b.isOnline) return 1;
-          // Then by distance (closest first)
-          const distA = a.distance || 9999;
-          const distB = b.distance || 9999;
+          // ONLY by distance - closest first, period
+          const distA = a.distance ?? 9999;
+          const distB = b.distance ?? 9999;
           return distA - distB;
         });
       } else if (filters.filterMode === 'online') {
-        // "Online" filter: Currently active providers
+        // "Online" filter: Only online providers, then by distance
         scoredProfiles.sort((a, b) => {
           // Same country first
           if (a.sameCountry && !b.sameCountry) return -1;
           if (!a.sameCountry && b.sameCountry) return 1;
-          // Online first
+          // Online first (this is the key filter)
           if (a.isOnline && !b.isOnline) return -1;
           if (!a.isOnline && b.isOnline) return 1;
           // Then by distance
-          const distA = a.distance || 9999;
-          const distB = b.distance || 9999;
+          const distA = a.distance ?? 9999;
+          const distB = b.distance ?? 9999;
           return distA - distB;
         });
-      } else if (filters.filterMode === 'trending') {
-        // "Top Rated" filter: Best quality and success rate
+      } else if (filters.filterMode === 'trending' || filters.filterMode === 'verified') {
+        // "Top Rated" / "Verified" filter: Best quality and success rate
         scoredProfiles.sort((a, b) => {
           // Same country first
           if (a.sameCountry && !b.sameCountry) return -1;
           if (!a.sameCountry && b.sameCountry) return 1;
-          // Then by quality + engagement
+          // Then by quality + engagement (ratings, success rate)
           const scoreA = (a.scoreBreakdown?.quality || 0) + (a.scoreBreakdown?.engagement || 0);
           const scoreB = (b.scoreBreakdown?.quality || 0) + (b.scoreBreakdown?.engagement || 0);
           return scoreB - scoreA;
         });
       } else {
-        // DEFAULT "For You": UBER-STYLE - Country → Distance → Quality
-        // Shows closest providers in your country first, like Uber shows closest drivers
+        // DEFAULT "For You": STRICT DISTANCE SORTING - closest ALWAYS first
+        // Like Uber - closest drivers appear first, period.
         scoredProfiles.sort((a, b) => {
-          // 1. Same country ALWAYS comes first (like Uber only shows local drivers)
+          // 1. Same country ALWAYS comes first
           if (a.sameCountry && !b.sameCountry) return -1;
           if (!a.sameCountry && b.sameCountry) return 1;
           
-          // 2. Within same country, sort by combined score (distance + quality)
-          // Recommendation score already weighs distance heavily
-          const onlineBoostA = a.isOnline ? 5 : 0;
-          const onlineBoostB = b.isOnline ? 5 : 0;
-          return (b.recommendationScore + onlineBoostB) - (a.recommendationScore + onlineBoostA);
+          // 2. DISTANCE IS THE ONLY FACTOR - closest first, no exceptions
+          const distA = a.distance ?? 9999;
+          const distB = b.distance ?? 9999;
+          
+          // Sort strictly by distance
+          if (distA !== distB) {
+            return distA - distB;
+          }
+          
+          // 3. Only if EXACT same distance, use online status as tiebreaker
+          if (a.isOnline && !b.isOnline) return -1;
+          if (!a.isOnline && b.isOnline) return 1;
+          
+          // 4. Final tiebreaker: quality score
+          return (b.recommendationScore || 0) - (a.recommendationScore || 0);
         });
       }
 
-      // Apply diversity: ensure variety in top results (different locations)
-      scoredProfiles = this.applyDiversityReranking(scoredProfiles);
+      // Log sorted results for debugging
+      console.log('🔍 Top 5 profiles after sorting:');
+      scoredProfiles.slice(0, 5).forEach((p, i) => {
+        const city = p.profile_data?.location?.city || 'Unknown';
+        console.log(`   ${i+1}. ${city} - ${p.distance?.toFixed(1) || '?'}km - Score: ${p.recommendationScore}`);
+      });
 
       // Paginate
       const paginatedProfiles = scoredProfiles.slice(offset, offset + limit);
@@ -511,13 +524,12 @@ class RecommendationEngine {
       const onlineCount = paginatedProfiles.filter(p => p.isOnline).length;
       const avgDistance = paginatedProfiles.reduce((sum, p) => sum + (p.distance || 0), 0) / paginatedProfiles.length;
       
-      console.log(`📊 Recommendation Stats (Uber-Style):
+      console.log(`📊 Recommendation Stats:
         - Total providers: ${scoredProfiles.length}
-        - User location: ${userLocation ? `${userLocation.city}, ${userLocation.country}` : 'Unknown'}
+        - User location: ${userLocation ? `lat:${userLocation.lat?.toFixed(4)}, lng:${userLocation.lng?.toFixed(4)}` : 'Unknown'}
         - Same country: ${sameCountryCount}/${paginatedProfiles.length}
         - Online now: ${onlineCount}
-        - Avg distance: ${avgDistance.toFixed(1)}km
-        - Top score: ${paginatedProfiles[0]?.recommendationScore || 0}`);
+        - Avg distance: ${avgDistance.toFixed(1)}km`);
 
       return {
         profiles: paginatedProfiles,

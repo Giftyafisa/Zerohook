@@ -15,14 +15,17 @@ const { query } = require('../config/database');
 
 class RecommendationEngine {
   constructor() {
+    // "For You" algorithm weights - UBER/BOLT STYLE
+    // Country + Distance are the MOST important (like Uber shows closest drivers)
+    // Then quality factors kick in
     this.weights = {
-      distance: 0.25,        // Location proximity
-      quality: 0.20,         // Verification + reputation
-      engagement: 0.15,      // Response rate, bookings
-      preference: 0.15,      // User history matching
-      freshness: 0.10,       // Recent activity boost
-      beauty: 0.10,          // Profile completeness + photos
-      diversity: 0.05        // Variety in recommendations
+      countryMatch: 0.30,    // CRITICAL: Same country = priority (like Uber)
+      distance: 0.25,        // Location proximity (closest first - like Uber)
+      quality: 0.15,         // Verification + reputation (trust & rating)
+      freshness: 0.10,       // Online/active status (current)
+      engagement: 0.10,      // Response rate, success rate (reliable)
+      beauty: 0.05,          // Profile completeness, photos (attractive)
+      popularity: 0.05       // Reviews, bookings (popular)
     };
     
     // Cache for user preferences
@@ -148,32 +151,71 @@ class RecommendationEngine {
 
   /**
    * Calculate recommendation score for a profile
+   * "For You" algorithm: Uber/Bolt-style - CLOSEST FIRST, then quality factors
+   * 
+   * PRIORITY ORDER:
+   * 1. Same Country (MUST match for top ranking)
+   * 2. Distance (Closest first - like Uber drivers)
+   * 3. Quality (Verification, ratings, success rate)
+   * 4. Activity (Online/recent = higher rank)
+   * 5. Popularity (Reviews, bookings)
+   * 6. Profile completeness
    */
   calculateProfileScore(profile, userLocation, userPreferences, allProfiles) {
     let scores = {
+      countryMatch: 0,  // NEW: Country match is critical
       distance: 0,
       quality: 0,
       engagement: 0,
       preference: 0,
       freshness: 0,
       beauty: 0,
-      diversity: 0
+      popularity: 0
     };
 
     const profileData = profile.profile_data || {};
     const profileLocation = profileData.location || {};
 
-    // 1. DISTANCE SCORE (closer = higher score)
-    if (userLocation && profileLocation.coordinates) {
+    // 0. COUNTRY MATCH SCORE (Critical - like Uber only shows drivers in your country)
+    if (userLocation && userLocation.country && profileLocation.country) {
+      const userCountry = userLocation.country.toLowerCase().trim();
+      const providerCountry = profileLocation.country.toLowerCase().trim();
+      
+      if (userCountry === providerCountry) {
+        scores.countryMatch = 100; // Same country = full score
+        profile.sameCountry = true;
+      } else {
+        scores.countryMatch = 0; // Different country = no bonus
+        profile.sameCountry = false;
+      }
+    } else {
+      scores.countryMatch = 50; // Unknown location = neutral
+    }
+
+    // 1. DISTANCE SCORE (UBER-STYLE: closer = MUCH higher score)
+    if (userLocation && userLocation.lat && userLocation.lng && profileLocation.coordinates) {
       const distance = this.calculateDistance(
         userLocation.lat,
         userLocation.lng,
         profileLocation.coordinates.lat,
         profileLocation.coordinates.lng
       );
-      profile.distance = distance;
-      // Score inversely proportional to distance (max 100km considered)
-      scores.distance = Math.max(0, 100 - (distance / 100) * 100);
+      profile.distance = Math.round(distance * 10) / 10; // Round to 1 decimal
+      
+      // Uber-style scoring: Very close = very high score, drops off quickly
+      if (distance <= 2) {
+        scores.distance = 100; // Within 2km = perfect score
+      } else if (distance <= 5) {
+        scores.distance = 90; // Within 5km = excellent
+      } else if (distance <= 10) {
+        scores.distance = 80; // Within 10km = great
+      } else if (distance <= 20) {
+        scores.distance = 60; // Within 20km = good
+      } else if (distance <= 50) {
+        scores.distance = 40; // Within 50km = acceptable
+      } else {
+        scores.distance = Math.max(0, 30 - (distance - 50) / 10); // Further = lower
+      }
     } else if (userLocation && profileLocation.city) {
       // Fallback: same city gets bonus
       if (userLocation.city?.toLowerCase() === profileLocation.city?.toLowerCase()) {
@@ -249,33 +291,45 @@ class RecommendationEngine {
       profile.lastSeen = `${Math.floor(hoursSinceActive / 24)} days ago`;
     }
 
-    // 6. BEAUTY/COMPLETENESS SCORE
+    // 6. BEAUTY/COMPLETENESS SCORE (profile attractiveness)
     let beautyScore = 0;
-    if (profileData.profilePicture) beautyScore += 30;
+    if (profileData.profilePicture) beautyScore += 35; // Has main photo
     if (profileData.photos && profileData.photos.length > 0) {
-      beautyScore += Math.min(profileData.photos.length * 10, 30);
+      beautyScore += Math.min(profileData.photos.length * 8, 25); // Multiple photos
     }
-    if (profileData.bio && profileData.bio.length > 50) beautyScore += 20;
+    if (profileData.bio && profileData.bio.length > 50) beautyScore += 15; // Good bio
+    if (profileData.bio && profileData.bio.length > 150) beautyScore += 10; // Detailed bio
     if (profileData.services && profileData.services.length > 0) beautyScore += 10;
-    if (profile.is_subscribed) beautyScore += 10; // Premium profiles
+    if (profile.is_subscribed) beautyScore += 5; // Premium profiles
     scores.beauty = Math.min(100, beautyScore);
 
-    // 7. DIVERSITY SCORE (to prevent showing similar profiles together)
-    // This is calculated relative to already selected profiles
-    scores.diversity = 50; // Base score, adjusted in ranking
+    // 7. POPULARITY SCORE (how popular/in-demand this profile is)
+    const viewCount = profileData.viewCount || 0;
+    const contactCount = profileData.contactCount || 0;
+    const favoriteCount = profileData.favoriteCount || 0;
+    
+    let popularityScore = 0;
+    popularityScore += Math.min(viewCount / 10, 30); // Views (max 30 for 300+ views)
+    popularityScore += Math.min(contactCount * 2, 35); // Contacts (max 35)
+    popularityScore += Math.min(favoriteCount * 3, 35); // Favorites (max 35)
+    scores.popularity = Math.min(100, popularityScore);
 
-    // Calculate weighted final score
+    // Calculate weighted final score - UBER/BOLT STYLE algorithm
+    // Country match and distance are weighted heavily (like Uber showing closest drivers)
     const finalScore = 
+      (scores.countryMatch * this.weights.countryMatch) +
       (scores.distance * this.weights.distance) +
       (scores.quality * this.weights.quality) +
       (scores.engagement * this.weights.engagement) +
-      (scores.preference * this.weights.preference) +
       (scores.freshness * this.weights.freshness) +
       (scores.beauty * this.weights.beauty) +
-      (scores.diversity * this.weights.diversity);
+      (scores.popularity * this.weights.popularity);
 
     profile.recommendationScore = Math.round(finalScore * 10) / 10;
     profile.scoreBreakdown = scores;
+    
+    // Add success rate to profile for frontend display
+    profile.successRate = bookingSuccess;
 
     return profile;
   }
@@ -300,7 +354,9 @@ class RecommendationEngine {
       }
 
       // Build query with filters
+      // IMPORTANT: Only show providers (accountType = 'provider')
       let whereClause = `WHERE u.profile_data IS NOT NULL 
+        AND u.profile_data->>'accountType' = 'provider'
         AND (u.profile_data ? 'firstName' OR u.profile_data ? 'username')`;
       const params = [];
       let paramIndex = 1;
@@ -309,6 +365,14 @@ class RecommendationEngine {
       if (userId) {
         whereClause += ` AND u.id != $${paramIndex++}`;
         params.push(userId);
+      }
+
+      // COUNTRY-FIRST FILTER (Like Uber - show same country first)
+      // If user's country is detected, prioritize providers from that country
+      let userCountry = null;
+      if (userLocation && userLocation.country) {
+        userCountry = userLocation.country;
+        console.log(`🌍 User country detected: ${userCountry} - prioritizing local providers`);
       }
 
       // Apply filters
@@ -379,12 +443,29 @@ class RecommendationEngine {
         this.calculateProfileScore(profile, userLocation, userPreferences, result.rows)
       );
 
-      // Sort by recommendation score (descending)
+      // UBER/BOLT-STYLE SORTING: Country first, then distance, then quality
       // Adjust sorting based on filter mode
       if (filters.filterMode === 'nearby' && userLocation) {
-        // Prioritize distance for "Nearby" filter
+        // "Nearby" filter: Pure distance-based (like Uber closest drivers)
         scoredProfiles.sort((a, b) => {
+          // Same country first
+          if (a.sameCountry && !b.sameCountry) return -1;
+          if (!a.sameCountry && b.sameCountry) return 1;
           // Online profiles first within similar distance
+          if (a.isOnline && !b.isOnline) return -1;
+          if (!a.isOnline && b.isOnline) return 1;
+          // Then by distance (closest first)
+          const distA = a.distance || 9999;
+          const distB = b.distance || 9999;
+          return distA - distB;
+        });
+      } else if (filters.filterMode === 'online') {
+        // "Online" filter: Currently active providers
+        scoredProfiles.sort((a, b) => {
+          // Same country first
+          if (a.sameCountry && !b.sameCountry) return -1;
+          if (!a.sameCountry && b.sameCountry) return 1;
+          // Online first
           if (a.isOnline && !b.isOnline) return -1;
           if (!a.isOnline && b.isOnline) return 1;
           // Then by distance
@@ -392,37 +473,51 @@ class RecommendationEngine {
           const distB = b.distance || 9999;
           return distA - distB;
         });
-      } else if (filters.filterMode === 'online') {
-        // Prioritize recently active for "Online" filter
-        scoredProfiles.sort((a, b) => {
-          if (a.isOnline && !b.isOnline) return -1;
-          if (!a.isOnline && b.isOnline) return 1;
-          return b.recommendationScore - a.recommendationScore;
-        });
       } else if (filters.filterMode === 'trending') {
-        // Prioritize quality and engagement for "Top Rated" filter
+        // "Top Rated" filter: Best quality and success rate
         scoredProfiles.sort((a, b) => {
+          // Same country first
+          if (a.sameCountry && !b.sameCountry) return -1;
+          if (!a.sameCountry && b.sameCountry) return 1;
+          // Then by quality + engagement
           const scoreA = (a.scoreBreakdown?.quality || 0) + (a.scoreBreakdown?.engagement || 0);
           const scoreB = (b.scoreBreakdown?.quality || 0) + (b.scoreBreakdown?.engagement || 0);
           return scoreB - scoreA;
         });
       } else {
-        // Default: recommendation score
-        scoredProfiles.sort((a, b) => b.recommendationScore - a.recommendationScore);
+        // DEFAULT "For You": UBER-STYLE - Country → Distance → Quality
+        // Shows closest providers in your country first, like Uber shows closest drivers
+        scoredProfiles.sort((a, b) => {
+          // 1. Same country ALWAYS comes first (like Uber only shows local drivers)
+          if (a.sameCountry && !b.sameCountry) return -1;
+          if (!a.sameCountry && b.sameCountry) return 1;
+          
+          // 2. Within same country, sort by combined score (distance + quality)
+          // Recommendation score already weighs distance heavily
+          const onlineBoostA = a.isOnline ? 5 : 0;
+          const onlineBoostB = b.isOnline ? 5 : 0;
+          return (b.recommendationScore + onlineBoostB) - (a.recommendationScore + onlineBoostA);
+        });
       }
 
-      // Apply diversity: ensure variety in top results
+      // Apply diversity: ensure variety in top results (different locations)
       scoredProfiles = this.applyDiversityReranking(scoredProfiles);
 
       // Paginate
       const paginatedProfiles = scoredProfiles.slice(offset, offset + limit);
 
       // Log recommendation stats for debugging
-      console.log(`📊 Recommendation Stats:
-        - Total profiles scored: ${scoredProfiles.length}
+      const sameCountryCount = paginatedProfiles.filter(p => p.sameCountry).length;
+      const onlineCount = paginatedProfiles.filter(p => p.isOnline).length;
+      const avgDistance = paginatedProfiles.reduce((sum, p) => sum + (p.distance || 0), 0) / paginatedProfiles.length;
+      
+      console.log(`📊 Recommendation Stats (Uber-Style):
+        - Total providers: ${scoredProfiles.length}
         - User location: ${userLocation ? `${userLocation.city}, ${userLocation.country}` : 'Unknown'}
-        - Top score: ${paginatedProfiles[0]?.recommendationScore || 0}
-        - Online profiles: ${paginatedProfiles.filter(p => p.isOnline).length}`);
+        - Same country: ${sameCountryCount}/${paginatedProfiles.length}
+        - Online now: ${onlineCount}
+        - Avg distance: ${avgDistance.toFixed(1)}km
+        - Top score: ${paginatedProfiles[0]?.recommendationScore || 0}`);
 
       return {
         profiles: paginatedProfiles,

@@ -622,13 +622,38 @@ const ProfileFeed = () => {
 
   // Get user's location on mount
   useEffect(() => {
+    const getIPLocation = async () => {
+      try {
+        const response = await fetch(
+          'https://api.ipgeolocation.io/ipgeo?apiKey=1d24707d2a554ee697b852f28dd6533e'
+        );
+        const data = await response.json();
+        if (data.latitude && data.longitude) {
+          return {
+            lat: parseFloat(data.latitude),
+            lng: parseFloat(data.longitude),
+            city: data.city,
+            country: data.country_name,
+            source: 'ip'
+          };
+        }
+      } catch (error) {
+        console.error('IP geolocation failed:', error);
+      }
+      return null;
+    };
+
     const getUserLocation = async () => {
       setLocationLoading(true);
       
-      // Try browser geolocation first
+      // Start IP detection immediately (as backup)
+      const ipLocationPromise = getIPLocation();
+      
+      // Try browser geolocation
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
+            // GPS success - use precise location
             setUserLocation({
               lat: position.coords.latitude,
               lng: position.coords.longitude,
@@ -638,51 +663,26 @@ const ProfileFeed = () => {
             setLocationLoading(false);
           },
           async (error) => {
-            console.log('Geolocation denied, trying IP detection:', error.message);
-            // Fallback to IP-based geolocation
-            try {
-              const response = await fetch(
-                'https://api.ipgeolocation.io/ipgeo?apiKey=1d24707d2a554ee697b852f28dd6533e'
-              );
-              const data = await response.json();
-              if (data.latitude && data.longitude) {
-                setUserLocation({
-                  lat: parseFloat(data.latitude),
-                  lng: parseFloat(data.longitude),
-                  city: data.city,
-                  country: data.country_name,
-                  source: 'ip'
-                });
-              }
-            } catch (ipError) {
-              console.error('IP geolocation failed:', ipError);
+            console.log('Geolocation denied/blocked, using IP detection:', error.message);
+            // Use IP location (already fetching)
+            const ipLocation = await ipLocationPromise;
+            if (ipLocation) {
+              setUserLocation(ipLocation);
+              console.log('📍 IP-based location:', ipLocation.city, ipLocation.country);
             }
             setLocationLoading(false);
           },
           { 
-            enableHighAccuracy: true, 
-            timeout: 10000, 
-            maximumAge: 300000 // Cache for 5 minutes
+            enableHighAccuracy: false, // Faster response
+            timeout: 5000, // Shorter timeout
+            maximumAge: 600000 // Cache for 10 minutes
           }
         );
       } else {
-        // No geolocation support, try IP
-        try {
-          const response = await fetch(
-            'https://api.ipgeolocation.io/ipgeo?apiKey=1d24707d2a554ee697b852f28dd6533e'
-          );
-          const data = await response.json();
-          if (data.latitude && data.longitude) {
-            setUserLocation({
-              lat: parseFloat(data.latitude),
-              lng: parseFloat(data.longitude),
-              city: data.city,
-              country: data.country_name,
-              source: 'ip'
-            });
-          }
-        } catch (error) {
-          console.error('IP geolocation failed:', error);
+        // No geolocation support, use IP
+        const ipLocation = await ipLocationPromise;
+        if (ipLocation) {
+          setUserLocation(ipLocation);
         }
         setLocationLoading(false);
       }
@@ -717,6 +717,13 @@ const ProfileFeed = () => {
       if (userLocation) {
         queryParams.set('userLat', userLocation.lat.toString());
         queryParams.set('userLng', userLocation.lng.toString());
+        // Also send city and country for country-first filtering
+        if (userLocation.city) {
+          queryParams.set('userCity', userLocation.city);
+        }
+        if (userLocation.country) {
+          queryParams.set('userCountry', userLocation.country);
+        }
       }
 
       // Add auth token for personalized recommendations
@@ -751,16 +758,16 @@ const ProfileFeed = () => {
           username: user.username,
           profileData: user.profile_data || {},
           verificationTier: user.verification_tier || 1,
-          trustScore: user.trust_score || 75,
+          trustScore: user.reputation_score || 75,
           isPremium: user.is_subscribed,
-          isOnline: user.is_online || false, // From backend
-          lastActive: user.last_active || user.updated_at || user.created_at,
+          isOnline: user.isOnline || false, // From recommendation engine
+          lastActive: user.lastSeen || user.last_active || user.created_at,
           createdAt: user.created_at,
           // Recommendation engine data
           distance: user.distance, // Distance in km from backend
-          recommendationScore: user.recommendation_score,
-          successRate: user.success_rate,
-          responseRate: user.response_rate,
+          recommendationScore: user.recommendationScore,
+          successRate: user.successRate,
+          sameCountry: user.sameCountry,
         }));
 
       if (append) {

@@ -497,15 +497,15 @@ const ProfileCard = ({
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Star sx={{ fontSize: 16, color: '#FFD700' }} />
                 <Typography variant="body2" sx={{ color: '#FFD700', fontWeight: 600 }}>
-                  {(profile.trustScore || 75).toFixed(0)}%
+                  {Math.round(parseFloat(profile.trustScore) || 75)}%
                 </Typography>
               </Box>
-              {successRate && successRate > 0 && (
+              {successRate && parseFloat(successRate) > 0 && (
                 <Tooltip title="Success Rate" arrow placement="left">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, justifyContent: 'flex-end' }}>
                     <Speed sx={{ fontSize: 12, color: '#4ade80' }} />
                     <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 500 }}>
-                      {successRate.toFixed(0)}%
+                      {Math.round(parseFloat(successRate))}%
                     </Typography>
                   </Box>
                 </Tooltip>

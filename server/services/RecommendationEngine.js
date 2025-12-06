@@ -980,10 +980,30 @@ class RecommendationEngine {
       let adaptiveWeights = this.weights;
 
       if (userId) {
-        userPreferences = await this.getUserPreferences(userId);
-        userEmbedding = await this.generateUserEmbedding(userId);
-        sessionContext = await this.getSessionContext(userId);
-        adaptiveWeights = await this.calculateAdaptiveWeights(userId);
+        // Gracefully handle advanced features - don't fail if they error
+        try {
+          userPreferences = await this.getUserPreferences(userId);
+        } catch (err) {
+          console.log('⚠️  User preferences fetch failed:', err.message);
+        }
+        
+        try {
+          userEmbedding = await this.generateUserEmbedding(userId);
+        } catch (err) {
+          console.log('⚠️  User embedding generation failed:', err.message);
+        }
+        
+        try {
+          sessionContext = await this.getSessionContext(userId);
+        } catch (err) {
+          console.log('⚠️  Session context fetch failed:', err.message);
+        }
+        
+        try {
+          adaptiveWeights = await this.calculateAdaptiveWeights(userId);
+        } catch (err) {
+          console.log('⚠️  Adaptive weights calculation failed:', err.message);
+        }
       }
 
       // Build query with filters
@@ -1056,25 +1076,51 @@ class RecommendationEngine {
       }
 
       // Fetch profiles with Elo ratings
-      const result = await query(`
-        SELECT 
-          u.id,
-          u.username,
-          u.email,
-          u.profile_data,
-          u.verification_tier,
-          u.reputation_score,
-          u.is_subscribed,
-          u.subscription_tier,
-          u.created_at,
-          COALESCE(u.last_active, u.created_at) as last_active,
-          COALESCE(u.elo_rating, ${this.eloConfig.initialRating}) as elo_rating
-        FROM users u
-        ${whereClause}
-        AND u.profile_data->>'accountType' = 'provider'
-        ORDER BY u.last_active DESC NULLS LAST
-        LIMIT 200
-      `, params);
+      // Try to fetch with elo_rating, fallback if column doesn't exist
+      let result;
+      try {
+        result = await query(`
+          SELECT 
+            u.id,
+            u.username,
+            u.email,
+            u.profile_data,
+            u.verification_tier,
+            u.reputation_score,
+            u.is_subscribed,
+            u.subscription_tier,
+            u.created_at,
+            COALESCE(u.last_active, u.created_at) as last_active,
+            COALESCE(u.elo_rating, ${this.eloConfig.initialRating}) as elo_rating
+          FROM users u
+          ${whereClause}
+          AND u.profile_data->>'accountType' = 'provider'
+          ORDER BY u.last_active DESC NULLS LAST
+          LIMIT 200
+        `, params);
+      } catch (dbError) {
+        // Fallback query without elo_rating column
+        console.log('⚠️  elo_rating column not found, using fallback query');
+        result = await query(`
+          SELECT 
+            u.id,
+            u.username,
+            u.email,
+            u.profile_data,
+            u.verification_tier,
+            u.reputation_score,
+            u.is_subscribed,
+            u.subscription_tier,
+            u.created_at,
+            COALESCE(u.last_active, u.created_at) as last_active,
+            ${this.eloConfig.initialRating} as elo_rating
+          FROM users u
+          ${whereClause}
+          AND u.profile_data->>'accountType' = 'provider'
+          ORDER BY u.last_active DESC NULLS LAST
+          LIMIT 200
+        `, params);
+      }
 
       // Calculate recommendation scores for all profiles with ADVANCED features
       let scoredProfiles = result.rows.map(profile => 
@@ -1219,8 +1265,25 @@ class RecommendationEngine {
         }
       };
     } catch (error) {
-      console.error('Recommendation engine error:', error);
-      throw error;
+      console.error('❌ Recommendation engine error:', {
+        message: error.message,
+        stack: error.stack,
+        userId,
+        userLocation,
+        filters
+      });
+      
+      // Return empty result instead of throwing to prevent 500 errors
+      return {
+        profiles: [],
+        total: 0,
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to fetch profiles',
+        metadata: {
+          algorithm: 'recommendation_v2_advanced',
+          version: 'error_fallback',
+          error: true
+        }
+      };
     }
   }
 

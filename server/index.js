@@ -43,6 +43,7 @@ const BitnobManager = require('./services/BitnobManager');
 const UserConnectionManager = require('./services/UserConnectionManager');
 const ConversationService = require('./services/ConversationService');
 const SystemHealthService = require('./services/SystemHealthService');
+const RecommendationEngine = require('./services/RecommendationEngine');
 const { connectDB, connectRedis } = require('./config/database');
 
 const app = express();
@@ -183,6 +184,7 @@ const cryptoPaymentManager = new CryptoPaymentManager();
 const countryManager = new CountryManager();
 const bitnobManager = new BitnobManager();
 const userConnectionManager = new UserConnectionManager();
+const recommendationEngine = new RecommendationEngine();
 
 // Initialize health service
 const systemHealth = new SystemHealthService();
@@ -292,6 +294,7 @@ app.use((req, res, next) => {
   req.userActivityMonitor = userActivityMonitor;
   req.performanceMetrics = performanceMetrics;
   req.conversationService = conversationService;
+  req.recommendationEngine = recommendationEngine;
   req.io = io;
   
   // Add database status to request for debugging

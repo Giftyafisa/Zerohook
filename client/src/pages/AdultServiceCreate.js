@@ -107,7 +107,8 @@ const AdultServiceCreate = () => {
           throw new Error('Failed to fetch categories');
         }
       } catch (error) {
-        console.error('Error fetching categories:', error);
+        console.error('Failed to fetch categories:', error?.message || error);
+        console.log('Using fallback categories due to API error');
         // Fallback to default categories
         setCategories([
           { id: 'long_term', value: 'long_term', label: 'Long Term', description: 'Long-term companionship services' },

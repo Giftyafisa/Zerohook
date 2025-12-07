@@ -62,14 +62,14 @@ router.get('/', async (req, res) => {
       });
     }
 
-    const { category, location, minPrice, maxPrice, page = 1, limit = 20 } = req.query;
+    const { category, location, minPrice, maxPrice, page = 1, limit = 20, userLat, userLng, sort = 'recommended' } = req.query;
     const offset = (page - 1) * limit;
 
     let whereClause = "WHERE s.status = 'active'";
     const queryParams = [];
     let paramCount = 0;
 
-    if (category) {
+    if (category && category !== 'all') {
       paramCount++;
       whereClause += ` AND c.name = $${paramCount}`;
       queryParams.push(category);
@@ -87,6 +87,60 @@ router.get('/', async (req, res) => {
       queryParams.push(parseFloat(maxPrice));
     }
 
+    // Calculate distance if user location is provided
+    let distanceField = 'NULL as distance';
+    let orderBy = 's.created_at DESC';
+
+    if (userLat && userLng) {
+      // Haversine formula for distance in km
+      // Assumes s.location_data has lat/lng or falls back to user profile location
+      distanceField = `
+        (
+          6371 * acos(
+            cos(radians(${parseFloat(userLat)})) * 
+            cos(radians(COALESCE(
+              (s.location_data->>'lat')::float, 
+              (u.profile_data->'location'->'coordinates'->>'lat')::float
+            ))) * 
+            cos(radians(COALESCE(
+              (s.location_data->>'lng')::float, 
+              (u.profile_data->'location'->'coordinates'->>'lng')::float
+            )) - radians(${parseFloat(userLng)})) + 
+            sin(radians(${parseFloat(userLat)})) * 
+            sin(radians(COALESCE(
+              (s.location_data->>'lat')::float, 
+              (u.profile_data->'location'->'coordinates'->>'lat')::float
+            )))
+          )
+        ) as distance
+      `;
+    }
+
+    // Smart Sorting
+    if (sort === 'recommended') {
+      // Boost by: Online status (recent last_active), Reputation, Verification, and Distance (if available)
+      orderBy = `
+        (CASE WHEN u.last_active > NOW() - INTERVAL '15 minutes' THEN 1 ELSE 0 END) DESC,
+        u.verification_tier DESC,
+        u.reputation_score DESC,
+        s.created_at DESC
+      `;
+      if (userLat && userLng) {
+        // If location provided, prioritize distance slightly but keep quality
+        orderBy = `
+          (CASE WHEN u.last_active > NOW() - INTERVAL '15 minutes' THEN 1 ELSE 0 END) DESC,
+          distance ASC NULLS LAST,
+          u.reputation_score DESC
+        `;
+      }
+    } else if (sort === 'price_low') {
+      orderBy = 's.price ASC';
+    } else if (sort === 'price_high') {
+      orderBy = 's.price DESC';
+    } else if (sort === 'newest') {
+      orderBy = 's.created_at DESC';
+    }
+
     paramCount++;
     queryParams.push(parseInt(limit));
     paramCount++;
@@ -99,12 +153,16 @@ router.get('/', async (req, res) => {
         s.bookings, s.rating, s.created_at,
         c.display_name as category_name,
         u.username as provider_username,
-        u.verification_tier, u.reputation_score
+        u.profile_data->>'avatar' as provider_avatar,
+        u.verification_tier, u.reputation_score,
+        u.last_active,
+        (u.last_active > NOW() - INTERVAL '15 minutes') as is_online,
+        ${distanceField}
       FROM services s
       LEFT JOIN service_categories c ON s.category_id = c.id
       LEFT JOIN users u ON s.provider_id = u.id
       ${whereClause}
-      ORDER BY s.created_at DESC
+      ORDER BY ${orderBy}
       LIMIT $${paramCount - 1} OFFSET $${paramCount}
     `, queryParams);
 
@@ -146,6 +204,7 @@ router.get('/categories', async (req, res) => {
     if (!isDatabaseAvailable()) {
       console.log('⚠️  Database unavailable, returning mock categories');
       return res.json({
+        success: true,
         categories: mockCategories,
         metadata: { mockData: true }
       });
@@ -158,6 +217,7 @@ router.get('/categories', async (req, res) => {
     `);
 
     res.json({
+      success: true,
       categories: categoriesResult.rows
     });
 
@@ -167,12 +227,13 @@ router.get('/categories', async (req, res) => {
     // Return mock data on database error
     if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
       return res.json({
+        success: true,
         categories: mockCategories,
         metadata: { mockData: true }
       });
     }
     
-    res.status(500).json({ error: 'Failed to fetch categories' });
+    res.status(500).json({ success: false, error: 'Failed to fetch categories' });
   }
 });
 

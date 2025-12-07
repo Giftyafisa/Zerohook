@@ -1,228 +1,106 @@
-import React, { useState, useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
-  Container,
-  Typography,
-  Grid,
+  Button,
   Card,
+  CardActionArea,
   CardContent,
   CardMedia,
   Chip,
-  Button,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
+  Container,
+  Grid,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Skeleton,
   Slider,
-  Pagination,
-  CircularProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  Typography,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
 import {
-  FilterList,
-  ViewModule,
-  ViewList,
-  LocationOn,
-  Star,
-  Security,
   FavoriteBorder,
-  Phone,
-  Add
+  PlayCircleOutline,
+  Search,
+  Star,
+  Tune,
+  VerifiedUser
 } from '@mui/icons-material';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config/constants';
 import { getDefaultImage } from '../config/images';
-import { selectUser } from '../store/slices/authSlice';
-import { selectExchangeRates, selectUserCountry, selectDetectedCountry, detectUserCountry } from '../store/slices/countrySlice';
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08 }
+  }
+};
+
+const itemVariants = {
+  hidden: { y: 16, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: { type: 'spring', stiffness: 120 }
+  }
+};
+
+const categoryTabs = [
+  { value: 'all', label: 'For You' },
+  { value: 'long-term', label: 'Long Term' },
+  { value: 'short-term', label: 'Short Term' },
+  { value: 'oral', label: 'Oral' },
+  { value: 'special', label: 'Special' }
+];
+
+const shimmerSkeletons = Array.from({ length: 6 });
 
 const AdultServiceBrowse = () => {
   const navigate = useNavigate();
-  const dispatch = useDispatch();
-  const user = useSelector(selectUser);
-  const exchangeRates = useSelector(selectExchangeRates);
-  const userCountryFromSlice = useSelector(selectUserCountry);
-  const detectedCountry = useSelector(selectDetectedCountry);
-  
-  // Trigger country detection if not already detected
-  useEffect(() => {
-    if (!userCountryFromSlice && !detectedCountry) {
-      console.log('🌍 No country detected, triggering detection...');
-      dispatch(detectUserCountry());
-    } else {
-      console.log('🌍 Country already detected:', userCountryFromSlice || detectedCountry);
-    }
-  }, [dispatch, userCountryFromSlice, detectedCountry]);
-  
-  // Currency mapping based on country
-  const currencyMap = {
-    'Nigeria': { code: 'NG', symbol: '₦', currency: 'NGN' },
-    'Ghana': { code: 'GH', symbol: '₵', currency: 'GHS' },
-    'Kenya': { code: 'KE', symbol: 'KSh', currency: 'KES' },
-    'South Africa': { code: 'ZA', symbol: 'R', currency: 'ZAR' },
-    'Uganda': { code: 'UG', symbol: 'USh', currency: 'UGX' },
-    'Tanzania': { code: 'TZ', symbol: 'TSh', currency: 'TZS' },
-    'Rwanda': { code: 'RW', symbol: 'FRw', currency: 'RWF' },
-    'Botswana': { code: 'BW', symbol: 'P', currency: 'BWP' },
-    'Zambia': { code: 'ZM', symbol: 'ZK', currency: 'ZMW' },
-    'Malawi': { code: 'MW', symbol: 'MK', currency: 'MWK' }
-  };
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // Country code to name mapping
-  const countryCodeToName = {
-    'NG': 'Nigeria', 'GH': 'Ghana', 'KE': 'Kenya', 'ZA': 'South Africa',
-    'UG': 'Uganda', 'TZ': 'Tanzania', 'RW': 'Rwanda', 'BW': 'Botswana',
-    'ZM': 'Zambia', 'MW': 'Malawi'
-  };
-
-  // Get user's currency based on their profile location OR detected country
-  const getUserCurrency = () => {
-    console.log('🔍 Currency detection - userCountryFromSlice:', userCountryFromSlice);
-    console.log('🔍 Currency detection - detectedCountry:', detectedCountry);
-    
-    // First try: user profile data
-    const userCountryFromProfile = user?.profileData?.location?.country || user?.profile_data?.location?.country;
-    if (userCountryFromProfile && currencyMap[userCountryFromProfile]) {
-      console.log('💰 Using currency from user profile:', userCountryFromProfile);
-      return currencyMap[userCountryFromProfile];
-    }
-    
-    // Second try: detected country from countrySlice (has name, code, currency, currencySymbol)
-    const detectedCountryData = userCountryFromSlice || detectedCountry;
-    if (detectedCountryData) {
-      console.log('🔍 detectedCountryData:', detectedCountryData);
-      
-      // Country detection API returns { code, name, currency, currencySymbol }
-      const countryName = detectedCountryData.name;
-      const countryCode = detectedCountryData.code;
-      
-      if (countryName && currencyMap[countryName]) {
-        console.log('💰 Using currency from detected country name:', countryName);
-        return currencyMap[countryName];
-      }
-      
-      // If country has direct currency info
-      if (detectedCountryData.currency && detectedCountryData.currencySymbol) {
-        console.log('💰 Using direct currency from detection:', detectedCountryData.currency);
-        return { 
-          code: countryCode, 
-          symbol: detectedCountryData.currencySymbol, 
-          currency: detectedCountryData.currency 
-        };
-      }
-      
-      // Try from exchange rates
-      if (countryCode) {
-        const rateInfo = exchangeRates[countryCode];
-        if (rateInfo) {
-          console.log('💰 Using currency from exchange rates:', countryCode);
-          return { code: countryCode, symbol: rateInfo.symbol, currency: rateInfo.currency };
-        }
-      }
-    }
-    
-    console.log('💰 Using default currency: NGN (no country detected)');
-    return { code: 'NG', symbol: '₦', currency: 'NGN' }; // Default to Nigeria
-  };
-
-  // Format price in a specific currency
-  const formatPrice = (price, serviceCurrency, serviceCountry) => {
-    const userCurrency = getUserCurrency();
-    const serviceCurrencyInfo = currencyMap[serviceCountry] || { symbol: '₦', currency: 'NGN' };
-    
-    // If user's currency matches service currency, just display directly
-    if (userCurrency.currency === serviceCurrencyInfo.currency) {
-      return `${serviceCurrencyInfo.symbol}${price.toLocaleString()}`;
-    }
-    
-    // Convert to user's currency
-    const serviceRate = exchangeRates[serviceCurrencyInfo.code]?.rate || 1;
-    const userRate = exchangeRates[userCurrency.code]?.rate || 1;
-    
-    // Convert: service price -> USD -> user currency
-    const priceInUSD = price / serviceRate;
-    const convertedPrice = Math.round(priceInUSD * userRate);
-    
-    return `${userCurrency.symbol}${convertedPrice.toLocaleString()}`;
-  };
-
-  // State
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [contactDialog, setContactDialog] = useState(false);
-  const [selectedService, setSelectedService] = useState(null);
-  const [contactMessage, setContactMessage] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
-  const [filters, setFilters] = useState({
-    category: 'all',
-    location: '',
-    priceRange: [0, 1000000], // Fixed: Adjusted to real service price range (NGN)
-    verificationTier: 'all',
-    trustScore: [0, 100],
-    privacyLevel: 'all'
-  });
-  const [viewMode, setViewMode] = useState('grid');
-  const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [priceRange, setPriceRange] = useState([0, 2000]);
+  const [sortMode, setSortMode] = useState('trending');
 
-  // Mock data for development - moved inside useEffect to fix dependency warning
+  const headers = useMemo(() => ({ 'Content-Type': 'application/json' }), []);
 
-  const categories = [
-    { value: 'all', label: 'All Services' },
-    { value: 'Long Term', label: 'Long Term' },
-    { value: 'Short Term', label: 'Short Term' },
-    { value: 'Oral Services', label: 'Oral Services' },
-    { value: 'Special Services', label: 'Special Services' }
-  ];
+  const formatPrice = (price) => {
+    if (price === undefined || price === null) return '$--';
+    return `$${Number(price).toLocaleString()}`;
+  };
 
   useEffect(() => {
-    // Fetch real services from API
     const fetchServices = async () => {
+      setLoading(true);
+      setError(null);
+
+      const params = new URLSearchParams({ page: '1', limit: '24' });
+      if (categoryFilter !== 'all') params.append('category', categoryFilter);
+      if (priceRange[0]) params.append('minPrice', String(priceRange[0]));
+      if (priceRange[1]) params.append('maxPrice', String(priceRange[1]));
+
       try {
-        setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/services`);
-        if (response.ok) {
-          const data = await response.json();
-          console.log('🔍 Raw API Response:', data);
-          console.log('🔍 Services count:', data.services?.length);
-          
-          const realServices = data.services.map(service => ({
-            id: service.id,
-            providerId: service.provider_id, // Add provider ID for messaging
-            providerUsername: service.provider_username, // Add provider username
-            title: service.title,
-            description: service.description,
-            category: service.category_name,
-            price: parseFloat(service.price),
-            currency: service.currency || 'NGN', // Store original currency
-            serviceCountry: service.location_data?.country || 'Nigeria', // Store provider's country
-            location: `${service.location_data?.city || 'Various'}, ${service.location_data?.country || 'Unknown'}`,
-            verificationTier: service.verification_tier === 3 ? 'Elite' : service.verification_tier === 2 ? 'Advanced' : 'Basic',
-            trustScore: parseFloat(service.reputation_score),
-            privacyLevel: "Standard",
-            photos: service.media_urls || [getDefaultImage('SERVICE')],
-            tags: [service.category_name, service.provider_username],
-            rating: parseFloat(service.rating) || 0,
-            reviews: 0,
-            available: true
-          }));
-          
-          console.log('🔍 Processed Services:', realServices);
-          console.log('🔍 First service sample:', realServices[0]);
-          
-          setServices(realServices);
-          setTotalPages(Math.ceil(realServices.length / 8));
-        } else {
-          console.error('Failed to fetch services');
-          setServices([]);
-        }
-      } catch (error) {
-        console.error('Error fetching services:', error);
+        const res = await fetch(`${API_BASE_URL}/adult-services?${params.toString()}`, { headers });
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        const data = await res.json();
+        const items = data.services || data.data || [];
+        setServices(items);
+      } catch (err) {
+        console.error('Service fetch failed', err);
+        setError('Unable to load services right now. Please retry.');
         setServices([]);
       } finally {
         setLoading(false);
@@ -230,427 +108,243 @@ const AdultServiceBrowse = () => {
     };
 
     fetchServices();
-  }, []);
+  }, [categoryFilter, headers, priceRange]);
 
-  const handleFilterChange = (field, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  const filteredServices = services.filter(service => {
-    const matchesCategory = filters.category === 'all' || service.category === filters.category;
-    const matchesLocation = !filters.location || service.location.toLowerCase().includes(filters.location.toLowerCase());
-    const matchesPrice = service.price >= filters.priceRange[0] && service.price <= filters.priceRange[1];
-    const matchesVerification = filters.verificationTier === 'all' || service.verificationTier === filters.verificationTier;
-    const matchesTrustScore = service.trustScore >= filters.trustScore[0] && service.trustScore <= filters.trustScore[1];
-    
-    return matchesCategory && matchesLocation && matchesPrice && matchesVerification && matchesTrustScore;
-  });
-
-  const handleViewService = (serviceId) => {
-    navigate(`/adult-services/${serviceId}`);
-  };
-
-  const handleContact = (service) => {
-    setSelectedService(service);
-    setContactMessage('');
-    setContactDialog(true);
-  };
-
-  const handleSendMessage = async () => {
-    if (!contactMessage.trim()) {
-      return;
-    }
-
-    setSendingMessage(true);
-    try {
-      // Get current user info from localStorage or context
-      const token = localStorage.getItem('token');
-      const userResponse = await fetch(`${API_BASE_URL}/users/profile`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+  const filteredServices = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return services
+      .filter((svc) => {
+        if (!q) return true;
+        return (
+          svc.title?.toLowerCase().includes(q) ||
+          svc.description?.toLowerCase().includes(q) ||
+          svc.category?.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        if (sortMode === 'price-asc') return (a.price || 0) - (b.price || 0);
+        if (sortMode === 'price-desc') return (b.price || 0) - (a.price || 0);
+        if (sortMode === 'new') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        // trending/default: sort by verification + trust_score if present
+        const scoreA = (a.trust_score || 0) + (a.verification_tier || 0) * 10;
+        const scoreB = (b.trust_score || 0) + (b.verification_tier || 0) * 10;
+        return scoreB - scoreA;
       });
-      
-      if (!userResponse.ok) {
-        throw new Error('Failed to get user profile');
-      }
-      
-      const userData = await userResponse.json();
-      
-      // Send service inquiry
-      const inquiryResponse = await fetch(`${API_BASE_URL}/connections/service-inquiry`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          toUserId: selectedService.providerId || selectedService.id, // You'll need to add providerId to service data
-          serviceId: selectedService.id,
-          message: contactMessage
-        })
-      });
+  }, [services, searchQuery, sortMode]);
 
-      if (inquiryResponse.ok) {
-        const result = await inquiryResponse.json();
-        alert('Message sent successfully! You can continue the conversation in your chat.');
-        setContactDialog(false);
-        setSelectedService(null);
-        setContactMessage('');
-      } else {
-        const error = await inquiryResponse.json();
-        throw new Error(error.error || 'Failed to send message');
-      }
-    } catch (error) {
-      console.error('Send message error:', error);
-      alert(`Failed to send message: ${error.message}`);
-    } finally {
-      setSendingMessage(false);
-    }
-  };
+  const renderServiceCard = (service) => {
+    const image = service.images?.[0] || getDefaultImage('SERVICE');
+    const hasVideo = service.images?.some((m) => typeof m === 'string' && m.match(/\.mp4|\.mov|\.webm/i));
+    const categoryLabel = categoryTabs.find((c) => c.value === service.category)?.label || 'Service';
+    const price = service.price;
+    const duration = service.duration_minutes || service.duration;
+    const providerName = service.provider?.username || service.username || 'Provider';
+    const verificationTier = service.provider?.verification_tier || service.verification_tier;
+    const trustScore = service.provider?.trust_score || service.trust_score;
 
-  const handleCloseContactDialog = () => {
-    setContactDialog(false);
-    setSelectedService(null);
-    setContactMessage('');
-  };
-
-  const handleFavorite = (serviceId) => {
-    // In real app, this would toggle favorite status
-    console.log('Toggling favorite for service:', serviceId);
-  };
-
-  const getVerificationColor = (tier) => {
-    switch (tier) {
-      case 'Elite': return '#FFD700';
-      case 'Pro': return '#9C27B0';
-      case 'Advanced': return '#2196F3';
-      case 'Basic': return '#4CAF50';
-      default: return '#757575';
-    }
-  };
-
-  const getTrustScoreColor = (score) => {
-    if (score >= 90) return '#4CAF50';
-    if (score >= 80) return '#8BC34A';
-    if (score >= 70) return '#FFC107';
-    if (score >= 60) return '#FF9800';
-    return '#F44336';
-  };
-
-  if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-        <CircularProgress size={60} />
-      </Box>
+      <Card
+        sx={{
+          borderRadius: 4,
+          overflow: 'hidden',
+          position: 'relative',
+          boxShadow: '0 14px 40px rgba(0,0,0,0.18)',
+          transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+          '&:hover': { transform: 'translateY(-6px)', boxShadow: '0 18px 52px rgba(0,0,0,0.22)' }
+        }}
+      >
+        <CardActionArea onClick={() => navigate(`/adult-services/${service.id}`)}>
+          <Box sx={{ position: 'relative' }}>
+            <CardMedia
+              component="img"
+              height={isMobile ? 260 : 320}
+              image={image}
+              alt={service.title}
+              sx={{ objectFit: 'cover' }}
+            />
+            <Box sx={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 1 }}>
+              <Chip label={categoryLabel} size="small" sx={{ bgcolor: 'rgba(0,0,0,0.6)', color: 'white', backdropFilter: 'blur(6px)' }} />
+              {hasVideo && (
+                <Chip
+                  icon={<PlayCircleOutline sx={{ fontSize: 16 }} />}
+                  label="Video"
+                  size="small"
+                  sx={{ bgcolor: 'rgba(15,23,42,0.8)', color: 'white', backdropFilter: 'blur(6px)' }}
+                />
+              )}
+            </Box>
+            <IconButton
+              size="small"
+              sx={{ position: 'absolute', top: 12, right: 12, bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'white' } }}
+            >
+              <FavoriteBorder fontSize="small" />
+            </IconButton>
+          </Box>
+
+          <CardContent sx={{ pt: 2.5, pb: 2 }}>
+            <Stack spacing={1.2}>
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Typography variant="h6" fontWeight={800} sx={{ fontSize: '1.05rem', lineHeight: 1.3 }}>
+                  {service.title || 'Untitled service'}
+                </Typography>
+                {verificationTier ? <VerifiedUser color="primary" sx={{ fontSize: 18 }} /> : null}
+              </Stack>
+
+              <Typography variant="body2" color="text.secondary" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {service.description || 'No description provided.'}
+              </Typography>
+
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Chip label={formatPrice(price)} size="small" color="primary" sx={{ fontWeight: 700 }} />
+                  {duration ? <Chip label={`${duration} mins`} size="small" /> : null}
+                </Stack>
+                {trustScore ? (
+                  <Chip
+                    icon={<Star sx={{ fontSize: 16 }} />}
+                    label={`Trust ${Math.round(trustScore)}`}
+                    size="small"
+                    sx={{ bgcolor: 'rgba(255,193,7,0.14)' }}
+                  />
+                ) : null}
+              </Stack>
+
+              <Stack direction="row" spacing={1}>
+                <Button
+                  variant="contained"
+                  fullWidth
+                  sx={{ borderRadius: 2.5, textTransform: 'none', fontWeight: 700, bgcolor: '#111827' }}
+                  onClick={(e) => { e.stopPropagation(); navigate(`/adult-services/${service.id}`); }}
+                >
+                  View / Book
+                </Button>
+                <Button
+                  variant="outlined"
+                  sx={{ minWidth: 52, borderRadius: 2.5, borderColor: '#d1d5db', color: '#6b7280' }}
+                  onClick={(e) => { e.stopPropagation(); navigate('/chat'); }}
+                >
+                  Msg
+                </Button>
+              </Stack>
+
+              <Typography variant="body2" color="text.secondary">
+                By {providerName}
+              </Typography>
+            </Stack>
+          </CardContent>
+        </CardActionArea>
+      </Card>
     );
-  }
+  };
+
+  const emptyState = (
+    <Box sx={{ textAlign: 'center', py: 10 }}>
+      <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+        {error || 'No services found for your current filters.'}
+      </Typography>
+      <Button variant="outlined" onClick={() => { setCategoryFilter('all'); setSearchQuery(''); }}>
+        Reset filters
+      </Button>
+    </Box>
+  );
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      {/* Header */}
-      <Box mb={4}>
-        <Typography variant="h3" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold' }}>
-          Adult Services Marketplace 🔥
-        </Typography>
-        <Typography variant="h6" color="text.secondary" align="center">
-          Browse verified providers offering premium adult services with complete privacy and security
-        </Typography>
-      </Box>
-
-      {/* Filters and Search */}
-      <Box mb={4}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Button
-            variant="outlined"
-            startIcon={<FilterList />}
-            onClick={() => setShowFilters(!showFilters)}
+    <Box sx={{ minHeight: '100vh', bgcolor: '#0b0c10', pb: 2 }}>
+      <Box
+        sx={{
+          background: '#0d111a',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          backdropFilter: 'blur(8px)'
+        }}
+      >
+        <Container maxWidth="lg">
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ py: 0.75 }}
           >
-            {showFilters ? 'Hide Filters' : 'Show Filters'}
-          </Button>
-          
-          <Box display="flex" gap={1}>
-            <Button
-              variant="contained"
-              color="primary"
-              startIcon={<Add />}
-              onClick={() => navigate('/adult-services/create')}
-              sx={{ mr: 2 }}
-            >
-              Create Service
-            </Button>
-            <Button
-              variant={viewMode === 'grid' ? 'contained' : 'outlined'}
-              onClick={() => setViewMode('grid')}
-              startIcon={<ViewModule />}
-            >
-              Grid
-            </Button>
-            <Button
-              variant={viewMode === 'list' ? 'contained' : 'outlined'}
-              onClick={() => setViewMode('list')}
-              startIcon={<ViewList />}
-            >
-              List
-            </Button>
-          </Box>
-        </Box>
-
-        {showFilters && (
-          <Box sx={{ p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2, mb: 3 }}>
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={3}>
-                <FormControl fullWidth>
-                  <InputLabel>Category</InputLabel>
-                  <Select
-                    value={filters.category}
-                    onChange={(e) => handleFilterChange('category', e.target.value)}
-                    label="Category"
-                  >
-                    {categories.map(cat => (
-                      <MenuItem key={cat.value} value={cat.value}>
-                        {cat.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  label="Location"
-                  value={filters.location}
-                  onChange={(e) => handleFilterChange('location', e.target.value)}
-                  placeholder="Enter city or region"
-                />
-              </Grid>
-              
-              <Grid item xs={12} md={3}>
-                <Typography gutterBottom>Price Range ({getUserCurrency().symbol})</Typography>
-                <Slider
-                  value={filters.priceRange}
-                  onChange={(e, newValue) => handleFilterChange('priceRange', newValue)}
-                  valueLabelDisplay="auto"
-                  min={0}
-                  max={1000000}
-                  step={10000}
-                />
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="caption">{getUserCurrency().symbol}{filters.priceRange[0].toLocaleString()}</Typography>
-                  <Typography variant="caption">{getUserCurrency().symbol}{filters.priceRange[1].toLocaleString()}</Typography>
-                </Box>
-              </Grid>
-              
-              <Grid item xs={12} md={3}>
-                <Typography gutterBottom>Trust Score</Typography>
-                <Slider
-                  value={filters.trustScore}
-                  onChange={(e, newValue) => handleFilterChange('trustScore', newValue)}
-                  valueLabelDisplay="auto"
-                  min={0}
-                  max={100}
-                  step={5}
-                />
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="caption">{filters.trustScore[0]}</Typography>
-                  <Typography variant="caption">{filters.trustScore[1]}</Typography>
-                </Box>
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-      </Box>
-
-      {/* Results Count */}
-      <Box mb={3}>
-        <Typography variant="h6" color="text.secondary">
-          Showing {filteredServices.length} services
-        </Typography>
-      </Box>
-
-      {/* Services Grid */}
-      <Grid container spacing={3}>
-        {filteredServices.map((service) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={service.id}>
-            <Card 
-              sx={{ 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                '&:hover': {
-                  transform: 'translateY(-4px)',
-                  boxShadow: 4
-                }
+            <Tabs
+              value={categoryFilter}
+              onChange={(e, v) => setCategoryFilter(v)}
+              variant="scrollable"
+              scrollButtons="auto"
+              textColor="primary"
+              indicatorColor="primary"
+              sx={{
+                minHeight: 0,
+                '& .MuiTabs-indicator': { height: 2 },
+                '& .MuiTab-root': {
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  color: 'rgba(255,255,255,0.7)',
+                  minHeight: 36,
+                  px: 1.5,
+                  minWidth: 'auto'
+                },
+                '& .Mui-selected': { color: '#60a5fa' }
               }}
             >
-              <CardMedia
-                component="img"
-                height="200"
-                image={service.photos[0]}
-                alt={service.title}
-                sx={{ objectFit: 'cover' }}
-              />
-              
-              <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                {/* Service Header */}
-                <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
-                  <Typography variant="h6" component="h3" sx={{ fontWeight: 'bold', flex: 1 }}>
-                    {service.title}
-                  </Typography>
-                  <Button
-                    size="small"
-                    onClick={() => handleFavorite(service.id)}
-                    sx={{ minWidth: 'auto', p: 0.5 }}
-                  >
-                    <FavoriteBorder fontSize="small" />
-                  </Button>
-                </Box>
+              {categoryTabs.map((f) => (
+                <Tab key={f.value} value={f.value} label={f.label} />
+              ))}
+            </Tabs>
 
-                {/* Category and Price */}
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                  <Chip 
-                    label={service.category} 
-                    size="small" 
-                    color="primary"
-                    variant="outlined"
-                  />
-                  <Typography variant="h6" color="primary" sx={{ fontWeight: 'bold' }}>
-                    {formatPrice(service.price, service.currency, service.serviceCountry)}
-                  </Typography>
-                </Box>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <IconButton
+                size="small"
+                sx={{ color: 'rgba(255,255,255,0.8)' }}
+                onClick={() => {
+                  const query = prompt('Search services:');
+                  if (query) setSearchQuery(query);
+                }}
+              >
+                <Search fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                sx={{ color: 'rgba(255,255,255,0.8)' }}
+                onClick={() => navigate('/adult-services/create')}
+              >
+                <Tune fontSize="small" />
+              </IconButton>
+            </Stack>
+          </Stack>
+        </Container>
+      </Box>
 
-                {/* Description */}
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, flex: 1 }}>
-                  {service.description}
-                </Typography>
+      <Container maxWidth="lg" sx={{ mt: 0.5 }}>
+        <Stack spacing={1.5}>
 
-                {/* Location */}
-                <Box display="flex" alignItems="center" mb={1}>
-                  <LocationOn fontSize="small" color="action" sx={{ mr: 0.5 }} />
-                  <Typography variant="caption" color="text.secondary">
-                    {service.location}
-                  </Typography>
-                </Box>
-
-                {/* Verification and Trust Score */}
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                  <Box display="flex" alignItems="center">
-                    <Security fontSize="small" sx={{ color: getVerificationColor(service.verificationTier), mr: 0.5 }} />
-                    <Typography variant="caption" sx={{ color: getVerificationColor(service.verificationTier) }}>
-                      {service.verificationTier}
-                    </Typography>
-                  </Box>
-                  <Box display="flex" alignItems="center">
-                    <Star fontSize="small" sx={{ color: getTrustScoreColor(service.trustScore), mr: 0.5 }} />
-                    <Typography variant="caption" sx={{ color: getTrustScoreColor(service.trustScore) }}>
-                      {service.trustScore}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                {/* Rating and Reviews */}
-                <Box display="flex" alignItems="center" mb={2}>
-                  <Star fontSize="small" sx={{ color: '#FFD700', mr: 0.5 }} />
-                  <Typography variant="caption" sx={{ mr: 1 }}>
-                    {service.rating} ({service.reviews} reviews)
-                  </Typography>
-                </Box>
-
-                {/* Action Buttons */}
-                <Box display="flex" gap={1}>
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    size="small"
-                    onClick={() => handleViewService(service.id)}
-                  >
-                    View Details
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => handleContact(service)}
-                    startIcon={<Phone />}
-                  >
-                    Contact
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <Box display="flex" justifyContent="center" mt={4}>
-          <Pagination 
-            count={totalPages} 
-            page={page} 
-            onChange={(e, value) => setPage(value)}
-            color="primary"
-            size="large"
-          />
-        </Box>
-      )}
-
-      {/* Contact Dialog */}
-      {contactDialog && selectedService && (
-        <Dialog 
-          open={contactDialog} 
-          onClose={handleCloseContactDialog}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>
-            Contact Service Provider
-          </DialogTitle>
-          <DialogContent>
-            <Box mb={2}>
-              <Typography variant="h6" gutterBottom>
-                {selectedService.title}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Send a message to inquire about this service
-              </Typography>
-            </Box>
-            
-            <TextField
-              fullWidth
-              multiline
-              rows={4}
-              label="Your Message"
-              value={contactMessage}
-              onChange={(e) => setContactMessage(e.target.value)}
-              placeholder="Hi! I'm interested in your service. Can you tell me more about..."
-              variant="outlined"
-              sx={{ mb: 2 }}
-            />
-            
-            <Typography variant="caption" color="text.secondary">
-              Your message will be sent to the service provider and you can continue the conversation in your chat.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCloseContactDialog}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSendMessage}
-              variant="contained"
-              disabled={!contactMessage.trim() || sendingMessage}
-            >
-              {sendingMessage ? 'Sending...' : 'Send Message'}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      )}
-    </Container>
+          {loading ? (
+            <Grid container spacing={2}>
+              {shimmerSkeletons.map((_, n) => (
+                <Grid item xs={12} sm={6} md={4} key={n}>
+                  <Skeleton variant="rectangular" height={isMobile ? 260 : 320} sx={{ borderRadius: 3, mb: 1 }} />
+                  <Skeleton width="70%" height={28} />
+                  <Skeleton width="40%" height={20} />
+                </Grid>
+              ))}
+            </Grid>
+          ) : filteredServices.length ? (
+            <motion.div variants={containerVariants} initial="hidden" animate="visible">
+              <Grid container spacing={2.5}>
+                {filteredServices.map((service) => (
+                  <Grid item xs={12} sm={6} md={4} key={service.id}>
+                    <motion.div variants={itemVariants}>{renderServiceCard(service)}</motion.div>
+                  </Grid>
+                ))}
+              </Grid>
+            </motion.div>
+          ) : (
+            emptyState
+          )}
+        </Stack>
+      </Container>
+    </Box>
   );
 };
 

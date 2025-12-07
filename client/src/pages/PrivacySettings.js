@@ -807,14 +807,14 @@ const PrivacySettings = () => {
                 <ListItemText
                   primary={consent.type}
                   secondary={
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
+                    <React.Fragment>
+                      <span style={{ display: 'block', fontSize: '0.875rem', color: 'rgba(0, 0, 0, 0.6)' }}>
                         {consent.description}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
+                      </span>
+                      <span style={{ display: 'block', fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)' }}>
                         Version {consent.version} • {consent.date}
-                      </Typography>
-                    </Box>
+                      </span>
+                    </React.Fragment>
                   }
                 />
                 <ListItemSecondaryAction>

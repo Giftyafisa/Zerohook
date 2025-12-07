@@ -25,6 +25,7 @@ export const AuthProvider = ({ children }) => {
     };
     
     initializeAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
   // FIXED: Simplified subscription status check
@@ -32,7 +33,7 @@ export const AuthProvider = ({ children }) => {
     if (isAuthenticated && user && user.is_subscribed !== undefined) {
       dispatch(setSubscriptionStatus(user.is_subscribed));
     }
-  }, [isAuthenticated, user?.is_subscribed, dispatch]);
+  }, [isAuthenticated, user, dispatch]);
 
   // Country detection after authentication
   useEffect(() => {
@@ -49,7 +50,8 @@ export const AuthProvider = ({ children }) => {
       };
       detectCountry();
     }
-  }, [isAuthenticated, user, dispatch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user]);
 
   const updateUser = (userData) => {
     if (user) {

@@ -1,0 +1,317 @@
+[
+  {
+    "id": "d278fd52-984c-4b58-a949-e1ab52e67261",
+    "username": "grace_elegant",
+    "email": "grace@example.com",
+    "currentImage": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
+    "tier": 2
+  },
+  {
+    "id": "39e04e2e-bfab-450e-b211-8d1da18f7eea",
+    "username": "amara_beauty",
+    "email": "amara@example.com",
+    "currentImage": "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400",
+    "tier": 2
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "username": "akua_mensah",
+    "email": "akua@example.com",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "69b3c4c1-0c9e-41ee-8e23-5db1e21c3267",
+    "username": "afia_asante18",
+    "email": "afia_asante18@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "46c7219b-6a84-4402-9a25-a465739b0899",
+    "username": "abena_amoah62",
+    "email": "abena_amoah62@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "38a56011-892f-4166-b892-a77f74f20997",
+    "username": "maame_badu50",
+    "email": "maame_badu50@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "c577256c-88ad-4c8e-a059-cef89231dc88",
+    "username": "afia_asante59",
+    "email": "afia_asante59@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "38958e62-dbdb-4fc7-9617-a9b5d9e88006",
+    "username": "adwoa_nyarko67",
+    "email": "adwoa_nyarko67@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "d46a3c9d-ba33-490e-936d-8495d55946db",
+    "username": "adoma_agyeman87",
+    "email": "adoma_agyeman87@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "59af7acf-caf5-4215-97be-13f7a6f2232c",
+    "username": "ekua_mensah74",
+    "email": "ekua_mensah74@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "98f5ba12-42ac-4edb-85cd-f16a9e26cd94",
+    "username": "afua_frimpong66",
+    "email": "afua_frimpong66@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "74e14859-aa03-440b-b2f4-8adf0389d0f4",
+    "username": "serwaa_badu60",
+    "email": "serwaa_badu60@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "f16fd727-75bd-4747-a7eb-36d47e1e990a",
+    "username": "adjoa_boateng84",
+    "email": "adjoa_boateng84@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "bfe75639-7c49-4645-853b-a5ca7c7d7656",
+    "username": "abena_owusu24",
+    "email": "abena_owusu24@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "5cd14248-f75e-404f-bc04-42489717b256",
+    "username": "frema_amoah62",
+    "email": "frema_amoah62@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "f2665c28-f3ad-48cd-9db2-7737acb7ec91",
+    "username": "frema_amoah94",
+    "email": "frema_amoah94@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "0ae8f7b4-a92a-4d13-b0f5-104790a8e091",
+    "username": "afua_boateng14",
+    "email": "afua_boateng14@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "a165933c-4bbd-484c-9b11-10feccfb1e98",
+    "username": "ekua_asante43",
+    "email": "ekua_asante43@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "23ca7b21-86b0-4412-9446-084a2dc0be5b",
+    "username": "frema_asante46",
+    "email": "frema_asante46@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "673dbf23-ecca-459b-9afd-adc666f39b51",
+    "username": "pokua_amoah24",
+    "email": "pokua_amoah24@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "9d60ad15-9815-4b10-9d26-5d6c37c3c1c7",
+    "username": "adjoa_appiah70",
+    "email": "adjoa_appiah70@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "517dcb6b-728c-4688-b205-3d213f62d9d9",
+    "username": "araba_frimpong9",
+    "email": "araba_frimpong9@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "86a30b0c-2bb6-4d9e-aba7-615da33158cd",
+    "username": "akua_boateng10",
+    "email": "akua_boateng10@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "6ad62738-2f5d-4249-80d6-8bc5f1b6e1fd",
+    "username": "nana_darko74",
+    "email": "nana_darko74@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "fe6b2672-2fde-45c4-9847-3ea20d071923",
+    "username": "pokua_owusu15",
+    "email": "pokua_owusu15@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "c0433f47-d961-4dec-aa24-3e97fafa0e2c",
+    "username": "abena_frimpong95",
+    "email": "abena_frimpong95@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "dc693384-a54c-4aee-9c0f-2e716891e267",
+    "username": "kukua_agyeman18",
+    "email": "kukua_agyeman18@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "114465b1-f240-4ae4-bcd2-cb4cb78a862b",
+    "username": "adjoa_appiah48",
+    "email": "adjoa_appiah48@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "8b15d90d-13cc-4988-918e-e83734ab912f",
+    "username": "efua_badu94",
+    "email": "efua_badu94@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "74742fbf-a723-42a4-8026-f82cbf56669f",
+    "username": "adwoa_agyeman51",
+    "email": "adwoa_agyeman51@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "736a66fe-4a71-4c77-b433-251685aaceb1",
+    "username": "maame_acheampong11",
+    "email": "maame_acheampong11@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "7fa635e4-f4ef-4616-b8c1-77dbef0792aa",
+    "username": "araba_owusu78",
+    "email": "araba_owusu78@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "171d0ea6-63f8-44ad-8777-e4eb3927f82d",
+    "username": "ama_acheampong17",
+    "email": "ama_acheampong17@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "72d252ac-79ec-4e05-ab0b-58fd4d5797c2",
+    "username": "afua_agyeman55",
+    "email": "afua_agyeman55@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "9f73f603-ecf4-47dd-92ee-68af0bf4da32",
+    "username": "abena_boateng26",
+    "email": "abena_boateng26@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "5f971e03-d4bb-488f-9196-e2325d9b6ffa",
+    "username": "afua_amoah63",
+    "email": "afua_amoah63@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "30316faa-5add-43ac-948e-c0866deee7c7",
+    "username": "ekua_badu60",
+    "email": "ekua_badu60@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "58ddc58a-3786-4b2c-b751-9c512170edbf",
+    "username": "yaa_amoah84",
+    "email": "yaa_amoah84@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "3307f5fd-1bb5-4663-9404-41a006032118",
+    "username": "adjoa_appiah93",
+    "email": "adjoa_appiah93@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "f50727b5-f395-4479-8871-e4b18c98370b",
+    "username": "ekua_agyeman50",
+    "email": "ekua_agyeman50@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "61e50395-6016-4e8f-b832-377d0dc0636e",
+    "username": "kukua_acheampong63",
+    "email": "kukua_acheampong63@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "07caa377-ff25-49c8-9b52-062a1cd48e8e",
+    "username": "adoma_boateng61",
+    "email": "adoma_boateng61@temaarea.gh",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "efbb0e41-48b4-4bc9-b141-f0ee72edd726",
+    "username": "maame_darko1",
+    "email": "maame_darko1@temaarea.gh",
+    "currentImage": "",
+    "tier": 2
+  },
+  {
+    "id": "f0f9325b-fc96-4af9-8f78-daa509969569",
+    "username": "sumaila_mohammed",
+    "email": "sumailamohammed017@gmail.com",
+    "currentImage": "",
+    "tier": 1
+  },
+  {
+    "id": "d8e8ee7d-d3f4-4c28-baa0-1abb8e77828e",
+    "username": "peak_blinders",
+    "email": "muringayieaster@gmail.com",
+    "currentImage": "",
+    "tier": 1
+  }
+]

@@ -51,6 +51,7 @@ import {
 import { getDefaultImage } from '../config/images';
 import ChatSystem from '../components/ChatSystem';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import { extractProfileImagePath } from '../utils/imageUtils';
 
 const ProfileBrowse = () => {
   const theme = useTheme();
@@ -354,7 +355,7 @@ const ProfileBrowse = () => {
               availability: Array.isArray(profileData.availability) ? profileData.availability : ['Weekends'],
               languages: Array.isArray(profileData.languages) ? profileData.languages : ['English'],
               specializations: Array.isArray(profileData.specializations) ? profileData.specializations : ['GFE'],
-              profilePicture: profileData.profilePicture || null
+              profilePicture: extractProfileImagePath(profileData)
             },
             verificationTier: parseInt(user.verification_tier) || 1,
             trustScore: parseFloat(user.reputation_score) || 0,

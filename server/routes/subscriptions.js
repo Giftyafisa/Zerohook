@@ -228,6 +228,16 @@ router.post('/verify-payment', authMiddleware, [
     
     console.log(`✅ Payment verified and subscription activated for user: ${userId}`);
 
+    // Emit real-time subscription update to user
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('subscription_updated', {
+        isSubscribed: true,
+        status: 'active',
+        timestamp: new Date().toISOString()
+      });
+      console.log(`📡 Real-time subscription update sent to user: ${userId}`);
+    }
+
     res.json({
       success: true,
       message: 'Subscription activated successfully',
@@ -285,6 +295,16 @@ router.post('/verify-payment-manual', async (req, res) => {
     }
     
     console.log(`✅ Manual verification: Subscription activated for user: ${userId}`);
+
+    // Emit real-time subscription update to user
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('subscription_updated', {
+        isSubscribed: true,
+        status: 'active',
+        timestamp: new Date().toISOString()
+      });
+      console.log(`📡 Real-time subscription update sent to user: ${userId}`);
+    }
 
     res.json({
       success: true,

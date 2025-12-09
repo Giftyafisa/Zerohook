@@ -55,12 +55,11 @@ class ConversationService {
         await localClient.query('BEGIN');
       }
 
-      // Note: messages table has no 'metadata' column
       const insertRes = await localClient.query(`
-        INSERT INTO messages (conversation_id, sender_id, content, message_type)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, created_at
-      `, [conversationId, senderId, content, messageType]);
+        INSERT INTO messages (conversation_id, sender_id, content, message_type, metadata)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, created_at, metadata
+      `, [conversationId, senderId, content, messageType, JSON.stringify(metadata || {})]);
 
       const message = insertRes.rows[0];
 

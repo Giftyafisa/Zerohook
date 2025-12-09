@@ -18,9 +18,12 @@ import {
   FormControl,
   InputLabel,
   Autocomplete,
-  Paper
+  Paper,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import { resolveProfileImage } from '../utils/imageUtils';
 import {
   Edit as EditIcon,
   PhotoCamera as CameraIcon,
@@ -53,6 +56,8 @@ const ProfilePage = () => {
   const [cities, setCities] = useState([]);
   const [cityInputValue, setCityInputValue] = useState('');
   const [loadingCities, setLoadingCities] = useState(false);
+  const [locationLookupLoading, setLocationLookupLoading] = useState(false);
+  const [locationSuggestion, setLocationSuggestion] = useState(null);
   
   const [profileData, setProfileData] = useState({
     firstName: '',
@@ -65,11 +70,21 @@ const ProfilePage = () => {
     profilePicture: null,
     trustScore: 0,
     verificationTier: 1,
-    completedServices: 0
+    completedServices: 0,
+    preferProfileLocation: false,
+    profileVisibility: 'public'
   });
   const [editData, setEditData] = useState({});
 
   // Fetch supported countries on mount
+            {locationLookupLoading && (
+              <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Validating city...</Typography>
+            )}
+            {locationSuggestion && (
+              <Typography sx={{ color: '#00f2ea', fontSize: 12 }}>
+                Found: {locationSuggestion.city}, {locationSuggestion.country} ({Number(locationSuggestion.lat).toFixed(3)}, {Number(locationSuggestion.lng).toFixed(3)})
+              </Typography>
+            )}
   useEffect(() => {
     const fetchCountries = async () => {
       try {
@@ -134,7 +149,9 @@ const ProfilePage = () => {
         profilePicture: user.profile_data?.profile_picture?.url || user.profile_data?.profilePicture || null,
         trustScore: user.reputation_score || 75,
         verificationTier: user.verification_tier || 1,
-        completedServices: user.profile_data?.completedServices || 0
+        completedServices: user.profile_data?.completedServices || 0,
+        preferProfileLocation: Boolean(user.profile_data?.location?.preferProfileLocation),
+        profileVisibility: user.profile_data?.profileVisibility || 'public'
       };
 
       if (response.ok) {
@@ -157,9 +174,40 @@ const ProfilePage = () => {
     fetchProfile();
   }, [fetchProfile]);
 
+  const resolveLocationCoordinates = async (city, country) => {
+    if (!city) return null;
+    setLocationLookupLoading(true);
+    setLocationSuggestion(null);
+    try {
+      const url = `${API_BASE_URL}/geolocation/lookup-city?city=${encodeURIComponent(city)}${country ? `&country=${encodeURIComponent(country)}` : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      setLocationSuggestion(data?.data || null);
+      return data?.data || null;
+    } catch (error) {
+      console.error('Location lookup failed:', error);
+      return null;
+    } finally {
+      setLocationLookupLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
+      let resolvedLocation = null;
+      if (editData.city) {
+        resolvedLocation = await resolveLocationCoordinates(editData.city, editData.country);
+        if (!resolvedLocation) {
+          setSnackbar({ open: true, message: 'City not found. Please check spelling or pick a suggestion.', severity: 'error' });
+          setSaving(false);
+          return;
+        }
+      }
+
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/users/me`, {
         method: 'PUT',
@@ -176,8 +224,11 @@ const ProfilePage = () => {
             location: {
               city: editData.city,
               country: editData.country,
-              countryCode: editData.countryCode
-            }
+              countryCode: editData.countryCode,
+              coordinates: resolvedLocation ? { lat: resolvedLocation.lat, lng: resolvedLocation.lng } : undefined,
+              preferProfileLocation: Boolean(editData.preferProfileLocation)
+            },
+            profileVisibility: editData.profileVisibility || 'public'
           }
         })
       });
@@ -266,7 +317,7 @@ const ProfilePage = () => {
           {/* Avatar */}
           <Box sx={styles.avatarContainer}>
             <Avatar
-              src={getUploadUrl(profileData.profilePicture)}
+              src={resolveProfileImage(profileData) || undefined}
               sx={styles.avatar}
             >
               {fullName[0]?.toUpperCase()}
@@ -405,6 +456,7 @@ const ProfilePage = () => {
                 inputValue={cityInputValue}
                 onInputChange={(event, newInputValue) => {
                   setCityInputValue(newInputValue);
+                  setLocationSuggestion(null);
                 }}
                 onChange={(event, newValue) => {
                   setEditData({ ...editData, city: newValue || '' });
@@ -441,6 +493,30 @@ const ProfilePage = () => {
                     }}
                   />
                 )}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={Boolean(editData.preferProfileLocation)}
+                    onChange={(e) => setEditData({ ...editData, preferProfileLocation: e.target.checked })}
+                    color="primary"
+                  />
+                }
+                label="Use this as my primary location"
+                sx={{ color: '#fff' }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={editData.profileVisibility !== 'hidden'}
+                    onChange={(e) => setEditData({ ...editData, profileVisibility: e.target.checked ? 'public' : 'hidden' })}
+                    color="primary"
+                  />
+                }
+                label="Show my profile in browse"
+                sx={{ color: '#fff' }}
               />
             </Box>
             <TextField

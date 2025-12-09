@@ -96,6 +96,7 @@ const connectDB = async () => {
     // Don't throw error, allow server to start for frontend testing
     return false;
   }
+  return true;
 };
 
 const connectRedis = async () => {
@@ -262,6 +263,7 @@ const initializeTables = async () => {
         sender_id UUID REFERENCES users(id) ON DELETE CASCADE,
         content TEXT NOT NULL,
         message_type VARCHAR(20) DEFAULT 'text',
+        metadata JSONB DEFAULT '{}',
         read_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -308,6 +310,25 @@ const initializeTables = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    // Blocked users
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blocked_users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        blocker_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        blocked_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(blocker_id, blocked_id)
+      )
+    `);
+    console.log('✅ Blocked users table created');
+
+    // Create indexes for blocked_users
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_blocked_users_blocker_id ON blocked_users(blocker_id);
+      CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_id ON blocked_users(blocked_id);
     `);
 
     // Verification requests
@@ -518,18 +539,6 @@ let dbAvailable = false;
 
 // Helper functions
 const query = async (text, params, retries = 3) => {
-  // If database is known to be unavailable, fail fast
-  if (!dbAvailable && retries === 3) {
-    // Try once to check if it's back
-    try {
-      const client = await pool.connect();
-      client.release();
-      dbAvailable = true;
-    } catch (e) {
-      throw new Error('Database unavailable');
-    }
-  }
-  
   let client;
   try {
     client = await pool.connect();

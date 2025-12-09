@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -25,11 +25,24 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const BookingsPage = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   const [bookings, setBookings] = useState([]);
+  const [error, setError] = useState(null);
+
+  const mockBookings = useMemo(() => [
+    {
+      id: 1,
+      service: 'Premium Companion',
+      provider: 'Crystal',
+      date: '2025-01-15',
+      time: '19:00',
+      price: '$250',
+      status: 'upcoming'
+    },
+  ], []);
 
   useEffect(() => {
     const fetchBookings = async () => {
@@ -41,13 +54,25 @@ const BookingsPage = () => {
         if (response.ok) {
           const data = await response.json();
           setBookings(data.bookings || []);
+          setError(null);
         } else {
-          // Use mock data for now
-          setBookings(mockBookings);
+          const message = `Failed to load bookings (${response.status})`;
+          console.error(message);
+          if (process.env.NODE_ENV === 'development') {
+            setBookings(mockBookings);
+          } else {
+            setBookings([]);
+          }
+          setError(message);
         }
       } catch (error) {
         console.error('Bookings fetch error:', error);
-        setBookings(mockBookings);
+        if (process.env.NODE_ENV === 'development') {
+          setBookings(mockBookings);
+        } else {
+          setBookings([]);
+        }
+        setError('Unable to load bookings right now. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -58,43 +83,7 @@ const BookingsPage = () => {
     } else {
       setLoading(false);
     }
-  }, [isAuthenticated]);
-
-  const mockBookings = [
-    {
-      id: 1,
-      service: 'Premium Companion',
-      provider: 'Crystal',
-      providerAvatar: null,
-      date: '2025-12-05',
-      time: '8:00 PM',
-      location: 'Lagos, Nigeria',
-      status: 'upcoming',
-      price: 150.00
-    },
-    {
-      id: 2,
-      service: 'VIP Experience',
-      provider: 'Diamond',
-      providerAvatar: null,
-      date: '2025-12-03',
-      time: '6:00 PM',
-      location: 'Accra, Ghana',
-      status: 'pending',
-      price: 200.00
-    },
-    {
-      id: 3,
-      service: 'Evening Companion',
-      provider: 'Sapphire',
-      providerAvatar: null,
-      date: '2025-11-28',
-      time: '7:00 PM',
-      location: 'Nairobi, Kenya',
-      status: 'completed',
-      price: 120.00
-    }
-  ];
+  }, [isAuthenticated, mockBookings]);
 
   const getStatusConfig = (status) => {
     switch (status) {
@@ -118,6 +107,11 @@ const BookingsPage = () => {
     if (activeTab === 3) return booking.status === 'completed';
     return true;
   });
+
+  const handleViewDetails = (bookingId) => {
+    if (!bookingId) return;
+    navigate(`/bookings/${bookingId}`);
+  };
 
   if (!isAuthenticated) {
     return (
@@ -186,6 +180,10 @@ const BookingsPage = () => {
       </Box>
 
       {/* Bookings List */}
+      {error && (
+        <Box sx={{ color: '#ff8080', mb: 2 }}>{error}</Box>
+      )}
+
       {filteredBookings.length === 0 ? (
         <Box sx={styles.emptyState}>
           <CalendarIcon sx={{ fontSize: 48, color: '#333', mb: 2 }} />
@@ -256,11 +254,26 @@ const BookingsPage = () => {
                     {booking.status === 'upcoming' && (
                       <Box sx={styles.actionButtons}>
                         <Button size="small" sx={styles.cancelButton}>Cancel</Button>
-                        <Button size="small" sx={styles.viewButton}>View Details</Button>
+                        <Button 
+                          size="small" 
+                          sx={styles.viewButton}
+                          onClick={() => handleViewDetails(booking.id)}
+                        >
+                          View Details
+                        </Button>
                       </Box>
                     )}
                     {booking.status === 'completed' && (
                       <Button size="small" sx={styles.viewButton}>Leave Review</Button>
+                    )}
+                    {booking.status === 'pending' && (
+                      <Button 
+                        size="small" 
+                        sx={styles.viewButton}
+                        onClick={() => handleViewDetails(booking.id)}
+                      >
+                        View Details
+                      </Button>
                     )}
                   </Box>
                 </Box>

@@ -302,26 +302,72 @@ router.get('/profiles', async (req, res) => {
       userCountry
     } = req.query;
 
+    // Use advanced location tracking service (injected from server)
+    const locationService = req.locationTrackingService;
+    
+    // Get current user's profile data for fallback location
+    let currentUserProfile = null;
+    if (currentUserId) {
+      try {
+        const userResult = await query('SELECT profile_data FROM users WHERE id = $1', [currentUserId]);
+        if (userResult.rows.length > 0) {
+          currentUserProfile = userResult.rows[0].profile_data || {};
+        }
+      } catch (e) {
+        console.log('Could not fetch user profile for location');
+      }
+    }
+    
     // Use userLat/userLng if provided, otherwise fall back to lat/lng
     const latitude = userLat || lat;
     const longitude = userLng || lng;
+    
+    // Get user's IP address
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+                      req.headers['x-real-ip'] ||
+                      req.ip ||
+                      req.connection?.remoteAddress;
 
-    // Build user location from request
+    // Build user location using advanced tracking service with full fallback cascade
     let userLocation = null;
-    if (latitude && longitude) {
-      userLocation = {
-        lat: parseFloat(latitude),
-        lng: parseFloat(longitude),
-        city: userCity || null,
-        country: userCountry || null
-      };
-      console.log('📍 User location from coordinates:', userLocation);
-    } else if (userCity || userCountry) {
-      userLocation = {
-        city: userCity,
-        country: userCountry
-      };
-      console.log('📍 User location from city/country:', userLocation);
+    try {
+      userLocation = await locationService.getUserLocation({
+        userId: currentUserId,
+        providedCoords: (latitude && longitude) ? {
+          lat: parseFloat(latitude),
+          lng: parseFloat(longitude),
+          city: userCity,
+          country: userCountry
+        } : null,
+        userProfile: currentUserProfile,
+        ipAddress: ipAddress,
+        sessionId: req.sessionID || null
+      });
+      
+      // Cache the location
+      if (userLocation && currentUserId) {
+        locationService.setCachedLocation(currentUserId, userLocation);
+      }
+    } catch (error) {
+      console.error('⚠️ Location tracking error:', error.message);
+      // Fallback to basic parsing
+      if (latitude && longitude) {
+        const parsedLat = parseFloat(latitude);
+        const parsedLng = parseFloat(longitude);
+        if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+          userLocation = {
+            lat: parsedLat,
+            lng: parsedLng,
+            city: userCity || null,
+            country: userCountry || null
+          };
+        }
+      } else if (userCity || userCountry) {
+        userLocation = {
+          city: userCity,
+          country: userCountry
+        };
+      }
     }
 
     // Build filters
@@ -363,6 +409,9 @@ router.get('/profiles', async (req, res) => {
       last_active: profile.last_active,
       // Recommendation data
       distance: profile.distance,
+      distanceEstimated: profile.distanceEstimated,
+      distanceSource: profile.distanceSource,
+      distanceConfidence: profile.distanceConfidence,
       isOnline: profile.isOnline,
       lastSeen: profile.lastSeen,
       recommendationScore: profile.recommendationScore,

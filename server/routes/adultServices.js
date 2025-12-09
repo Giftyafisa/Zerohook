@@ -3,6 +3,7 @@ const { authMiddleware } = require('./auth');
 const AdultServiceManager = require('../services/AdultServiceManager');
 const PrivacyManager = require('../services/PrivacyManager');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 
 const adultServiceManager = new AdultServiceManager();
 const privacyManager = new PrivacyManager();
@@ -29,6 +30,19 @@ router.get('/categories', async (req, res) => {
  */
 router.get('/', async (req, res) => {
   try {
+    // Optional auth parsing to filter out the requesting user's own services
+    let currentUserId = null;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader && typeof authHeader === 'string') {
+      const token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
+      try {
+        const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+        currentUserId = payload.userId || payload.id || null;
+      } catch (err) {
+        // Ignore invalid token for public endpoint; proceed unauthenticated
+      }
+    }
+
     const { 
       category, 
       location, 
@@ -78,12 +92,20 @@ router.get('/', async (req, res) => {
       })
     );
 
+    // Remove current user's own listings if authenticated
+    const visibleServices = currentUserId
+      ? filteredServices.filter((svc) => {
+          const providerId = svc.user_id || svc.provider?.id;
+          return providerId !== currentUserId;
+        })
+      : filteredServices;
+
     res.json({
-      services: filteredServices,
+      services: visibleServices,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        hasMore: filteredServices.length === parseInt(limit)
+        hasMore: visibleServices.length === parseInt(limit)
       }
     });
 

@@ -1,5 +1,12 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
+const LocationTrackingService = require('../services/LocationTrackingService');
+
+// Shared location service instance for geolocation utilities
+const locationTrackingService = new LocationTrackingService();
+locationTrackingService.initialize().catch((err) => {
+  console.error('LocationTrackingService init failed (non-fatal):', err.message);
+});
 const router = express.Router();
 
 /**
@@ -38,6 +45,71 @@ router.get('/lookup', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Geolocation lookup error:', error);
     res.status(500).json({ error: 'Failed to get location data' });
+  }
+});
+
+/**
+ * @route   GET /api/geolocation/lookup-city
+ * @desc    Lookup city coordinates and metadata (public)
+ */
+router.get('/lookup-city', async (req, res) => {
+  try {
+    const { city, country } = req.query;
+    if (!city) {
+      return res.status(400).json({ error: 'city is required' });
+    }
+
+    const result = await locationTrackingService.getCityCoordinates(city, country);
+    if (!result) {
+      return res.status(404).json({ error: 'City not found' });
+    }
+
+    res.json({
+      status: 'success',
+      data: {
+        city: result.city,
+        country: result.country,
+        countryCode: result.countryCode,
+        lat: result.lat,
+        lng: result.lng,
+        region: result.region,
+        timezone: result.timezone || null,
+        isCapital: result.isCapital || false,
+        source: result.source || 'database'
+      }
+    });
+  } catch (error) {
+    console.error('City lookup error:', error);
+    res.status(500).json({ error: 'Failed to lookup city' });
+  }
+});
+
+/**
+ * @route   POST /api/geolocation/ip-detect
+ * @desc    Proxy IP geolocation lookup (frontend-safe)
+ * @access  Public
+ */
+router.post('/ip-detect', async (req, res) => {
+  try {
+    const bodyIp = req.body?.ipAddress;
+    const forwarded = req.headers['x-forwarded-for']?.split(',')[0];
+    const ip = bodyIp || forwarded || req.ip || req.connection?.remoteAddress;
+
+    const ipLocation = await locationTrackingService.processIPLocation(ip);
+    if (!ipLocation) {
+      return res.status(503).json({ error: 'IP lookup failed' });
+    }
+
+    res.json({
+      status: 'success',
+      data: {
+        ...ipLocation,
+        source: 'ip_proxy'
+      }
+    });
+  } catch (error) {
+    console.error('IP detect proxy error:', error);
+    res.status(500).json({ error: 'Failed to detect IP location' });
   }
 });
 

@@ -34,25 +34,82 @@ import {
   Delete as DeleteIcon,
   Person as PersonIcon
 } from '@mui/icons-material';
+import { keyframes } from '@emotion/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../config/constants';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { API_BASE_URL, getUploadUrl } from '../config/constants';
 
-const ChatSystem = () => {
+// Helper to resolve avatar URL from backend profilePicture (might be string, object, or JSON string)
+const resolveAvatarUrl = (profilePicture) => {
+  if (!profilePicture) return null;
+  
+  // If it's already a valid URL, return it
+  if (typeof profilePicture === 'string' && (profilePicture.startsWith('http://') || profilePicture.startsWith('https://'))) {
+    return profilePicture;
+  }
+  
+  // If it's a string that looks like JSON, try to parse it
+  if (typeof profilePicture === 'string' && (profilePicture.startsWith('{') || profilePicture.startsWith('['))) {
+    try {
+      const parsed = JSON.parse(profilePicture);
+      if (parsed.url) {
+        return parsed.url.startsWith('http') ? parsed.url : getUploadUrl(parsed.url);
+      }
+    } catch (e) {
+      // Not valid JSON, treat as path
+    }
+  }
+  
+  // If it's an object with url property
+  if (typeof profilePicture === 'object' && profilePicture.url) {
+    return profilePicture.url.startsWith('http') ? profilePicture.url : getUploadUrl(profilePicture.url);
+  }
+  
+  // If it's a simple string path, treat as upload path
+  if (typeof profilePicture === 'string') {
+    return getUploadUrl(profilePicture);
+  }
+  
+  return null;
+};
+
+const typingBlink = keyframes`
+  0% { opacity: 0.3; transform: translateY(0px); }
+  50% { opacity: 1; transform: translateY(-2px); }
+  100% { opacity: 0.3; transform: translateY(0px); }
+`;
+
+const ChatSystem = ({
+  recipientId: propRecipientId = null,
+  recipientName: propRecipientName = null,
+  recipientAvatar: propRecipientAvatar = null,
+  initialConversationId: propInitialConversationId = null
+}) => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Recipient / navigation state
+  const routeState = location?.state || {};
+  const targetRecipientId = propRecipientId || routeState.recipientId || null;
+  const targetRecipientName = propRecipientName || routeState.recipientName || null;
+  const targetRecipientAvatar = propRecipientAvatar || routeState.recipientAvatar || null;
+  const initialConversationId = propInitialConversationId || routeState.conversationId || routeState.conversationID || null;
   
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [startingConversation, setStartingConversation] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [remoteTyping, setRemoteTyping] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
+  const [typingConversations, setTypingConversations] = useState([]);
   
   // Call states
   const [callDialogOpen, setCallDialogOpen] = useState(false);
@@ -66,6 +123,8 @@ const ChatSystem = () => {
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
+  const hasBootstrappedRef = useRef(false);
+  const prevConversationIdRef = useRef(null);
 
   useEffect(() => {
     if (user) loadConversations();
@@ -77,7 +136,23 @@ const ChatSystem = () => {
       if (socket && isConnected) {
         socket.emit('join_conversation', selectedConversation.id);
       }
+      setRemoteTyping(false);
     }
+  }, [selectedConversation, socket, isConnected]);
+
+  // Emit typing_stop when switching conversations or unmounting to avoid stuck indicators
+  useEffect(() => {
+    const prevId = prevConversationIdRef.current;
+    if (prevId && prevId !== selectedConversation?.id && socket && isConnected) {
+      socket.emit('typing_stop', { conversationId: prevId });
+    }
+    prevConversationIdRef.current = selectedConversation?.id || null;
+
+    return () => {
+      if (prevConversationIdRef.current && socket && isConnected) {
+        socket.emit('typing_stop', { conversationId: prevConversationIdRef.current });
+      }
+    };
   }, [selectedConversation, socket, isConnected]);
 
   useEffect(() => {
@@ -89,24 +164,94 @@ const ChatSystem = () => {
     if (!socket || !isConnected) return;
 
     const handleNewMessage = (messageData) => {
+      let conversationFound = false;
       if (selectedConversation && messageData.conversationId === selectedConversation.id) {
         setMessages(prev => [...prev, messageData]);
+        if (messageData.senderId !== user?.id) {
+          setRemoteTyping(false);
+          markConversationRead(messageData.conversationId);
+        }
       }
       setConversations(prev =>
-        prev.map(conv =>
-          conv.id === messageData.conversationId
-            ? { ...conv, lastMessage: messageData.content, lastMessageTime: messageData.createdAt }
-            : conv
-        )
+        sortConversations(prev.map(conv => {
+          if (conv.id !== messageData.conversationId) return conv;
+          conversationFound = true;
+          const isOwn = messageData.senderId === user?.id;
+          const isActive = selectedConversation?.id === conv.id;
+          return {
+            ...conv,
+            lastMessage: messageData.content,
+            lastMessageTime: messageData.createdAt,
+            unreadCount: isOwn || isActive ? 0 : (conv.unreadCount || 0) + 1
+          };
+        }))
       );
+      if (!conversationFound) {
+        // Fetch latest conversations to include new thread
+        loadConversations({ silent: true });
+      }
     };
 
     socket.on('new_message', handleNewMessage);
-    return () => socket.off('new_message', handleNewMessage);
-  }, [socket, isConnected, selectedConversation]);
+    const handleTypingStart = ({ conversationId }) => {
+      setTypingConversations((prev) => (prev.includes(conversationId) ? prev : [...prev, conversationId]));
+      if (selectedConversation?.id === conversationId) {
+        setRemoteTyping(true);
+      }
+    };
+    const handleTypingStop = ({ conversationId }) => {
+      setTypingConversations((prev) => prev.filter((id) => id !== conversationId));
+      if (selectedConversation?.id === conversationId) {
+        setRemoteTyping(false);
+      }
+    };
 
-  const loadConversations = async () => {
+    socket.on('typing_start', handleTypingStart);
+    socket.on('typing_stop', handleTypingStop);
+
+    return () => {
+      socket.off('new_message', handleNewMessage);
+      socket.off('typing_start', handleTypingStart);
+      socket.off('typing_stop', handleTypingStop);
+    };
+  }, [socket, isConnected, selectedConversation, user]);
+
+  // Bootstrap target recipient or conversation from props / navigation state
+  useEffect(() => {
+    if (!user || loading || hasBootstrappedRef.current) return;
+
+    const tryBootstrap = async () => {
+      try {
+        if (targetRecipientId) {
+          hasBootstrappedRef.current = true;
+          await startConversationWithRecipient(targetRecipientId);
+        } else if (initialConversationId) {
+          const existing = conversations.find(c => c.id === initialConversationId);
+          if (existing) {
+            hasBootstrappedRef.current = true;
+            selectConversation(existing);
+          }
+        }
+      } catch (error) {
+        console.error('Bootstrap chat failed:', error);
+      }
+    };
+
+    tryBootstrap();
+  }, [user, loading, targetRecipientId, initialConversationId, conversations]);
+
+  const sortConversations = (list = []) =>
+    [...list].sort((a, b) => new Date(b.lastMessageTime || b.createdAt || 0) - new Date(a.lastMessageTime || a.createdAt || 0));
+
+  const resolveMediaUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    return getUploadUrl(url);
+  };
+
+  const loadConversations = async ({ silent = false } = {}) => {
     try {
+      if (!silent) setLoading(true);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -117,7 +262,7 @@ const ChatSystem = () => {
         const transformedConversations = (data.conversations || []).map(conv => ({
           id: conv.id,
           participantName: conv.otherUser?.username || 'Unknown',
-          participantAvatar: conv.otherUser?.profilePicture || null,
+          participantAvatar: resolveAvatarUrl(conv.otherUser?.profilePicture),
           participantOnline: false, // Will be updated via socket
           participantVerified: (conv.otherUser?.verificationTier || 0) >= 2,
           participantId: conv.otherUser?.id,
@@ -127,12 +272,15 @@ const ChatSystem = () => {
           hasActiveEscrow: conv.hasActiveEscrow || false,
           createdAt: conv.createdAt
         }));
-        setConversations(transformedConversations);
+        const sorted = sortConversations(transformedConversations);
+        setConversations(sorted);
+        return sorted;
       }
     } catch (error) {
       console.error('Failed to load conversations:', error);
+      alert('Unable to load conversations right now.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -145,26 +293,65 @@ const ChatSystem = () => {
       if (response.ok) {
         const data = await response.json();
         setMessages(data.messages || []);
+        setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
+        await markConversationRead(conversationId);
       }
     } catch (error) {
       console.error('Failed to load messages:', error);
+      alert('Unable to load messages right now.');
     }
   };
 
-  const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedConversation) return;
+  const startConversationWithRecipient = async (recipientId) => {
+    if (!recipientId || startingConversation) return null;
+    const existing = conversations.find(c => c.participantId === recipientId);
+    if (existing) {
+      selectConversation(existing);
+      return existing;
+    }
 
-    const messageContent = newMessage.trim();
-    setNewMessage('');
+    try {
+      setStartingConversation(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/chat/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ otherUserId: recipientId })
+      });
 
-    // Optimistic update
+      if (!response.ok) throw new Error('Failed to start conversation');
+      const data = await response.json();
+      const convList = await loadConversations({ silent: true });
+      const created = convList?.find(c => c.participantId === recipientId || c.id === data.conversationId);
+      if (created) {
+        selectConversation(created);
+      }
+      return created || null;
+    } catch (error) {
+      console.error('Failed to start conversation:', error);
+      alert('Unable to start conversation right now.');
+      return null;
+    } finally {
+      setStartingConversation(false);
+    }
+  };
+
+  const sendMessagePayload = async ({ content, messageType = 'text', metadata = {} }) => {
+    if (!content || !selectedConversation) return;
+
+    const tempId = `temp-${Date.now()}`;
     const tempMessage = {
-      id: `temp-${Date.now()}`,
-      content: messageContent,
+      id: tempId,
+      content,
       senderId: user.id,
       conversationId: selectedConversation.id,
       createdAt: new Date().toISOString(),
-      status: 'sending'
+      status: 'sending',
+      messageType,
+      metadata
     };
     setMessages(prev => [...prev, tempMessage]);
 
@@ -178,21 +365,70 @@ const ChatSystem = () => {
         },
         body: JSON.stringify({
           conversationId: selectedConversation.id,
-          content: messageContent,
-          messageType: 'text' // Explicitly send message type
+          content,
+          messageType,
+          metadata
         })
       });
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(prev =>
-          prev.map(msg =>
-            msg.id === tempMessage.id ? { ...data.message, status: 'sent' } : msg
-          )
-        );
+        const saved = data.message;
+        if (saved) {
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === tempId ? { ...saved, status: 'sent' } : msg
+            )
+          );
+          setConversations(prev =>
+            prev
+              .map(conv => conv.id === selectedConversation.id
+                ? { ...conv, lastMessage: messageType === 'text' ? saved.content : '[Attachment]', lastMessageTime: saved.createdAt }
+                : conv)
+              .sort((a, b) => new Date(b.lastMessageTime || b.createdAt || 0) - new Date(a.lastMessageTime || a.createdAt || 0))
+          );
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
+      alert('Failed to send message.');
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !selectedConversation) return;
+    const messageContent = newMessage.trim();
+    setNewMessage('');
+    await sendMessagePayload({ content: messageContent, messageType: 'text' });
+  };
+
+  const handleFileSelect = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedConversation) return;
+    try {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await fetch(`${API_BASE_URL}/uploads/chat-attachment`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      if (!uploadRes.ok) throw new Error('Upload failed');
+      const data = await uploadRes.json();
+      const fileType = data.fileType || (file.type.startsWith('video/') ? 'video' : file.type.startsWith('image/') ? 'image' : 'file');
+      const contentUrl = resolveMediaUrl(data.url || data.path || data.publicUrl);
+      const metadata = {
+        filename: data.filename || file.name,
+        size: data.size || file.size,
+        mimeType: data.mimeType || file.type
+      };
+      await sendMessagePayload({ content: contentUrl, messageType: fileType, metadata });
+    } catch (err) {
+      console.error('Attachment upload failed:', err);
+      alert('Failed to upload attachment.');
+    } finally {
+      event.target.value = '';
     }
   };
 
@@ -343,24 +579,49 @@ const ChatSystem = () => {
     conv.participantName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const markConversationRead = async (conversationId) => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_BASE_URL}/chat/read/${conversationId}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (error) {
+      console.error('Failed to mark conversation read:', error);
+    }
+  };
+
   const selectConversation = (conv) => {
-    setSelectedConversation(conv);
+    if (!conv) return;
+    const mergedConv = {
+      ...conv,
+      participantName: conv.participantName || (conv.participantId === targetRecipientId ? targetRecipientName : conv.participantName),
+      participantAvatar: conv.participantAvatar || (conv.participantId === targetRecipientId ? targetRecipientAvatar : conv.participantAvatar)
+    };
+    setSelectedConversation(mergedConv);
     setShowMobileChat(true);
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c));
+    markConversationRead(conv.id);
+  };
+
+  const handleBackToList = () => {
+    setShowMobileChat(false);
+    setSelectedConversation(null);
   };
 
   if (!user) return null;
 
   return (
     <Box sx={styles.container}>
-      {/* Chat Area - Now on the left/center */}
-      <Box sx={{ ...styles.chatArea, display: !selectedConversation && !showMobileChat ? { xs: 'none', md: 'flex' } : 'flex' }}>
+      {/* Chat Area - center; full width on mobile when open */}
+      <Box sx={{ ...styles.chatArea, display: { xs: showMobileChat ? 'flex' : 'none', md: 'flex' } }}>
         {selectedConversation ? (
           <>
             {/* Chat Header */}
             <Box sx={styles.chatHeader}>
               <IconButton 
                 sx={{ ...styles.backBtn, display: { xs: 'flex', md: 'none' } }}
-                onClick={() => setShowMobileChat(false)}
+                onClick={handleBackToList}
               >
                 <BackIcon />
               </IconButton>
@@ -377,20 +638,20 @@ const ChatSystem = () => {
                     {selectedConversation.participantName}
                   </Typography>
                   <Typography sx={styles.chatUserStatus}>
-                    {selectedConversation.participantOnline ? 'Online' : 'Offline'}
+                    {remoteTyping ? 'Typing…' : selectedConversation.participantOnline ? 'Online' : 'Offline'}
                   </Typography>
                 </Box>
               </Box>
               <Box sx={styles.chatHeaderActions}>
                 <IconButton 
-                  sx={styles.headerActionBtn}
+                  sx={{ ...styles.headerActionBtn, display: { xs: 'none', sm: 'inline-flex' } }}
                   onClick={handleVoiceCall}
                   title="Voice Call"
                 >
                   <PhoneIcon />
                 </IconButton>
                 <IconButton 
-                  sx={styles.headerActionBtn}
+                  sx={{ ...styles.headerActionBtn, display: { xs: 'none', sm: 'inline-flex' } }}
                   onClick={handleVideoCall}
                   title="Video Call"
                 >
@@ -439,7 +700,7 @@ const ChatSystem = () => {
 
             {/* Escrow Bar */}
             {selectedConversation.hasActiveEscrow && (
-              <Box sx={styles.escrowBar}>
+              <Box sx={{ ...styles.escrowBar, display: { xs: 'none', md: 'flex' } }}>
                 <LockIcon sx={{ fontSize: 18 }} />
                 <Typography>Escrow Active:</Typography>
                 <Typography sx={styles.escrowAmount}>
@@ -491,39 +752,44 @@ const ChatSystem = () => {
             </Box>
 
             {/* Input Area */}
-            <Box sx={styles.inputArea}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                style={{ display: 'none' }}
-                accept="image/*,video/*"
-              />
-              <IconButton sx={styles.inputActionBtn} onClick={() => fileInputRef.current?.click()}>
-                <AttachIcon />
-              </IconButton>
-              <TextField
-                fullWidth
-                placeholder="Type a message..."
-                value={newMessage}
-                onChange={handleTyping}
-                onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                sx={styles.messageInput}
-                multiline
-                maxRows={4}
-              />
-              <IconButton sx={styles.inputActionBtn}>
-                <EmojiIcon />
-              </IconButton>
-              {newMessage.trim() ? (
-                <IconButton sx={styles.sendBtn} onClick={sendMessage}>
-                  <SendIcon />
-                </IconButton>
-              ) : (
+            {selectedConversation && (
+              <Box sx={styles.inputArea}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  style={{ display: 'none' }}
+                  accept="image/*,video/*"
+                />
+                {/* Attachment disabled until upload flow is implemented */}
+                <TextField
+                  fullWidth
+                  placeholder="Type a message..."
+                  value={newMessage}
+                  onChange={handleTyping}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                  sx={styles.messageInput}
+                  multiline
+                  maxRows={4}
+                />
                 <IconButton sx={styles.inputActionBtn}>
-                  <MicIcon />
+                  <EmojiIcon />
                 </IconButton>
-              )}
-            </Box>
+                {newMessage.trim() ? (
+                  <IconButton sx={styles.sendBtn} onClick={sendMessage}>
+                    <SendIcon />
+                  </IconButton>
+                ) : (
+                  <IconButton sx={styles.inputActionBtn}>
+                    <MicIcon />
+                  </IconButton>
+                )}
+              </Box>
+            )}
           </>
         ) : (
           <Box sx={styles.noChatSelected}>
@@ -536,7 +802,7 @@ const ChatSystem = () => {
         )}
       </Box>
 
-      {/* Conversations List - Now on the right */}
+      {/* Conversations List - right; always visible on desktop */}
       <Box sx={{ ...styles.conversationsList, display: showMobileChat ? { xs: 'none', md: 'flex' } : 'flex' }}>
         <Box sx={styles.listHeader}>
           <Typography sx={styles.listTitle}>Messages</Typography>
@@ -583,12 +849,12 @@ const ChatSystem = () => {
                   key={conv.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
+                  transition={{ duration: 0.2 }}
                 >
                   <Box
                     sx={{
                       ...styles.conversationItem,
-                      background: selectedConversation?.id === conv.id ? 'rgba(0, 242, 234, 0.1)' : 'transparent'
+                      background: selectedConversation?.id === conv.id ? 'rgba(0, 242, 234, 0.18)' : 'transparent'
                     }}
                     onClick={() => selectConversation(conv)}
                   >
@@ -617,9 +883,17 @@ const ChatSystem = () => {
                           {formatTimeAgo(conv.lastMessageTime)}
                         </Typography>
                       </Box>
-                      <Typography sx={styles.conversationPreview} noWrap>
-                        {conv.lastMessage || 'Start a conversation'}
-                      </Typography>
+                      {typingConversations.includes(conv.id) ? (
+                        <Box sx={styles.typingIndicator}>
+                          <Box sx={styles.typingDot} />
+                          <Box sx={styles.typingDot} />
+                          <Box sx={styles.typingDot} />
+                        </Box>
+                      ) : (
+                        <Typography sx={styles.conversationPreview} noWrap>
+                          {conv.lastMessage || 'Start a conversation'}
+                        </Typography>
+                      )}
                     </Box>
                     {conv.unreadCount > 0 && (
                       <Box sx={styles.unreadBadge}>{conv.unreadCount}</Box>
@@ -701,17 +975,20 @@ const ChatSystem = () => {
 const styles = {
   container: {
     display: 'flex',
-    height: '100vh',
+    flex: 1,
+    minHeight: 'calc(100vh - 0px)',
     background: 'var(--bg-primary, #0f0f13)',
     overflow: 'hidden'
   },
   conversationsList: {
-    width: { xs: '100%', md: 320 },
+    width: { xs: '100%', md: '30vw' },
+    minWidth: { md: 260 },
+    maxWidth: { md: 340 },
     borderLeft: '1px solid rgba(255,255,255,0.08)',
     display: 'flex',
     flexDirection: 'column',
     background: 'var(--bg-secondary, #1a1a22)',
-    order: 2 // Ensure it appears on the right
+    order: 2
   },
   listHeader: {
     padding: '20px',
@@ -753,7 +1030,7 @@ const styles = {
   conversationsScroll: {
     flex: 1,
     overflow: 'auto',
-    padding: '8px 12px'
+    padding: '8px 10px'
   },
   loadingContainer: {
     display: 'flex',
@@ -770,12 +1047,12 @@ const styles = {
   conversationItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '14px',
-    padding: '14px',
-    borderRadius: '18px',
+    gap: '12px',
+    padding: '12px',
+    borderRadius: '16px',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    marginBottom: '4px',
+    marginBottom: '6px',
     '&:hover': {
       background: 'rgba(255,255,255,0.05)'
     }
@@ -797,8 +1074,8 @@ const styles = {
   },
   conversationHeader: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: '8px',
     marginBottom: '4px'
   },
   conversationName: {
@@ -823,11 +1100,28 @@ const styles = {
   },
   conversationTime: {
     fontSize: '12px',
-    color: 'rgba(255,255,255,0.4)'
+    color: 'rgba(255,255,255,0.4)',
+    marginLeft: 'auto',
+    textAlign: 'right'
   },
   conversationPreview: {
     fontSize: '14px',
     color: 'rgba(255,255,255,0.6)'
+  },
+  typingIndicator: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    height: '20px'
+  },
+  typingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    background: 'rgba(255,255,255,0.7)',
+    animation: `${typingBlink} 1s ease-in-out infinite`,
+    '&:nth-of-type(2)': { animationDelay: '0.15s' },
+    '&:nth-of-type(3)': { animationDelay: '0.3s' }
   },
   unreadBadge: {
     minWidth: 20,
@@ -918,7 +1212,7 @@ const styles = {
   messagesContainer: {
     flex: 1,
     overflow: 'auto',
-    padding: '16px 20px',
+    padding: '16px 20px 72px',
     display: 'flex',
     flexDirection: 'column',
     gap: '12px'
@@ -945,6 +1239,15 @@ const styles = {
     fontSize: '15px',
     lineHeight: 1.4
   },
+  imageAttachment: {
+    maxWidth: 280,
+    borderRadius: '12px',
+    display: 'block'
+  },
+  videoAttachment: {
+    maxWidth: 280,
+    borderRadius: '12px'
+  },
   messageFooter: {
     display: 'flex',
     alignItems: 'center',
@@ -962,7 +1265,10 @@ const styles = {
     gap: '8px',
     padding: '12px 16px',
     borderTop: '1px solid rgba(255,255,255,0.08)',
-    background: 'var(--bg-secondary, #1a1a22)'
+    background: 'var(--bg-secondary, #1a1a22)',
+    position: 'sticky',
+    bottom: 0,
+    zIndex: 2
   },
   inputActionBtn: {
     color: 'rgba(255,255,255,0.6)',
@@ -994,7 +1300,8 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '16px'
+    gap: '16px',
+    padding: '32px'
   },
   noChatIcon: {
     fontSize: '64px'
@@ -1008,6 +1315,12 @@ const styles = {
     color: 'rgba(255,255,255,0.5)',
     textAlign: 'center',
     maxWidth: 300
+  },
+  primaryCta: {
+    background: '#00f2ea',
+    color: '#000',
+    mt: 1,
+    '&:hover': { background: '#00d4ce' }
   }
 };
 

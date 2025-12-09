@@ -76,26 +76,54 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     const { conversationId } = req.params;
     const userId = req.user.userId;
     
-    // Verify user is part of this conversation
-    const isMember = await req.conversationService.isMember(conversationId, userId);
-    if (!isMember) return res.status(403).json({ error: 'Access denied to this conversation' });
+    console.log(`📨 Fetching messages for conversation ${conversationId}, user ${userId}`);
     
-    // Note: messages table has no 'metadata' column
-    const messages = await query(`
-      SELECT 
-        m.id,
-        m.sender_id,
-        m.content,
-        m.message_type,
-        m.created_at,
-        m.read_at,
-        u.username as sender_name,
-        u.verification_tier as sender_tier
-      FROM messages m
-      JOIN users u ON m.sender_id = u.id
-      WHERE m.conversation_id = $1
-      ORDER BY m.created_at ASC
-    `, [conversationId]);
+    // Verify user is part of this conversation
+    let isMember = false;
+    try {
+      if (req.conversationService && typeof req.conversationService.isMember === 'function') {
+        isMember = await req.conversationService.isMember(conversationId, userId);
+      } else {
+        // Fallback: check directly in database
+        const memberCheck = await query(`
+          SELECT 1 FROM conversations 
+          WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
+          LIMIT 1
+        `, [conversationId, userId]);
+        isMember = memberCheck.rows.length > 0;
+      }
+    } catch (memberErr) {
+      console.error('Member check error:', memberErr);
+      // Fallback to direct DB check
+      const memberCheck = await query(`
+        SELECT 1 FROM conversations 
+        WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
+        LIMIT 1
+      `, [conversationId, userId]);
+      isMember = memberCheck.rows.length > 0;
+    }
+    
+    if (!isMember) {
+      console.log(`⛔ User ${userId} not member of conversation ${conversationId}`);
+      return res.status(403).json({ error: 'Access denied to this conversation' });
+    }
+    
+        const messages = await query(`
+          SELECT 
+            m.id,
+            m.sender_id,
+            m.content,
+            m.message_type,
+            m.created_at,
+            m.read_at,
+            m.metadata,
+            u.username as sender_name,
+            u.verification_tier as sender_tier
+          FROM messages m
+          JOIN users u ON m.sender_id = u.id
+          WHERE m.conversation_id = $1
+          ORDER BY m.created_at ASC
+        `, [conversationId]);
     
     res.json({
       messages: messages.rows.map(msg => ({
@@ -105,7 +133,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
         senderTier: msg.sender_tier,
         content: msg.content,
         messageType: msg.message_type,
-        metadata: {}, // Note: metadata column doesn't exist in messages table
+                metadata: msg.metadata || {},
         createdAt: msg.created_at,
         readAt: msg.read_at,
         isOwn: msg.sender_id === userId
@@ -113,8 +141,12 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get messages error:', error);
-    res.status(500).json({ error: 'Failed to fetch messages' });
+    console.error('❌ Get messages error:', error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch messages',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -168,20 +200,22 @@ router.post('/send', authMiddleware, [
 
     // Persist message and update conversation atomically via ConversationService
     try {
-      const message = await req.conversationService.insertMessageTx({ conversationId, senderId, content, messageType, metadata });
+        const message = await req.conversationService.insertMessageTx({ conversationId, senderId, content, messageType, metadata });
 
-      // Emit after successful commit
-      req.io.to(`conversation_${conversationId}`).emit('new_message', {
+      const payload = {
         id: message.id,
         conversationId,
         senderId,
         content,
         messageType,
-        metadata,
+          metadata: message.metadata || metadata || {},
         createdAt: message.created_at
-      });
+      };
 
-      res.json({ message: 'Message sent successfully', messageId: message.id, createdAt: message.created_at });
+      // Emit after successful commit
+      req.io.to(`conversation_${conversationId}`).emit('new_message', payload);
+
+      res.json({ message: payload });
     } catch (txErr) {
       console.error('Send message transaction error:', txErr);
       res.status(500).json({ error: 'Failed to send message' });

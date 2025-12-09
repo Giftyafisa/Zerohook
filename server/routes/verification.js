@@ -72,6 +72,17 @@ router.post('/submit-documents', authMiddleware, [
       userId
     ]);
 
+    // Emit real-time notification to user
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('verification_submitted', {
+        requestId: verificationResult.rows[0].id,
+        requestedTier: verificationTier,
+        status: 'pending',
+        timestamp: new Date().toISOString()
+      });
+      console.log(`📡 Verification submission notification sent to user: ${userId}`);
+    }
+
     res.json({
       message: 'Verification documents submitted successfully',
       requestId: verificationResult.rows[0].id,
@@ -188,6 +199,16 @@ router.post('/verify-email', authMiddleware, [
       }),
       userId
     ]);
+
+    // Emit real-time notification to user
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('email_verified', {
+        email: email,
+        status: 'verified',
+        timestamp: new Date().toISOString()
+      });
+      console.log(`📡 Email verification notification sent to user: ${userId}`);
+    }
 
     res.json({
       message: 'Email verified successfully',

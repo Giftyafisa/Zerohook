@@ -3,7 +3,8 @@ import {
   BrowserRouter as Router, 
   Routes, 
   Route, 
-  Navigate
+  Navigate,
+  useLocation
 } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { ThemeProvider } from '@mui/material/styles';
@@ -45,6 +46,7 @@ import ProfileDetailPage from './pages/ProfileDetailPage';
 import MessagesPage from './pages/MessagesPage';
 import PrivacySettings from './pages/PrivacySettings';
 import BookingsPage from './pages/BookingsPage';
+import BookingDetails from './pages/BookingDetails';
 import WalletPage from './pages/WalletPage';
 import HelpSupportPage from './pages/HelpSupportPage';
 
@@ -152,8 +154,8 @@ function App() {
 function AppContent() {
   const muiTheme = useTheme();
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up('lg')); // >= 1200px
-  const isMobile = useMediaQuery(muiTheme.breakpoints.down('md')); // < 900px
-  const isTablet = !isDesktop && !isMobile;
+  const location = useLocation();
+  const isChatRoute = location.pathname.startsWith('/chat') || location.pathname.startsWith('/messages');
   
   return (
     <MainLayout showNavigation={true}>
@@ -289,13 +291,7 @@ function AppContent() {
                         </ErrorBoundary>
                       </ProtectedRoute>
                     } />
-                    <Route path="/messages" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <MessagesPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
+                    <Route path="/messages" element={<Navigate to="/chat" replace />} />
                     
                     {/* Settings Routes */}
                     <Route path="/settings" element={
@@ -318,6 +314,13 @@ function AppContent() {
                       <ProtectedRoute requireSubscription={false}>
                         <ErrorBoundary>
                           <BookingsPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/bookings/:id" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <BookingDetails />
                         </ErrorBoundary>
                       </ProtectedRoute>
                     } />
@@ -352,8 +355,8 @@ function AppContent() {
                   </Routes>
                 </main>
                 
-                {/* Footer - Only show on desktop or when not using bottom nav */}
-                {isDesktop && <Footer />}
+                {/* Footer - Hide on chat routes to give chat full height */}
+                {isDesktop && !isChatRoute && <Footer />}
                 
                 {/* Global Call System */}
                 <CallSystem />

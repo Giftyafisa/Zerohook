@@ -45,6 +45,46 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// Chat attachment upload endpoint (image/video/file)
+router.post('/chat-attachment', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { filename, size, mimetype, path: filePath } = req.file;
+    const isVideo = mimetype.startsWith('video/');
+    const isImage = mimetype.startsWith('image/');
+    const fileType = isVideo ? 'video' : (isImage ? 'image' : 'file');
+    const publicUrl = `/uploads/${filename}`;
+
+    // Optional: log uploads for auditing
+    try {
+      await query(`
+        INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `, [req.user.userId, filename, filePath, size, mimetype, 'chat_attachment']);
+    } catch (logErr) {
+      console.warn('Chat attachment log failed:', logErr.message);
+    }
+
+    res.json({
+      success: true,
+      url: publicUrl,
+      fileType,
+      filename,
+      size,
+      mimeType: mimetype
+    });
+  } catch (error) {
+    console.error('Chat attachment upload error:', error);
+    res.status(500).json({
+      error: 'Failed to upload attachment',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // Profile picture upload endpoint
 router.post('/profile-picture', authMiddleware, upload.single('profilePicture'), async (req, res) => {
   try {
@@ -66,22 +106,39 @@ router.post('/profile-picture', authMiddleware, upload.single('profilePicture'),
     const fileType = isVideo ? 'video' : 'image';
     
     // Update user's profile_data with new profile picture
+    // Update ALL three image fields for consistency:
+    // 1. profile_picture (object with metadata) - new standard
+    // 2. photos (array) - used by imageUtils.js first
+    // 3. profilePicture (string) - legacy field
     const updateResult = await query(`
       UPDATE users 
       SET profile_data = jsonb_set(
-        COALESCE(profile_data, '{}'::jsonb), 
-        '{profile_picture}', 
-        $1::jsonb
+        jsonb_set(
+          jsonb_set(
+            COALESCE(profile_data, '{}'::jsonb), 
+            '{profile_picture}', 
+            $1::jsonb
+          ),
+          '{photos}',
+          $2::jsonb
+        ),
+        '{profilePicture}',
+        $3::jsonb
       )
-      WHERE id = $2
+      WHERE id = $4
       RETURNING profile_data
-    `, [JSON.stringify({ 
-      url: publicUrl, 
-      filename: fileName, 
-      fileSize, 
-      mimeType, 
-      fileType 
-    }), userId]);
+    `, [
+      JSON.stringify({ 
+        url: publicUrl, 
+        filename: fileName, 
+        fileSize, 
+        mimeType, 
+        fileType 
+      }),
+      JSON.stringify([publicUrl]), // Set as single-element array
+      JSON.stringify(publicUrl), // Also update legacy string field
+      userId
+    ]);
 
     if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });

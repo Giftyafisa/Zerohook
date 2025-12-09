@@ -186,6 +186,36 @@ router.post('/detect', async (req, res) => {
     }
     
     // METHOD 2: For VISITORS/GUESTS - Use IP-based geolocation
+    // Check if frontend already detected location (dev mode with real IP)
+    const detectedLocation = req.body.detectedLocation;
+    if (detectedLocation && detectedLocation.country && detectedLocation.countryCode) {
+      console.log(`✅ Using frontend-detected location: ${detectedLocation.city}, ${detectedLocation.country}`);
+      const country = countryManager.getCountryByCode(detectedLocation.countryCode);
+      if (country) {
+        // Store detected country for user if authenticated
+        if (userId) {
+          try {
+            await countryManager.setDetectedCountry(userId, detectedLocation.countryCode);
+          } catch (e) {
+            console.log('Could not store detected country:', e.message);
+          }
+        }
+        
+        return res.json({
+          success: true,
+          detectedCountry: {
+            ...country,
+            lat: detectedLocation.lat,
+            lng: detectedLocation.lng,
+            city: detectedLocation.city
+          },
+          method: 'frontend_ip_detection',
+          confidence: 'high',
+          message: `Country detected: ${country.name}`
+        });
+      }
+    }
+    
     let ipAddress = req.body.ipAddress;
     if (!ipAddress) {
       ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
@@ -203,6 +233,43 @@ router.post('/detect', async (req, res) => {
     
     console.log(`🌍 Detecting country for visitor from IP: ${ipAddress}`);
     
+    // Try LocationTrackingService first (has better IP geolocation)
+    let locationDetected = false;
+    if (req.locationTrackingService) {
+      try {
+        const location = await req.locationTrackingService.processIPLocation(ipAddress);
+        if (location && location.country && location.countryCode) {
+          const detectedCountry = countryManager.getCountryByCode(location.countryCode);
+          if (detectedCountry) {
+            // Store detected country for user if authenticated
+            if (userId) {
+              try {
+                await countryManager.setDetectedCountry(userId, location.countryCode);
+              } catch (e) {
+                console.log('Could not store detected country:', e.message);
+              }
+            }
+            
+            return res.json({
+              success: true,
+              detectedCountry: {
+                ...detectedCountry,
+                lat: location.lat,
+                lng: location.lng,
+                city: location.city
+              },
+              method: `ip_geolocation`,
+              confidence: location.confidence || 'medium',
+              message: `Country detected from IP: ${detectedCountry.name}`
+            });
+          }
+        }
+      } catch (e) {
+        console.log('⚠️ LocationTrackingService IP detection failed, falling back to CountryManager');
+      }
+    }
+    
+    // Fallback to CountryManager
     const detectionResult = await countryManager.detectUserCountry(ipAddress);
     
     if (detectionResult.success) {

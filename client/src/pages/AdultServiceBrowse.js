@@ -10,14 +10,10 @@ import {
   Container,
   Grid,
   IconButton,
-  InputAdornment,
-  Paper,
   Skeleton,
-  Slider,
   Stack,
   Tab,
   Tabs,
-  TextField,
   Typography,
   useMediaQuery,
   useTheme
@@ -25,15 +21,16 @@ import {
 import {
   FavoriteBorder,
   PlayCircleOutline,
-  Search,
   Star,
-  Tune,
-  VerifiedUser
+  VerifiedUser,
+  Search,
+  Tune
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
 import { getDefaultImage } from '../config/images';
+import { useAuth } from '../contexts/AuthContext';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -66,14 +63,15 @@ const AdultServiceBrowse = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { isAuthenticated, user: currentUser } = useAuth();
 
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [priceRange, setPriceRange] = useState([0, 2000]);
-  const [sortMode, setSortMode] = useState('trending');
+  const [priceRange] = useState([0, 2000]);
+  const [sortMode] = useState('trending');
 
   const headers = useMemo(() => ({ 'Content-Type': 'application/json' }), []);
 
@@ -114,6 +112,11 @@ const AdultServiceBrowse = () => {
     const q = searchQuery.trim().toLowerCase();
     return services
       .filter((svc) => {
+        if (!isAuthenticated || !currentUser) return true;
+        const providerId = svc.provider?.id || svc.provider_id || svc.user_id;
+        return providerId !== currentUser.id;
+      })
+      .filter((svc) => {
         if (!q) return true;
         return (
           svc.title?.toLowerCase().includes(q) ||
@@ -130,7 +133,7 @@ const AdultServiceBrowse = () => {
         const scoreB = (b.trust_score || 0) + (b.verification_tier || 0) * 10;
         return scoreB - scoreA;
       });
-  }, [services, searchQuery, sortMode]);
+  }, [services, searchQuery, sortMode, isAuthenticated, currentUser]);
 
   const renderServiceCard = (service) => {
     const image = service.images?.[0] || getDefaultImage('SERVICE');

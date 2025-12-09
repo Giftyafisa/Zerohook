@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 // Load environment variables based on NODE_ENV
 const envPath = process.env.NODE_ENV === 'production' ? './env.production' : './env.local';
 require('dotenv').config({ path: envPath });
@@ -49,6 +50,12 @@ const { connectDB, connectRedis } = require('./config/database');
 const app = express();
 const server = createServer(app);
 
+// Track critical service health
+const serviceStatus = {
+  db: false,
+  redis: false
+};
+
 // Socket.io setup with CORS for web and mobile
 const io = new Server(server, {
   cors: {
@@ -81,10 +88,12 @@ io.use((socket, next) => {
 
     const jwtSecret = process.env.JWT_SECRET || 'dev-secret';
     let payload;
+    let tokenSource = tokenFromAuth ? 'auth.token' : 'authorization header';
     try {
       payload = jwt.verify(token, jwtSecret);
+      console.log(`🔑 Socket token verified from ${tokenSource}`);
     } catch (err) {
-      console.warn('Socket connection rejected - invalid token');
+      console.warn(`Socket connection rejected - invalid token from ${tokenSource}:`, err.message);
       return next(new Error('Authentication error'));
     }
 
@@ -97,6 +106,7 @@ io.use((socket, next) => {
       return next(new Error('Authentication error'));
     }
 
+    console.log(`✅ Socket authenticated: User ${socket.username} (${socket.userId})`);
     return next();
   } catch (error) {
     console.error('Socket auth middleware error:', error);
@@ -128,13 +138,19 @@ app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) return callback(null, true);
-    
+
     if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`CORS blocked origin: ${origin}`);
-      callback(null, true); // Allow anyway for now, tighten in production
+      return callback(null, true);
     }
+
+    const isDev = (process.env.NODE_ENV || 'development') === 'development';
+    if (isDev) {
+      console.warn(`CORS (dev) allowing unlisted origin: ${origin}`);
+      return callback(null, true);
+    }
+
+    console.warn(`CORS blocked origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -155,18 +171,22 @@ const limiter = rateLimit({
   validate: { xForwardedForHeader: false }, // Disable X-Forwarded-For validation warning
   skip: (req) => {
     // Skip rate limiting for health checks and authentication endpoints
-    return req.path === '/api/health' || 
-           req.path === '/api/auth/login' || 
-           req.path === '/api/auth/register' ||
-           req.path === '/api/subscriptions/create';
+    const p = req.path || '';
+    return p === '/api/health' ||
+           p.startsWith('/api/health/') ||
+           p === '/api/auth/login' ||
+           p === '/api/auth/register' ||
+           p.startsWith('/api/auth/') ||
+           p.startsWith('/api/subscriptions/');
   }
 });
 
 // Apply rate limiting to all routes EXCEPT auth and subscriptions
 app.use('/api/', (req, res, next) => {
-  if (req.path.startsWith('/api/auth/') || 
-      req.path.startsWith('/api/subscriptions/') || 
-      req.path === '/api/health') {
+  const p = req.path || '';
+  if (p.startsWith('/auth/') || 
+      p.startsWith('/subscriptions/') || 
+      p === '/health' || p.startsWith('/health/')) {
     return next(); // Skip rate limiting for these routes
   }
   return limiter(req, res, next);
@@ -185,6 +205,8 @@ const countryManager = new CountryManager();
 const bitnobManager = new BitnobManager();
 const userConnectionManager = new UserConnectionManager();
 const recommendationEngine = new RecommendationEngine();
+const LocationTrackingService = require('./services/LocationTrackingService');
+const locationTrackingService = new LocationTrackingService();
 
 // Initialize health service
 const systemHealth = new SystemHealthService();
@@ -200,20 +222,28 @@ const conversationService = new ConversationService();
 (async () => {
   try {
     const dbConnected = await connectDB();
+    serviceStatus.db = Boolean(dbConnected);
     if (dbConnected) {
       console.log('✅ Database connected');
     } else {
       console.log('⚠️  Database connection failed, but server will continue running');
     }
   } catch (error) {
+    serviceStatus.db = false;
     console.error('❌ Database connection failed:', error);
     console.log('⚠️  Server will continue running without database for frontend testing');
   }
 
   try {
-    await connectRedis();
-    console.log('✅ Redis connected');
+    const redisConnected = await connectRedis();
+    serviceStatus.redis = Boolean(redisConnected);
+    if (redisConnected) {
+      console.log('✅ Redis connected');
+    } else {
+      console.log('⚠️  Redis not available, continuing without it');
+    }
   } catch (error) {
+    serviceStatus.redis = false;
     console.error('❌ Redis connection failed:', error);
     console.log('⚠️  Continuing without Redis - some features may be limited');
   }
@@ -261,6 +291,13 @@ const conversationService = new ConversationService();
   }
 
   try {
+    await locationTrackingService.initialize();
+    console.log('✅ Location Tracking Service initialized');
+  } catch (error) {
+    console.error('❌ Location Tracking Service initialization failed:', error);
+  }
+
+  try {
     await bitnobManager.initialize();
     console.log('✅ Bitnob Manager initialized');
   } catch (error) {
@@ -295,13 +332,45 @@ app.use((req, res, next) => {
   req.performanceMetrics = performanceMetrics;
   req.conversationService = conversationService;
   req.recommendationEngine = recommendationEngine;
+  req.locationTrackingService = locationTrackingService;
   req.io = io;
   
   // Add database status to request for debugging
-  req.dbAvailable = true; // This will be updated based on actual connection status
+  req.dbAvailable = serviceStatus.db;
   
   next();
 });
+
+// Short-circuit requests if critical services are unavailable
+app.use((req, res, next) => {
+  const pathLower = (req.path || '').toLowerCase();
+  const allowlist = [
+    '/api/health',
+    '/api/health/simple',
+    '/api/status',
+    '/api/status/health'
+  ];
+
+  // Allow uploads/static even if DB down so existing assets still serve
+  const isUpload = pathLower.startsWith('/uploads');
+  const isAllowed = allowlist.some((p) => pathLower.startsWith(p)) || isUpload;
+
+  if (!serviceStatus.db && !isAllowed) {
+    return res.status(503).json({
+      status: 'unavailable',
+      message: 'Database unavailable. Please try again shortly.',
+      service: 'database'
+    });
+  }
+
+  next();
+});
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 // Serve static files from uploads directory with CORS headers
 app.use('/uploads', (req, res, next) => {
@@ -309,7 +378,7 @@ app.use('/uploads', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(path.join(__dirname, 'uploads')));
+}, express.static(uploadsDir));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -583,16 +652,25 @@ io.on('connection', async (socket) => {
         console.log(`💬 Message from ${socket.username} to conversation ${conversationId}`);
 
         // Basic validation
-        if (!conversationId || !content) return socket.emit('message_error', { error: 'Invalid message payload' });
+        if (!conversationId || !content) {
+          console.warn(`Invalid message payload from ${socket.userId}`);
+          return socket.emit('message_error', { error: 'Invalid message payload' });
+        }
 
         // Verify membership
         const isMember = await conversationService.isMember(conversationId, socket.userId);
-        if (!isMember) return socket.emit('message_error', { error: 'Access denied to this conversation' });
+        if (!isMember) {
+          console.warn(`Access denied: ${socket.userId} not member of conversation ${conversationId}`);
+          return socket.emit('message_error', { error: 'Access denied to this conversation' });
+        }
 
         const otherUserId = await conversationService.getOtherParticipant(conversationId, socket.userId);
         if (otherUserId) {
           const blocked = await conversationService.isBlockedBetween(socket.userId, otherUserId);
-          if (blocked) return socket.emit('message_error', { error: 'Cannot send messages to this user' });
+          if (blocked) {
+            console.warn(`Blocked: ${socket.userId} cannot message ${otherUserId}`);
+            return socket.emit('message_error', { error: 'Cannot send messages to this user' });
+          }
         }
 
         // Content moderation via FraudDetection service
@@ -601,6 +679,7 @@ io.on('connection', async (socket) => {
             const mod = await fraudDetection.analyzeMessageRisk({ senderId: socket.userId, conversationId, content, messageType: type, metadata });
             const threshold = parseFloat(process.env.MESSAGE_RISK_BLOCK_THRESHOLD || '0.7');
             if (mod && typeof mod.score === 'number' && mod.score >= threshold) {
+              console.warn(`Message blocked: Risk score ${mod.score} >= ${threshold}`);
               return socket.emit('message_blocked', { error: 'Message blocked due to policy violation' });
             }
           }
@@ -608,8 +687,14 @@ io.on('connection', async (socket) => {
           console.error('Socket moderation error:', modErr);
         }
 
-        // Persist message via ConversationService
-        const messageRow = await conversationService.insertMessageTx({ conversationId, senderId: socket.userId, content, messageType: type, metadata });
+        // Persist message via ConversationService with error handling
+        let messageRow;
+        try {
+          messageRow = await conversationService.insertMessageTx({ conversationId, senderId: socket.userId, content, messageType: type, metadata });
+        } catch (dbErr) {
+          console.error('Database error inserting message:', dbErr);
+          return socket.emit('message_error', { error: 'Database error, please try again' });
+        }
 
         const messageData = {
           id: messageRow.id,
@@ -624,15 +709,19 @@ io.on('connection', async (socket) => {
         // Broadcast message after commit
         io.to(`conversation_${conversationId}`).emit('new_message', messageData);
 
-        // Log message activity
-        await userActivityMonitor.logUserActivity(socket.userId, {
-          actionType: 'send_message',
-          actionData: { conversationId, messageId: messageRow.id, contentLength: content.length },
-          ipAddress: socket.handshake.address,
-          userAgent: socket.handshake.headers['user-agent'],
-          responseTimeMs: 0,
-          success: true
-        });
+        // Log message activity (don't block on error)
+        try {
+          await userActivityMonitor.logUserActivity(socket.userId, {
+            actionType: 'send_message',
+            actionData: { conversationId, messageId: messageRow.id, contentLength: content.length },
+            ipAddress: socket.handshake.address,
+            userAgent: socket.handshake.headers['user-agent'],
+            responseTimeMs: 0,
+            success: true
+          });
+        } catch (logErr) {
+          console.error('Activity log error:', logErr.message);
+        }
 
       } catch (error) {
         console.error('Error handling send_message:', error);

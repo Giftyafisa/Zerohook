@@ -17,7 +17,37 @@ const countryAPI = {
   async detectCountry() {
     try {
       console.log('🌍 countryAPI.detectCountry() called');
-      // Backend will auto-detect IP from request headers
+      
+      // In development mode, try to get real public IP first
+      if (process.env.NODE_ENV === 'development' || window.location.hostname === 'localhost') {
+        try {
+          console.log('🔍 Development mode: attempting to get real public IP...');
+          const ipResponse = await fetch('https://api.ipgeolocation.io/ipgeo?apiKey=1d24707d2a554ee697b852f28dd6533e');
+          
+          if (ipResponse.ok) {
+            const ipData = await ipResponse.json();
+            console.log('✅ Real IP detected:', ipData.country_name, `(${ipData.ip})`);
+            
+            // Send the detected IP to backend for processing
+            const response = await api.post('/countries/detect', {
+              ipAddress: ipData.ip,
+              detectedLocation: {
+                country: ipData.country_name,
+                countryCode: ipData.country_code2,
+                city: ipData.city,
+                lat: parseFloat(ipData.latitude),
+                lng: parseFloat(ipData.longitude)
+              }
+            });
+            console.log('🌍 countryAPI response (with real IP):', response.data);
+            return response.data;
+          }
+        } catch (ipError) {
+          console.log('⚠️ Could not get real IP, falling back to backend detection:', ipError.message);
+        }
+      }
+      
+      // Normal flow: Backend will auto-detect IP from request headers
       const response = await api.post('/countries/detect', {});
       console.log('🌍 countryAPI response:', response.data);
       return response.data;
@@ -27,7 +57,7 @@ const countryAPI = {
       // Return fallback country on error
       return {
         success: true,
-        detectedCountry: { code: 'NG', name: 'Nigeria', currency: 'NGN', currencySymbol: '₦' },
+        detectedCountry: { code: 'NG', name: 'Nigeria', currency: 'NGN', currencySymbol: '₦', flag: '🇳🇬' },
         method: 'fallback',
         confidence: 'low'
       };

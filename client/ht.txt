@@ -87,3 +87,5 @@ Let me:
 First check the database and create the test providers
 Then fix the algorithm to filter ONLY providers (accountType = 'provider')
 Ensure country-first, then proximity-based ranking
+
+Test if the froned is well coded and wired to use the recommendation algorithm.

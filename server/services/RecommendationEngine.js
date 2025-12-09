@@ -786,40 +786,77 @@ class RecommendationEngine {
     }
 
     // 1. DISTANCE SCORE (UBER-STYLE: closer = MUCH higher score)
+    // userLocation comes from LocationTrackingService with priority cascade:
+    // GPS → Profile Location → IP Location → Cached → Default
     if (userLocation && userLocation.lat && userLocation.lng && profileLocation.coordinates) {
-      const distance = this.calculateDistance(
-        userLocation.lat,
-        userLocation.lng,
-        profileLocation.coordinates.lat,
-        profileLocation.coordinates.lng
-      );
-      profile.distance = Math.round(distance * 10) / 10;
+      // Validate profile coordinates exist and are valid numbers
+      const profLat = parseFloat(profileLocation.coordinates.lat);
+      const profLng = parseFloat(profileLocation.coordinates.lng);
       
-      // Uber-style scoring: Very close = very high score, drops off quickly
-      if (distance <= 2) {
-        scores.distance = 100;
-      } else if (distance <= 5) {
-        scores.distance = 90;
-      } else if (distance <= 10) {
-        scores.distance = 80;
-      } else if (distance <= 20) {
-        scores.distance = 60;
-      } else if (distance <= 50) {
-        scores.distance = 40;
+      if (!isNaN(profLat) && !isNaN(profLng) && 
+          profLat >= -90 && profLat <= 90 && 
+          profLng >= -180 && profLng <= 180) {
+        // Calculate accurate distance using Haversine formula
+        const distance = this.calculateDistance(
+          userLocation.lat,
+          userLocation.lng,
+          profLat,
+          profLng
+        );
+        profile.distance = Math.round(distance * 10) / 10;
+        profile.distanceEstimated = false;
+        profile.distanceSource = 'coordinates';
+        profile.distanceConfidence = 0.9;
+        
+        // Uber-style scoring: Very close = very high score, drops off quickly
+        if (distance <= 2) {
+          scores.distance = 100;
+        } else if (distance <= 5) {
+          scores.distance = 90;
+        } else if (distance <= 10) {
+          scores.distance = 80;
+        } else if (distance <= 20) {
+          scores.distance = 60;
+        } else if (distance <= 50) {
+          scores.distance = 40;
+        } else {
+          scores.distance = Math.max(0, 30 - (distance - 50) / 10);
+        }
       } else {
-        scores.distance = Math.max(0, 30 - (distance - 50) / 10);
+        // Invalid coordinates - treat as unknown distance
+        console.warn(`⚠️ Invalid profile coordinates for user ${profile.id}:`, profileLocation.coordinates);
       }
     } else if (userLocation && profileLocation.city) {
-      if (userLocation.city?.toLowerCase() === profileLocation.city?.toLowerCase()) {
-        scores.distance = 80;
-        profile.distance = 5;
-      } else if (userLocation.country?.toLowerCase() === profileLocation.country?.toLowerCase()) {
-        scores.distance = 50;
-        profile.distance = 50;
+      // FALLBACK: City/Country matching when exact coordinates unavailable
+      // This happens when user's location is from IP or profile only (no GPS)
+      const sameCity = userLocation.city?.toLowerCase() === profileLocation.city?.toLowerCase();
+      const sameCountry = userLocation.country?.toLowerCase() === profileLocation.country?.toLowerCase();
+
+      if (sameCity) {
+        scores.distance = 70; // Estimated city-level closeness
+        profile.distance = 5; // Estimated city-level distance
+        profile.distanceEstimated = true;
+        profile.distanceSource = 'city-estimate';
+        profile.distanceConfidence = 0.4;
+      } else if (sameCountry) {
+        scores.distance = 40; // Country-level proximity
+        profile.distance = 50; // Estimated country-level distance
+        profile.distanceEstimated = true;
+        profile.distanceSource = 'country-estimate';
+        profile.distanceConfidence = 0.2;
       } else {
-        scores.distance = 20;
-        profile.distance = 200;
+        scores.distance = 0;
+        profile.distance = null;
+        profile.distanceEstimated = true;
+        profile.distanceSource = 'unknown';
+        profile.distanceConfidence = 0.0;
       }
+    } else {
+      // No usable location data; avoid misleading distance
+      profile.distance = null;
+      profile.distanceEstimated = true;
+      profile.distanceSource = 'missing-coordinates';
+      profile.distanceConfidence = 0.0;
     }
 
     // 2. QUALITY SCORE (verification + reputation + reliability)

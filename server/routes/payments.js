@@ -149,10 +149,11 @@ router.post('/confirm', authMiddleware, [
 
     // Update transaction status
     const { query } = require('../config/database');
-    await query(`
+    const transactionUpdate = await query(`
       UPDATE transactions 
       SET status = $1, confirmed_at = CURRENT_TIMESTAMP, metadata = jsonb_set(metadata, '{confirmation}', $2)
       WHERE (payment_intent_id = $3 OR reference = $4) AND user_id = $5
+      RETURNING id, amount, currency
     `, [
       'confirmed',
       JSON.stringify(paymentResult),
@@ -160,6 +161,19 @@ router.post('/confirm', authMiddleware, [
       reference || null,
       userId
     ]);
+
+    // Emit real-time payment confirmation to user
+    if (req.io && transactionUpdate.rows.length > 0) {
+      const transaction = transactionUpdate.rows[0];
+      req.io.to(`user_${userId}`).emit('payment_confirmed', {
+        transactionId: transaction.id,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        status: 'confirmed',
+        timestamp: new Date().toISOString()
+      });
+      console.log(`📡 Payment confirmation notification sent to user: ${userId}`);
+    }
 
     res.json({
       success: true,
@@ -520,10 +534,11 @@ router.post('/paystack-webhook', async (req, res) => {
       console.log(`🔄 Processing Paystack webhook for: ${data.reference}`);
 
       // Update transaction status
-      await query(`
+      const transactionUpdate = await query(`
         UPDATE transactions 
         SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
         WHERE reference = $1
+        RETURNING user_id, amount, currency
       `, [data.reference]);
       
       // Update subscription status
@@ -550,7 +565,31 @@ router.post('/paystack-webhook', async (req, res) => {
           console.log(`   Subscription activated but user status not updated`);
         }
         
+        // Emit real-time payment notification from webhook
+        if (req.io) {
+          req.io.to(`user_${userId}`).emit('payment_confirmed', {
+            reference: data.reference,
+            status: 'confirmed',
+            subscriptionActivated: true,
+            timestamp: new Date().toISOString()
+          });
+          console.log(`📡 Webhook payment notification sent to user: ${userId}`);
+        }
+        
         console.log(`✅ Subscription activated for user: ${userId}`);
+      } else if (transactionUpdate.rows.length > 0) {
+        // Notify user of transaction confirmation even if no subscription
+        const userId = transactionUpdate.rows[0].user_id;
+        if (req.io) {
+          req.io.to(`user_${userId}`).emit('payment_confirmed', {
+            reference: data.reference,
+            amount: transactionUpdate.rows[0].amount,
+            currency: transactionUpdate.rows[0].currency,
+            status: 'confirmed',
+            timestamp: new Date().toISOString()
+          });
+          console.log(`📡 Transaction payment notification sent to user: ${userId}`);
+        }
       }
       
       console.log(`✅ Paystack payment confirmed: ${data.reference}`);
@@ -571,11 +610,26 @@ router.post('/coinbase-webhook', async (req, res) => {
       const { query } = require('../config/database');
       
       // Update transaction status
-      await query(`
+      const transactionUpdate = await query(`
         UPDATE transactions 
         SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
         WHERE reference = $1
+        RETURNING user_id, amount, currency
       `, [data.id]);
+      
+      // Emit real-time notification for crypto payment
+      if (req.io && transactionUpdate.rows.length > 0) {
+        const userId = transactionUpdate.rows[0].user_id;
+        req.io.to(`user_${userId}`).emit('payment_confirmed', {
+          reference: data.id,
+          amount: transactionUpdate.rows[0].amount,
+          currency: transactionUpdate.rows[0].currency,
+          paymentMethod: 'crypto',
+          status: 'confirmed',
+          timestamp: new Date().toISOString()
+        });
+        console.log(`📡 Crypto payment notification sent to user: ${userId}`);
+      }
       
       console.log(`✅ Coinbase payment confirmed: ${data.id}`);
     }

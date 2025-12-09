@@ -43,8 +43,28 @@ class IPGeolocation {
    */
   async lookup(ip) {
     try {
-      // Skip lookup for local/private IPs
+      // Skip lookup for local/private IPs - BUT try to get real IP in dev mode
       if (this.isPrivateIP(ip)) {
+        // In development, try to get actual public IP for testing
+        if (process.env.NODE_ENV !== 'production') {
+          try {
+            console.log('🔍 Local IP detected in dev mode, attempting to get real public IP...');
+            const response = await fetch(`${this.baseUrl}/ipgeo?apiKey=${this.apiKey}`, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' }
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              const result = this.transformResponse(data);
+              console.log(`✅ Real IP detected: ${result.city}, ${result.country} (${result.ip})`);
+              this.setCache('dev_ip', result);
+              return result;
+            }
+          } catch (devError) {
+            console.log('⚠️ Could not get real IP in dev mode:', devError.message);
+          }
+        }
         return this.getLocalIPResponse(ip);
       }
 

@@ -13,9 +13,7 @@ import {
   Avatar,
   Skeleton,
   Fade,
-  Slide,
   InputAdornment,
-  Badge,
   Tooltip,
   useTheme,
   useMediaQuery,
@@ -36,146 +34,65 @@ import {
   Favorite,
   Message,
   Search,
-  TuneRounded,
   Close,
-  LocalFireDepartment,
-  AccessTime,
-  AttachMoney,
   Star,
   Whatshot,
-  FilterList,
   NearMe,
   Speed,
   MyLocation,
   EditLocation,
-  CheckCircle
+  CheckCircle,
+  AccessTime
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
+import { selectUserCountry, selectDetectedCountry, selectExchangeRates } from '../store/slices/countrySlice';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
-import ChatSystem from '../components/ChatSystem';
+import { LOCATIONS } from '../config/locations';
+import { resolveProfileImage } from '../utils/imageUtils';
 
-// ============================================
-// GHANA TOWN COORDINATES - For precise location matching
-// ============================================
-const GHANA_LOCATIONS = {
-  'Greater Accra': [
-    { name: 'Adjei-Kojo, Tema West', lat: 5.6750, lng: -0.0100, district: 'Tema West' },
-    { name: 'Tema', lat: 5.6698, lng: -0.0166, district: 'Tema Metro' },
-    { name: 'Tema New Town', lat: 5.6550, lng: -0.0050, district: 'Tema Metro' },
-    { name: 'Community 1, Tema', lat: 5.6600, lng: -0.0200, district: 'Tema Metro' },
-    { name: 'Community 25, Tema', lat: 5.6850, lng: 0.0100, district: 'Tema Metro' },
-    { name: 'Sakumono', lat: 5.6250, lng: -0.0350, district: 'Tema Metro' },
-    { name: 'Lashibi', lat: 5.6150, lng: -0.0400, district: 'Tema Metro' },
-    { name: 'Spintex', lat: 5.6300, lng: -0.1000, district: 'Accra Metro' },
-    { name: 'Baatsonaa', lat: 5.6200, lng: -0.0800, district: 'Accra Metro' },
-    { name: 'Nungua', lat: 5.5933, lng: -0.0653, district: 'Accra Metro' },
-    { name: 'Teshie', lat: 5.5850, lng: -0.1000, district: 'Accra Metro' },
-    { name: 'La', lat: 5.5611, lng: -0.1489, district: 'Accra Metro' },
-    { name: 'Osu', lat: 5.5550, lng: -0.1800, district: 'Accra Metro' },
-    { name: 'Labadi', lat: 5.5583, lng: -0.1467, district: 'Accra Metro' },
-    { name: 'Labone', lat: 5.5700, lng: -0.1700, district: 'Accra Metro' },
-    { name: 'Airport Residential', lat: 5.6050, lng: -0.1700, district: 'Accra Metro' },
-    { name: 'East Legon', lat: 5.6400, lng: -0.1500, district: 'Accra Metro' },
-    { name: 'Madina', lat: 5.6833, lng: -0.1644, district: 'La Nkwantanang' },
-    { name: 'Adenta', lat: 5.7200, lng: -0.1550, district: 'Adenta' },
-    { name: 'Dome', lat: 5.6500, lng: -0.2300, district: 'Ga East' },
-    { name: 'Achimota', lat: 5.6100, lng: -0.2300, district: 'Ga East' },
-    { name: 'Dzorwulu', lat: 5.5950, lng: -0.2000, district: 'Accra Metro' },
-    { name: 'Cantonments', lat: 5.5700, lng: -0.1850, district: 'Accra Metro' },
-    { name: 'Ridge', lat: 5.5650, lng: -0.2000, district: 'Accra Metro' },
-    { name: 'Accra Central', lat: 5.5560, lng: -0.2010, district: 'Accra Metro' },
-    { name: 'Circle', lat: 5.5700, lng: -0.2200, district: 'Accra Metro' },
-    { name: 'Darkuman', lat: 5.5700, lng: -0.2450, district: 'Accra Metro' },
-    { name: 'Dansoman', lat: 5.5325, lng: -0.2622, district: 'Accra Metro' },
-    { name: 'Mamprobi', lat: 5.5350, lng: -0.2300, district: 'Accra Metro' },
-    { name: 'Korle Bu', lat: 5.5350, lng: -0.2250, district: 'Accra Metro' },
-    { name: 'Kaneshie', lat: 5.5650, lng: -0.2450, district: 'Accra Metro' },
-    { name: 'Tesano', lat: 5.5800, lng: -0.2400, district: 'Accra Metro' },
-    { name: 'Abeka', lat: 5.5900, lng: -0.2350, district: 'Accra Metro' },
-    { name: 'Lapaz', lat: 5.5950, lng: -0.2600, district: 'Ga West' },
-    { name: 'Kasoa', lat: 5.5333, lng: -0.4250, district: 'Ga South' },
-    { name: 'Weija', lat: 5.5550, lng: -0.3500, district: 'Ga South' },
-    { name: 'Gbawe', lat: 5.5700, lng: -0.3200, district: 'Ga South' },
-    { name: 'Awoshie', lat: 5.5900, lng: -0.2850, district: 'Ga South' },
-    { name: 'Ablekuma', lat: 5.5800, lng: -0.2700, district: 'Ablekuma' },
-    { name: 'Ashaiman', lat: 5.6889, lng: -0.0306, district: 'Ashaiman' },
-    { name: 'Prampram', lat: 5.7167, lng: 0.1167, district: 'Ningo-Prampram' },
-    { name: 'Kpone', lat: 5.7000, lng: 0.0300, district: 'Kpone-Katamanso' },
-  ],
-  'Ashanti': [
-    { name: 'Kumasi', lat: 6.6885, lng: -1.6244, district: 'Kumasi Metro' },
-    { name: 'Adum', lat: 6.6900, lng: -1.6250, district: 'Kumasi Metro' },
-    { name: 'Oforikrom', lat: 6.6800, lng: -1.5650, district: 'Oforikrom' },
-    { name: 'Asokwa', lat: 6.6600, lng: -1.5800, district: 'Asokwa' },
-    { name: 'Tafo', lat: 6.7100, lng: -1.5850, district: 'Old Tafo' },
-    { name: 'Suame', lat: 6.7200, lng: -1.6200, district: 'Suame' },
-    { name: 'Bantama', lat: 6.7000, lng: -1.6450, district: 'Bantama' },
-    { name: 'Ejisu', lat: 6.7333, lng: -1.4500, district: 'Ejisu' },
-    { name: 'Obuasi', lat: 6.2063, lng: -1.6603, district: 'Obuasi' },
-  ],
-  'Central': [
-    { name: 'Cape Coast', lat: 5.1054, lng: -1.2466, district: 'Cape Coast Metro' },
-    { name: 'Kasoa', lat: 5.5333, lng: -0.4250, district: 'Awutu Senya East' },
-    { name: 'Winneba', lat: 5.3525, lng: -0.6228, district: 'Effutu' },
-  ],
-  'Western': [
-    { name: 'Takoradi', lat: 4.8832, lng: -1.7554, district: 'Sekondi-Takoradi' },
-    { name: 'Sekondi', lat: 4.9167, lng: -1.7167, district: 'Sekondi-Takoradi' },
-    { name: 'Tarkwa', lat: 5.3000, lng: -1.9833, district: 'Tarkwa-Nsuaem' },
-  ],
-  'Eastern': [
-    { name: 'Koforidua', lat: 6.0941, lng: -0.2593, district: 'New Juaben' },
-    { name: 'Nsawam', lat: 5.8000, lng: -0.3500, district: 'Nsawam-Adoagyiri' },
-    { name: 'Nkawkaw', lat: 6.5500, lng: -0.7667, district: 'Kwahu West' },
-  ],
-  'Volta': [
-    { name: 'Ho', lat: 6.6000, lng: 0.4700, district: 'Ho Municipality' },
-    { name: 'Hohoe', lat: 7.1500, lng: 0.4700, district: 'Hohoe Municipality' },
-    { name: 'Aflao', lat: 6.1167, lng: 1.1833, district: 'Ketu South' },
-  ],
-  'Northern': [
-    { name: 'Tamale', lat: 9.4034, lng: -0.8393, district: 'Tamale Metro' },
-    { name: 'Yendi', lat: 9.4500, lng: -0.0167, district: 'Yendi Municipal' },
-  ],
-  'Upper East': [
-    { name: 'Bolgatanga', lat: 10.7856, lng: -0.8514, district: 'Bolgatanga' },
-    { name: 'Navrongo', lat: 10.8933, lng: -1.0950, district: 'Kassena Nankana' },
-  ],
-  'Upper West': [
-    { name: 'Wa', lat: 10.0667, lng: -2.5000, district: 'Wa Municipal' },
-  ],
+// Get all locations from user's country (or default to Ghana/Nigeria)
+const getAllLocations = (countryCode) => {
+  // Handle both string codes ('GH', 'gh') and country objects {code: 'GH', name: 'Ghana'}
+  const code = typeof countryCode === 'string' ? countryCode : countryCode?.code;
+  const countryKey = code?.toLowerCase() || 'ghana';
+  const countryData = LOCATIONS[countryKey];
+  
+  if (!countryData) return [];
+  
+  // Flatten location data structure
+  if (countryData.cities) {
+    return countryData.cities;
+  } else if (countryData.states) {
+    return countryData.states.flatMap(state => state.cities || []);
+  }
+  return [];
 };
-
-// Flatten for search
-const ALL_GHANA_LOCATIONS = Object.entries(GHANA_LOCATIONS).flatMap(([region, towns]) =>
-  towns.map(town => ({ ...town, region }))
-);
-
 // ============================================
 // LOCATION PICKER COMPONENT
 // ============================================
-const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation }) => {
+const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, countryCode }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
-  const theme = useTheme();
+
+  // Get locations for user's country
+  const availableLocations = useMemo(() => getAllLocations(countryCode), [countryCode]);
 
   const filteredLocations = useMemo(() => {
     if (!searchQuery.trim()) {
-      // Show Tema and nearby areas by default
-      return ALL_GHANA_LOCATIONS.filter(loc => 
-        loc.region === 'Greater Accra'
-      ).slice(0, 15);
+      // Show popular locations first, or first 15 locations
+      const popular = availableLocations.filter(loc => loc.popular);
+      return (popular.length > 0 ? popular : availableLocations).slice(0, 15);
     }
     const query = searchQuery.toLowerCase();
-    return ALL_GHANA_LOCATIONS.filter(loc =>
+    return availableLocations.filter(loc =>
       loc.name.toLowerCase().includes(query) ||
-      loc.district.toLowerCase().includes(query) ||
-      loc.region.toLowerCase().includes(query)
+      (loc.district && loc.district.toLowerCase().includes(query)) ||
+      (loc.region && loc.region.toLowerCase().includes(query))
     ).slice(0, 20);
-  }, [searchQuery]);
+  }, [searchQuery, availableLocations]);
 
   const handleGPSLocation = async () => {
     setGpsLoading(true);
@@ -189,28 +106,48 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation }) =>
       
       const { latitude, longitude } = position.coords;
       
-      // Find nearest town
-      let nearestTown = null;
+      // Haversine formula for accurate distance calculation
+      const calculateDistance = (lat1, lon1, lat2, lon2) => {
+        const R = 6371; // Earth's radius in km
+        const toRad = (deg) => deg * (Math.PI / 180);
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = 
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c; // Distance in km
+      };
+      
+      // Find nearest location from available locations
+      let nearestLocation = null;
       let minDistance = Infinity;
       
-      ALL_GHANA_LOCATIONS.forEach(loc => {
-        const dist = Math.sqrt(
-          Math.pow(loc.lat - latitude, 2) + Math.pow(loc.lng - longitude, 2)
-        );
-        if (dist < minDistance) {
-          minDistance = dist;
-          nearestTown = loc;
+      availableLocations.forEach(loc => {
+        const locLat = loc.coordinates?.lat || loc.lat;
+        const locLng = loc.coordinates?.lng || loc.lng;
+        if (locLat && locLng) {
+          const dist = calculateDistance(latitude, longitude, locLat, locLng);
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearestLocation = loc;
+          }
         }
       });
 
-      if (nearestTown) {
-        onSelectLocation({
-          ...nearestTown,
+      if (nearestLocation) {
+        const selectedLocation = {
+          ...nearestLocation,
           lat: latitude,
           lng: longitude,
           method: 'gps',
           precision: 'exact'
-        });
+        };
+        console.log(`📍 GPS Location Selected: ${nearestLocation.name}`, 
+          `\n   Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+          `\n   Nearest Location Distance: ${minDistance.toFixed(2)} km`);
+        onSelectLocation(selectedLocation);
       }
       onClose();
     } catch (error) {
@@ -459,8 +396,6 @@ const activityTracker = new ActivityTracker();
 // ============================================
 
 const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
-  const theme = useTheme();
-  
   return (
     <Box 
       sx={{ 
@@ -521,8 +456,6 @@ const ProfileCard = ({
   index,
   onView 
 }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const cardRef = useRef(null);
   const viewStartTime = useRef(null);
 
@@ -564,24 +497,17 @@ const ProfileCard = ({
   const city = profileData.location?.city || 'Unknown';
   const country = profileData.location?.country || '';
   const bio = profileData.bio || 'No bio available';
-  const price = profileData.basePrice || 0;
+  const price = profile.displayPrice?.amount ?? profileData.basePrice ?? 0;
+  const priceSymbol = profile.displayPrice?.symbol || profile.displayPrice?.currency || '$';
+  const isPriceConverted = Boolean(profile.displayPrice && profile.displayPrice.currency && profile.displayPrice.currency !== 'USD');
   const isOnline = profile.isOnline; // From backend
   const verificationTier = profile.verificationTier || 1;
   const distance = profile.distance; // From backend recommendation engine
   const successRate = profile.successRate; // From backend
+  const distanceLabel = distance != null ? (profile.distanceEstimated ? `${distance}km est` : `${distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`}`) : null;
 
-  // Get profile image
-  const getProfileImage = () => {
-    if (profileData.profilePicture) {
-      return getUploadUrl(profileData.profilePicture);
-    }
-    // Generate consistent placeholder based on profile id
-    const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7', '#dfe6e9', '#fd79a8', '#00b894'];
-    const colorIndex = profile.id ? profile.id.charCodeAt(0) % colors.length : 0;
-    return null; // Will use Avatar with initial
-  };
-
-  const profileImage = getProfileImage();
+  // Get profile image using shared utility
+  const profileImage = resolveProfileImage(profileData);
 
   return (
     <Fade in timeout={300 + index * 50}>
@@ -707,7 +633,7 @@ const ProfileCard = ({
             >
               <NearMe sx={{ fontSize: 12, color: '#00f2ea' }} />
               <Typography variant="caption" sx={{ color: '#00f2ea', fontWeight: 600 }}>
-                {distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`}
+                {distanceLabel}
               </Typography>
             </Box>
           )}
@@ -746,7 +672,7 @@ const ProfileCard = ({
               }}
             >
               <Typography variant="body2" sx={{ color: '#00f2ea', fontWeight: 700 }}>
-                ${price}
+                {`${priceSymbol}${Number(price).toFixed(2)}`}{isPriceConverted ? ' *' : ''}
               </Typography>
             </Box>
           )}
@@ -899,8 +825,6 @@ const ProfileSkeleton = () => (
 // ============================================
 
 const SubscriptionPaywall = ({ onSubscribe }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
 
   return (
@@ -1023,17 +947,16 @@ const SubscriptionPaywall = ({ onSubscribe }) => {
 // ============================================
 
 const ProfileFeed = () => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+  const isMobile = useMediaQuery(useTheme().breakpoints.down('sm'));
   const navigate = useNavigate();
-  const dispatch = useDispatch();
   const { user: currentUser, isAuthenticated } = useAuth();
   const isSubscribed = useSelector(selectIsSubscribed);
   const reduxUser = useSelector(selectUser);
+  const userCountry = useSelector(selectUserCountry);
+  const detectedCountry = useSelector(selectDetectedCountry);
+  const exchangeRates = useSelector(selectExchangeRates);
 
   // State - ALL hooks must be called unconditionally
-  const [profiles, setProfiles] = useState([]);
   const [displayedProfiles, setDisplayedProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1041,16 +964,36 @@ const ProfileFeed = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [likedProfiles, setLikedProfiles] = useState(new Set());
-  const [selectedProfile, setSelectedProfile] = useState(null);
-  const [showChat, setShowChat] = useState(false);
+  
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [userLocation, setUserLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(true);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   
-  const observerRef = useRef(null);
   const loadMoreRef = useRef(null);
+
+  const locationLabel = useMemo(() => {
+    if (!userLocation) return null;
+    const name = userLocation.city || userLocation.name || 'Location enabled';
+    return userLocation.source ? `${name} • ${userLocation.source}` : name;
+  }, [userLocation]);
+
+  const convertPrice = useCallback((basePriceUSD) => {
+    const countryCode = (userLocation?.countryCode || userCountry?.code || detectedCountry?.code || '').toUpperCase();
+    const rateEntry = countryCode && exchangeRates ? exchangeRates[countryCode] : null;
+
+    if (rateEntry && basePriceUSD != null) {
+      const amount = Math.round(parseFloat(basePriceUSD) * rateEntry.rate * 100) / 100;
+      return { amount, currency: rateEntry.currency, symbol: rateEntry.symbol, originalAmount: basePriceUSD, baseCurrency: 'USD' };
+    }
+
+    if (basePriceUSD != null) {
+      return { amount: parseFloat(basePriceUSD), currency: 'USD', symbol: '$', originalAmount: basePriceUSD, baseCurrency: 'USD' };
+    }
+
+    return null;
+  }, [userLocation?.countryCode, userCountry?.code, detectedCountry?.code, exchangeRates]);
 
   // Initialize activity tracker
   useEffect(() => {
@@ -1062,21 +1005,59 @@ const ProfileFeed = () => {
   useEffect(() => {
     // Skip if not authenticated or not subscribed
     if (!isAuthenticated || !isSubscribed) return;
-    
+
+    /**
+     * Build profile-based location (used when user prefers profile location)
+     */
+    const buildProfileLocation = () => {
+      const location = reduxUser?.profile_data?.location;
+      if (!location) return null;
+
+      const coords = location.coordinates || location.coords || {};
+      const hasCoords = coords.lat != null && coords.lng != null && !isNaN(coords.lat) && !isNaN(coords.lng);
+
+      return {
+        lat: hasCoords ? parseFloat(coords.lat) : null,
+        lng: hasCoords ? parseFloat(coords.lng) : null,
+        city: location.city || location.name,
+        country: location.country,
+        countryCode: location.countryCode,
+        source: 'profile',
+        accuracy: hasCoords ? 'city' : 'country',
+        confidence: hasCoords ? 0.9 : 0.7
+      };
+    };
+
+    /**
+     * Get IP-based location via backend proxy (no exposed API key)
+     */
     const getIPLocation = async () => {
       try {
-        const response = await fetch(
-          'https://api.ipgeolocation.io/ipgeo?apiKey=1d24707d2a554ee697b852f28dd6533e'
-        );
-        const data = await response.json();
-        if (data.latitude && data.longitude) {
-          return {
-            lat: parseFloat(data.latitude),
-            lng: parseFloat(data.longitude),
-            city: data.city,
-            country: data.country_name,
-            source: 'ip'
-          };
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE_URL}/geolocation/ip-detect`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({})
+        });
+
+        if (response.ok) {
+          const body = await response.json();
+          const ipData = body?.data;
+          if (ipData) {
+            return {
+              lat: ipData.lat ?? ipData.latitude ?? null,
+              lng: ipData.lng ?? ipData.longitude ?? null,
+              city: ipData.city,
+              country: ipData.country,
+              countryCode: ipData.countryCode,
+              region: ipData.region,
+              source: ipData.source || 'ip-proxy',
+              confidence: ipData.confidence ?? 'medium'
+            };
+          }
         }
       } catch (error) {
         console.error('IP geolocation failed:', error);
@@ -1084,21 +1065,9 @@ const ProfileFeed = () => {
       return null;
     };
 
-    // Known Ghana locations with precise coordinates for manual selection
-    const KNOWN_LOCATIONS = {
-      'tema-west-adjei-kojo': { lat: 5.6647, lng: -0.0175, city: 'Tema West (Adjei-Kojo)', country: 'Ghana' },
-      'tema-community-1': { lat: 5.6698, lng: -0.0166, city: 'Tema Community 1', country: 'Ghana' },
-      'accra-central': { lat: 5.5560, lng: -0.1969, city: 'Accra Central', country: 'Ghana' },
-      'osu': { lat: 5.5571, lng: -0.1818, city: 'Osu', country: 'Ghana' },
-      'east-legon': { lat: 5.6350, lng: -0.1550, city: 'East Legon', country: 'Ghana' },
-      'madina': { lat: 5.6700, lng: -0.1650, city: 'Madina', country: 'Ghana' },
-      'spintex': { lat: 5.6350, lng: -0.0850, city: 'Spintex', country: 'Ghana' },
-      'airport-residential': { lat: 5.6050, lng: -0.1700, city: 'Airport Residential', country: 'Ghana' },
-    };
-
     const getUserLocation = async () => {
       setLocationLoading(true);
-      
+
       // Check for saved manual location first
       const savedLocation = localStorage.getItem('userManualLocation');
       if (savedLocation) {
@@ -1112,10 +1081,20 @@ const ProfileFeed = () => {
           localStorage.removeItem('userManualLocation');
         }
       }
-      
+
+      const profilePreferred = Boolean(reduxUser?.profile_data?.location?.preferProfileLocation);
+      const profileLocation = buildProfileLocation();
+
+      // Respect user preference to rely on profile location first
+      if (profilePreferred && profileLocation) {
+        setUserLocation({ ...profileLocation, source: 'profile-preferred' });
+        setLocationLoading(false);
+        return;
+      }
+
       // Start IP detection immediately (as backup)
       const ipLocationPromise = getIPLocation();
-      
+
       // Try browser geolocation
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
@@ -1126,16 +1105,24 @@ const ProfileFeed = () => {
               lng: position.coords.longitude,
               accuracy: position.coords.accuracy,
               city: 'Current Location',
-              country: 'Ghana', // Assume Ghana for now
-              source: 'gps'
+              country: userCountry || detectedCountry || 'Unknown',
+              source: 'gps',
+              confidence: 1.0
             };
             setUserLocation(gpsLocation);
             setLocationLoading(false);
-            console.log('📍 GPS location:', gpsLocation.lat, gpsLocation.lng, '(accuracy:', gpsLocation.accuracy, 'm)');
+            console.log('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, '(accuracy:', gpsLocation.accuracy, 'm)');
+            console.log('📍 Timestamp:', new Date().toISOString());
           },
           async (error) => {
-            console.log('Geolocation denied/blocked, using IP detection:', error.message);
-            // Use IP location (already fetching)
+            console.log('Geolocation denied/blocked, using profile/IP detection:', error.message);
+
+            if (profileLocation) {
+              setUserLocation(profileLocation);
+              setLocationLoading(false);
+              return;
+            }
+
             const ipLocation = await ipLocationPromise;
             if (ipLocation) {
               setUserLocation(ipLocation);
@@ -1145,13 +1132,19 @@ const ProfileFeed = () => {
             setLocationLoading(false);
           },
           { 
-            enableHighAccuracy: true, // Request high accuracy
-            timeout: 10000, 
-            maximumAge: 300000 // Cache for 5 minutes
+            enableHighAccuracy: true, // Request GPS hardware (not WiFi/cell tower)
+            timeout: 30000, // Increased timeout for GPS lock
+            maximumAge: 0 // ✅ CRITICAL FIX: Force fresh location, no cache
           }
         );
       } else {
-        // No geolocation support, use IP
+        // No geolocation support, use profile preference or IP
+        if (profileLocation) {
+          setUserLocation(profileLocation);
+          setLocationLoading(false);
+          return;
+        }
+
         const ipLocation = await ipLocationPromise;
         if (ipLocation) {
           setUserLocation(ipLocation);
@@ -1161,32 +1154,32 @@ const ProfileFeed = () => {
     };
 
     getUserLocation();
-  }, []);
+  }, [isAuthenticated, isSubscribed, reduxUser, userCountry, detectedCountry]);
 
-  // Function to set manual location (for testing or when GPS blocked)
-  const setManualLocation = useCallback((locationKey) => {
-    const KNOWN_LOCATIONS = {
-      'tema-west-adjei-kojo': { lat: 5.6647, lng: -0.0175, city: 'Tema West (Adjei-Kojo)', country: 'Ghana' },
-      'tema-community-1': { lat: 5.6698, lng: -0.0166, city: 'Tema Community 1', country: 'Ghana' },
-      'accra-central': { lat: 5.5560, lng: -0.1969, city: 'Accra Central', country: 'Ghana' },
-      'osu': { lat: 5.5571, lng: -0.1818, city: 'Osu', country: 'Ghana' },
-      'east-legon': { lat: 5.6350, lng: -0.1550, city: 'East Legon', country: 'Ghana' },
-      'madina': { lat: 5.6700, lng: -0.1650, city: 'Madina', country: 'Ghana' },
-      'spintex': { lat: 5.6350, lng: -0.0850, city: 'Spintex', country: 'Ghana' },
-    };
-    
-    const location = KNOWN_LOCATIONS[locationKey];
-    if (location) {
-      const manualLocation = { ...location, source: 'manual' };
-      setUserLocation(manualLocation);
-      localStorage.setItem('userManualLocation', JSON.stringify(manualLocation));
-      console.log('📍 Manual location set:', location.city);
-      // Refresh profiles with new location
-      setPage(1);
-      setProfiles([]);
-      setDisplayedProfiles([]);
-    }
-  }, []);
+  // Function to set manual location (for testing or when GPS blocked) - not currently used but available
+  // const setManualLocation = useCallback((locationKey) => {
+  //   const KNOWN_LOCATIONS = {
+  //     'tema-west-adjei-kojo': { lat: 5.6647, lng: -0.0175, city: 'Tema West (Adjei-Kojo)', country: 'Ghana' },
+  //     'tema-community-1': { lat: 5.6698, lng: -0.0166, city: 'Tema Community 1', country: 'Ghana' },
+  //     'accra-central': { lat: 5.5560, lng: -0.1969, city: 'Accra Central', country: 'Ghana' },
+  //     'osu': { lat: 5.5571, lng: -0.1818, city: 'Osu', country: 'Ghana' },
+  //     'east-legon': { lat: 5.6350, lng: -0.1550, city: 'East Legon', country: 'Ghana' },
+  //     'madina': { lat: 5.6700, lng: -0.1650, city: 'Madina', country: 'Ghana' },
+  //     'spintex': { lat: 5.6350, lng: -0.0850, city: 'Spintex', country: 'Ghana' },
+  //   };
+  //   
+  //   const location = KNOWN_LOCATIONS[locationKey];
+  //   if (location) {
+  //     const manualLocation = { ...location, source: 'manual' };
+  //     setUserLocation(manualLocation);
+  //     localStorage.setItem('userManualLocation', JSON.stringify(manualLocation));
+  //     console.log('📍 Manual location set:', location.city);
+  //     // Refresh profiles with new location
+  //     setPage(1);
+  //     setProfiles([]);
+  //     setDisplayedProfiles([]);
+  //   }
+  // }, []);
 
   // Filter options - Simple and clean
   const filterOptions = useMemo(() => [
@@ -1218,14 +1211,27 @@ const ProfileFeed = () => {
 
       // Add location data if available for distance-based recommendations
       if (userLocation) {
-        queryParams.set('userLat', userLocation.lat.toString());
-        queryParams.set('userLng', userLocation.lng.toString());
+        // Validate coordinates before sending
+        if (userLocation.lat != null && userLocation.lng != null && 
+            !isNaN(userLocation.lat) && !isNaN(userLocation.lng)) {
+          queryParams.set('userLat', parseFloat(userLocation.lat).toFixed(6));
+          queryParams.set('userLng', parseFloat(userLocation.lng).toFixed(6));
+        }
         // Also send city and country for country-first filtering
         if (userLocation.city) {
           queryParams.set('userCity', userLocation.city);
         }
         if (userLocation.country) {
           queryParams.set('userCountry', userLocation.country);
+        }
+        if (userLocation.source) {
+          queryParams.set('locationSource', userLocation.source);
+        }
+        if (userLocation.confidence != null) {
+          queryParams.set('locationConfidence', userLocation.confidence);
+        }
+        if (userLocation.accuracy) {
+          queryParams.set('locationAccuracy', userLocation.accuracy);
         }
       }
 
@@ -1251,33 +1257,42 @@ const ProfileFeed = () => {
       // Process profiles - backend now provides recommendation data
       const processedProfiles = data.users
         .filter(user => {
-          // Exclude current user
+          // Exclude current user and hidden profiles
           if (isAuthenticated && currentUser?.id === user.id) return false;
           if (reduxUser?.id === user.id) return false;
+          if (user.profile_visibility === false) return false;
+          if (user.profile_data?.profileVisibility === false) return false;
           return true;
         })
-        .map(user => ({
-          id: user.id,
-          username: user.username,
-          profileData: user.profile_data || {},
-          verificationTier: parseInt(user.verification_tier) || 1,
-          trustScore: parseFloat(user.reputation_score) || 75,
-          isPremium: user.is_subscribed,
-          isOnline: user.isOnline || false, // From recommendation engine
-          lastActive: user.lastSeen || user.last_active || user.created_at,
-          createdAt: user.created_at,
-          // Recommendation engine data - ensure numbers
-          distance: user.distance != null ? parseFloat(user.distance) : null,
-          recommendationScore: parseFloat(user.recommendationScore) || 0,
-          successRate: parseFloat(user.successRate) || 0,
-          sameCountry: user.sameCountry,
-        }));
+        .map(user => {
+          const profileData = user.profile_data || {};
+          const basePrice = profileData.basePrice != null ? parseFloat(profileData.basePrice) : null;
+          const converted = basePrice != null ? convertPrice(basePrice) : null;
+          return {
+            id: user.id,
+            username: user.username,
+            profileData,
+            verificationTier: parseInt(user.verification_tier) || 1,
+            trustScore: parseFloat(user.reputation_score) || 75,
+            isPremium: user.is_subscribed,
+            isOnline: user.isOnline || false, // From recommendation engine
+            lastActive: user.lastSeen || user.last_active || user.created_at,
+            createdAt: user.created_at,
+            // Recommendation engine data - ensure numbers
+            distance: user.distance != null ? parseFloat(user.distance) : null,
+            distanceEstimated: user.distanceEstimated,
+            distanceSource: user.distanceSource,
+            distanceConfidence: user.distanceConfidence,
+            recommendationScore: parseFloat(user.recommendationScore) || 0,
+            successRate: parseFloat(user.successRate) || 0,
+            sameCountry: user.sameCountry,
+            displayPrice: converted,
+          };
+        });
 
       if (append) {
-        setProfiles(prev => [...prev, ...processedProfiles]);
         setDisplayedProfiles(prev => [...prev, ...processedProfiles]);
       } else {
-        setProfiles(processedProfiles);
         setDisplayedProfiles(processedProfiles);
       }
 
@@ -1296,7 +1311,7 @@ const ProfileFeed = () => {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [activeFilter, searchQuery, isAuthenticated, isSubscribed, currentUser, reduxUser, userLocation]);
+  }, [activeFilter, searchQuery, isAuthenticated, isSubscribed, currentUser, reduxUser, userLocation, convertPrice]);
 
   // Initial load - wait for location to be available and user to be subscribed
   useEffect(() => {
@@ -1356,8 +1371,15 @@ const ProfileFeed = () => {
       navigate('/login', { state: { from: '/profiles' } });
       return;
     }
-    setSelectedProfile(profile);
-    setShowChat(true);
+    const avatar = resolveProfileImage(profile.profileData);
+    navigate('/chat', {
+      state: {
+        recipientId: profile.id,
+        recipientName: profile.profileData?.firstName || profile.username,
+        recipientAvatar: avatar,
+        from: '/profiles'
+      }
+    });
   }, [isAuthenticated, navigate]);
 
   // Handle profile click
@@ -1369,7 +1391,6 @@ const ProfileFeed = () => {
   const handleFilterChange = useCallback((filterId) => {
     setActiveFilter(filterId);
     setPage(1);
-    setProfiles([]);
     setDisplayedProfiles([]);
     activityTracker.trackFilter('category', filterId);
   }, []);
@@ -1377,7 +1398,6 @@ const ProfileFeed = () => {
   // Grid columns based on screen size
   const getGridColumns = () => {
     if (isMobile) return 1;
-    if (isTablet) return 2;
     return 4;
   };
 
@@ -1481,7 +1501,7 @@ const ProfileFeed = () => {
                 <Chip
                   size="small"
                   icon={<NearMe sx={{ fontSize: 14, color: '#00f2ea !important' }} />}
-                  label={userLocation.city || userLocation.name || 'Location enabled'}
+                  label={locationLabel || 'Location enabled'}
                   onClick={() => setShowLocationPicker(true)}
                   deleteIcon={<EditLocation sx={{ fontSize: 14 }} />}
                   onDelete={() => setShowLocationPicker(true)}
@@ -1681,32 +1701,24 @@ const ProfileFeed = () => {
         )}
       </Container>
 
-      {/* Chat Dialog */}
-      {showChat && selectedProfile && (
-        <ChatSystem
-          recipientId={selectedProfile.id}
-          recipientName={selectedProfile.profileData?.firstName || selectedProfile.username}
-          onClose={() => {
-            setShowChat(false);
-            setSelectedProfile(null);
-          }}
-        />
-      )}
-
       {/* Location Picker Dialog */}
       <LocationPicker
         open={showLocationPicker}
         onClose={() => setShowLocationPicker(false)}
         currentLocation={userLocation}
+        countryCode={userCountry || detectedCountry || 'ghana'}
         onSelectLocation={(location) => {
           console.log('📍 Location selected:', location.name, location.lat, location.lng);
+          
+          // Determine country from location data or user country
+          const selectedCountry = location.country || userCountry || detectedCountry || 'Unknown';
           
           // Save to localStorage for persistence
           localStorage.setItem('userManualLocation', JSON.stringify({
             lat: location.lat,
             lng: location.lng,
             city: location.name,
-            country: 'Ghana',
+            country: selectedCountry,
             district: location.district,
             region: location.region,
             method: location.method,
@@ -1717,14 +1729,13 @@ const ProfileFeed = () => {
             lat: location.lat,
             lng: location.lng,
             city: location.name,
-            country: 'Ghana',
+            country: selectedCountry,
             source: location.method,
             precision: location.precision
           });
           
           // Refetch profiles with new location
           setPage(1);
-          setProfiles([]);
           setDisplayedProfiles([]);
         }}
       />

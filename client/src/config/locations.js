@@ -217,6 +217,101 @@ export const getPopularCities = () => {
   return getAllCities().filter(city => city.popular);
 };
 
+// Detailed Ghana locations with districts (for ProfileFeed)
+export const GHANA_DETAILED_LOCATIONS = {
+  'Greater Accra': [
+    { name: 'Adjei-Kojo, Tema West', lat: 5.6750, lng: -0.0100, district: 'Tema West' },
+    { name: 'Tema', lat: 5.6698, lng: -0.0166, district: 'Tema Metro' },
+    { name: 'Tema New Town', lat: 5.6550, lng: -0.0050, district: 'Tema Metro' },
+    { name: 'Community 1, Tema', lat: 5.6600, lng: -0.0200, district: 'Tema Metro' },
+    { name: 'Community 25, Tema', lat: 5.6850, lng: 0.0100, district: 'Tema Metro' },
+    { name: 'Sakumono', lat: 5.6250, lng: -0.0350, district: 'Tema Metro' },
+    { name: 'Lashibi', lat: 5.6150, lng: -0.0400, district: 'Tema Metro' },
+    { name: 'Spintex', lat: 5.6300, lng: -0.1000, district: 'Accra Metro' },
+    { name: 'Baatsonaa', lat: 5.6200, lng: -0.0800, district: 'Accra Metro' },
+    { name: 'Nungua', lat: 5.5933, lng: -0.0653, district: 'Accra Metro' },
+    { name: 'Teshie', lat: 5.5850, lng: -0.1000, district: 'Accra Metro' },
+    { name: 'La', lat: 5.5611, lng: -0.1489, district: 'Accra Metro' },
+    { name: 'Osu', lat: 5.5550, lng: -0.1800, district: 'Accra Metro' },
+    { name: 'Labadi', lat: 5.5583, lng: -0.1467, district: 'Accra Metro' },
+    { name: 'Labone', lat: 5.5700, lng: -0.1700, district: 'Accra Metro' },
+    { name: 'Airport Residential', lat: 5.6050, lng: -0.1700, district: 'Accra Metro' },
+    { name: 'East Legon', lat: 5.6400, lng: -0.1500, district: 'Accra Metro' },
+    { name: 'Madina', lat: 5.6833, lng: -0.1644, district: 'La Nkwantanang' },
+    { name: 'Adenta', lat: 5.7200, lng: -0.1550, district: 'Adenta' },
+    { name: 'Dome', lat: 5.6500, lng: -0.2300, district: 'Ga East' },
+    { name: 'Achimota', lat: 5.6100, lng: -0.2300, district: 'Ga East' },
+    { name: 'Dzorwulu', lat: 5.5950, lng: -0.2000, district: 'Accra Metro' },
+    { name: 'Cantonments', lat: 5.5700, lng: -0.1850, district: 'Accra Metro' },
+    { name: 'Ridge', lat: 5.5650, lng: -0.2000, district: 'Accra Metro' },
+    { name: 'Accra Central', lat: 5.5560, lng: -0.2010, district: 'Accra Metro' },
+    { name: 'Circle', lat: 5.5700, lng: -0.2200, district: 'Accra Metro' },
+    { name: 'Darkuman', lat: 5.5700, lng: -0.2450, district: 'Accra Metro' },
+    { name: 'Dansoman', lat: 5.5325, lng: -0.2622, district: 'Accra Metro' },
+    { name: 'Mamprobi', lat: 5.5350, lng: -0.2300, district: 'Accra Metro' },
+    { name: 'Korle Bu', lat: 5.5350, lng: -0.2250, district: 'Accra Metro' },
+    { name: 'Kaneshie', lat: 5.5650, lng: -0.2450, district: 'Accra Metro' },
+    { name: 'Tesano', lat: 5.5800, lng: -0.2400, district: 'Accra Metro' },
+    { name: 'Abeka', lat: 5.5900, lng: -0.2350, district: 'Accra Metro' },
+    { name: 'Lapaz', lat: 5.5950, lng: -0.2600, district: 'Ga West' },
+    { name: 'Kasoa', lat: 5.5333, lng: -0.4250, district: 'Ga South' },
+    { name: 'Weija', lat: 5.5550, lng: -0.3500, district: 'Ga South' },
+    { name: 'Gbawe', lat: 5.5700, lng: -0.3200, district: 'Ga South' },
+    { name: 'Awoshie', lat: 5.5900, lng: -0.2850, district: 'Ga South' },
+    { name: 'Ablekuma', lat: 5.5800, lng: -0.2700, district: 'Ablekuma' },
+    { name: 'Ashaiman', lat: 5.6889, lng: -0.0306, district: 'Ashaiman' },
+    { name: 'Prampram', lat: 5.7167, lng: 0.1167, district: 'Ningo-Prampram' },
+    { name: 'Kpone', lat: 5.7000, lng: 0.0300, district: 'Kpone-Katamanso' },
+  ],
+  'Ashanti': [
+    { name: 'Kumasi', lat: 6.6885, lng: -1.6244, district: 'Kumasi Metro' },
+    { name: 'Adum', lat: 6.6900, lng: -1.6250, district: 'Kumasi Metro' },
+    { name: 'Oforikrom', lat: 6.6800, lng: -1.5650, district: 'Oforikrom' },
+    { name: 'Asokwa', lat: 6.6600, lng: -1.5800, district: 'Asokwa' },
+    { name: 'Tafo', lat: 6.7100, lng: -1.5850, district: 'Old Tafo' },
+    { name: 'Suame', lat: 6.7200, lng: -1.6200, district: 'Suame' },
+    { name: 'Bantama', lat: 6.7000, lng: -1.6450, district: 'Bantama' },
+    { name: 'Ejisu', lat: 6.7333, lng: -1.4500, district: 'Ejisu' },
+    { name: 'Obuasi', lat: 6.2063, lng: -1.6603, district: 'Obuasi' },
+  ],
+  'Central': [
+    { name: 'Cape Coast', lat: 5.1054, lng: -1.2466, district: 'Cape Coast Metro' },
+    { name: 'Kasoa', lat: 5.5333, lng: -0.4250, district: 'Awutu Senya East' },
+    { name: 'Winneba', lat: 5.3525, lng: -0.6228, district: 'Effutu' },
+  ],
+  'Western': [
+    { name: 'Takoradi', lat: 4.8832, lng: -1.7554, district: 'Sekondi-Takoradi' },
+    { name: 'Sekondi', lat: 4.9167, lng: -1.7167, district: 'Sekondi-Takoradi' },
+    { name: 'Tarkwa', lat: 5.3000, lng: -1.9833, district: 'Tarkwa-Nsuaem' },
+  ],
+  'Eastern': [
+    { name: 'Koforidua', lat: 6.0941, lng: -0.2593, district: 'New Juaben' },
+    { name: 'Nsawam', lat: 5.8000, lng: -0.3500, district: 'Nsawam-Adoagyiri' },
+    { name: 'Nkawkaw', lat: 6.5500, lng: -0.7667, district: 'Kwahu West' },
+  ],
+  'Volta': [
+    { name: 'Ho', lat: 6.6000, lng: 0.4700, district: 'Ho Municipality' },
+    { name: 'Hohoe', lat: 7.1500, lng: 0.4700, district: 'Hohoe Municipality' },
+    { name: 'Aflao', lat: 6.1167, lng: 1.1833, district: 'Ketu South' },
+  ],
+  'Northern': [
+    { name: 'Tamale', lat: 9.4034, lng: -0.8393, district: 'Tamale Metro' },
+    { name: 'Yendi', lat: 9.4500, lng: -0.0167, district: 'Yendi Municipal' },
+  ],
+  'Upper East': [
+    { name: 'Bolgatanga', lat: 10.7856, lng: -0.8514, district: 'Bolgatanga' },
+    { name: 'Navrongo', lat: 10.8933, lng: -1.0950, district: 'Kassena Nankana' },
+  ],
+  'Upper West': [
+    { name: 'Wa', lat: 10.0667, lng: -2.5000, district: 'Wa Municipal' },
+  ],
+};
+
+// Flatten for search
+export const ALL_GHANA_DETAILED_LOCATIONS = Object.entries(GHANA_DETAILED_LOCATIONS).flatMap(([region, towns]) =>
+  towns.map(town => ({ ...town, region }))
+);
+
 export const getNearbyCities = (userCity, radiusKm = 50) => {
   const allCities = getAllCities();
   const userCityData = allCities.find(city => 

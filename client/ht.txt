@@ -89,3 +89,43 @@ Then fix the algorithm to filter ONLY providers (accountType = 'provider')
 Ensure country-first, then proximity-based ranking
 
 Test if the froned is well coded and wired to use the recommendation algorithm.
+
+
+
+
+
+
+
+
+Plan: Fix profile settings click + invisible unread messages
+A lightweight plan to make the settings button functional and surface the unseen unread messages.
+
+Steps
+Inspect ProfilePage.js (or corresponding component) to locate the settings button handler/route, verify it’s wired to navigation or dialog, and add a click handler plus test in the rendered UI.
+Trace notification count source (Redux slice/API) and compare with Messages tab rendering logic to identify why 2 unread are not shown—check filters (archived, blocked, pagination) and message fetch endpoint.
+Update message list fetch/render to include the missing unread items (adjust filters/pagination/status) and ensure unread badge decrements when messages are marked read.
+Add a small regression check: open settings works; unread badge matches visible unread list; no console errors.
+Further Considerations
+If a dedicated settings route exists, should the button navigate there or open an in-page modal?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ISSUE IDENTIFIED #4: The profile cards are showing as loading skeletons but not populating with actual data. This could be: A loading delay issue No data available in the system A bug preventing data from loading
+

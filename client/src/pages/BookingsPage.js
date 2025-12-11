@@ -39,7 +39,8 @@ const BookingsPage = () => {
       provider: 'Crystal',
       date: '2025-01-15',
       time: '19:00',
-      price: '$250',
+      price: 250,
+      location: 'Downtown',
       status: 'upcoming'
     },
   ], []);
@@ -250,7 +251,9 @@ const BookingsPage = () => {
                   </Box>
 
                   <Box sx={styles.bookingFooter}>
-                    <Typography sx={styles.price}>${booking.price.toFixed(2)}</Typography>
+                    <Typography sx={styles.price}>
+                      ${typeof booking.price === 'number' ? booking.price.toFixed(2) : (parseFloat(booking.price) || 0).toFixed(2)}
+                    </Typography>
                     {booking.status === 'upcoming' && (
                       <Box sx={styles.actionButtons}>
                         <Button size="small" sx={styles.cancelButton}>Cancel</Button>

@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
-  IconButton,
-  CircularProgress
+  CircularProgress,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
 import {
@@ -12,52 +17,87 @@ import {
   Send as SendIcon,
   ArrowUpward as DepositIcon,
   ArrowDownward as WithdrawIcon,
-  Lock as LockIcon,
-  TrendingUp as TrendingUpIcon
+  Lock as HeldIcon,
+  TrendingUp as TrendingUpIcon,
+  CheckCircle as ReleaseIcon,
+  Warning as DisputeIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import EscrowCard from '../components/EscrowCard';
 
 const TransactionsPage = () => {
   const { user, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [walletData, setWalletData] = useState({
     balance: 0,
     escrowHeld: 0,
     pendingWithdrawal: 0,
-    transactions: []
+    transactions: [],
+    escrows: []
   });
+  const [releaseDialog, setReleaseDialog] = useState({ open: false, escrowId: null });
+  const [disputeDialog, setDisputeDialog] = useState({ open: false, escrowId: null });
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     const fetchWalletData = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/wallet`, {
+        
+        // Fetch wallet data
+        const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (response.ok) {
-          const data = await response.json();
-          setWalletData({
-            balance: data.balance || 0,
-            escrowHeld: data.escrowHeld || 0,
-            pendingWithdrawal: data.pendingWithdrawal || 0,
-            transactions: data.transactions || defaultTransactions
-          });
-        } else {
-          setWalletData({
-            balance: 250.00,
-            escrowHeld: 150.00,
-            pendingWithdrawal: 0,
-            transactions: defaultTransactions
-          });
+        
+        // Fetch transactions
+        const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        // Fetch escrows
+        const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        let wallet = { balance: 0, escrowHeld: 0, pendingWithdrawal: 0 };
+        let transactions = defaultTransactions;
+        let escrows = [];
+
+        if (walletRes.ok) {
+          const data = await walletRes.json();
+          wallet = {
+            balance: data.wallet?.balance || data.balance || 0,
+            escrowHeld: data.wallet?.escrowHeld || data.escrowHeld || 0,
+            pendingWithdrawal: data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0
+          };
         }
+
+        if (txRes.ok) {
+          const data = await txRes.json();
+          transactions = data.transactions || data.data || defaultTransactions;
+        }
+
+        if (escrowRes.ok) {
+          const data = await escrowRes.json();
+          escrows = data.escrows || data.data || [];
+        }
+
+        setWalletData({
+          ...wallet,
+          transactions,
+          escrows
+        });
       } catch (error) {
         console.error('Wallet fetch error:', error);
         setWalletData({
           balance: 250.00,
           escrowHeld: 150.00,
           pendingWithdrawal: 0,
-          transactions: defaultTransactions
+          transactions: defaultTransactions,
+          escrows: []
         });
       } finally {
         setLoading(false);
@@ -71,6 +111,66 @@ const TransactionsPage = () => {
     }
   }, [isAuthenticated]);
 
+  // Handle escrow release
+  const handleRelease = async (escrowId) => {
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ escrowId })
+      });
+
+      if (response.ok) {
+        // Refresh data
+        window.location.reload();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to release payment');
+      }
+    } catch (error) {
+      console.error('Release error:', error);
+      alert('Failed to release payment. Please try again.');
+    } finally {
+      setActionLoading(false);
+      setReleaseDialog({ open: false, escrowId: null });
+    }
+  };
+
+  // Handle escrow dispute
+  const handleDispute = async (escrowId) => {
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ escrowId, reason: 'Service not as described' })
+      });
+
+      if (response.ok) {
+        alert('Dispute submitted. Our team will review and contact you.');
+        window.location.reload();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to submit dispute');
+      }
+    } catch (error) {
+      console.error('Dispute error:', error);
+      alert('Failed to submit dispute. Please try again.');
+    } finally {
+      setActionLoading(false);
+      setDisputeDialog({ open: false, escrowId: null });
+    }
+  };
+
   const defaultTransactions = [
     { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago' },
     { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago' },
@@ -79,9 +179,9 @@ const TransactionsPage = () => {
   ];
 
   const quickActions = [
-    { icon: <AddIcon />, label: 'Add Funds', color: '#00f2ea' },
-    { icon: <SendIcon />, label: 'Withdraw', color: '#ff0055' },
-    { icon: <LockIcon />, label: 'Escrow', color: '#00ff88' }
+    { icon: <AddIcon />, label: 'Add Money', color: '#00f2ea', onClick: () => navigate('/wallet') },
+    { icon: <SendIcon />, label: 'Withdraw', color: '#ff0055', onClick: () => navigate('/wallet') },
+    { icon: <HeldIcon />, label: 'My Escrows', color: '#00ff88', onClick: () => {} }
   ];
 
   if (!isAuthenticated) {
@@ -145,7 +245,7 @@ const TransactionsPage = () => {
         >
           <Box sx={styles.summaryCard}>
             <Box sx={styles.summaryIcon}>
-              <LockIcon sx={{ color: '#00ff88' }} />
+              <HeldIcon sx={{ color: '#00ff88' }} />
             </Box>
             <Box>
               <Typography sx={styles.summaryLabel}>In Escrow</Typography>
@@ -170,6 +270,27 @@ const TransactionsPage = () => {
           </Box>
         </motion.div>
       </Box>
+
+      {/* Active Escrows */}
+      {walletData.escrows && walletData.escrows.length > 0 && (
+        <>
+          <Typography sx={styles.sectionTitle}>Active Payments</Typography>
+          <Typography sx={styles.sectionSubtitle}>
+            Money held until you confirm service is done
+          </Typography>
+          <Box sx={{ mb: 3 }}>
+            {walletData.escrows.filter(e => e.status === 'held' || e.status === 'pending').map((escrow) => (
+              <EscrowCard
+                key={escrow.id}
+                escrow={escrow}
+                onRelease={(id) => setReleaseDialog({ open: true, escrowId: id })}
+                onDispute={(id) => setDisputeDialog({ open: true, escrowId: id })}
+                isProvider={escrow.providerId === user?.id}
+              />
+            ))}
+          </Box>
+        </>
+      )}
 
       {/* Recent Transactions */}
       <Typography sx={styles.sectionTitle}>Recent Transactions</Typography>
@@ -209,9 +330,81 @@ const TransactionsPage = () => {
 
       {/* Security Notice */}
       <Box sx={styles.securityNotice}>
-        <LockIcon sx={{ fontSize: 18 }} />
-        <Typography>All transactions are secured with escrow protection</Typography>
+        <HeldIcon sx={{ fontSize: 18 }} />
+        <Typography>Your money is safe. Released only when you confirm.</Typography>
       </Box>
+
+      {/* Release Confirmation Dialog */}
+      <Dialog 
+        open={releaseDialog.open} 
+        onClose={() => setReleaseDialog({ open: false, escrowId: null })}
+        PaperProps={{ sx: styles.dialog }}
+      >
+        <DialogTitle sx={styles.dialogTitle}>
+          <ReleaseIcon sx={{ color: '#66bb6a', mr: 1 }} />
+          Release Payment?
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            This will send the money to the service provider. Only do this after the service is complete.
+          </Alert>
+          <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            Was the service good? If yes, click "Release" to pay the provider.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setReleaseDialog({ open: false, escrowId: null })}
+            sx={{ color: 'rgba(255,255,255,0.6)' }}
+          >
+            Not Yet
+          </Button>
+          <Button 
+            variant="contained"
+            onClick={() => handleRelease(releaseDialog.escrowId)}
+            disabled={actionLoading}
+            sx={styles.releaseBtn}
+          >
+            {actionLoading ? <CircularProgress size={20} /> : 'Release Payment'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dispute Dialog */}
+      <Dialog 
+        open={disputeDialog.open} 
+        onClose={() => setDisputeDialog({ open: false, escrowId: null })}
+        PaperProps={{ sx: styles.dialog }}
+      >
+        <DialogTitle sx={styles.dialogTitle}>
+          <DisputeIcon sx={{ color: '#ef5350', mr: 1 }} />
+          Report an Issue?
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Only report if something went wrong. Our team will review and help.
+          </Alert>
+          <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            What happened? Let us know and we'll help resolve it.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setDisputeDialog({ open: false, escrowId: null })}
+            sx={{ color: 'rgba(255,255,255,0.6)' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            variant="contained"
+            onClick={() => handleDispute(disputeDialog.escrowId)}
+            disabled={actionLoading}
+            sx={styles.disputeBtn}
+          >
+            {actionLoading ? <CircularProgress size={20} /> : 'Report Issue'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
@@ -392,6 +585,40 @@ const styles = {
     borderRadius: '12px',
     color: '#00ff88',
     fontSize: '13px'
+  },
+  sectionSubtitle: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '13px',
+    marginBottom: '16px',
+    marginTop: '-12px'
+  },
+  dialog: {
+    bgcolor: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '20px'
+  },
+  dialogTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    color: '#fff',
+    fontSize: '18px',
+    fontWeight: 600
+  },
+  releaseBtn: {
+    background: 'linear-gradient(135deg, #66bb6a, #4caf50)',
+    color: '#fff',
+    fontWeight: 600,
+    '&:hover': {
+      background: 'linear-gradient(135deg, #57a05a, #43a047)'
+    }
+  },
+  disputeBtn: {
+    background: 'linear-gradient(135deg, #ef5350, #e53935)',
+    color: '#fff',
+    fontWeight: 600,
+    '&:hover': {
+      background: 'linear-gradient(135deg, #e53935, #d32f2f)'
+    }
   }
 };
 

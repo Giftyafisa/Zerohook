@@ -14,7 +14,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button
+  Button,
+  Chip
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -28,12 +29,17 @@ import {
   Check as CheckIcon,
   DoneAll as DoneAllIcon,
   EmojiEmotions as EmojiIcon,
-  Mic as MicIcon,
   Block as BlockIcon,
   Report as ReportIcon,
   Delete as DeleteIcon,
-  Person as PersonIcon
+  Person as PersonIcon,
+  AccountBalanceWallet as WalletIcon,
+  CheckCircle as CheckCircleIcon,
+  Warning as WarningIcon,
+  RequestQuote as RequestIcon
 } from '@mui/icons-material';
+import PaymentSheet from './PaymentSheet';
+import { MilestoneRequestDialog, MilestoneRequestCard } from './MilestoneRequest';
 import { keyframes } from '@emotion/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../contexts/SocketContext';
@@ -115,6 +121,16 @@ const ChatSystem = ({
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [callType, setCallType] = useState(null); // 'audio' or 'video'
   const [isCallActive, setIsCallActive] = useState(false);
+  
+  // Payment / Escrow states
+  const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
+  const [activeEscrow, setActiveEscrow] = useState(null);
+  const [escrowLoading, setEscrowLoading] = useState(false);
+  
+  // Milestone request states
+  const [milestoneDialogOpen, setMilestoneDialogOpen] = useState(false);
+  const [pendingMilestones, setPendingMilestones] = useState([]);
+  const [isProvider, setIsProvider] = useState(false); // Is current user a provider?
   
   // Menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
@@ -575,6 +591,209 @@ const ChatSystem = ({
     setMenuAnchorEl(null);
   };
 
+  // Check for active escrow and pending milestones when conversation changes
+  useEffect(() => {
+    const checkActiveEscrow = async () => {
+      if (!selectedConversation?.participantId) {
+        setActiveEscrow(null);
+        setPendingMilestones([]);
+        return;
+      }
+      try {
+        const token = localStorage.getItem('token');
+        
+        // Check escrow
+        const escrowResponse = await fetch(`${API_BASE_URL}/escrow/list`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (escrowResponse.ok) {
+          const data = await escrowResponse.json();
+          // Find escrow with this participant
+          const escrow = (data.escrows || []).find(e => 
+            (e.provider_id === selectedConversation.participantId || 
+             e.client_id === selectedConversation.participantId) &&
+            e.status === 'held'
+          );
+          setActiveEscrow(escrow || null);
+          
+          // Check if current user is the provider in any escrow
+          const isUserProvider = (data.escrows || []).some(e => e.provider_id === user?.id);
+          setIsProvider(isUserProvider);
+        }
+        
+        // Check pending milestone requests
+        const milestoneResponse = await fetch(`${API_BASE_URL}/milestone/pending/${selectedConversation.participantId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (milestoneResponse.ok) {
+          const milestoneData = await milestoneResponse.json();
+          setPendingMilestones(milestoneData.requests || []);
+        }
+      } catch (error) {
+        console.error('Failed to check escrow/milestones:', error);
+      }
+    };
+    checkActiveEscrow();
+  }, [selectedConversation, user?.id]);
+
+  // Handle escrow payment success
+  const handlePaymentSuccess = (escrowData) => {
+    setActiveEscrow(escrowData);
+    setPaymentSheetOpen(false);
+    // Update conversation to show escrow active
+    if (selectedConversation) {
+      setConversations(prev => prev.map(c => 
+        c.id === selectedConversation.id 
+          ? { ...c, hasActiveEscrow: true, escrowAmount: escrowData.amount }
+          : c
+      ));
+      setSelectedConversation(prev => prev ? { ...prev, hasActiveEscrow: true, escrowAmount: escrowData.amount } : prev);
+    }
+  };
+
+  // Release payment (confirm service completed)
+  const handleReleasePayment = async () => {
+    if (!activeEscrow) return;
+    setEscrowLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ escrowId: activeEscrow.id })
+      });
+      if (response.ok) {
+        setActiveEscrow(null);
+        // Update conversation
+        if (selectedConversation) {
+          setConversations(prev => prev.map(c => 
+            c.id === selectedConversation.id 
+              ? { ...c, hasActiveEscrow: false, escrowAmount: null }
+              : c
+          ));
+          setSelectedConversation(prev => prev ? { ...prev, hasActiveEscrow: false, escrowAmount: null } : prev);
+        }
+        alert('✅ Payment released! The provider has received the funds.');
+      } else {
+        alert('Failed to release payment. Please try again.');
+      }
+    } catch (error) {
+      console.error('Failed to release payment:', error);
+      alert('Error releasing payment.');
+    } finally {
+      setEscrowLoading(false);
+    }
+  };
+
+  // Report a problem with the escrow
+  const handleReportProblem = async () => {
+    if (!activeEscrow) return;
+    const reason = prompt('What went wrong? Briefly describe the issue:');
+    if (!reason) return;
+    
+    setEscrowLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ escrowId: activeEscrow.id, reason })
+      });
+      if (response.ok) {
+        setActiveEscrow(prev => prev ? { ...prev, status: 'disputed' } : null);
+        alert('🔍 Issue reported. Our support team will review and contact you soon.');
+      } else {
+        alert('Failed to report issue. Please try again.');
+      }
+    } catch (error) {
+      console.error('Failed to report problem:', error);
+      alert('Error reporting issue.');
+    } finally {
+      setEscrowLoading(false);
+    }
+  };
+
+  // Handle milestone request success
+  const handleMilestoneRequestSuccess = (data) => {
+    setPendingMilestones(prev => [...prev, data.request]);
+    setMilestoneDialogOpen(false);
+    alert('✅ Payment request sent!');
+  };
+
+  // Accept milestone request
+  const handleAcceptMilestone = async (requestId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/milestone/respond`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ requestId, action: 'accept' })
+      });
+      if (response.ok) {
+        setPendingMilestones(prev => prev.map(m => 
+          m.id === requestId ? { ...m, status: 'accepted' } : m
+        ));
+      }
+    } catch (error) {
+      console.error('Failed to accept milestone:', error);
+      alert('Failed to accept request');
+    }
+  };
+
+  // Decline milestone request
+  const handleDeclineMilestone = async (requestId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/milestone/respond`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ requestId, action: 'decline' })
+      });
+      if (response.ok) {
+        setPendingMilestones(prev => prev.filter(m => m.id !== requestId));
+      }
+    } catch (error) {
+      console.error('Failed to decline milestone:', error);
+      alert('Failed to decline request');
+    }
+  };
+
+  // Pay for accepted milestone
+  const handlePayMilestone = async (request) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/milestone/pay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ requestId: request.id })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setActiveEscrow(data.escrow);
+        setPendingMilestones(prev => prev.filter(m => m.id !== request.id));
+        alert('✅ Payment held successfully!');
+      }
+    } catch (error) {
+      console.error('Failed to pay milestone:', error);
+      alert('Payment failed. Try again.');
+    }
+  };
+
   const filteredConversations = conversations.filter(conv =>
     conv.participantName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -698,15 +917,39 @@ const ChatSystem = ({
               </Menu>
             </Box>
 
-            {/* Escrow Bar */}
-            {selectedConversation.hasActiveEscrow && (
-              <Box sx={{ ...styles.escrowBar, display: { xs: 'none', md: 'flex' } }}>
+            {/* Escrow Bar - Shows when money is held */}
+            {activeEscrow && (
+              <Box sx={styles.escrowBar}>
                 <LockIcon sx={{ fontSize: 18 }} />
-                <Typography>Escrow Active:</Typography>
-                <Typography sx={styles.escrowAmount}>
-                  ${selectedConversation.escrowAmount?.toFixed(2) || '0.00'}
+                <Typography sx={{ fontWeight: 500 }}>
+                  Money Held: ₦{Number(activeEscrow.amount).toLocaleString()}
                 </Typography>
-                <Box sx={styles.escrowBtn}>Details</Box>
+                <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>
+                  <Chip
+                    icon={<CheckCircleIcon />}
+                    label="Release"
+                    onClick={handleReleasePayment}
+                    disabled={escrowLoading}
+                    sx={{
+                      bgcolor: 'rgba(0, 255, 136, 0.2)',
+                      color: '#00ff88',
+                      fontWeight: 600,
+                      '&:hover': { bgcolor: 'rgba(0, 255, 136, 0.3)' }
+                    }}
+                  />
+                  <Chip
+                    icon={<WarningIcon />}
+                    label="Problem"
+                    onClick={handleReportProblem}
+                    disabled={escrowLoading}
+                    sx={{
+                      bgcolor: 'rgba(255, 167, 38, 0.2)',
+                      color: '#ffa726',
+                      fontWeight: 600,
+                      '&:hover': { bgcolor: 'rgba(255, 167, 38, 0.3)' }
+                    }}
+                  />
+                </Box>
               </Box>
             )}
 
@@ -751,6 +994,22 @@ const ChatSystem = ({
               <div ref={messagesEndRef} />
             </Box>
 
+            {/* Pending Milestone Requests */}
+            {pendingMilestones.length > 0 && (
+              <Box sx={styles.milestoneRequestsArea}>
+                {pendingMilestones.map((request) => (
+                  <MilestoneRequestCard
+                    key={request.id}
+                    request={request}
+                    currentUserId={user?.id}
+                    onAccept={handleAcceptMilestone}
+                    onDecline={handleDeclineMilestone}
+                    onPay={handlePayMilestone}
+                  />
+                ))}
+              </Box>
+            )}
+
             {/* Input Area */}
             {selectedConversation && (
               <Box sx={styles.inputArea}>
@@ -759,8 +1018,44 @@ const ChatSystem = ({
                   type="file"
                   style={{ display: 'none' }}
                   accept="image/*,video/*"
+                  onChange={handleFileSelect}
                 />
-                {/* Attachment disabled until upload flow is implemented */}
+                {/* Request Payment button - for sending milestone requests */}
+                {!activeEscrow && pendingMilestones.length === 0 && (
+                  <IconButton 
+                    sx={{
+                      ...styles.requestBtn,
+                      background: 'linear-gradient(135deg, #ffd700, #ffaa00)',
+                      color: '#000'
+                    }} 
+                    onClick={() => setMilestoneDialogOpen(true)}
+                    title={isProvider ? "Request Payment" : "Request Hold"}
+                  >
+                    <RequestIcon />
+                  </IconButton>
+                )}
+                {/* Pay Now button - only show if no active escrow */}
+                {!activeEscrow && (
+                  <IconButton 
+                    sx={{
+                      ...styles.payNowBtn,
+                      background: 'linear-gradient(135deg, #00ff88, #00cc6a)',
+                      color: '#000'
+                    }} 
+                    onClick={() => setPaymentSheetOpen(true)}
+                    title="Hold Money"
+                  >
+                    <WalletIcon />
+                  </IconButton>
+                )}
+                {/* Attachment button */}
+                <IconButton 
+                  sx={styles.inputActionBtn} 
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach file"
+                >
+                  <AttachIcon />
+                </IconButton>
                 <TextField
                   fullWidth
                   placeholder="Type a message..."
@@ -776,18 +1071,22 @@ const ChatSystem = ({
                   multiline
                   maxRows={4}
                 />
-                <IconButton sx={styles.inputActionBtn}>
+                <IconButton sx={styles.inputActionBtn} title="Emoji">
                   <EmojiIcon />
                 </IconButton>
-                {newMessage.trim() ? (
-                  <IconButton sx={styles.sendBtn} onClick={sendMessage}>
-                    <SendIcon />
-                  </IconButton>
-                ) : (
-                  <IconButton sx={styles.inputActionBtn}>
-                    <MicIcon />
-                  </IconButton>
-                )}
+                {/* Always show Send button, disabled when empty */}
+                <IconButton 
+                  sx={{
+                    ...styles.sendBtn,
+                    opacity: newMessage.trim() ? 1 : 0.5,
+                    cursor: newMessage.trim() ? 'pointer' : 'default'
+                  }} 
+                  onClick={sendMessage}
+                  disabled={!newMessage.trim()}
+                  title="Send message"
+                >
+                  <SendIcon />
+                </IconButton>
               </Box>
             )}
           </>
@@ -968,6 +1267,25 @@ const ChatSystem = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Payment Sheet - Bottom drawer for holding money */}
+      <PaymentSheet
+        open={paymentSheetOpen}
+        onClose={() => setPaymentSheetOpen(false)}
+        providerId={selectedConversation?.participantId}
+        providerName={selectedConversation?.participantName}
+        onSuccess={handlePaymentSuccess}
+      />
+
+      {/* Milestone Request Dialog */}
+      <MilestoneRequestDialog
+        open={milestoneDialogOpen}
+        onClose={() => setMilestoneDialogOpen(false)}
+        recipientId={selectedConversation?.participantId}
+        recipientName={selectedConversation?.participantName}
+        isProvider={isProvider}
+        onSuccess={handleMilestoneRequestSuccess}
+      />
     </Box>
   );
 };
@@ -1190,13 +1508,13 @@ const styles = {
   escrowBar: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: '8px',
     padding: '10px 16px',
     background: 'rgba(0, 255, 136, 0.1)',
     borderBottom: '1px solid rgba(0, 255, 136, 0.15)',
     color: '#00ff88',
-    fontSize: '13px'
+    fontSize: '13px',
+    flexWrap: 'wrap'
   },
   escrowAmount: {
     fontWeight: 700
@@ -1293,6 +1611,28 @@ const styles = {
     '&:hover': {
       background: '#00d4ce'
     }
+  },
+  payNowBtn: {
+    borderRadius: '12px',
+    padding: '10px',
+    '&:hover': {
+      background: 'linear-gradient(135deg, #00cc6a, #00aa55) !important'
+    }
+  },
+  requestBtn: {
+    borderRadius: '12px',
+    padding: '10px',
+    '&:hover': {
+      background: 'linear-gradient(135deg, #ffaa00, #ff8800) !important'
+    }
+  },
+  milestoneRequestsArea: {
+    padding: '12px 16px',
+    borderTop: '1px solid rgba(255,255,255,0.08)',
+    background: 'rgba(255, 215, 0, 0.05)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px'
   },
   noChatSelected: {
     flex: 1,

@@ -1,0 +1,790 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Typography,
+  CircularProgress,
+  Button,
+  Tabs,
+  Tab,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  MenuItem,
+  Alert
+} from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
+import {
+  AccountBalanceWallet as WalletIcon,
+  Add as AddIcon,
+  Send as SendIcon,
+  ArrowUpward as DepositIcon,
+  ArrowDownward as WithdrawIcon,
+  Lock as HeldIcon,
+  CheckCircle as ReleaseIcon,
+  Warning as DisputeIcon,
+  History as HistoryIcon
+} from '@mui/icons-material';
+import { motion } from 'framer-motion';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+
+const MyMoneyPage = () => {
+  const { user, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  
+  // Tab state
+  const [activeTab, setActiveTab] = useState(0);
+  
+  // Loading states
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  
+  // Data
+  const [walletData, setWalletData] = useState({
+    balance: 0,
+    escrowHeld: 0,
+    pendingWithdrawal: 0,
+    escrows: [],
+    transactions: []
+  });
+  
+  // Dialogs
+  const [addMoneyDialog, setAddMoneyDialog] = useState(false);
+  const [withdrawDialog, setWithdrawDialog] = useState(false);
+  const [addAmount, setAddAmount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+
+  useEffect(() => {
+    const fetchAllData = async () => {
+      if (!isAuthenticated) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        const token = localStorage.getItem('token');
+        
+        // Fetch wallet data
+        const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        // Fetch transactions
+        const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        // Fetch escrows
+        const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        let balance = 0, escrowHeld = 0, pendingWithdrawal = 0;
+        let transactions = [];
+        let escrows = [];
+
+        if (walletRes.ok) {
+          const data = await walletRes.json();
+          balance = data.wallet?.balance || data.balance || 0;
+          escrowHeld = data.wallet?.escrowHeld || data.escrowHeld || 0;
+          pendingWithdrawal = data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0;
+        }
+
+        if (txRes.ok) {
+          const data = await txRes.json();
+          transactions = data.transactions || data.data || [];
+        }
+
+        if (escrowRes.ok) {
+          const data = await escrowRes.json();
+          escrows = data.escrows || data.data || [];
+        }
+
+        setWalletData({
+          balance,
+          escrowHeld,
+          pendingWithdrawal,
+          transactions,
+          escrows
+        });
+      } catch (error) {
+        console.error('Fetch error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllData();
+  }, [isAuthenticated]);
+
+  // Handle escrow release
+  const handleRelease = async (escrowId) => {
+    if (!window.confirm('Release this payment? The provider will receive the funds.')) return;
+    
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ escrowId })
+      });
+
+      if (response.ok) {
+        // Update local state
+        setWalletData(prev => ({
+          ...prev,
+          escrows: prev.escrows.map(e => 
+            e.id === escrowId ? { ...e, status: 'released' } : e
+          )
+        }));
+        alert('✅ Payment released successfully!');
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to release payment');
+      }
+    } catch (error) {
+      console.error('Release error:', error);
+      alert('Failed to release payment.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Handle escrow dispute
+  const handleDispute = async (escrowId) => {
+    const reason = prompt('What went wrong? Briefly describe:');
+    if (!reason) return;
+    
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ escrowId, reason })
+      });
+
+      if (response.ok) {
+        setWalletData(prev => ({
+          ...prev,
+          escrows: prev.escrows.map(e => 
+            e.id === escrowId ? { ...e, status: 'disputed' } : e
+          )
+        }));
+        alert('🔍 Issue reported. Support will contact you.');
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to report issue');
+      }
+    } catch (error) {
+      console.error('Dispute error:', error);
+      alert('Failed to report issue.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Add money via Paystack
+  const handleAddMoney = async () => {
+    if (!addAmount || Number(addAmount) < 100) {
+      alert('Minimum amount is ₦100');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/payments/paystack/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: Number(addAmount),
+          type: 'wallet_topup'
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.authorizationUrl || data.authorization_url) {
+          window.location.href = data.authorizationUrl || data.authorization_url;
+        }
+      } else {
+        alert('Failed to initiate payment');
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      alert('Payment failed. Try again.');
+    } finally {
+      setActionLoading(false);
+      setAddMoneyDialog(false);
+    }
+  };
+
+  // Withdraw money
+  const handleWithdraw = async () => {
+    if (!withdrawAmount || Number(withdrawAmount) > walletData.balance) {
+      alert('Invalid amount or insufficient balance');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/payments/withdraw`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ amount: Number(withdrawAmount) })
+      });
+
+      if (response.ok) {
+        alert('✅ Withdrawal initiated! You will receive it within 24 hours.');
+        setWalletData(prev => ({
+          ...prev,
+          balance: prev.balance - Number(withdrawAmount),
+          pendingWithdrawal: prev.pendingWithdrawal + Number(withdrawAmount)
+        }));
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Withdrawal failed');
+      }
+    } catch (error) {
+      console.error('Withdraw error:', error);
+      alert('Withdrawal failed.');
+    } finally {
+      setActionLoading(false);
+      setWithdrawDialog(false);
+      setWithdrawAmount('');
+    }
+  };
+
+  // Get active escrows (held status)
+  const activeEscrows = walletData.escrows.filter(e => e.status === 'held' || e.status === 'pending');
+  const pastEscrows = walletData.escrows.filter(e => e.status !== 'held' && e.status !== 'pending');
+
+  if (!isAuthenticated) {
+    return (
+      <Box sx={styles.container}>
+        <Box sx={styles.emptyState}>
+          <WalletIcon sx={{ fontSize: 64, color: '#333', mb: 2 }} />
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
+            Log in to see your money
+          </Typography>
+          <Button 
+            variant="contained" 
+            onClick={() => navigate('/login')}
+            sx={styles.primaryBtn}
+          >
+            Login
+          </Button>
+        </Box>
+      </Box>
+    );
+  }
+
+  if (loading) {
+    return (
+      <Box sx={styles.loadingContainer}>
+        <CircularProgress sx={{ color: '#00f2ea' }} />
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={styles.container}>
+      {/* Header */}
+      <Box sx={styles.header}>
+        <WalletIcon sx={styles.headerIcon} />
+        <Typography sx={styles.headerTitle}>My Money</Typography>
+      </Box>
+
+      {/* Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <Box sx={styles.balanceCard}>
+          <Typography sx={styles.balanceLabel}>Available Balance</Typography>
+          <Typography sx={styles.balanceAmount}>
+            ₦{Number(walletData.balance).toLocaleString()}
+          </Typography>
+          
+          {/* Quick Actions */}
+          <Box sx={styles.quickActions}>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setAddMoneyDialog(true)}
+              sx={{ ...styles.actionBtn, bgcolor: '#00f2ea', color: '#000' }}
+            >
+              Add Money
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<SendIcon />}
+              onClick={() => setWithdrawDialog(true)}
+              disabled={walletData.balance <= 0}
+              sx={{ ...styles.actionBtn, borderColor: '#ff0055', color: '#ff0055' }}
+            >
+              Withdraw
+            </Button>
+          </Box>
+        </Box>
+      </motion.div>
+
+      {/* Tabs */}
+      <Tabs
+        value={activeTab}
+        onChange={(e, v) => setActiveTab(v)}
+        sx={styles.tabs}
+        variant="fullWidth"
+      >
+        <Tab 
+          label={
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HeldIcon fontSize="small" />
+              Held
+              {activeEscrows.length > 0 && (
+                <Chip label={activeEscrows.length} size="small" sx={{ bgcolor: '#00ff88', color: '#000', height: 20 }} />
+              )}
+            </Box>
+          } 
+        />
+        <Tab 
+          label={
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HistoryIcon fontSize="small" />
+              History
+            </Box>
+          } 
+        />
+      </Tabs>
+
+      {/* Tab Content */}
+      {activeTab === 0 && (
+        <Box sx={styles.tabContent}>
+          {activeEscrows.length === 0 ? (
+            <Box sx={styles.emptyTab}>
+              <HeldIcon sx={{ fontSize: 48, color: '#444', mb: 2 }} />
+              <Typography color="text.secondary">No held payments</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                When you hold money for a service, it will appear here
+              </Typography>
+            </Box>
+          ) : (
+            activeEscrows.map((escrow) => (
+              <motion.div
+                key={escrow.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+              >
+                <Box sx={styles.escrowCard}>
+                  <Box sx={styles.escrowHeader}>
+                    <Typography sx={styles.escrowProvider}>
+                      {escrow.provider_name || escrow.providerName || 'Service Provider'}
+                    </Typography>
+                    <Chip 
+                      label="Held" 
+                      size="small" 
+                      sx={{ bgcolor: 'rgba(0, 255, 136, 0.2)', color: '#00ff88' }} 
+                    />
+                  </Box>
+                  <Typography sx={styles.escrowAmount}>
+                    ₦{Number(escrow.amount).toLocaleString()}
+                  </Typography>
+                  <Typography sx={styles.escrowDate}>
+                    {escrow.created_at ? new Date(escrow.created_at).toLocaleDateString() : 'Recently'}
+                  </Typography>
+                  
+                  {/* Actions - Only show for client */}
+                  {escrow.client_id === user?.id && (
+                    <Box sx={styles.escrowActions}>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={<ReleaseIcon />}
+                        onClick={() => handleRelease(escrow.id)}
+                        disabled={actionLoading}
+                        sx={{ bgcolor: '#00ff88', color: '#000', '&:hover': { bgcolor: '#00cc6a' } }}
+                      >
+                        Release
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<DisputeIcon />}
+                        onClick={() => handleDispute(escrow.id)}
+                        disabled={actionLoading}
+                        sx={{ borderColor: '#ffa726', color: '#ffa726' }}
+                      >
+                        Problem
+                      </Button>
+                    </Box>
+                  )}
+                  
+                  {/* Provider view */}
+                  {escrow.provider_id === user?.id && (
+                    <Alert severity="info" sx={{ mt: 2, bgcolor: 'rgba(0, 242, 234, 0.1)' }}>
+                      Waiting for client to release payment
+                    </Alert>
+                  )}
+                </Box>
+              </motion.div>
+            ))
+          )}
+        </Box>
+      )}
+
+      {activeTab === 1 && (
+        <Box sx={styles.tabContent}>
+          {walletData.transactions.length === 0 && pastEscrows.length === 0 ? (
+            <Box sx={styles.emptyTab}>
+              <HistoryIcon sx={{ fontSize: 48, color: '#444', mb: 2 }} />
+              <Typography color="text.secondary">No transactions yet</Typography>
+            </Box>
+          ) : (
+            <>
+              {/* Past Escrows */}
+              {pastEscrows.map((escrow) => (
+                <Box key={escrow.id} sx={styles.txItem}>
+                  <Box sx={{ ...styles.txIcon, bgcolor: escrow.status === 'released' ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 167, 38, 0.15)' }}>
+                    {escrow.status === 'released' ? (
+                      <ReleaseIcon sx={{ color: '#00ff88' }} />
+                    ) : (
+                      <DisputeIcon sx={{ color: '#ffa726' }} />
+                    )}
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={styles.txTitle}>
+                      {escrow.status === 'released' ? 'Payment Released' : 'Payment Disputed'}
+                    </Typography>
+                    <Typography sx={styles.txDate}>
+                      {escrow.updated_at ? new Date(escrow.updated_at).toLocaleDateString() : 'Recently'}
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ ...styles.txAmount, color: escrow.status === 'released' ? '#00ff88' : '#ffa726' }}>
+                    ₦{Number(escrow.amount).toLocaleString()}
+                  </Typography>
+                </Box>
+              ))}
+
+              {/* Transactions */}
+              {walletData.transactions.map((tx) => (
+                <Box key={tx.id} sx={styles.txItem}>
+                  <Box sx={{ ...styles.txIcon, bgcolor: tx.type === 'credit' || tx.type === 'income' ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 51, 51, 0.15)' }}>
+                    {tx.type === 'credit' || tx.type === 'income' ? (
+                      <DepositIcon sx={{ color: '#00ff88' }} />
+                    ) : (
+                      <WithdrawIcon sx={{ color: '#ff3333' }} />
+                    )}
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={styles.txTitle}>{tx.description || tx.title || 'Transaction'}</Typography>
+                    <Typography sx={styles.txDate}>
+                      {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : tx.date || 'Recently'}
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ 
+                    ...styles.txAmount, 
+                    color: tx.type === 'credit' || tx.type === 'income' ? '#00ff88' : '#ff3333' 
+                  }}>
+                    {tx.type === 'credit' || tx.type === 'income' ? '+' : '-'}₦{Number(tx.amount).toLocaleString()}
+                  </Typography>
+                </Box>
+              ))}
+            </>
+          )}
+        </Box>
+      )}
+
+      {/* Add Money Dialog */}
+      <Dialog 
+        open={addMoneyDialog} 
+        onClose={() => setAddMoneyDialog(false)}
+        PaperProps={{ sx: styles.dialog }}
+      >
+        <DialogTitle sx={styles.dialogTitle}>Add Money</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Add funds to your wallet via Paystack
+          </Typography>
+          <TextField
+            fullWidth
+            label="Amount (₦)"
+            type="number"
+            value={addAmount}
+            onChange={(e) => setAddAmount(e.target.value)}
+            sx={styles.textField}
+            placeholder="Enter amount"
+          />
+          <Box sx={styles.quickAmounts}>
+            {[1000, 5000, 10000, 20000].map((amt) => (
+              <Chip
+                key={amt}
+                label={`₦${amt.toLocaleString()}`}
+                onClick={() => setAddAmount(amt.toString())}
+                sx={{ 
+                  bgcolor: addAmount === amt.toString() ? '#00f2ea' : 'rgba(255,255,255,0.1)',
+                  color: addAmount === amt.toString() ? '#000' : '#fff'
+                }}
+              />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setAddMoneyDialog(false)} sx={{ color: '#888' }}>
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleAddMoney}
+            disabled={actionLoading || !addAmount}
+            sx={styles.primaryBtn}
+          >
+            {actionLoading ? <CircularProgress size={20} /> : 'Continue'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Withdraw Dialog */}
+      <Dialog 
+        open={withdrawDialog} 
+        onClose={() => setWithdrawDialog(false)}
+        PaperProps={{ sx: styles.dialog }}
+      >
+        <DialogTitle sx={styles.dialogTitle}>Withdraw</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Available: ₦{Number(walletData.balance).toLocaleString()}
+          </Typography>
+          <TextField
+            fullWidth
+            label="Amount (₦)"
+            type="number"
+            value={withdrawAmount}
+            onChange={(e) => setWithdrawAmount(e.target.value)}
+            sx={styles.textField}
+            placeholder="Enter amount"
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setWithdrawDialog(false)} sx={{ color: '#888' }}>
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleWithdraw}
+            disabled={actionLoading || !withdrawAmount || Number(withdrawAmount) > walletData.balance}
+            sx={{ ...styles.primaryBtn, bgcolor: '#ff0055' }}
+          >
+            {actionLoading ? <CircularProgress size={20} /> : 'Withdraw'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
+const styles = {
+  container: {
+    minHeight: '100vh',
+    background: 'linear-gradient(180deg, #0f0f13 0%, #1a1a2e 100%)',
+    padding: { xs: '16px', md: '24px' },
+    paddingBottom: '100px'
+  },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100vh',
+    background: '#0f0f13'
+  },
+  emptyState: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '60vh',
+    textAlign: 'center'
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '24px'
+  },
+  headerIcon: {
+    fontSize: 32,
+    color: '#00f2ea'
+  },
+  headerTitle: {
+    fontSize: '24px',
+    fontWeight: 700,
+    color: '#fff'
+  },
+  balanceCard: {
+    background: 'linear-gradient(135deg, #1a1a2e 0%, #252542 100%)',
+    borderRadius: '20px',
+    padding: '24px',
+    marginBottom: '24px',
+    border: '1px solid rgba(255,255,255,0.1)'
+  },
+  balanceLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '14px',
+    marginBottom: '8px'
+  },
+  balanceAmount: {
+    fontSize: '36px',
+    fontWeight: 700,
+    color: '#fff',
+    marginBottom: '20px'
+  },
+  quickActions: {
+    display: 'flex',
+    gap: '12px'
+  },
+  actionBtn: {
+    borderRadius: '12px',
+    padding: '10px 20px',
+    fontWeight: 600,
+    textTransform: 'none'
+  },
+  tabs: {
+    marginBottom: '16px',
+    '& .MuiTab-root': {
+      color: 'rgba(255,255,255,0.5)',
+      textTransform: 'none',
+      fontWeight: 600,
+      '&.Mui-selected': {
+        color: '#00f2ea'
+      }
+    },
+    '& .MuiTabs-indicator': {
+      backgroundColor: '#00f2ea'
+    }
+  },
+  tabContent: {
+    minHeight: '300px'
+  },
+  emptyTab: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '48px 24px',
+    textAlign: 'center'
+  },
+  escrowCard: {
+    background: 'rgba(255,255,255,0.05)',
+    borderRadius: '16px',
+    padding: '16px',
+    marginBottom: '12px',
+    border: '1px solid rgba(255,255,255,0.1)'
+  },
+  escrowHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '8px'
+  },
+  escrowProvider: {
+    fontWeight: 600,
+    color: '#fff'
+  },
+  escrowAmount: {
+    fontSize: '24px',
+    fontWeight: 700,
+    color: '#00ff88',
+    marginBottom: '4px'
+  },
+  escrowDate: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '13px',
+    marginBottom: '12px'
+  },
+  escrowActions: {
+    display: 'flex',
+    gap: '10px'
+  },
+  txItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '14px 0',
+    borderBottom: '1px solid rgba(255,255,255,0.05)'
+  },
+  txIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  txTitle: {
+    color: '#fff',
+    fontWeight: 500
+  },
+  txDate: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '13px'
+  },
+  txAmount: {
+    fontWeight: 600,
+    fontSize: '15px'
+  },
+  dialog: {
+    bgcolor: '#1a1a2e',
+    borderRadius: '20px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    minWidth: { xs: '90vw', sm: 360 }
+  },
+  dialogTitle: {
+    color: '#fff',
+    fontWeight: 600
+  },
+  textField: {
+    '& .MuiOutlinedInput-root': {
+      color: '#fff',
+      '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+      '&.Mui-focused fieldset': { borderColor: '#00f2ea' }
+    },
+    '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.5)' }
+  },
+  quickAmounts: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    marginTop: '16px'
+  },
+  primaryBtn: {
+    bgcolor: '#00f2ea',
+    color: '#000',
+    borderRadius: '12px',
+    fontWeight: 600,
+    textTransform: 'none',
+    '&:hover': {
+      bgcolor: '#00d4ce'
+    }
+  }
+};
+
+export default MyMoneyPage;

@@ -14,7 +14,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Avatar,
   Divider,
   List,
   ListItem,
@@ -28,11 +27,13 @@ import {
   Step,
   StepLabel,
   Alert,
-  Rating,
   Paper,
   CircularProgress,
   useTheme,
-  useMediaQuery
+  useMediaQuery,
+  RadioGroup,
+  Radio,
+  FormControlLabel
 } from '@mui/material';
 import {
   LocationOn,
@@ -41,26 +42,22 @@ import {
   Phone,
   Email,
   WhatsApp,
-  Telegram,
   Favorite,
   FavoriteBorder,
   Share,
   Report,
   CalendarToday,
   AccessTime,
-  Payment,
   Verified,
-  Warning,
   CheckCircle,
-  Schedule,
-  AttachMoney,
-  Language,
   Public,
-  Lock
+  Lock,
+  CreditCard
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
 import VideoSystem from '../components/video/VideoSystem';
+import { useAuth } from '../contexts/AuthContext';
 
 const AdultServiceDetail = () => {
   const theme = useTheme();
@@ -68,6 +65,7 @@ const AdultServiceDetail = () => {
   const isSmallMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   
   const [service, setService] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -80,9 +78,13 @@ const AdultServiceDetail = () => {
     duration: '',
     location: '',
     specialRequests: '',
-    contactMethod: 'chat'
+    contactMethod: 'chat',
+    paymentMethod: 'paystack'
   });
   const [isFavorite, setIsFavorite] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingError, setBookingError] = useState(null);
+  const [bookingSuccess, setBookingSuccess] = useState(false);
 
   useEffect(() => {
     // Fetch real service data from API
@@ -178,23 +180,77 @@ const AdultServiceDetail = () => {
     }));
   };
 
+  const handleBookNowClick = () => {
+    if (!isAuthenticated) {
+      // Redirect to login with return path
+      navigate('/login', { state: { from: `/services/${id}` } });
+      return;
+    }
+    setShowBookingDialog(true);
+  };
+
   const handleBookingSubmit = async () => {
-    // In real app, this would submit booking to backend
-    console.log('Booking submitted:', bookingData);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Close dialog and show success
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: `/services/${id}` } });
+      return;
+    }
+
+    setBookingLoading(true);
+    setBookingError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Create escrow transaction
+      const response = await fetch(`${API_BASE_URL}/escrow/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          serviceId: service.id,
+          providerId: service.provider?.id,
+          amount: service.price,
+          scheduledTime: `${bookingData.date}T${bookingData.time}`,
+          location: bookingData.location,
+          duration: bookingData.duration,
+          specialRequests: bookingData.specialRequests,
+          contactMethod: bookingData.contactMethod,
+          paymentMethod: bookingData.paymentMethod
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setBookingSuccess(true);
+        // Move to confirmation step
+        setBookingStep(2);
+      } else {
+        setBookingError(data.error || 'Failed to create booking. Please try again.');
+      }
+    } catch (error) {
+      console.error('Booking error:', error);
+      setBookingError('Something went wrong. Please try again.');
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  const handleCloseBookingDialog = () => {
     setShowBookingDialog(false);
     setBookingStep(0);
+    setBookingError(null);
+    setBookingSuccess(false);
     setBookingData({
       date: '',
       time: '',
       duration: '',
       location: '',
       specialRequests: '',
-      contactMethod: 'chat'
+      contactMethod: 'chat',
+      paymentMethod: 'paystack'
     });
   };
 
@@ -594,7 +650,7 @@ const AdultServiceDetail = () => {
                 variant="contained"
                 fullWidth
                 size="large"
-                onClick={() => setShowBookingDialog(true)}
+                onClick={handleBookNowClick}
                 sx={{ mb: 2 }}
                  disabled={service?.available === false}
               >
@@ -669,35 +725,68 @@ const AdultServiceDetail = () => {
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
-                Contact Methods
+                Contact Provider
                 </Typography>
                 
-              <Box display="flex" flexDirection="column" gap={1}>
+              <Box display="flex" flexDirection="column" gap={1.5}>
+                {/* Primary action: Message */}
                 <Button
-                  variant="outlined"
-                  startIcon={<Phone />}
-                  fullWidth
-                  size="small"
-                >
-                  Call Provider
-                </Button>
-                
-                <Button
-                  variant="outlined"
+                  variant="contained"
                   startIcon={<Email />}
                   fullWidth
-                  size="small"
+                  size="large"
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      navigate('/login', { state: { from: `/service/${id}` } });
+                      return;
+                    }
+                    // Navigate to chat with this provider
+                    navigate('/chat', { 
+                      state: { 
+                        recipientId: service?.providerId || service?.provider_id,
+                        recipientName: service?.providerName || service?.provider_name || 'Provider',
+                        recipientAvatar: service?.providerAvatar || null
+                      } 
+                    });
+                  }}
+                  sx={{
+                    py: 1.5,
+                    background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
+                    color: '#000',
+                    fontWeight: 600,
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #00d4ce, #00a5a0)'
+                    }
+                  }}
                 >
-                  Send Message
+                  Message Provider
                 </Button>
                 
+                {/* Secondary: Quick book with payment */}
                 <Button
                   variant="outlined"
-                  startIcon={<WhatsApp />}
+                  startIcon={<CreditCard />}
                   fullWidth
-                  size="small"
+                  size="large"
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      navigate('/login', { state: { from: `/service/${id}` } });
+                      return;
+                    }
+                    setShowBookingDialog(true);
+                  }}
+                  sx={{
+                    py: 1.5,
+                    borderColor: '#00ff88',
+                    color: '#00ff88',
+                    fontWeight: 600,
+                    '&:hover': {
+                      borderColor: '#00cc6a',
+                      background: 'rgba(0, 255, 136, 0.1)'
+                    }
+                  }}
                 >
-                  WhatsApp
+                  Book & Pay
                 </Button>
                 </Box>
               </CardContent>
@@ -708,7 +797,7 @@ const AdultServiceDetail = () => {
       {/* Booking Dialog */}
       <Dialog 
         open={showBookingDialog} 
-        onClose={() => setShowBookingDialog(false)}
+        onClose={handleCloseBookingDialog}
          maxWidth={isMobile ? "xs" : "md"}
         fullWidth
          fullScreen={isSmallMobile}
@@ -718,6 +807,12 @@ const AdultServiceDetail = () => {
         </DialogTitle>
         
         <DialogContent>
+          {bookingError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {bookingError}
+            </Alert>
+          )}
+          
                      <Stepper 
              activeStep={bookingStep} 
              sx={{ mb: 3 }}
@@ -821,76 +916,188 @@ const AdultServiceDetail = () => {
               </Grid>
               
               <Grid item xs={12}>
-                <Typography variant={isMobile ? "h6" : "h6"} gutterBottom>
-                  Payment Information
+                <Typography variant={isMobile ? "h6" : "h6"} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CreditCard /> How will you pay?
                 </Typography>
-                <Alert severity="info">
-                  Payment will be processed securely through our escrow system. 
-                  Funds are only released after service completion and your satisfaction.
-                </Alert>
+                
+                <RadioGroup
+                  value={bookingData.paymentMethod}
+                  onChange={(e) => handleBookingChange('paymentMethod', e.target.value)}
+                >
+                  <Paper sx={{ p: 2, mb: 1, border: bookingData.paymentMethod === 'paystack' ? '2px solid #00f2ea' : '1px solid #333' }}>
+                    <FormControlLabel 
+                      value="paystack" 
+                      control={<Radio />} 
+                      label={
+                        <Box>
+                          <Typography fontWeight="bold">Pay with Card (Paystack)</Typography>
+                          <Typography variant="body2" color="text.secondary">Debit/Credit card, Bank transfer</Typography>
+                        </Box>
+                      }
+                    />
+                  </Paper>
+                  
+                  <Paper sx={{ p: 2, mb: 1, border: bookingData.paymentMethod === 'wallet' ? '2px solid #00f2ea' : '1px solid #333' }}>
+                    <FormControlLabel 
+                      value="wallet" 
+                      control={<Radio />} 
+                      label={
+                        <Box>
+                          <Typography fontWeight="bold">Pay from Wallet</Typography>
+                          <Typography variant="body2" color="text.secondary">Use your Zerohook wallet balance</Typography>
+                        </Box>
+                      }
+                    />
+                  </Paper>
+                </RadioGroup>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Paper sx={{ p: 2, bgcolor: 'rgba(0,242,234,0.1)', borderRadius: 2 }}>
+                  <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Lock fontSize="small" /> Safe Payment (Escrow)
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Your money is held safely until you confirm the service is complete. 
+                    If there's any problem, you can open a dispute and our team will help.
+                  </Typography>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="h6">Total to Pay:</Typography>
+                  <Typography variant="h5" color="primary" fontWeight="bold">
+                    ₦{(service?.price || 0).toLocaleString()}
+                  </Typography>
+                </Box>
               </Grid>
             </Grid>
           )}
 
           {bookingStep === 2 && (
             <Box>
-              <Typography variant={isMobile ? "h6" : "h6"} gutterBottom>
-                Booking Summary
-              </Typography>
-              
-              <Paper sx={{ p: isMobile ? 1.5 : 2, mb: 2 }}>
-                <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                   <strong>Service:</strong> {service?.title || 'Service'}
-                </Typography>
-                <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                  <strong>Date:</strong> {bookingData.date}
-                </Typography>
-                <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                  <strong>Time:</strong> {bookingData.time}
-                </Typography>
-                <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                  <strong>Duration:</strong> {bookingData.duration}
-                </Typography>
-                <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                  <strong>Location:</strong> {bookingData.location}
-                </Typography>
-                <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                     <strong>Total Price:</strong> ₦{(service?.price || 0).toLocaleString()}
-                </Typography>
-              </Paper>
-              
-              <Alert severity="success">
-                Your booking request has been submitted successfully! 
-                 The provider will review and confirm within {service?.provider?.responseTime || '24 hours'}.
-              </Alert>
+              {bookingSuccess ? (
+                <>
+                  <Box sx={{ textAlign: 'center', py: 2 }}>
+                    <CheckCircle sx={{ fontSize: 64, color: '#00ff88', mb: 2 }} />
+                    <Typography variant="h5" gutterBottom fontWeight="bold">
+                      Booking Confirmed!
+                    </Typography>
+                  </Box>
+                  
+                  <Paper sx={{ p: isMobile ? 1.5 : 2, mb: 2 }}>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                       <strong>Service:</strong> {service?.title || 'Service'}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                      <strong>Date:</strong> {bookingData.date}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                      <strong>Time:</strong> {bookingData.time}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                      <strong>Amount Held:</strong> ₦{(service?.price || 0).toLocaleString()}
+                    </Typography>
+                  </Paper>
+                  
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    Your payment is safely held in escrow. The provider has been notified and will confirm shortly.
+                  </Alert>
+
+                  <Alert severity="info">
+                    <Typography variant="body2">
+                      <strong>What's next?</strong><br/>
+                      • The provider will contact you to confirm details<br/>
+                      • After the service, confirm completion to release payment<br/>
+                      • If there's any issue, you can open a dispute
+                    </Typography>
+                  </Alert>
+                </>
+              ) : (
+                <>
+                  <Typography variant={isMobile ? "h6" : "h6"} gutterBottom>
+                    Confirm Your Booking
+                  </Typography>
+                  
+                  <Paper sx={{ p: isMobile ? 1.5 : 2, mb: 2 }}>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                       <strong>Service:</strong> {service?.title || 'Service'}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                      <strong>Date:</strong> {bookingData.date}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                      <strong>Time:</strong> {bookingData.time}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                      <strong>Duration:</strong> {bookingData.duration}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                      <strong>Location:</strong> {bookingData.location}
+                    </Typography>
+                    <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
+                         <strong>Total Price:</strong> ₦{(service?.price || 0).toLocaleString()}
+                    </Typography>
+                  </Paper>
+                  
+                  <Alert severity="info">
+                    Click "Pay & Book" to confirm. Your money will be held safely until you confirm the service is done.
+                  </Alert>
+                </>
+              )}
             </Box>
           )}
         </DialogContent>
         
         <DialogActions>
-          <Button onClick={() => setShowBookingDialog(false)}>
-            Cancel
+          <Button onClick={handleCloseBookingDialog}>
+            {bookingSuccess ? 'Close' : 'Cancel'}
           </Button>
           
-          {bookingStep > 0 && (
-            <Button onClick={() => setBookingStep(prev => prev - 1)}>
+          {bookingStep > 0 && !bookingSuccess && (
+            <Button onClick={() => setBookingStep(prev => prev - 1)} disabled={bookingLoading}>
               Back
             </Button>
           )}
           
-          {bookingStep < 2 ? (
+          {!bookingSuccess && (
+            <>
+              {bookingStep < 1 ? (
+                <Button 
+                  variant="contained"
+                  onClick={() => setBookingStep(prev => prev + 1)}
+                >
+                  Next
+                </Button>
+              ) : bookingStep === 1 ? (
+                <Button 
+                  variant="contained"
+                  onClick={() => setBookingStep(2)}
+                >
+                  Review Booking
+                </Button>
+              ) : (
+                <Button 
+                  variant="contained"
+                  onClick={handleBookingSubmit}
+                  disabled={bookingLoading}
+                  sx={{ bgcolor: '#00ff88', '&:hover': { bgcolor: '#00cc70' } }}
+                >
+                  {bookingLoading ? <CircularProgress size={20} /> : 'Pay & Book'}
+                </Button>
+              )}
+            </>
+          )}
+          
+          {bookingSuccess && (
             <Button 
               variant="contained"
-              onClick={() => setBookingStep(prev => prev + 1)}
+              onClick={() => navigate('/transactions')}
+              sx={{ bgcolor: '#00f2ea', '&:hover': { bgcolor: '#00c4bd' } }}
             >
-              Next
-            </Button>
-          ) : (
-            <Button 
-              variant="contained"
-              onClick={handleBookingSubmit}
-            >
-              Confirm Booking
+              View My Bookings
             </Button>
           )}
         </DialogActions>

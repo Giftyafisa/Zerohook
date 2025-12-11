@@ -1001,11 +1001,8 @@ const ProfileFeed = () => {
     return () => activityTracker.destroy();
   }, []);
 
-  // Get user's location on mount
+  // Get user's location on mount - works for both authenticated and public users
   useEffect(() => {
-    // Skip if not authenticated or not subscribed
-    if (!isAuthenticated || !isSubscribed) return;
-
     /**
      * Build profile-based location (used when user prefers profile location)
      */
@@ -1034,14 +1031,20 @@ const ProfileFeed = () => {
     const getIPLocation = async () => {
       try {
         const token = localStorage.getItem('token');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        
         const response = await fetch(`${API_BASE_URL}/geolocation/ip-detect`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
-          body: JSON.stringify({})
+          body: JSON.stringify({}),
+          signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const body = await response.json();
@@ -1060,13 +1063,23 @@ const ProfileFeed = () => {
           }
         }
       } catch (error) {
-        console.error('IP geolocation failed:', error);
+        if (error.name === 'AbortError') {
+          console.log('IP geolocation timed out');
+        } else {
+          console.error('IP geolocation failed:', error);
+        }
       }
       return null;
     };
 
     const getUserLocation = async () => {
       setLocationLoading(true);
+
+      // Set a maximum timeout to prevent infinite loading
+      const locationTimeout = setTimeout(() => {
+        console.log('📍 Location detection timed out, proceeding without location');
+        setLocationLoading(false);
+      }, 10000); // 10 second max
 
       // Check for saved manual location first
       const savedLocation = localStorage.getItem('userManualLocation');
@@ -1075,6 +1088,7 @@ const ProfileFeed = () => {
           const parsed = JSON.parse(savedLocation);
           setUserLocation({ ...parsed, source: 'manual' });
           setLocationLoading(false);
+          clearTimeout(locationTimeout);
           console.log('📍 Using saved manual location:', parsed.city);
           return;
         } catch (e) {
@@ -1089,6 +1103,7 @@ const ProfileFeed = () => {
       if (profilePreferred && profileLocation) {
         setUserLocation({ ...profileLocation, source: 'profile-preferred' });
         setLocationLoading(false);
+        clearTimeout(locationTimeout);
         return;
       }
 
@@ -1099,6 +1114,7 @@ const ProfileFeed = () => {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
+            clearTimeout(locationTimeout);
             // GPS success - use precise location
             const gpsLocation = {
               lat: position.coords.latitude,
@@ -1112,9 +1128,9 @@ const ProfileFeed = () => {
             setUserLocation(gpsLocation);
             setLocationLoading(false);
             console.log('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, '(accuracy:', gpsLocation.accuracy, 'm)');
-            console.log('📍 Timestamp:', new Date().toISOString());
           },
           async (error) => {
+            clearTimeout(locationTimeout);
             console.log('Geolocation denied/blocked, using profile/IP detection:', error.message);
 
             if (profileLocation) {
@@ -1127,18 +1143,18 @@ const ProfileFeed = () => {
             if (ipLocation) {
               setUserLocation(ipLocation);
               console.log('📍 IP-based location:', ipLocation.city, ipLocation.country);
-              console.log('⚠️ IP location is city-level only. For precise results, enable GPS or set location manually.');
             }
             setLocationLoading(false);
           },
           { 
-            enableHighAccuracy: true, // Request GPS hardware (not WiFi/cell tower)
-            timeout: 30000, // Increased timeout for GPS lock
-            maximumAge: 0 // ✅ CRITICAL FIX: Force fresh location, no cache
+            enableHighAccuracy: false, // Use network location (faster) instead of GPS
+            timeout: 8000, // 8 second timeout
+            maximumAge: 60000 // Allow cached location up to 1 minute
           }
         );
       } else {
         // No geolocation support, use profile preference or IP
+        clearTimeout(locationTimeout);
         if (profileLocation) {
           setUserLocation(profileLocation);
           setLocationLoading(false);
@@ -1154,7 +1170,7 @@ const ProfileFeed = () => {
     };
 
     getUserLocation();
-  }, [isAuthenticated, isSubscribed, reduxUser, userCountry, detectedCountry]);
+  }, [reduxUser, userCountry, detectedCountry]); // Removed auth dependencies - location works for everyone
 
   // Function to set manual location (for testing or when GPS blocked) - not currently used but available
   // const setManualLocation = useCallback((locationKey) => {
@@ -1191,13 +1207,9 @@ const ProfileFeed = () => {
   ], []);
 
   // Fetch profiles from backend recommendation engine
+  // Public access: Shows public profiles to everyone
+  // Authenticated users see all profiles (public + authenticated-only)
   const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
-    // Guard: Only fetch if authenticated and subscribed
-    if (!isAuthenticated || !isSubscribed) {
-      setLoading(false);
-      return;
-    }
-    
     try {
       if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
@@ -1257,11 +1269,13 @@ const ProfileFeed = () => {
       // Process profiles - backend now provides recommendation data
       const processedProfiles = data.users
         .filter(user => {
-          // Exclude current user and hidden profiles
+          // Exclude current user
           if (isAuthenticated && currentUser?.id === user.id) return false;
           if (reduxUser?.id === user.id) return false;
-          if (user.profile_visibility === false) return false;
-          if (user.profile_data?.profileVisibility === false) return false;
+          // Backend already filters by visibility, but double-check
+          // 'hidden' is legacy, 'authenticated' means logged-in users only
+          if (user.profile_visibility === 'hidden') return false;
+          if (user.profile_data?.profileVisibility === 'hidden') return false;
           return true;
         })
         .map(user => {
@@ -1313,29 +1327,32 @@ const ProfileFeed = () => {
     }
   }, [activeFilter, searchQuery, isAuthenticated, isSubscribed, currentUser, reduxUser, userLocation, convertPrice]);
 
-  // Initial load - wait for location to be available and user to be subscribed
+  // Initial load - fetch profiles immediately, don't wait for location
+  // Location detection runs in parallel and will trigger a refresh when complete
   useEffect(() => {
-    if (!isAuthenticated || !isSubscribed) return;
-    if (!locationLoading) {
+    fetchProfiles(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter]); // Only refetch when filter changes
+
+  // Refetch when location is detected for better results
+  useEffect(() => {
+    if (!locationLoading && userLocation) {
       fetchProfiles(1);
     }
-  }, [activeFilter, locationLoading, isAuthenticated, isSubscribed, fetchProfiles]);
+  }, [locationLoading, userLocation, fetchProfiles]);
 
   // Debounced search
   useEffect(() => {
-    if (!isAuthenticated || !isSubscribed) return;
     const timer = setTimeout(() => {
       if (searchQuery !== '') {
         fetchProfiles(1);
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [searchQuery, isAuthenticated, isSubscribed, fetchProfiles]);
+  }, [searchQuery, fetchProfiles]);
 
   // Infinite scroll observer
   useEffect(() => {
-    if (!isAuthenticated || !isSubscribed) return;
-    
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
@@ -1350,7 +1367,7 @@ const ProfileFeed = () => {
     }
 
     return () => observer.disconnect();
-  }, [hasMore, loadingMore, loading, page, fetchProfiles, isAuthenticated, isSubscribed]);
+  }, [hasMore, loadingMore, loading, page, fetchProfiles]);
 
   // Handle like
   const handleLike = useCallback((profileId) => {
@@ -1402,71 +1419,12 @@ const ProfileFeed = () => {
   };
 
   // ============================================
-  // SUBSCRIPTION/AUTH CHECK - Render appropriate UI
+  // RENDER PROFILE FEED (Public Access Allowed)
   // ============================================
-  
-  // Not logged in - show login prompt
-  if (!isAuthenticated) {
-    return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          background: 'linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          p: 3,
-        }}
-      >
-        <Card
-          sx={{
-            maxWidth: 400,
-            width: '100%',
-            background: 'rgba(30,30,35,0.95)',
-            borderRadius: '24px',
-            p: 4,
-            textAlign: 'center',
-          }}
-        >
-          <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-            Login Required
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', mb: 3 }}>
-            Please login to browse profiles
-          </Typography>
-          <Button
-            fullWidth
-            variant="contained"
-            onClick={() => navigate('/login', { state: { from: '/profiles' } })}
-            sx={{
-              background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
-              color: '#000',
-              fontWeight: 700,
-              py: 1.5,
-              borderRadius: '12px',
-            }}
-          >
-            Login
-          </Button>
-          <Button
-            fullWidth
-            variant="text"
-            onClick={() => navigate('/register')}
-            sx={{ color: '#00f2ea', mt: 1 }}
-          >
-            Create Account
-          </Button>
-        </Card>
-      </Box>
-    );
-  }
+  // Public profiles are visible to everyone
+  // Contact/Message features require authentication
 
-  // Logged in but not subscribed - show paywall
-  if (!isSubscribed) {
-    return <SubscriptionPaywall />;
-  }
-
-  // Subscribed user - show profile feed
+  // Show profile feed (accessible to everyone)
   return (
     <Box
       sx={{

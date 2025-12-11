@@ -22,16 +22,28 @@ export const resolveProfileImage = (profileData) => {
     }
   }
   
-  // 2. Check for profile_picture object (actual upload format)
-  if (profileData.profile_picture && typeof profileData.profile_picture === 'object') {
-    const url = profileData.profile_picture.url;
-    if (url && typeof url === 'string') {
+  // 2. Check for profile_picture (can be object or string)
+  if (profileData.profile_picture) {
+    if (typeof profileData.profile_picture === 'object') {
+      // Object format: { url: '...', fileSize: ..., mimeType: ... }
+      const url = profileData.profile_picture.url;
+      if (url && typeof url === 'string') {
+        // If it's already a full URL, use it directly
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          return url;
+        }
+        // Otherwise, treat it as an upload path
+        return getUploadUrl(url);
+      }
+    } else if (typeof profileData.profile_picture === 'string') {
+      // String format: '/uploads/profile-xxx.jpg'
+      const pic = profileData.profile_picture;
       // If it's already a full URL, use it directly
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        return url;
+      if (pic.startsWith('http://') || pic.startsWith('https://')) {
+        return pic;
       }
       // Otherwise, treat it as an upload path
-      return getUploadUrl(url);
+      return getUploadUrl(pic);
     }
   }
   
@@ -64,9 +76,13 @@ export const extractProfileImagePath = (profileData) => {
     return profileData.photos[0];
   }
   
-  // Check profile_picture object
-  if (profileData.profile_picture && typeof profileData.profile_picture === 'object' && profileData.profile_picture.url) {
-    return profileData.profile_picture.url;
+  // Check profile_picture (can be object or string)
+  if (profileData.profile_picture) {
+    if (typeof profileData.profile_picture === 'object' && profileData.profile_picture.url) {
+      return profileData.profile_picture.url;
+    } else if (typeof profileData.profile_picture === 'string') {
+      return profileData.profile_picture;
+    }
   }
   
   // Check profilePicture string

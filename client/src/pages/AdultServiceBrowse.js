@@ -53,8 +53,8 @@ const categoryTabs = [
   { value: 'all', label: 'For You' },
   { value: 'long-term', label: 'Long Term' },
   { value: 'short-term', label: 'Short Term' },
-  { value: 'oral', label: 'Oral' },
-  { value: 'special', label: 'Special' }
+  { value: 'oral-services', label: 'Oral' },
+  { value: 'special-services', label: 'Special' }
 ];
 
 const shimmerSkeletons = Array.from({ length: 6 });

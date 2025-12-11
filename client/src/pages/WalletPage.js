@@ -11,7 +11,9 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  MenuItem
+  MenuItem,
+  Alert,
+  Snackbar
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
 import {
@@ -36,11 +38,24 @@ const WalletPage = () => {
   const [loading, setLoading] = useState(true);
   const [depositDialog, setDepositDialog] = useState(false);
   const [withdrawDialog, setWithdrawDialog] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [bankCode, setBankCode] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [banks, setBanks] = useState([]);
+  const [loadingBanks, setLoadingBanks] = useState(false);
+  const [verifyingAccount, setVerifyingAccount] = useState(false);
+  const [processingDeposit, setProcessingDeposit] = useState(false);
+  const [processingWithdraw, setProcessingWithdraw] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [walletData, setWalletData] = useState({
     balance: 0,
     escrowHeld: 0,
     pendingWithdrawal: 0,
     totalEarnings: 0,
+    currency: 'NGN',
+    currencySymbol: '₦',
     transactions: []
   });
 
@@ -58,24 +73,31 @@ const WalletPage = () => {
             escrowHeld: data.wallet?.escrowHeld || data.escrowHeld || 0,
             pendingWithdrawal: data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0,
             totalEarnings: data.wallet?.totalEarnings || data.totalEarnings || 0,
+            currency: data.wallet?.currency || data.currency || 'NGN',
+            currencySymbol: data.wallet?.currencySymbol || data.currencySymbol || '₦',
             transactions: data.transactions || mockTransactions
           });
         } else {
+          // Fallback mock data
           setWalletData({
-            balance: 250.00,
-            escrowHeld: 150.00,
+            balance: 0,
+            escrowHeld: 0,
             pendingWithdrawal: 0,
-            totalEarnings: 1250.00,
+            totalEarnings: 0,
+            currency: 'NGN',
+            currencySymbol: '₦',
             transactions: mockTransactions
           });
         }
       } catch (error) {
         console.error('Wallet fetch error:', error);
         setWalletData({
-          balance: 250.00,
-          escrowHeld: 150.00,
+          balance: 0,
+          escrowHeld: 0,
           pendingWithdrawal: 0,
-          totalEarnings: 1250.00,
+          totalEarnings: 0,
+          currency: 'NGN',
+          currencySymbol: '₦',
           transactions: mockTransactions
         });
       } finally {
@@ -89,6 +111,140 @@ const WalletPage = () => {
       setLoading(false);
     }
   }, [isAuthenticated]);
+
+  // Fetch banks when withdraw dialog opens
+  useEffect(() => {
+    const fetchBanks = async () => {
+      if (!withdrawDialog) return;
+      setLoadingBanks(true);
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE_URL}/payments/banks`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setBanks(data.banks || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch banks:', error);
+      } finally {
+        setLoadingBanks(false);
+      }
+    };
+    fetchBanks();
+  }, [withdrawDialog]);
+
+  // Verify bank account when account number and bank are filled
+  useEffect(() => {
+    const verifyAccount = async () => {
+      if (accountNumber.length === 10 && bankCode) {
+        setVerifyingAccount(true);
+        try {
+          const token = localStorage.getItem('token');
+          const response = await fetch(`${API_BASE_URL}/payments/verify-account`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ accountNumber, bankCode })
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setAccountName(data.accountName || '');
+          } else {
+            setAccountName('');
+          }
+        } catch (error) {
+          console.error('Failed to verify account:', error);
+          setAccountName('');
+        } finally {
+          setVerifyingAccount(false);
+        }
+      }
+    };
+    verifyAccount();
+  }, [accountNumber, bankCode]);
+
+  const handleDeposit = async () => {
+    if (!depositAmount || parseFloat(depositAmount) <= 0) {
+      setSnackbar({ open: true, message: 'Please enter a valid amount', severity: 'error' });
+      return;
+    }
+    setProcessingDeposit(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/payments/deposit`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ amount: parseFloat(depositAmount) })
+      });
+      const data = await response.json();
+      
+      if (response.ok && data.authorizationUrl) {
+        // Open Paystack payment page
+        window.location.href = data.authorizationUrl;
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Deposit failed', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Deposit error:', error);
+      setSnackbar({ open: true, message: 'Failed to process deposit', severity: 'error' });
+    } finally {
+      setProcessingDeposit(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
+      setSnackbar({ open: true, message: 'Please enter a valid amount', severity: 'error' });
+      return;
+    }
+    if (!bankCode || !accountNumber || !accountName) {
+      setSnackbar({ open: true, message: 'Please select a bank and verify your account', severity: 'error' });
+      return;
+    }
+    setProcessingWithdraw(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/payments/withdraw`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          amount: parseFloat(withdrawAmount),
+          bankCode,
+          accountNumber,
+          accountName
+        })
+      });
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setSnackbar({ open: true, message: data.message || 'Withdrawal initiated successfully', severity: 'success' });
+        setWithdrawDialog(false);
+        setWithdrawAmount('');
+        setBankCode('');
+        setAccountNumber('');
+        setAccountName('');
+        // Refresh wallet data
+        window.location.reload();
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Withdrawal failed', severity: 'error' });
+      }
+    } catch (error) {
+      console.error('Withdrawal error:', error);
+      setSnackbar({ open: true, message: 'Failed to process withdrawal', severity: 'error' });
+    } finally {
+      setProcessingWithdraw(false);
+    }
+  };
 
   const mockTransactions = [
     { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago', status: 'completed' },
@@ -147,7 +303,7 @@ const WalletPage = () => {
         <Box sx={styles.balanceCard}>
           <Typography sx={styles.balanceLabel}>Available Balance</Typography>
           <Typography sx={styles.balanceAmount}>
-            ${walletData.balance.toFixed(2)}
+            {walletData.currencySymbol}{walletData.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Typography>
           
           {/* Quick Actions */}
@@ -181,7 +337,7 @@ const WalletPage = () => {
             </Box>
             <Box>
               <Typography sx={styles.summaryLabel}>In Escrow</Typography>
-              <Typography sx={styles.summaryValue}>${walletData.escrowHeld.toFixed(2)}</Typography>
+              <Typography sx={styles.summaryValue}>{walletData.currencySymbol}{walletData.escrowHeld.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
             </Box>
           </Box>
         </motion.div>
@@ -197,7 +353,7 @@ const WalletPage = () => {
             </Box>
             <Box>
               <Typography sx={styles.summaryLabel}>Total Earnings</Typography>
-              <Typography sx={styles.summaryValue}>${walletData.totalEarnings.toFixed(2)}</Typography>
+              <Typography sx={styles.summaryValue}>{walletData.currencySymbol}{walletData.totalEarnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
             </Box>
           </Box>
         </motion.div>
@@ -213,7 +369,7 @@ const WalletPage = () => {
             </Box>
             <Box>
               <Typography sx={styles.summaryLabel}>Pending Withdrawal</Typography>
-              <Typography sx={styles.summaryValue}>${walletData.pendingWithdrawal.toFixed(2)}</Typography>
+              <Typography sx={styles.summaryValue}>{walletData.currencySymbol}{walletData.pendingWithdrawal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
             </Box>
           </Box>
         </motion.div>
@@ -261,7 +417,7 @@ const WalletPage = () => {
                 ...styles.txAmount,
                 color: tx.type === 'income' ? '#00ff88' : '#ff3333'
               }}>
-                {tx.type === 'income' ? '+' : '-'}${tx.amount.toFixed(2)}
+                {tx.type === 'income' ? '+' : '-'}{walletData.currencySymbol}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Typography>
             </Box>
           </motion.div>
@@ -273,35 +429,41 @@ const WalletPage = () => {
         open={depositDialog} 
         onClose={() => setDepositDialog(false)}
         PaperProps={{ sx: styles.dialog }}
+        maxWidth="sm"
+        fullWidth
       >
-        <DialogTitle sx={styles.dialogTitle}>Add Funds</DialogTitle>
+        <DialogTitle sx={styles.dialogTitle}>Add Funds via Paystack</DialogTitle>
         <DialogContent>
+          <Typography sx={{ color: '#888', mb: 2, mt: 1 }}>
+            Your country's currency: <strong style={{ color: '#00f2ea' }}>{walletData.currency}</strong>
+          </Typography>
           <TextField
             fullWidth
             label="Amount"
             type="number"
             margin="normal"
+            value={depositAmount}
+            onChange={(e) => setDepositAmount(e.target.value)}
             InputProps={{
-              startAdornment: <Typography sx={{ mr: 1, color: '#888' }}>$</Typography>
+              startAdornment: <Typography sx={{ mr: 1, color: '#00f2ea', fontWeight: 600 }}>{walletData.currencySymbol}</Typography>
             }}
             sx={styles.textField}
+            placeholder="Enter amount"
           />
-          <TextField
-            fullWidth
-            select
-            label="Payment Method"
-            margin="normal"
-            defaultValue="card"
-            sx={styles.textField}
-          >
-            <MenuItem value="card">Credit/Debit Card</MenuItem>
-            <MenuItem value="paystack">Paystack</MenuItem>
-            <MenuItem value="crypto">Cryptocurrency</MenuItem>
-          </TextField>
+          <Alert severity="info" sx={{ mt: 2, background: 'rgba(0, 242, 234, 0.1)', color: '#ccc' }}>
+            You'll be redirected to Paystack to complete the payment securely.
+          </Alert>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setDepositDialog(false)} sx={{ color: '#888' }}>Cancel</Button>
-          <Button variant="contained" sx={styles.primaryButton}>Add Funds</Button>
+          <Button 
+            variant="contained" 
+            sx={styles.primaryButton}
+            onClick={handleDeposit}
+            disabled={processingDeposit || !depositAmount}
+          >
+            {processingDeposit ? <CircularProgress size={20} /> : `Deposit ${walletData.currencySymbol}${depositAmount || '0'}`}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -310,40 +472,94 @@ const WalletPage = () => {
         open={withdrawDialog} 
         onClose={() => setWithdrawDialog(false)}
         PaperProps={{ sx: styles.dialog }}
+        maxWidth="sm"
+        fullWidth
       >
-        <DialogTitle sx={styles.dialogTitle}>Withdraw Funds</DialogTitle>
+        <DialogTitle sx={styles.dialogTitle}>Withdraw to Bank Account</DialogTitle>
         <DialogContent>
-          <Typography sx={{ color: '#888', mb: 2 }}>
-            Available: <span style={{ color: '#00ff88' }}>${walletData.balance.toFixed(2)}</span>
+          <Typography sx={{ color: '#888', mb: 2, mt: 1 }}>
+            Available: <span style={{ color: '#00ff88', fontWeight: 600 }}>{walletData.currencySymbol}{walletData.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
           </Typography>
           <TextField
             fullWidth
             label="Amount"
             type="number"
             margin="normal"
+            value={withdrawAmount}
+            onChange={(e) => setWithdrawAmount(e.target.value)}
             InputProps={{
-              startAdornment: <Typography sx={{ mr: 1, color: '#888' }}>$</Typography>
+              startAdornment: <Typography sx={{ mr: 1, color: '#ff0055', fontWeight: 600 }}>{walletData.currencySymbol}</Typography>
             }}
             sx={styles.textField}
+            placeholder="Enter amount"
           />
           <TextField
             fullWidth
             select
-            label="Withdrawal Method"
+            label="Select Bank"
             margin="normal"
-            defaultValue="bank"
+            value={bankCode}
+            onChange={(e) => setBankCode(e.target.value)}
             sx={styles.textField}
+            disabled={loadingBanks}
           >
-            <MenuItem value="bank">Bank Transfer</MenuItem>
-            <MenuItem value="mobile">Mobile Money</MenuItem>
-            <MenuItem value="crypto">Cryptocurrency</MenuItem>
+            {loadingBanks ? (
+              <MenuItem value="">Loading banks...</MenuItem>
+            ) : (
+              banks.map((bank) => (
+                <MenuItem key={bank.code} value={bank.code}>{bank.name}</MenuItem>
+              ))
+            )}
           </TextField>
+          <TextField
+            fullWidth
+            label="Account Number"
+            margin="normal"
+            value={accountNumber}
+            onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+            sx={styles.textField}
+            placeholder="10-digit account number"
+            inputProps={{ maxLength: 10 }}
+          />
+          {verifyingAccount && (
+            <Typography sx={{ color: '#888', fontSize: '0.85rem', mt: 1 }}>
+              Verifying account... <CircularProgress size={12} sx={{ ml: 1 }} />
+            </Typography>
+          )}
+          {accountName && (
+            <Alert severity="success" sx={{ mt: 2, background: 'rgba(0, 255, 136, 0.1)', color: '#00ff88' }}>
+              Account Name: <strong>{accountName}</strong>
+            </Alert>
+          )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setWithdrawDialog(false)} sx={{ color: '#888' }}>Cancel</Button>
-          <Button variant="contained" sx={styles.withdrawButton}>Withdraw</Button>
+          <Button 
+            variant="contained" 
+            sx={styles.withdrawButton}
+            onClick={handleWithdraw}
+            disabled={processingWithdraw || !withdrawAmount || !bankCode || !accountNumber || !accountName}
+          >
+            {processingWithdraw ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : `Withdraw ${walletData.currencySymbol}${withdrawAmount || '0'}`}
+          </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

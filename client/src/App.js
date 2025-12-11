@@ -48,6 +48,7 @@ import PrivacySettings from './pages/PrivacySettings';
 import BookingsPage from './pages/BookingsPage';
 import BookingDetails from './pages/BookingDetails';
 import WalletPage from './pages/WalletPage';
+import MyMoneyPage from './pages/MyMoneyPage';
 import HelpSupportPage from './pages/HelpSupportPage';
 
 // Protected Route Component
@@ -268,13 +269,7 @@ function AppContent() {
                         </ErrorBoundary>
                       </ProtectedRoute>
                     } />
-                    <Route path="/transactions" element={
-                      <ProtectedRoute requireSubscription={true}>
-                        <ErrorBoundary>
-                          <TransactionsPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
+                    <Route path="/transactions" element={<Navigate to="/wallet" replace />} />
                     <Route path="/trust-score" element={
                       <ProtectedRoute requireSubscription={true}>
                         <ErrorBoundary>
@@ -325,11 +320,11 @@ function AppContent() {
                       </ProtectedRoute>
                     } />
                     
-                    {/* Wallet Route */}
+                    {/* Wallet / My Money Route - Unified payment page */}
                     <Route path="/wallet" element={
                       <ProtectedRoute requireSubscription={false}>
                         <ErrorBoundary>
-                          <WalletPage />
+                          <MyMoneyPage />
                         </ErrorBoundary>
                       </ProtectedRoute>
                     } />

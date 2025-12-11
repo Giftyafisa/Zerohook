@@ -151,7 +151,7 @@ const ProfilePage = () => {
         verificationTier: user.verification_tier || 1,
         completedServices: user.profile_data?.completedServices || 0,
         preferProfileLocation: Boolean(user.profile_data?.location?.preferProfileLocation),
-        profileVisibility: user.profile_data?.profileVisibility || 'public'
+        profileVisibility: user.profile_visibility || user.profile_data?.profileVisibility || 'public'
       };
 
       if (response.ok) {
@@ -227,9 +227,9 @@ const ProfilePage = () => {
               countryCode: editData.countryCode,
               coordinates: resolvedLocation ? { lat: resolvedLocation.lat, lng: resolvedLocation.lng } : undefined,
               preferProfileLocation: Boolean(editData.preferProfileLocation)
-            },
-            profileVisibility: editData.profileVisibility || 'public'
-          }
+            }
+          },
+          profile_visibility: editData.profileVisibility || 'public'
         })
       });
 
@@ -507,17 +507,19 @@ const ProfilePage = () => {
                 label="Use this as my primary location"
                 sx={{ color: '#fff' }}
               />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={editData.profileVisibility !== 'hidden'}
-                    onChange={(e) => setEditData({ ...editData, profileVisibility: e.target.checked ? 'public' : 'hidden' })}
-                    color="primary"
-                  />
-                }
-                label="Show my profile in browse"
-                sx={{ color: '#fff' }}
-              />
+              <FormControl fullWidth sx={{ mt: 2, ...styles.textField }}>
+                <InputLabel id="profile-visibility-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Profile Visibility</InputLabel>
+                <Select
+                  labelId="profile-visibility-label"
+                  value={editData.profileVisibility || 'public'}
+                  onChange={(e) => setEditData({ ...editData, profileVisibility: e.target.value })}
+                  label="Profile Visibility"
+                  sx={{ color: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' } }}
+                >
+                  <MenuItem value="public">Public - Visible to everyone</MenuItem>
+                  <MenuItem value="authenticated">Members Only - Visible to logged-in users</MenuItem>
+                </Select>
+              </FormControl>
             </Box>
             <TextField
               label="Age"

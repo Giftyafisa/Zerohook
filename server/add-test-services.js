@@ -34,66 +34,66 @@ async function addTestServices() {
 
     const serviceTemplates = [
       {
-        title: 'Premium Companionship',
-        description: 'Professional companionship services for social events, dinners, and quality time. Discrete and elegant service.',
-        category: 'companionship',
-        subcategory: 'social',
+        title: 'Premium Long-Term Companionship',
+        description: 'Professional companionship services for ongoing arrangements. Regular meetings, emotional connection, and trust building.',
+        category: 'long-term',
+        subcategory: 'relationship',
         price: 50000,
         duration_minutes: 120
       },
       {
-        title: 'VIP Escort Service',
-        description: 'High-end escort services for business events, parties, and exclusive gatherings. Professional and sophisticated.',
-        category: 'escort',
-        subcategory: 'vip',
+        title: 'VIP Short-Term Service',
+        description: 'High-end short-term services for quick meetings and casual encounters. No strings attached.',
+        category: 'short-term',
+        subcategory: 'casual',
         price: 100000,
         duration_minutes: 180
       },
       {
-        title: 'Relaxation Massage',
-        description: 'Professional relaxation and therapeutic massage services. Full body treatment in a comfortable setting.',
-        category: 'massage',
-        subcategory: 'relaxation',
+        title: 'Premium Oral Experience',
+        description: 'Professional oral services with focus on hygiene and satisfaction. Discrete and professional.',
+        category: 'oral-services',
+        subcategory: 'standard',
         price: 25000,
         duration_minutes: 60
       },
       {
-        title: 'Intimate Companionship',
-        description: 'Private and intimate companionship experience. Discrete, safe, and professional service.',
-        category: 'companionship',
-        subcategory: 'intimate',
+        title: 'Special VIP Treatment',
+        description: 'Premium and exclusive intimate offerings. VIP treatment with custom experiences.',
+        category: 'special-services',
+        subcategory: 'premium',
         price: 75000,
         duration_minutes: 90
       },
       {
-        title: 'Overnight Experience',
-        description: 'Complete overnight companionship package. Includes dinner, entertainment, and quality time.',
-        category: 'companionship',
+        title: 'Long-Term Overnight Package',
+        description: 'Complete overnight companionship package for ongoing arrangements. Includes dinner and quality time.',
+        category: 'long-term',
         subcategory: 'overnight',
         price: 200000,
         duration_minutes: 480
       },
       {
-        title: 'Video Call Session',
-        description: 'Private video call session for remote companionship. Engaging conversation and entertainment.',
-        category: 'virtual',
-        subcategory: 'video',
+        title: 'Quick Short-Term Session',
+        description: 'Fast and discrete short-term session. Flexible scheduling available.',
+        category: 'short-term',
+        subcategory: 'quick',
         price: 15000,
         duration_minutes: 30
       },
       {
-        title: 'Dinner Date',
-        description: 'Elegant dinner date experience at premium restaurants. Charming company for a memorable evening.',
-        category: 'companionship',
+        title: 'Special Dinner Date',
+        description: 'Elegant dinner date experience with exclusive premium service. Charming company for a memorable evening.',
+        category: 'special-services',
         subcategory: 'dining',
         price: 60000,
         duration_minutes: 150
       },
       {
-        title: 'Weekend Getaway',
-        description: 'Full weekend companionship package. Travel together to exciting destinations.',
-        category: 'companionship',
-        subcategory: 'travel',
+        title: 'Extended Oral Services',
+        description: 'Extended oral experience package with professional approach. Satisfaction guaranteed.',
+        category: 'oral-services',
+        subcategory: 'extended',
         price: 500000,
         duration_minutes: 2880
       }

@@ -62,7 +62,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
     const userResult = await query(`
       SELECT 
         id, username, email, verification_tier, 
-        reputation_score, profile_data, 
+        reputation_score, profile_data, profile_visibility,
         is_subscribed, subscription_tier, subscription_expires_at,
         created_at, last_active
       FROM users 
@@ -100,7 +100,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     const userResult = await query(`
       SELECT 
         id, username, email, verification_tier, 
-        reputation_score, profile_data, 
+        reputation_score, profile_data, profile_visibility,
         is_subscribed, subscription_tier, subscription_expires_at,
         created_at, last_active
       FROM users 
@@ -135,17 +135,42 @@ router.get('/me', authMiddleware, async (req, res) => {
 router.put('/me', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { profile_data } = req.body;
+    const { profile_data, profile_visibility } = req.body;
 
-    // Update user profile - merge with existing data
+    // Build the update query dynamically
+    let updateFields = [];
+    let params = [];
+    let paramIndex = 1;
+
+    // Update profile_data if provided
+    if (profile_data) {
+      updateFields.push(`profile_data = COALESCE(profile_data, '{}'::jsonb) || $${paramIndex}::jsonb`);
+      params.push(JSON.stringify(profile_data));
+      paramIndex++;
+    }
+
+    // Update profile_visibility if provided
+    if (profile_visibility && ['public', 'authenticated'].includes(profile_visibility)) {
+      updateFields.push(`profile_visibility = $${paramIndex}`);
+      params.push(profile_visibility);
+      paramIndex++;
+    }
+
+    // Always update timestamp
+    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+
+    // Add userId
+    params.push(userId);
+
+    // Update user profile
     const updateResult = await query(`
       UPDATE users 
-      SET profile_data = COALESCE(profile_data, '{}'::jsonb) || $1::jsonb,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
       RETURNING id, username, email, verification_tier, 
-               reputation_score, profile_data, is_subscribed, subscription_tier, subscription_expires_at
-    `, [JSON.stringify(profile_data || {}), userId]);
+               reputation_score, profile_data, profile_visibility,
+               is_subscribed, subscription_tier, subscription_expires_at
+    `, params);
 
     if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -203,7 +228,11 @@ router.put('/profile', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/users/profiles
  * @desc    Get recommended user profiles with advanced TikTok-style algorithm
- * @access  Private - Requires Authentication AND Active Subscription
+ * @access  Public (public profiles) / Private (all profiles for authenticated users)
+ * 
+ * VISIBILITY RULES:
+ * - Unauthenticated users: See only 'public' profiles
+ * - Authenticated users: See all profiles (public + authenticated-only)
  * 
  * ALGORITHM FEATURES:
  * 1. Geolocation-based proximity ranking (closest first)
@@ -217,66 +246,41 @@ router.put('/profile', authMiddleware, async (req, res) => {
 router.get('/profiles', async (req, res) => {
   try {
     // ============================================
-    // AUTHENTICATION & SUBSCRIPTION CHECK
+    // OPTIONAL AUTHENTICATION CHECK
     // ============================================
     const authHeader = req.headers.authorization;
     let currentUserId = null;
     let currentUser = null;
+    let isAuthenticated = false;
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authentication required',
-        message: 'Please login to browse profiles'
-      });
+    // Try to authenticate if token provided (but don't require it)
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        currentUserId = decoded.userId;
+        isAuthenticated = true;
+        
+        // Get user info
+        const userResult = await query(`
+          SELECT id, username, is_subscribed, subscription_tier, subscription_expires_at
+          FROM users WHERE id = $1
+        `, [currentUserId]);
+        
+        if (userResult.rows.length > 0) {
+          currentUser = userResult.rows[0];
+          console.log('🔒 Authenticated user browsing profiles:', currentUser.username);
+        }
+      } catch (tokenError) {
+        // Token invalid, treat as unauthenticated (don't fail)
+        console.log('⚠️ Invalid token, showing public profiles only');
+        isAuthenticated = false;
+        currentUserId = null;
+      }
+    } else {
+      console.log('👁️ Unauthenticated user browsing public profiles');
     }
 
-    try {
-      const token = authHeader.substring(7);
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      currentUserId = decoded.userId;
-      
-      // Get user's subscription status from database
-      const userResult = await query(`
-        SELECT id, username, is_subscribed, subscription_tier, subscription_expires_at
-        FROM users WHERE id = $1
-      `, [currentUserId]);
-      
-      if (userResult.rows.length === 0) {
-        return res.status(401).json({
-          success: false,
-          error: 'User not found',
-          message: 'Please login again'
-        });
-      }
-      
-      currentUser = userResult.rows[0];
-      
-      // Check subscription status
-      const isSubscribed = currentUser.is_subscribed && (
-        !currentUser.subscription_expires_at || 
-        new Date(currentUser.subscription_expires_at) > new Date()
-      );
-      
-      if (!isSubscribed) {
-        return res.status(403).json({
-          success: false,
-          error: 'Subscription required',
-          message: 'Please subscribe to browse profiles',
-          requiresSubscription: true
-        });
-      }
-      
-      console.log('🔒 Subscribed user browsing profiles:', currentUser.username);
-      
-    } catch (tokenError) {
-      console.log('Invalid token:', tokenError.message);
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid token',
-        message: 'Please login again'
-      });
-    }
     const {
       page = 1,
       limit = 20,
@@ -473,8 +477,8 @@ router.post('/track-activity', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/users/:id
- * @desc    Get individual user profile by ID (public)
- * @access  Public
+ * @desc    Get individual user profile by ID (visibility-aware)
+ * @access  Public/Private depending on profile visibility setting
  */
 router.get('/:id', async (req, res) => {
   try {
@@ -485,7 +489,21 @@ router.get('/:id', async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
 
-    // Get user profile
+    // Check if requester is authenticated
+    let isAuthenticated = false;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        jwt.verify(token, process.env.JWT_SECRET);
+        isAuthenticated = true;
+      } catch (tokenError) {
+        // Token invalid, treat as unauthenticated
+        isAuthenticated = false;
+      }
+    }
+
+    // Get user profile with visibility check
     const result = await query(`
       SELECT 
         u.id,
@@ -496,6 +514,7 @@ router.get('/:id', async (req, res) => {
         u.reputation_score,
         u.is_subscribed,
         u.subscription_tier,
+        u.profile_visibility,
         u.created_at,
         COALESCE(u.last_active, u.created_at) as last_active
       FROM users u
@@ -507,6 +526,15 @@ router.get('/:id', async (req, res) => {
     }
 
     const user = result.rows[0];
+    
+    // Check profile visibility
+    // If profile is 'authenticated' only, require authentication
+    if (user.profile_visibility === 'authenticated' && !isAuthenticated) {
+      return res.status(403).json({ 
+        error: 'This profile is only visible to authenticated users',
+        requiresAuth: true
+      });
+    }
     
     // Validate profile data
     if (!user.profile_data || !user.profile_data.firstName) {
@@ -522,6 +550,58 @@ router.get('/:id', async (req, res) => {
     console.error('Get user profile error:', error);
     res.status(500).json({ 
       error: 'Failed to fetch profile',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @route   POST /api/users/block/:userId
+ * @desc    Block a user
+ * @access  Private
+ */
+router.post('/block/:userId', authMiddleware, async (req, res) => {
+  try {
+    const blockerId = req.user.userId;
+    const blockedId = req.params.userId;
+    
+    if (blockerId === blockedId) {
+      return res.status(400).json({ error: 'Cannot block yourself' });
+    }
+    
+    // Check if already blocked
+    const existingBlock = await query(`
+      SELECT id FROM blocked_users 
+      WHERE blocker_id = $1 AND blocked_id = $2
+    `, [blockerId, blockedId]);
+    
+    if (existingBlock.rows.length > 0) {
+      return res.json({ message: 'User already blocked' });
+    }
+    
+    // Insert block record
+    await query(`
+      INSERT INTO blocked_users (blocker_id, blocked_id, created_at)
+      VALUES ($1, $2, CURRENT_TIMESTAMP)
+    `, [blockerId, blockedId]);
+    
+    // Update any conversations to blocked status
+    await query(`
+      UPDATE conversations 
+      SET status = 'blocked', updated_at = CURRENT_TIMESTAMP
+      WHERE (participant1_id = $1 AND participant2_id = $2)
+         OR (participant1_id = $2 AND participant2_id = $1)
+    `, [blockerId, blockedId]);
+    
+    res.json({ 
+      success: true,
+      message: 'User blocked successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Block user error:', error);
+    res.status(500).json({ 
+      error: 'Failed to block user',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

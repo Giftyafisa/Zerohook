@@ -198,18 +198,18 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     const { page = 1, limit = 10, status, country } = req.query;
     const offset = (page - 1) * limit;
 
-    let whereClause = 'WHERE user_id = $1';
+    let whereClause = 'WHERE (t.client_id = $1 OR t.provider_id = $1)';
     let params = [userId];
     let paramIndex = 2;
 
     if (status) {
-      whereClause += ` AND status = $${paramIndex}`;
+      whereClause += ` AND t.status = $${paramIndex}`;
       params.push(status);
       paramIndex++;
     }
 
     if (country) {
-      whereClause += ` AND country_code = $${paramIndex}`;
+      whereClause += ` AND t.country_code = $${paramIndex}`;
       params.push(country.toUpperCase());
       paramIndex++;
     }
@@ -219,11 +219,18 @@ router.get('/transactions', authMiddleware, async (req, res) => {
       SELECT 
         t.*,
         s.title as service_title,
-        c.name as country_name,
-        c.currency_symbol
+        CASE 
+          WHEN t.client_id = $1 THEN 'expense'
+          WHEN t.provider_id = $1 THEN 'income'
+        END as type,
+        CASE 
+          WHEN t.client_id = $1 THEN provider.username
+          WHEN t.provider_id = $1 THEN client.username
+        END as other_party
       FROM transactions t
-      LEFT JOIN services s ON t.service_id = s.id
-      LEFT JOIN countries c ON t.country_code = c.code
+      LEFT JOIN adult_services s ON t.service_id = s.id
+      LEFT JOIN users client ON t.client_id = client.id
+      LEFT JOIN users provider ON t.provider_id = provider.id
       ${whereClause}
       ORDER BY t.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -523,6 +530,109 @@ async function confirmCryptoPayment(reference, req) {
   }
 }
 
+/**
+ * @route   POST /api/payments/paystack/initialize
+ * @desc    Initialize Paystack payment for wallet top-up or service payment
+ * @access  Private
+ */
+router.post('/paystack/initialize', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { amount, type, serviceId, description } = req.body;
+
+    // Get user's country for currency detection
+    const userCountry = await req.countryManager.getUserCountry(userId);
+    const countryCode = userCountry.success && userCountry.country ? userCountry.country.code : 'NG';
+    const country = req.countryManager.getCountryByCode(countryCode);
+    const currency = country ? country.currency : 'NGN';
+    const currencySymbol = country ? country.currencySymbol : '₦';
+
+    // Validate amount (minimum varies by currency)
+    const minAmounts = { NGN: 100, GHS: 1, KES: 50, ZAR: 10 };
+    const minAmount = minAmounts[currency] || 100;
+    if (!amount || amount < minAmount) {
+      return res.status(400).json({ error: `Minimum amount is ${currencySymbol}${minAmount}` });
+    }
+
+    // Get user details
+    const { query } = require('../config/database');
+    const userResult = await query(`
+      SELECT email, username FROM users WHERE id = $1
+    `, [userId]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Generate reference
+    const reference = `PS_${Date.now()}_${userId.substring(0, 8)}`;
+
+    // Initialize payment with PaystackManager - FIXED: Use correct method name
+    const paystackResult = await req.paystackManager.initializeTransaction({
+      email: user.email,
+      amount: amount, // PaystackManager handles conversion to smallest unit
+      currency: currency,
+      reference,
+      metadata: {
+        userId,
+        username: user.username,
+        type: type || 'wallet_topup',
+        serviceId: serviceId || null,
+        countryCode: countryCode,
+        description: description || `Wallet top-up - ${currencySymbol}${amount.toLocaleString()}`
+      }
+    });
+
+    if (!paystackResult.success) {
+      return res.status(400).json({ 
+        error: 'Failed to initialize payment',
+        message: paystackResult.error 
+      });
+    }
+
+    // Create transaction record with detected currency
+    await query(`
+      INSERT INTO transactions (
+        user_id, service_id, amount, currency, payment_method, 
+        reference, status, country_code, metadata, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+    `, [
+      userId,
+      serviceId || null,
+      amount,
+      currency,
+      'paystack',
+      reference,
+      'pending',
+      countryCode,
+      JSON.stringify({
+        type: type || 'wallet_topup',
+        description: description || `Wallet top-up - ${currencySymbol}${amount.toLocaleString()}`
+      })
+    ]);
+
+    res.json({
+      success: true,
+      authorizationUrl: paystackResult.authorization_url,
+      authorization_url: paystackResult.authorization_url,
+      reference,
+      accessCode: paystackResult.access_code,
+      currency: currency,
+      currencySymbol: currencySymbol,
+      country: countryCode
+    });
+
+  } catch (error) {
+    console.error('Paystack initialize error:', error);
+    res.status(500).json({ 
+      error: 'Failed to initialize payment',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // Webhook handlers
 router.post('/paystack-webhook', async (req, res) => {
   try {
@@ -739,21 +849,64 @@ router.get('/wallet', authMiddleware, async (req, res) => {
     const { query } = require('../config/database');
     
     let balance = 0;
-    let pendingBalance = 0;
+    let escrowHeld = 0;
+    let pendingWithdrawal = 0;
+    let totalEarnings = 0;
+    let currency = 'NGN';
+    let currencySymbol = '₦';
     
-    // Try to get balance from transactions as provider
+    // Get user's country for currency
     try {
-      const escrowResult = await query(`
-        SELECT 
-          COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as balance,
-          COALESCE(SUM(CASE WHEN status = 'pending' OR status = 'held' THEN amount ELSE 0 END), 0) as pending_balance
+      const userCountry = await req.countryManager?.getUserCountry(userId);
+      if (userCountry?.success && userCountry?.country) {
+        currency = userCountry.country.currency || 'NGN';
+        currencySymbol = userCountry.country.currencySymbol || '₦';
+      }
+    } catch (e) {
+      // Use default currency
+    }
+    
+    // Try to get balance from transactions
+    try {
+      // Get completed earnings (for providers)
+      const earningsResult = await query(`
+        SELECT COALESCE(SUM(amount), 0) as balance
         FROM transactions 
-        WHERE provider_id = $1
+        WHERE provider_id = $1 AND status = 'completed'
       `, [userId]);
       
+      // Get total earnings (including released)
+      const totalEarningsResult = await query(`
+        SELECT COALESCE(SUM(amount), 0) as total_earnings
+        FROM transactions 
+        WHERE provider_id = $1 AND status IN ('completed', 'released')
+      `, [userId]);
+      
+      // Get escrow held (as client - money waiting to be released)
+      const escrowResult = await query(`
+        SELECT COALESCE(SUM(amount), 0) as escrow_held
+        FROM transactions 
+        WHERE client_id = $1 AND status IN ('pending', 'held', 'escrow_held', 'in_progress')
+      `, [userId]);
+      
+      // Get pending withdrawals
+      const withdrawalResult = await query(`
+        SELECT COALESCE(SUM(amount), 0) as pending_withdrawal
+        FROM transactions 
+        WHERE user_id = $1 AND metadata->>'type' = 'withdrawal' AND status = 'pending'
+      `, [userId]);
+      
+      if (earningsResult.rows[0]) {
+        balance = parseFloat(earningsResult.rows[0].balance) || 0;
+      }
+      if (totalEarningsResult.rows[0]) {
+        totalEarnings = parseFloat(totalEarningsResult.rows[0].total_earnings) || 0;
+      }
       if (escrowResult.rows[0]) {
-        balance = parseFloat(escrowResult.rows[0].balance) || 0;
-        pendingBalance = parseFloat(escrowResult.rows[0].pending_balance) || 0;
+        escrowHeld = parseFloat(escrowResult.rows[0].escrow_held) || 0;
+      }
+      if (withdrawalResult.rows[0]) {
+        pendingWithdrawal = parseFloat(withdrawalResult.rows[0].pending_withdrawal) || 0;
       }
     } catch (dbError) {
       console.log('Wallet query failed, using defaults:', dbError.message);
@@ -763,14 +916,309 @@ router.get('/wallet', authMiddleware, async (req, res) => {
       success: true,
       wallet: {
         balance: balance,
-        pendingBalance: pendingBalance,
-        currency: 'NGN'
-      }
+        escrowHeld: escrowHeld,
+        pendingWithdrawal: pendingWithdrawal,
+        totalEarnings: totalEarnings,
+        currency: currency,
+        currencySymbol: currencySymbol
+      },
+      // Also provide flat structure for compatibility
+      balance: balance,
+      escrowHeld: escrowHeld,
+      pendingWithdrawal: pendingWithdrawal,
+      totalEarnings: totalEarnings,
+      currency: currency,
+      currencySymbol: currencySymbol
     });
     
   } catch (error) {
     console.error('Get wallet error:', error);
     res.status(500).json({ error: 'Failed to get wallet info' });
+  }
+});
+
+/**
+ * @route   POST /api/payments/deposit
+ * @desc    Initialize wallet deposit via Paystack (country-aware)
+ * @access  Private
+ */
+router.post('/deposit', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { amount } = req.body;
+    const { query } = require('../config/database');
+
+    // Get user's country for currency detection
+    const userCountry = await req.countryManager.getUserCountry(userId);
+    const countryCode = userCountry.success && userCountry.country ? userCountry.country.code : 'NG';
+    const country = req.countryManager.getCountryByCode(countryCode);
+    const currency = country ? country.currency : 'NGN';
+    const currencySymbol = country ? country.currencySymbol : '₦';
+
+    // Validate amount based on currency
+    const minAmounts = { NGN: 100, GHS: 1, KES: 50, ZAR: 10, UGX: 500, TZS: 500, RWF: 100, BWP: 5, ZMW: 10, MWK: 500 };
+    const minAmount = minAmounts[currency] || 100;
+    
+    if (!amount || amount < minAmount) {
+      return res.status(400).json({ 
+        error: `Minimum deposit is ${currencySymbol}${minAmount}`,
+        minAmount: minAmount,
+        currency: currency,
+        currencySymbol: currencySymbol
+      });
+    }
+
+    // Get user email
+    const userResult = await query('SELECT email, username FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+
+    // Generate reference
+    const reference = `DEP_${Date.now()}_${userId.substring(0, 8)}`;
+
+    // Initialize Paystack payment
+    const paystackResult = await req.paystackManager.initializeTransaction({
+      email: user.email,
+      amount: amount,
+      currency: currency,
+      reference,
+      metadata: {
+        userId,
+        username: user.username,
+        type: 'deposit',
+        countryCode: countryCode
+      }
+    });
+
+    if (!paystackResult.success) {
+      return res.status(400).json({ 
+        error: 'Failed to initialize deposit',
+        message: paystackResult.error 
+      });
+    }
+
+    // Create transaction record
+    await query(`
+      INSERT INTO transactions (
+        user_id, amount, currency, payment_method, reference, status, country_code, metadata, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+    `, [
+      userId, amount, currency, 'paystack', reference, 'pending', countryCode,
+      JSON.stringify({ type: 'deposit', description: `Wallet deposit - ${currencySymbol}${amount.toLocaleString()}` })
+    ]);
+
+    res.json({
+      success: true,
+      authorizationUrl: paystackResult.authorization_url,
+      reference,
+      accessCode: paystackResult.access_code,
+      amount: amount,
+      currency: currency,
+      currencySymbol: currencySymbol,
+      country: countryCode
+    });
+
+  } catch (error) {
+    console.error('Deposit error:', error);
+    res.status(500).json({ error: 'Failed to process deposit' });
+  }
+});
+
+/**
+ * @route   POST /api/payments/withdraw
+ * @desc    Request withdrawal to bank account (country-aware)
+ * @access  Private
+ */
+router.post('/withdraw', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { amount, bankCode, accountNumber, accountName } = req.body;
+    const { query } = require('../config/database');
+
+    // Get user's country for currency detection
+    const userCountry = await req.countryManager.getUserCountry(userId);
+    const countryCode = userCountry.success && userCountry.country ? userCountry.country.code : 'NG';
+    const country = req.countryManager.getCountryByCode(countryCode);
+    const currency = country ? country.currency : 'NGN';
+    const currencySymbol = country ? country.currencySymbol : '₦';
+
+    // Validate required fields
+    if (!amount || !bankCode || !accountNumber) {
+      return res.status(400).json({ error: 'Amount, bank code, and account number are required' });
+    }
+
+    // Minimum withdrawal amounts by currency
+    const minAmounts = { NGN: 1000, GHS: 10, KES: 100, ZAR: 50, UGX: 5000, TZS: 5000, RWF: 1000, BWP: 20, ZMW: 50, MWK: 5000 };
+    const minAmount = minAmounts[currency] || 1000;
+    
+    if (amount < minAmount) {
+      return res.status(400).json({ 
+        error: `Minimum withdrawal is ${currencySymbol}${minAmount}`,
+        minAmount: minAmount,
+        currency: currency
+      });
+    }
+
+    // Check available balance
+    const balanceResult = await query(`
+      SELECT COALESCE(SUM(amount), 0) as balance
+      FROM transactions 
+      WHERE provider_id = $1 AND status = 'completed'
+    `, [userId]);
+    
+    const availableBalance = parseFloat(balanceResult.rows[0]?.balance) || 0;
+    
+    if (amount > availableBalance) {
+      return res.status(400).json({ 
+        error: `Insufficient balance. Available: ${currencySymbol}${availableBalance.toLocaleString()}`,
+        availableBalance: availableBalance,
+        requestedAmount: amount
+      });
+    }
+
+    // Get user info
+    const userResult = await query('SELECT email, username FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+
+    // Create transfer recipient with Paystack
+    const recipientResult = await req.paystackManager.createTransferRecipient({
+      name: accountName || user.username,
+      accountNumber: accountNumber,
+      bankCode: bankCode,
+      currency: currency
+    });
+
+    if (!recipientResult.success) {
+      return res.status(400).json({ 
+        error: 'Failed to verify bank account',
+        message: recipientResult.error 
+      });
+    }
+
+    const reference = `WD_${Date.now()}_${userId.substring(0, 8)}`;
+
+    // Initiate transfer
+    const transferResult = await req.paystackManager.initiateTransfer({
+      amount: amount,
+      recipientCode: recipientResult.recipient_code,
+      reason: `Withdrawal - ${user.username}`,
+      reference: reference
+    });
+
+    if (!transferResult.success) {
+      return res.status(400).json({ 
+        error: 'Failed to initiate withdrawal',
+        message: transferResult.error 
+      });
+    }
+
+    // Create withdrawal transaction record
+    await query(`
+      INSERT INTO transactions (
+        user_id, amount, currency, payment_method, reference, status, country_code, metadata, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+    `, [
+      userId, -amount, currency, 'paystack_transfer', reference, 'pending', countryCode,
+      JSON.stringify({ 
+        type: 'withdrawal', 
+        bankCode: bankCode,
+        accountNumber: accountNumber,
+        accountName: accountName,
+        recipientCode: recipientResult.recipient_code,
+        transferCode: transferResult.transfer_code
+      })
+    ]);
+
+    res.json({
+      success: true,
+      message: `Withdrawal of ${currencySymbol}${amount.toLocaleString()} initiated`,
+      reference: reference,
+      transferCode: transferResult.transfer_code,
+      status: 'pending',
+      currency: currency,
+      currencySymbol: currencySymbol
+    });
+
+  } catch (error) {
+    console.error('Withdrawal error:', error);
+    res.status(500).json({ error: 'Failed to process withdrawal' });
+  }
+});
+
+/**
+ * @route   GET /api/payments/banks
+ * @desc    Get list of banks for user's country
+ * @access  Private
+ */
+router.get('/banks', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Get user's country
+    const userCountry = await req.countryManager.getUserCountry(userId);
+    const countryCode = userCountry.success && userCountry.country ? userCountry.country.code.toLowerCase() : 'ng';
+
+    // Get bank list from Paystack
+    const banksResult = await req.paystackManager.getBankList(countryCode);
+
+    if (!banksResult.success) {
+      return res.status(400).json({ 
+        error: 'Failed to fetch banks',
+        message: banksResult.error 
+      });
+    }
+
+    res.json({
+      success: true,
+      banks: banksResult.banks,
+      country: countryCode.toUpperCase(),
+      total: banksResult.banks.length
+    });
+
+  } catch (error) {
+    console.error('Get banks error:', error);
+    res.status(500).json({ error: 'Failed to fetch banks' });
+  }
+});
+
+/**
+ * @route   POST /api/payments/verify-account
+ * @desc    Verify bank account number
+ * @access  Private
+ */
+router.post('/verify-account', authMiddleware, async (req, res) => {
+  try {
+    const { accountNumber, bankCode } = req.body;
+
+    if (!accountNumber || !bankCode) {
+      return res.status(400).json({ error: 'Account number and bank code are required' });
+    }
+
+    // Verify account with Paystack
+    const verifyResult = await req.paystackManager.verifyBankAccount(accountNumber, bankCode);
+
+    if (!verifyResult.success) {
+      return res.status(400).json({ 
+        error: 'Could not verify account',
+        message: verifyResult.error 
+      });
+    }
+
+    res.json({
+      success: true,
+      accountName: verifyResult.account_name,
+      accountNumber: verifyResult.account_number,
+      bankId: verifyResult.bank_id
+    });
+
+  } catch (error) {
+    console.error('Verify account error:', error);
+    res.status(500).json({ error: 'Failed to verify account' });
   }
 });
 

@@ -1045,12 +1045,21 @@ class RecommendationEngine {
 
       // Build query with filters
       // IMPORTANT: Only show VERIFIED providers (accountType = 'provider' AND verification_tier >= 1)
+      // VISIBILITY: Show 'public' profiles to everyone, 'authenticated' profiles only to logged-in users
       let whereClause = `WHERE u.profile_data IS NOT NULL 
         AND u.profile_data->>'accountType' = 'provider'
         AND u.verification_tier >= 1
         AND (u.profile_data ? 'firstName' OR u.profile_data ? 'username')`;
       const params = [];
       let paramIndex = 1;
+
+      // PROFILE VISIBILITY FILTER
+      // If user is authenticated, show all profiles (public + authenticated-only)
+      // If user is NOT authenticated, show only 'public' profiles
+      if (!userId) {
+        whereClause += ` AND (u.profile_visibility = 'public' OR u.profile_visibility IS NULL)`;
+      }
+      // Authenticated users see all profiles regardless of visibility setting
 
       // Exclude current user
       if (userId) {

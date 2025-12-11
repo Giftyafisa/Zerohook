@@ -223,34 +223,70 @@ class PaystackManager {
       }
     } catch (error) {
       console.error('Failed to initiate transfer:', error);
-      throw error;
+      return { success: false, error: error.response?.data?.message || error.message };
     }
   }
 
   /**
-   * Get bank list for Nigeria
+   * Get bank list for a specific country
+   * @param {string} country - Country code (ng, gh, ke, za)
    */
-  async getBankList() {
+  async getBankList(country = 'ng') {
     try {
-      const response = await axios.get(`${this.baseURL}/bank`, {
+      const response = await axios.get(`${this.baseURL}/bank?country=${country}`, {
         headers: {
           'Authorization': `Bearer ${this.secretKey}`
         }
       });
 
       if (response.data.status) {
-        return response.data.data.map(bank => ({
-          name: bank.name,
-          code: bank.code,
-          active: bank.active,
-          country: bank.country,
-          currency: bank.currency
-        }));
+        return {
+          success: true,
+          banks: response.data.data.map(bank => ({
+            name: bank.name,
+            code: bank.code,
+            active: bank.active,
+            country: bank.country,
+            currency: bank.currency,
+            type: bank.type
+          }))
+        };
       }
-      return [];
+      return { success: false, banks: [], error: 'Failed to fetch banks' };
     } catch (error) {
       console.error('Failed to get bank list:', error);
-      return [];
+      return { success: false, banks: [], error: error.response?.data?.message || error.message };
+    }
+  }
+
+  /**
+   * Verify bank account number
+   * @param {string} accountNumber - Bank account number
+   * @param {string} bankCode - Bank code
+   */
+  async verifyBankAccount(accountNumber, bankCode) {
+    try {
+      const response = await axios.get(
+        `${this.baseURL}/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.secretKey}`
+          }
+        }
+      );
+
+      if (response.data.status) {
+        return {
+          success: true,
+          account_name: response.data.data.account_name,
+          account_number: response.data.data.account_number,
+          bank_id: response.data.data.bank_id
+        };
+      }
+      return { success: false, error: 'Could not resolve account' };
+    } catch (error) {
+      console.error('Failed to verify bank account:', error);
+      return { success: false, error: error.response?.data?.message || error.message };
     }
   }
 }

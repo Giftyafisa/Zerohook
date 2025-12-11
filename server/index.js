@@ -32,6 +32,8 @@ const userConnectionRoutes = require('./routes/userConnections');
 const notificationRoutes = require('./routes/notifications');
 const callRoutes = require('./routes/calls');
 const geolocationRoutes = require('./routes/geolocation');
+const bookingsRoutes = require('./routes/bookings');
+const milestoneRoutes = require('./routes/milestone');
 
 // Import services
 const TrustEngine = require('./services/TrustEngine');
@@ -393,6 +395,8 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/bookings', bookingsRoutes);
+app.use('/api/milestone', milestoneRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/countries', countryRoutes);

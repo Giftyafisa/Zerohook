@@ -173,7 +173,23 @@ router.post('/send', authMiddleware, [
     const senderId = req.user.userId;
     
     // Verify user is part of this conversation
-    const isMember2 = await req.conversationService.isMember(conversationId, senderId);
+    let isMember2 = false;
+    try {
+      if (req.conversationService && typeof req.conversationService.isMember === 'function') {
+        isMember2 = await req.conversationService.isMember(conversationId, senderId);
+      } else {
+        // Fallback to direct DB check
+        const memberCheck = await query(`
+          SELECT 1 FROM conversations 
+          WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
+          LIMIT 1
+        `, [conversationId, senderId]);
+        isMember2 = memberCheck.rows.length > 0;
+      }
+    } catch (memberErr) {
+      console.error('Member check error:', memberErr);
+      return res.status(500).json({ error: 'Failed to verify conversation access' });
+    }
     if (!isMember2) return res.status(403).json({ error: 'Access denied to this conversation' });
 
     // Content moderation / fraud detection
@@ -200,7 +216,22 @@ router.post('/send', authMiddleware, [
 
     // Persist message and update conversation atomically via ConversationService
     try {
-        const message = await req.conversationService.insertMessageTx({ conversationId, senderId, content, messageType, metadata });
+      let message;
+      if (req.conversationService && typeof req.conversationService.insertMessageTx === 'function') {
+        message = await req.conversationService.insertMessageTx({ conversationId, senderId, content, messageType, metadata });
+      } else {
+        // Fallback: direct insert
+        const insertRes = await query(`
+          INSERT INTO messages (conversation_id, sender_id, content, message_type, metadata)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, created_at, metadata
+        `, [conversationId, senderId, content, messageType, JSON.stringify(metadata || {})]);
+        message = insertRes.rows[0];
+        
+        await query(`
+          UPDATE conversations SET last_message = $1, last_message_time = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3
+        `, [content, message.created_at, conversationId]);
+      }
 
       const payload = {
         id: message.id,
@@ -252,20 +283,33 @@ router.post('/conversation', authMiddleware, [
     }
     
     // Check if conversation already exists
-    let conversation = await query(`
-      SELECT id FROM conversations 
+    let conversationResult = await query(`
+      SELECT id, created_at FROM conversations 
       WHERE (participant1_id = $1 AND participant2_id = $2) 
          OR (participant1_id = $2 AND participant2_id = $1)
     `, [userId, otherUserId]);
     
-    if (conversation.rows.length === 0) {
-      // Create new conversation
-      conversation = await req.conversationService.createOrGetConversation(userId, otherUserId);
+    let conversationData;
+    if (conversationResult.rows.length === 0) {
+      // Create new conversation via service or direct insert
+      if (req.conversationService && typeof req.conversationService.createOrGetConversation === 'function') {
+        conversationData = await req.conversationService.createOrGetConversation(userId, otherUserId);
+      } else {
+        // Fallback: direct insert
+        const insertRes = await query(`
+          INSERT INTO conversations (participant1_id, participant2_id, created_at, updated_at)
+          VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          RETURNING id, created_at
+        `, [userId, otherUserId]);
+        conversationData = insertRes.rows[0];
+      }
+    } else {
+      conversationData = conversationResult.rows[0];
     }
     
     res.json({
-      conversationId: conversation.rows[0].id,
-      createdAt: conversation.rows[0].created_at
+      conversationId: conversationData.id,
+      createdAt: conversationData.created_at
     });
 
   } catch (error) {
@@ -458,10 +502,11 @@ router.post('/block-user', authMiddleware, [
 
 /**
  * @route   DELETE /api/chat/conversation/:conversationId
+ * @route   DELETE /api/chat/conversations/:conversationId (alias)
  * @desc    Delete a conversation
  * @access  Private
  */
-router.delete('/conversation/:conversationId', authMiddleware, async (req, res) => {
+const deleteConversationHandler = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.userId;
@@ -489,6 +534,9 @@ router.delete('/conversation/:conversationId', authMiddleware, async (req, res) 
     console.error('Delete conversation error:', error);
     res.status(500).json({ error: 'Failed to delete conversation' });
   }
-});
+};
+
+router.delete('/conversation/:conversationId', authMiddleware, deleteConversationHandler);
+router.delete('/conversations/:conversationId', authMiddleware, deleteConversationHandler);
 
 module.exports = { router };

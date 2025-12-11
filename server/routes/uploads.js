@@ -6,8 +6,8 @@ const { authMiddleware } = require('./auth');
 const { query } = require('../config/database');
 const router = express.Router();
 
-// Configure multer for file uploads with enhanced support
-const storage = multer.diskStorage({
+// Configure multer for local file uploads (fallback)
+const localStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../uploads');
     if (!fs.existsSync(uploadDir)) {
@@ -37,33 +37,80 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit for videos
-  },
-  fileFilter: fileFilter
-});
+// Dynamic upload middleware that uses Cloudinary if available
+const getUploadMiddleware = (type = 'profile') => {
+  return (req, res, next) => {
+    let storage;
+    
+    // Check if Cloudinary is configured
+    if (req.cloudinaryManager && req.cloudinaryManager.isConfigured) {
+      switch (type) {
+        case 'profile':
+          storage = req.cloudinaryManager.getProfileStorage();
+          break;
+        case 'service':
+          storage = req.cloudinaryManager.getServiceStorage();
+          break;
+        case 'chat':
+          storage = req.cloudinaryManager.getChatStorage();
+          break;
+        case 'verification':
+          storage = req.cloudinaryManager.getVerificationStorage();
+          break;
+        default:
+          storage = req.cloudinaryManager.getProfileStorage();
+      }
+    } else {
+      // Fallback to local storage
+      storage = localStorage;
+    }
+    
+    const upload = multer({
+      storage: storage,
+      limits: {
+        fileSize: type === 'chat' ? 50 * 1024 * 1024 : 10 * 1024 * 1024, // 50MB for chat, 10MB for others
+      },
+      fileFilter: fileFilter
+    });
+    
+    return upload.single(type === 'profile' ? 'profilePicture' : (type === 'chat' ? 'file' : 'media'))(req, res, next);
+  };
+};
 
-// Chat attachment upload endpoint (image/video/file)
-router.post('/chat-attachment', authMiddleware, upload.single('file'), async (req, res) => {
+// Helper to get file URL (Cloudinary or local)
+const getFileUrl = (file, cloudinaryManager) => {
+  // Cloudinary upload returns path as the full URL
+  if (file.path && file.path.includes('cloudinary.com')) {
+    return file.path;
+  }
+  // Local upload
+  return `/uploads/${file.filename}`;
+};
+
+// Chat attachment upload endpoint (image/video/file) - uses Cloudinary if available
+router.post('/chat-attachment', authMiddleware, (req, res, next) => {
+  getUploadMiddleware('chat')(req, res, next);
+}, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { filename, size, mimetype, path: filePath } = req.file;
-    const isVideo = mimetype.startsWith('video/');
-    const isImage = mimetype.startsWith('image/');
+    const { filename, size, mimetype } = req.file;
+    const isVideo = mimetype?.startsWith('video/');
+    const isImage = mimetype?.startsWith('image/');
     const fileType = isVideo ? 'video' : (isImage ? 'image' : 'file');
-    const publicUrl = `/uploads/${filename}`;
+    
+    // Get URL - Cloudinary path is the full URL, local is relative
+    const publicUrl = getFileUrl(req.file, req.cloudinaryManager);
+    const isCloudinary = publicUrl.includes('cloudinary.com');
 
     // Optional: log uploads for auditing
     try {
       await query(`
-        INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type)
-        VALUES ($1, $2, $3, $4, $5, $6)
-      `, [req.user.userId, filename, filePath, size, mimetype, 'chat_attachment']);
+        INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type, storage_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [req.user.userId, filename || req.file.public_id, publicUrl, size, mimetype, 'chat_attachment', isCloudinary ? 'cloudinary' : 'local']);
     } catch (logErr) {
       console.warn('Chat attachment log failed:', logErr.message);
     }
@@ -72,9 +119,10 @@ router.post('/chat-attachment', authMiddleware, upload.single('file'), async (re
       success: true,
       url: publicUrl,
       fileType,
-      filename,
+      filename: filename || req.file.public_id,
       size,
-      mimeType: mimetype
+      mimeType: mimetype,
+      storageType: isCloudinary ? 'cloudinary' : 'local'
     });
   } catch (error) {
     console.error('Chat attachment upload error:', error);
@@ -85,24 +133,26 @@ router.post('/chat-attachment', authMiddleware, upload.single('file'), async (re
   }
 });
 
-// Profile picture upload endpoint
-router.post('/profile-picture', authMiddleware, upload.single('profilePicture'), async (req, res) => {
+// Profile picture upload endpoint - uses Cloudinary if available
+router.post('/profile-picture', authMiddleware, (req, res, next) => {
+  getUploadMiddleware('profile')(req, res, next);
+}, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
     const userId = req.user.userId;
-    const filePath = req.file.path;
-    const fileName = req.file.filename;
     const fileSize = req.file.size;
     const mimeType = req.file.mimetype;
     
-    // Create public URL for the uploaded file
-    const publicUrl = `/uploads/${fileName}`;
+    // Get URL - Cloudinary path is the full URL, local is relative
+    const publicUrl = getFileUrl(req.file, req.cloudinaryManager);
+    const isCloudinary = publicUrl.includes('cloudinary.com');
+    const fileName = req.file.filename || req.file.public_id || `profile-${userId}-${Date.now()}`;
     
     // Determine file type
-    const isVideo = mimeType.startsWith('video/');
+    const isVideo = mimeType?.startsWith('video/');
     const fileType = isVideo ? 'video' : 'image';
     
     // Update user's profile_data with new profile picture
@@ -133,7 +183,9 @@ router.post('/profile-picture', authMiddleware, upload.single('profilePicture'),
         filename: fileName, 
         fileSize, 
         mimeType, 
-        fileType 
+        fileType,
+        storageType: isCloudinary ? 'cloudinary' : 'local',
+        publicId: req.file.public_id || null
       }),
       JSON.stringify([publicUrl]), // Set as single-element array
       JSON.stringify(publicUrl), // Also update legacy string field
@@ -145,10 +197,16 @@ router.post('/profile-picture', authMiddleware, upload.single('profilePicture'),
     }
 
     // Log file upload to file_uploads table
-    await query(`
-      INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type)
-      VALUES ($1, $2, $3, $4, $5, $6)
-    `, [userId, fileName, filePath, fileSize, mimeType, 'profile_picture']);
+    try {
+      await query(`
+        INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type, storage_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [userId, fileName, publicUrl, fileSize, mimeType, 'profile_picture', isCloudinary ? 'cloudinary' : 'local']);
+    } catch (logErr) {
+      console.warn('Profile picture log failed:', logErr.message);
+    }
+
+    console.log(`✅ Profile picture uploaded for user ${userId}: ${publicUrl} (${isCloudinary ? 'Cloudinary' : 'Local'})`);
 
     res.json({
       success: true,
@@ -158,7 +216,8 @@ router.post('/profile-picture', authMiddleware, upload.single('profilePicture'),
         filename: fileName,
         fileSize,
         mimeType,
-        fileType
+        fileType,
+        storageType: isCloudinary ? 'cloudinary' : 'local'
       }
     });
 
@@ -171,8 +230,15 @@ router.post('/profile-picture', authMiddleware, upload.single('profilePicture'),
   }
 });
 
-// Service media upload endpoint (multiple files)
-router.post('/service-media', authMiddleware, upload.array('media', 10), async (req, res) => {
+// Service media upload endpoint (multiple files) - uses local storage for now
+// TODO: Update to use Cloudinary for multiple file uploads
+const serviceUpload = multer({
+  storage: localStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: fileFilter
+});
+
+router.post('/service-media', authMiddleware, serviceUpload.array('media', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
@@ -192,24 +258,46 @@ router.post('/service-media', authMiddleware, upload.array('media', 10), async (
       const filePath = file.path;
       const fileSize = file.size;
       const mimeType = file.mimetype;
-      const isVideo = mimeType.startsWith('video/');
+      const isVideo = mimeType?.startsWith('video/');
       const fileType = isVideo ? 'video' : 'image';
       
-      const publicUrl = `/uploads/${fileName}`;
+      // If Cloudinary is configured, upload there as well
+      let publicUrl = `/uploads/${fileName}`;
+      let storageType = 'local';
+      
+      if (req.cloudinaryManager && req.cloudinaryManager.isConfigured && !isVideo) {
+        try {
+          const cloudResult = await req.cloudinaryManager.uploadImage(filePath, {
+            folder: 'zerohook/services',
+            public_id: `service-${serviceId}-${Date.now()}-${Math.random().toString(36).substring(7)}`
+          });
+          if (cloudResult.success) {
+            publicUrl = cloudResult.url;
+            storageType = 'cloudinary';
+          }
+        } catch (cloudErr) {
+          console.warn('Cloudinary upload failed, using local:', cloudErr.message);
+        }
+      }
       
       // Log file upload to file_uploads table
-      await query(`
-        INSERT INTO file_uploads (user_id, service_id, file_name, file_path, file_size, mime_type, upload_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [userId, serviceId, fileName, filePath, fileSize, mimeType, 'service_media']);
+      try {
+        await query(`
+          INSERT INTO file_uploads (user_id, service_id, file_name, file_path, file_size, mime_type, upload_type, storage_type)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [userId, serviceId, fileName, publicUrl, fileSize, mimeType, 'service_media', storageType]);
+      } catch (logErr) {
+        console.warn('Service media log failed:', logErr.message);
+      }
       
       uploadedFiles.push({
-        id: fileName, // Using filename as ID for now
+        id: fileName,
         fileName,
         url: publicUrl,
         fileSize,
         mimeType,
-        fileType
+        fileType,
+        storageType
       });
     }
 
@@ -229,8 +317,20 @@ router.post('/service-media', authMiddleware, upload.array('media', 10), async (
   }
 });
 
-// Video upload endpoint for user videos
-router.post('/user-video', authMiddleware, upload.single('video'), async (req, res) => {
+// Video upload endpoint for user videos - uses local storage (videos are large)
+const videoUpload = multer({
+  storage: localStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype?.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only video files are allowed'));
+    }
+  }
+});
+
+router.post('/user-video', authMiddleware, videoUpload.single('video'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No video uploaded' });

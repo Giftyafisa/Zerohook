@@ -47,6 +47,7 @@ const UserConnectionManager = require('./services/UserConnectionManager');
 const ConversationService = require('./services/ConversationService');
 const SystemHealthService = require('./services/SystemHealthService');
 const RecommendationEngine = require('./services/RecommendationEngine');
+const CloudinaryManager = require('./services/CloudinaryManager');
 const { connectDB, connectRedis } = require('./config/database');
 
 const app = express();
@@ -207,6 +208,7 @@ const countryManager = new CountryManager();
 const bitnobManager = new BitnobManager();
 const userConnectionManager = new UserConnectionManager();
 const recommendationEngine = new RecommendationEngine();
+const cloudinaryManager = new CloudinaryManager();
 const LocationTrackingService = require('./services/LocationTrackingService');
 const locationTrackingService = new LocationTrackingService();
 
@@ -335,6 +337,7 @@ app.use((req, res, next) => {
   req.conversationService = conversationService;
   req.recommendationEngine = recommendationEngine;
   req.locationTrackingService = locationTrackingService;
+  req.cloudinaryManager = cloudinaryManager;
   req.io = io;
   
   // Add database status to request for debugging

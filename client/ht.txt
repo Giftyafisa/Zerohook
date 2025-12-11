@@ -129,3 +129,51 @@ If a dedicated settings route exists, should the button navigate there or open a
 
 ISSUE IDENTIFIED #4: The profile cards are showing as loading skeletons but not populating with actual data. This could be: A loading delay issue No data available in the system A bug preventing data from loading
 
+
+All Fixes Implemented!
+1. BookingsPage Routing Fixed
+Restored /bookings route to show BookingsPage instead of redirecting to /wallet
+Users can now access the bookings page directly
+2. Milestone Request System (New Feature)
+This allows clients and providers to request payment holds directly in chat:
+
+For Clients (who want to hold money for a service):
+In chat, click the yellow 📋 Request button (next to the green wallet)
+Opens a dialog to request the provider to set up a payment
+Enter amount and optional description
+Provider receives notification and can accept/decline
+For Providers (sex workers who want to request payment):
+In chat, click the yellow 📋 Request Payment button
+Opens a dialog to send a payment request to the client
+Enter the amount for your service
+Client receives the request card in chat
+Client can Accept or Decline
+If accepted, client can click "Pay & Hold" to hold the money in escrow
+3. How the Flow Works:
+Scenario A - Provider Requests Payment:
+
+Provider and client chat and agree on service
+Provider clicks Request Payment → enters ₦10,000
+Client sees Payment Request Card in chat
+Client clicks Accept → then Pay & Hold
+Money is now held in escrow
+Green "Money Held" bar appears with Release and Problem buttons
+Scenario B - Client Wants to Hold Money First:
+
+Client clicks the green Wallet button → enters amount → holds money
+OR Client clicks Request Hold → asks provider to send specific amount
+Provider accepts and confirms the amount
+Client pays via Paystack or wallet
+4. UI Components Added:
+MilestoneRequestDialog - For sending payment requests
+MilestoneRequestCard - Displays in chat with Accept/Decline/Pay buttons
+Real-time notifications - Both parties get notified via socket
+5. Backend API Created:
+POST /api/milestone/request - Send a milestone request
+POST /api/milestone/respond - Accept or decline request
+POST /api/milestone/pay - Pay for accepted request (creates escrow)
+GET /api/milestone/pending/:userId - Get pending requests for a conversation
+GET /api/milestone/list - Get all user's milestone requests
+6. Database Table Created:
+milestone_requests table with sender, recipient, amount, status, etc.
+The server is now running on port 5000. You can test the chat system with the new milestone request functionality!

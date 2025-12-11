@@ -92,3 +92,76 @@ export const extractProfileImagePath = (profileData) => {
   
   return null;
 };
+
+/**
+ * Check if URL is a Cloudinary URL
+ * @param {string} url - Image URL
+ * @returns {boolean}
+ */
+export const isCloudinaryUrl = (url) => {
+  return url && typeof url === 'string' && url.includes('cloudinary.com');
+};
+
+/**
+ * Get optimized Cloudinary URL with transformations
+ * @param {string} url - Original Cloudinary URL
+ * @param {Object} options - Transformation options
+ * @returns {string} - Optimized URL
+ */
+export const getOptimizedCloudinaryUrl = (url, options = {}) => {
+  if (!isCloudinaryUrl(url)) return url;
+  
+  const { width = 400, height = 400, crop = 'fill', quality = 'auto', format = 'auto' } = options;
+  
+  // Insert transformations into Cloudinary URL
+  // URL format: https://res.cloudinary.com/cloud_name/image/upload/v123/folder/image.jpg
+  // Transformed: https://res.cloudinary.com/cloud_name/image/upload/c_fill,w_400,h_400,q_auto,f_auto/v123/folder/image.jpg
+  
+  const transformations = `c_${crop},w_${width},h_${height},q_${quality},f_${format}`;
+  
+  return url.replace('/upload/', `/upload/${transformations}/`);
+};
+
+/**
+ * Get thumbnail URL (150x150 optimized)
+ * @param {string} url - Original image URL
+ * @returns {string} - Thumbnail URL
+ */
+export const getThumbnailUrl = (url) => {
+  if (!url) return null;
+  
+  if (isCloudinaryUrl(url)) {
+    return getOptimizedCloudinaryUrl(url, { width: 150, height: 150, crop: 'fill' });
+  }
+  
+  return url;
+};
+
+/**
+ * Get profile image URL optimized for display
+ * @param {string} url - Original image URL
+ * @param {string} size - Size preset: 'small' (100), 'medium' (300), 'large' (600)
+ * @returns {string} - Optimized URL
+ */
+export const getProfileImageOptimized = (url, size = 'medium') => {
+  if (!url) return null;
+  
+  const sizes = {
+    small: { width: 100, height: 100 },
+    medium: { width: 300, height: 300 },
+    large: { width: 600, height: 600 }
+  };
+  
+  const dimensions = sizes[size] || sizes.medium;
+  
+  if (isCloudinaryUrl(url)) {
+    return getOptimizedCloudinaryUrl(url, { 
+      ...dimensions, 
+      crop: 'fill',
+      // Use face detection for profile pictures
+      gravity: 'face'
+    });
+  }
+  
+  return url;
+};

@@ -26,10 +26,12 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import EscrowCard from '../components/EscrowCard';
+import useCurrency from '../hooks/useCurrency';
 
 const TransactionsPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const { symbol, format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [walletData, setWalletData] = useState({
     balance: 0,
@@ -219,7 +221,7 @@ const TransactionsPage = () => {
         <Box sx={styles.balanceCard}>
           <Typography sx={styles.balanceLabel}>Available Balance</Typography>
           <Typography sx={styles.balanceAmount}>
-            ${walletData.balance.toFixed(2)}
+            {format(walletData.balance)}
           </Typography>
           
           {/* Quick Actions */}
@@ -249,7 +251,7 @@ const TransactionsPage = () => {
             </Box>
             <Box>
               <Typography sx={styles.summaryLabel}>In Escrow</Typography>
-              <Typography sx={styles.summaryValue}>${walletData.escrowHeld.toFixed(2)}</Typography>
+              <Typography sx={styles.summaryValue}>{format(walletData.escrowHeld)}</Typography>
             </Box>
           </Box>
         </motion.div>
@@ -265,7 +267,7 @@ const TransactionsPage = () => {
             </Box>
             <Box>
               <Typography sx={styles.summaryLabel}>Pending</Typography>
-              <Typography sx={styles.summaryValue}>${walletData.pendingWithdrawal.toFixed(2)}</Typography>
+              <Typography sx={styles.summaryValue}>{format(walletData.pendingWithdrawal)}</Typography>
             </Box>
           </Box>
         </motion.div>
@@ -321,7 +323,7 @@ const TransactionsPage = () => {
                 ...styles.txAmount,
                 color: tx.type === 'income' ? '#00ff88' : '#ff3333'
               }}>
-                {tx.type === 'income' ? '+' : '-'}${tx.amount.toFixed(2)}
+                {tx.type === 'income' ? '+' : '-'}{format(tx.amount)}
               </Typography>
             </Box>
           </motion.div>

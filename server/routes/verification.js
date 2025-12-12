@@ -3,6 +3,7 @@ const { query } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
+const NotificationService = require('../services/NotificationService');
 
 /**
  * @route   POST /api/verification/submit-documents
@@ -81,6 +82,19 @@ router.post('/submit-documents', authMiddleware, [
         timestamp: new Date().toISOString()
       });
       console.log(`📡 Verification submission notification sent to user: ${userId}`);
+      
+      // Save notification to database
+      try {
+        await NotificationService.createAndEmit(req.io, {
+          userId,
+          type: 'verification',
+          title: 'Verification Documents Submitted',
+          message: `Your Tier ${verificationTier} verification documents have been submitted and are pending review.`,
+          data: { requestId: verificationResult.rows[0].id, requestedTier: verificationTier }
+        });
+      } catch (notifErr) {
+        console.error('Failed to save verification notification:', notifErr);
+      }
     }
 
     res.json({
@@ -208,6 +222,19 @@ router.post('/verify-email', authMiddleware, [
         timestamp: new Date().toISOString()
       });
       console.log(`📡 Email verification notification sent to user: ${userId}`);
+      
+      // Save notification to database
+      try {
+        await NotificationService.createAndEmit(req.io, {
+          userId,
+          type: 'verification',
+          title: 'Email Verified',
+          message: `Your email ${email} has been successfully verified!`,
+          data: { email, status: 'verified' }
+        });
+      } catch (notifErr) {
+        console.error('Failed to save email verification notification:', notifErr);
+      }
     }
 
     res.json({

@@ -4,7 +4,7 @@
  * Zerohook Platform
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Box, Typography, Badge } from '@mui/material';
 import { styled } from '@mui/system';
@@ -15,8 +15,13 @@ import {
   AccountBalanceWallet,
   Person
 } from '@mui/icons-material';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { selectIsAuthenticated } from '../../store/slices/authSlice';
+import { 
+  selectUnreadMessages,
+  setUnreadMessages 
+} from '../../store/slices/uiSlice';
+import { API_BASE_URL } from '../../config/constants';
 
 const BottomNavContainer = styled(Box)({
   position: 'fixed',
@@ -34,7 +39,9 @@ const BottomNavContainer = styled(Box)({
   zIndex: 1200,
 });
 
-const NavItem = styled(Box)(({ active }) => ({
+const NavItem = styled(Box, {
+  shouldForwardProp: (prop) => prop !== 'active',
+})(({ active }) => ({
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
@@ -90,7 +97,32 @@ const NavBadge = styled(Box)({
 const MobileBottomNav = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const dispatch = useDispatch();
   const isAuthenticated = useSelector(selectIsAuthenticated);
+  const unreadMessages = useSelector(selectUnreadMessages);
+  
+  // Fetch unread message count on mount
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      if (!isAuthenticated) return;
+      
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE_URL}/chat/unread-count`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          dispatch(setUnreadMessages(data.unreadCount || 0));
+        }
+      } catch (error) {
+        console.error('Failed to fetch unread count:', error);
+      }
+    };
+    
+    fetchUnreadCount();
+  }, [isAuthenticated, dispatch]);
   
   const isActive = (paths) => {
     if (Array.isArray(paths)) {
@@ -111,7 +143,7 @@ const MobileBottomNav = () => {
       label: 'Messages', 
       paths: ['/chat', '/messages'],
       onClick: () => isAuthenticated ? navigate('/chat') : navigate('/login'),
-      badge: isAuthenticated ? 2 : null
+      badge: isAuthenticated && unreadMessages > 0 ? unreadMessages : null
     },
     { 
       icon: <CalendarToday />, 

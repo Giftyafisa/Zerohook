@@ -31,6 +31,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  InputAdornment,
   useTheme
 } from '@mui/material';
 import {
@@ -56,11 +57,20 @@ import {
   Notifications,
   Block,
   CheckCircle,
-  Warning
+  Warning,
+  AttachMoney,
+  MoneyOff
 } from '@mui/icons-material';
 
 const PrivacySettings = () => {
   const theme = useTheme();
+  
+  // Expanded accordion state
+  const [expandedAccordion, setExpandedAccordion] = useState('privacy-level');
+  
+  const handleAccordionChange = (panel) => (event, isExpanded) => {
+    setExpandedAccordion(isExpanded ? panel : false);
+  };
   
   const [privacySettings, setPrivacySettings] = useState({
     // Privacy Level
@@ -75,6 +85,11 @@ const PrivacySettings = () => {
     showTrustScore: true,
     showBookingHistory: false,
     showReviews: true,
+    
+    // Price Display Settings (NEW)
+    showPriceOnProfile: true,
+    basePrice: '',
+    priceCurrency: 'NGN',
     
     // Data Sharing
     allowDataAnalytics: true,
@@ -234,7 +249,10 @@ const PrivacySettings = () => {
       allowPhotoSharing: false,
       showVerificationDocuments: false,
       showVerificationProcess: true,
-      allowVerificationChecks: true
+      allowVerificationChecks: true,
+      showPriceOnProfile: true,
+      basePrice: '',
+      priceCurrency: 'NGN'
     });
   };
 
@@ -645,6 +663,95 @@ const PrivacySettings = () => {
                   </Grid>
                 </Grid>
               </FormGroup>
+            </CardContent>
+          </Card>
+
+          {/* Price & Rate Settings */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Box display="flex" alignItems="center" gap={1} mb={1}>
+                <AttachMoney color="success" />
+                <Typography variant="h6">
+                  Price & Rate Settings
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Set your service rates and control how pricing appears on your profile
+              </Typography>
+              
+              <Grid container spacing={3}>
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={privacySettings.showPriceOnProfile}
+                        onChange={(e) => handlePrivacyChange('showPriceOnProfile', e.target.checked)}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body1">Show Price on Profile</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          When enabled, your base rate will be visible to other users
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Base Rate / Starting Price"
+                    type="number"
+                    value={privacySettings.basePrice}
+                    onChange={(e) => handlePrivacyChange('basePrice', e.target.value)}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          {privacySettings.priceCurrency === 'NGN' ? '₦' : 
+                           privacySettings.priceCurrency === 'GHS' ? 'GH₵' :
+                           privacySettings.priceCurrency === 'KES' ? 'KSh' :
+                           privacySettings.priceCurrency === 'ZAR' ? 'R' :
+                           privacySettings.priceCurrency === 'USD' ? '$' :
+                           privacySettings.priceCurrency === 'EUR' ? '€' :
+                           privacySettings.priceCurrency === 'GBP' ? '£' : '₦'}
+                        </InputAdornment>
+                      ),
+                    }}
+                    placeholder="e.g., 10000"
+                    helperText="Enter your base service rate"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Currency</InputLabel>
+                    <Select
+                      value={privacySettings.priceCurrency}
+                      onChange={(e) => handlePrivacyChange('priceCurrency', e.target.value)}
+                      label="Currency"
+                    >
+                      <MenuItem value="NGN">🇳🇬 Nigerian Naira (₦)</MenuItem>
+                      <MenuItem value="GHS">🇬🇭 Ghanaian Cedi (GH₵)</MenuItem>
+                      <MenuItem value="KES">🇰🇪 Kenyan Shilling (KSh)</MenuItem>
+                      <MenuItem value="ZAR">🇿🇦 South African Rand (R)</MenuItem>
+                      <MenuItem value="USD">🇺🇸 US Dollar ($)</MenuItem>
+                      <MenuItem value="EUR">🇪🇺 Euro (€)</MenuItem>
+                      <MenuItem value="GBP">🇬🇧 British Pound (£)</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <Alert severity="info" sx={{ mt: 1 }}>
+                    <Typography variant="body2">
+                      <strong>Tip:</strong> A clear pricing display helps attract serious inquiries. 
+                      You can always discuss specific rates for different services privately.
+                    </Typography>
+                  </Alert>
+                </Grid>
+              </Grid>
             </CardContent>
           </Card>
         </Grid>

@@ -177,3 +177,49 @@ GET /api/milestone/list - Get all user's milestone requests
 6. Database Table Created:
 milestone_requests table with sender, recipient, amount, status, etc.
 The server is now running on port 5000. You can test the chat system with the new milestone request functionality!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Plan: Fix responsive layout + routing wiring
+We’ll do a systematic “navigation + layout contract” audit: first prove which routes exist vs which links/buttons point to them, then normalize layout spacing/z-index so mobile + desktop (and especially tablet widths) don’t mis-position or overlap UI. This avoids whack‑a‑mole CSS tweaks and makes responsiveness predictable.
+
+Steps 1) Inventory all navigation targets and verify routes exist
+Cross-reference links in Navbar.js, Sidebar.js, BottomNavigation.js, Footer.js against routes in App.js.
+Fix broken targets (notably Footer links pointing to missing routes like /terms, /privacy, /contact, etc.).
+Fix legacy redirects: /services/:id currently redirects to /adult-services and drops :id.
+Steps 2) Validate ProtectedRoute + routing expectations
+Review ProtectedRoute.js behavior for auth + subscription guards.
+Resolve the known mismatch: app redirects /transactions → /wallet, but tests expect /transactions to stay /transactions (choose: keep /transactions as a real page, or update tests + links).
+Steps 3) Normalize responsive layout spacing (mobile/desktop/tablet)
+Consolidate padding/margin “source of truth” between client/src/components/layout/AppLayout.js, Navbar.js, and per-page containers.
+Address the breakpoint gap: sidebar only at >=1200px, bottom nav only at <900px, leaving 900–1199px relying on Navbar-only (often feels broken).
+Remove/avoid blanket overflowX: hidden when it masks real layout overflow.
+Steps 4) Fix z-index / fixed-position collisions that block clicks
+Audit stacking between BottomNavigation (fixed), MUI Drawer, navbar, and background effects.
+Check SocketContext.js toast DOM node (z-index:9999) for click-blocking near bottom UI; constrain pointer events/sizing so it can’t cover buttons.
+Steps 5) Lock it in with existing Playwright coverage
+Use playwright.config.js projects (Desktop + Pixel 5 + iPhone 12) to confirm layout + routing.
+Add/adjust a small set of assertions to prevent regressions (nav links, footer links, protected redirects).
+Further Considerations
+For the 900–1199px “tablet” range: prefer Option A show bottom nav up to <1200, Option B introduce a compact sidebar, or Option C keep Navbar-only but ensure consistent padding/header offsets everywhere.
+For Footer routes: either create simple informational pages or change links to existing destinations to avoid “route broken” UX.

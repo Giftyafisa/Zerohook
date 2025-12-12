@@ -1,7 +1,7 @@
 /**
  * MainLayout - Responsive layout wrapper
  * Desktop: Sidebar navigation + main content
- * Mobile: Bottom navigation
+ * Mobile/Tablet: Bottom navigation
  * Zerohook Platform
  */
 
@@ -22,14 +22,15 @@ const MainContent = styled(Box, {
 })(({ hasSidebar }) => ({
   marginLeft: hasSidebar ? '280px' : 0,
   minHeight: '100vh',
-  paddingBottom: hasSidebar ? 0 : '80px', // Space for mobile bottom nav
+  paddingBottom: hasSidebar ? 0 : '80px', // Space for mobile/tablet bottom nav
   transition: 'margin-left 0.3s ease',
 }));
 
 const MainLayout = ({ children, showNavigation = true }) => {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg')); // >= 1200px
-  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 900px
+  // Show bottom nav for both mobile (<900px) AND tablet (900-1199px)
+  const showBottomNav = useMediaQuery(theme.breakpoints.down('lg')); // < 1200px
   
   return (
     <LayoutContainer>
@@ -41,8 +42,8 @@ const MainLayout = ({ children, showNavigation = true }) => {
         {children}
       </MainContent>
       
-      {/* Mobile Bottom Navigation */}
-      {showNavigation && isMobile && <MobileBottomNav />}
+      {/* Mobile/Tablet Bottom Navigation - Show for all non-desktop sizes */}
+      {showNavigation && showBottomNav && <MobileBottomNav />}
     </LayoutContainer>
   );
 };

@@ -140,20 +140,23 @@ body {
 @media (min-width: 1200px) {
   .main-content {
     padding-top: 0;
+    padding-bottom: 0;
     margin-left: 0; /* Handled by MainLayout */
   }
 }
 
-/* Tablet layout */
+/* Tablet layout - now has bottom nav */
 @media (min-width: 900px) and (max-width: 1199px) {
   .main-content {
     padding-top: 70px;
+    padding-bottom: 80px; /* Space for bottom nav */
   }
 }
 
 /* Mobile bottom nav spacing */
 @media (max-width: 899px) {
   .main-content {
+    padding-top: 80px;
     padding-bottom: 80px; /* Space for bottom nav */
   }
 }

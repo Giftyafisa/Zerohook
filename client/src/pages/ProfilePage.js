@@ -20,7 +20,8 @@ import {
   Autocomplete,
   Paper,
   Switch,
-  FormControlLabel
+  FormControlLabel,
+  InputAdornment
 } from '@mui/material';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { resolveProfileImage } from '../utils/imageUtils';
@@ -67,6 +68,8 @@ const ProfilePage = () => {
     country: '',
     countryCode: '',
     age: 25,
+    basePrice: '',
+    priceCurrency: 'NGN',
     profilePicture: null,
     trustScore: 0,
     verificationTier: 1,
@@ -146,6 +149,8 @@ const ProfilePage = () => {
         country: user.profile_data?.location?.country || '',
         countryCode: user.profile_data?.location?.countryCode || '',
         age: user.profile_data?.age || 25,
+        basePrice: user.profile_data?.basePrice || '',
+        priceCurrency: user.profile_data?.priceCurrency || 'NGN',
         profilePicture: user.profile_data?.profile_picture?.url || user.profile_data?.profilePicture || null,
         trustScore: user.reputation_score || 75,
         verificationTier: user.verification_tier || 1,
@@ -221,6 +226,8 @@ const ProfilePage = () => {
             lastName: editData.lastName,
             bio: editData.bio,
             age: editData.age,
+            basePrice: editData.basePrice,
+            priceCurrency: editData.priceCurrency,
             location: {
               city: editData.city,
               country: editData.country,
@@ -529,6 +536,57 @@ const ProfilePage = () => {
               sx={styles.textField}
               inputProps={{ min: 18, max: 99 }}
             />
+            
+            {/* Base Price Settings */}
+            <Box sx={{ mt: 2, p: 2, borderRadius: 2, bgcolor: 'rgba(0,242,234,0.05)', border: '1px solid rgba(0,242,234,0.2)' }}>
+              <Typography sx={{ color: '#00f2ea', fontWeight: 600, mb: 2, fontSize: '0.95rem' }}>
+                💰 Service Rate (Optional)
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <FormControl sx={{ minWidth: 120, ...styles.textField }}>
+                  <InputLabel sx={{ color: 'rgba(255,255,255,0.7)' }}>Currency</InputLabel>
+                  <Select
+                    value={editData.priceCurrency || 'NGN'}
+                    onChange={(e) => setEditData({ ...editData, priceCurrency: e.target.value })}
+                    label="Currency"
+                    sx={{ color: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' } }}
+                  >
+                    <MenuItem value="NGN">🇳🇬 ₦ NGN</MenuItem>
+                    <MenuItem value="GHS">🇬🇭 GH₵ GHS</MenuItem>
+                    <MenuItem value="KES">🇰🇪 KSh KES</MenuItem>
+                    <MenuItem value="ZAR">🇿🇦 R ZAR</MenuItem>
+                    <MenuItem value="USD">🇺🇸 $ USD</MenuItem>
+                    <MenuItem value="EUR">🇪🇺 € EUR</MenuItem>
+                    <MenuItem value="GBP">🇬🇧 £ GBP</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Base Rate"
+                  type="number"
+                  value={editData.basePrice || ''}
+                  onChange={(e) => setEditData({ ...editData, basePrice: e.target.value })}
+                  sx={{ flex: 1, minWidth: 150, ...styles.textField }}
+                  placeholder="e.g., 10000"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                        {editData.priceCurrency === 'NGN' ? '₦' : 
+                         editData.priceCurrency === 'GHS' ? 'GH₵' :
+                         editData.priceCurrency === 'KES' ? 'KSh' :
+                         editData.priceCurrency === 'ZAR' ? 'R' :
+                         editData.priceCurrency === 'USD' ? '$' :
+                         editData.priceCurrency === 'EUR' ? '€' :
+                         editData.priceCurrency === 'GBP' ? '£' : '₦'}
+                      </InputAdornment>
+                    ),
+                  }}
+                  helperText="Your starting service rate"
+                />
+              </Box>
+              <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', mt: 1 }}>
+                This rate will be displayed on your public profile
+              </Typography>
+            </Box>
           </Box>
         </motion.div>
       )}

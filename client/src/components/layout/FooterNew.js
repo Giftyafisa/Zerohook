@@ -75,16 +75,16 @@ const Footer = () => {
 
   const supportLinks = [
     { name: 'Help Center', path: '/help' },
-    { name: 'Safety Tips', path: '/safety' },
-    { name: 'Report Issue', path: '/report' },
-    { name: 'Contact Us', path: '/contact' },
+    { name: 'Safety Tips', path: '/help' },
+    { name: 'Report Issue', path: '/help' },
+    { name: 'Contact Us', path: '/help' },
   ];
 
   const legalLinks = [
-    { name: 'Terms of Service', path: '/terms' },
-    { name: 'Privacy Policy', path: '/privacy' },
-    { name: 'Cookie Policy', path: '/cookies' },
-    { name: 'Age Verification', path: '/age-verify' },
+    { name: 'Terms of Service', path: '/help' },
+    { name: 'Privacy Policy', path: '/help' },
+    { name: 'Cookie Policy', path: '/help' },
+    { name: 'Age Verification', path: '/verification' },
   ];
 
   return (
@@ -140,7 +140,7 @@ const Footer = () => {
               Quick Links
             </Typography>
             {quickLinks.map((link) => (
-              <FooterLink key={link.path} to={link.path}>
+              <FooterLink key={link.name} to={link.path}>
                 {link.name}
               </FooterLink>
             ))}
@@ -160,7 +160,7 @@ const Footer = () => {
               Support
             </Typography>
             {supportLinks.map((link) => (
-              <FooterLink key={link.path} to={link.path}>
+              <FooterLink key={link.name} to={link.path}>
                 {link.name}
               </FooterLink>
             ))}
@@ -180,7 +180,7 @@ const Footer = () => {
               Legal
             </Typography>
             {legalLinks.map((link) => (
-              <FooterLink key={link.path} to={link.path}>
+              <FooterLink key={link.name} to={link.path}>
                 {link.name}
               </FooterLink>
             ))}

@@ -21,10 +21,12 @@ import {
   Help,
   ExitToApp,
   VerifiedUser,
-  Add
+  Add,
+  Notifications
 } from '@mui/icons-material';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsAuthenticated, selectIsSubscribed, logout } from '../../store/slices/authSlice';
+import { selectUnreadMessages, selectUnreadNotifications } from '../../store/slices/uiSlice';
 
 const glowPulse = keyframes`
   0%, 100% { box-shadow: 0 0 15px rgba(0, 242, 234, 0.3); }
@@ -195,6 +197,8 @@ const DesktopSidebar = () => {
   const user = useSelector(selectUser);
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const isSubscribed = useSelector(selectIsSubscribed);
+  const unreadMessages = useSelector(selectUnreadMessages);
+  const unreadNotifications = useSelector(selectUnreadNotifications);
   
   const isActive = (path) => location.pathname === path;
   
@@ -212,7 +216,8 @@ const DesktopSidebar = () => {
   ];
   
   const userNavItems = [
-    { icon: <Chat />, label: 'Messages', path: '/chat', badge: 2 },
+    { icon: <Notifications />, label: 'Notifications', path: '/notifications', badge: unreadNotifications > 0 ? unreadNotifications : null },
+    { icon: <Chat />, label: 'Messages', path: '/chat', badge: unreadMessages > 0 ? unreadMessages : null },
     { icon: <CalendarToday />, label: 'Bookings', path: '/bookings' },
     { icon: <AccountBalanceWallet />, label: 'Wallet', path: '/wallet' },
     { icon: <Person />, label: 'My Profile', path: '/profile' },

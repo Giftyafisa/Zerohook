@@ -4,6 +4,40 @@ const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const { getClient } = require('../config/database');
+const NotificationService = require('../services/NotificationService');
+
+/**
+ * @route   GET /api/chat/unread-count
+ * @desc    Get total unread message count across all conversations
+ * @access  Private
+ */
+router.get('/unread-count', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Count unread messages where user is recipient (not sender)
+    const result = await query(`
+      SELECT COUNT(*) as count
+      FROM messages m
+      JOIN conversations c ON m.conversation_id = c.id
+      WHERE (c.participant1_id = $1 OR c.participant2_id = $1)
+        AND m.sender_id != $1
+        AND m.read_at IS NULL
+    `, [userId]);
+    
+    const unreadCount = parseInt(result.rows[0]?.count || 0, 10);
+    
+    res.json({ 
+      unreadCount,
+      success: true 
+    });
+    
+  } catch (error) {
+    console.error('Get unread count error:', error);
+    // Return 0 instead of error to not break UI
+    res.json({ unreadCount: 0, success: false });
+  }
+});
 
 /**
  * @route   GET /api/chat/conversations
@@ -239,12 +273,42 @@ router.post('/send', authMiddleware, [
         senderId,
         content,
         messageType,
-          metadata: message.metadata || metadata || {},
+        metadata: message.metadata || metadata || {},
         createdAt: message.created_at
       };
 
       // Emit after successful commit
       req.io.to(`conversation_${conversationId}`).emit('new_message', payload);
+
+      // Get the recipient (other participant) and save notification
+      try {
+        const convResult = await query(`
+          SELECT participant1_id, participant2_id FROM conversations WHERE id = $1
+        `, [conversationId]);
+        
+        if (convResult.rows.length > 0) {
+          const { participant1_id, participant2_id } = convResult.rows[0];
+          const recipientId = participant1_id === senderId ? participant2_id : participant1_id;
+          
+          // Get sender name for notification
+          const senderResult = await query(`SELECT username FROM users WHERE id = $1`, [senderId]);
+          const senderName = senderResult.rows[0]?.username || 'Someone';
+          
+          // Truncate message for notification preview
+          const preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
+          
+          await NotificationService.createAndEmit(req.io, {
+            userId: recipientId,
+            type: 'message',
+            title: `New message from ${senderName}`,
+            message: preview,
+            data: { conversationId, senderId, messageId: message.id }
+          });
+        }
+      } catch (notifErr) {
+        console.error('Failed to save message notification:', notifErr);
+        // Don't fail the message send if notification fails
+      }
 
       res.json({ message: payload });
     } catch (txErr) {

@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { useDispatch } from 'react-redux';
+import { 
+  incrementUnreadMessages, 
+  incrementUnreadNotifications,
+  addToNotificationsList 
+} from '../store/slices/uiSlice';
 
 const SocketContext = createContext({});
 
@@ -18,7 +24,7 @@ const showNotification = (title, message, type = 'info') => {
   const toast = document.createElement('div');
   toast.style.cssText = `
     position: fixed;
-    bottom: 100px;
+    bottom: 140px;
     left: 50%;
     transform: translateX(-50%);
     background: ${type === 'success' ? '#00ff88' : type === 'warning' ? '#ffa726' : '#00f2ea'};
@@ -26,9 +32,12 @@ const showNotification = (title, message, type = 'info') => {
     padding: 16px 24px;
     border-radius: 12px;
     font-weight: 600;
-    z-index: 9999;
+    z-index: 1300;
     box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     animation: slideUp 0.3s ease;
+    max-width: calc(100vw - 32px);
+    text-align: center;
+    pointer-events: auto;
   `;
   toast.innerHTML = `<div style="font-size:14px;font-weight:700">${title}</div><div style="font-size:13px;margin-top:4px">${message}</div>`;
   document.body.appendChild(toast);
@@ -45,6 +54,7 @@ export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const { isAuthenticated, user } = useAuth();
+  const dispatch = useDispatch();
 
   useEffect(() => {
     // Only attempt connection if authenticated and have user data
@@ -85,30 +95,83 @@ export const SocketProvider = ({ children }) => {
         }
       });
 
+      // NEW MESSAGE - increment unread count
+      newSocket.on('new_message', (data) => {
+        console.log('💬 New message received:', data);
+        // Only increment if not from self and not currently viewing chat
+        if (data.senderId !== user?.id) {
+          dispatch(incrementUnreadMessages());
+          showNotification('💬 New Message', data.senderName ? `${data.senderName}: ${data.content?.substring(0, 50) || 'New message'}` : 'You have a new message', 'info');
+        }
+      });
+
+      // NOTIFICATIONS - general notification handler
+      newSocket.on('new_notification', (data) => {
+        console.log('🔔 New notification:', data);
+        dispatch(incrementUnreadNotifications());
+        dispatch(addToNotificationsList({
+          id: data.id || Date.now(),
+          title: data.title || 'New Notification',
+          message: data.message || '',
+          type: data.type || 'info',
+          read: false,
+          createdAt: new Date().toISOString()
+        }));
+        showNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification', 'info');
+      });
+
+      // CONNECTION REQUEST notification
+      newSocket.on('connection_request', (data) => {
+        console.log('🤝 Connection request:', data);
+        dispatch(incrementUnreadNotifications());
+        dispatch(addToNotificationsList({
+          id: data.id || Date.now(),
+          title: 'Connection Request',
+          message: `${data.senderName || 'Someone'} wants to connect with you`,
+          type: 'connection_request',
+          read: false,
+          createdAt: new Date().toISOString(),
+          data: data
+        }));
+        showNotification('🤝 Connection Request', `${data.senderName || 'Someone'} wants to connect`, 'info');
+      });
+
+      // VIDEO CALL notification
+      newSocket.on('video_call_request', (data) => {
+        console.log('📹 Video call request:', data);
+        dispatch(incrementUnreadNotifications());
+        showNotification('📹 Incoming Call', `${data.callerName || 'Someone'} is calling you`, 'warning');
+      });
+
       // Escrow notification handlers
       newSocket.on('escrow_created', (data) => {
         console.log('💰 Escrow created:', data);
+        dispatch(incrementUnreadNotifications());
         showNotification('💰 Payment Held', data.message || `₦${Number(data.amount).toLocaleString()} held for your service`, 'success');
       });
 
       newSocket.on('escrow_released', (data) => {
         console.log('✅ Escrow released:', data);
+        dispatch(incrementUnreadNotifications());
         showNotification('✅ Payment Released', data.message || `₦${Number(data.amount).toLocaleString()} added to your wallet`, 'success');
       });
 
       newSocket.on('escrow_disputed', (data) => {
         console.log('⚠️ Escrow disputed:', data);
+        dispatch(incrementUnreadNotifications());
         showNotification('⚠️ Dispute Opened', data.message || 'A dispute has been opened on a payment', 'warning');
       });
 
       // Milestone request notification handlers
       newSocket.on('milestone_request', (data) => {
         console.log('📩 Milestone request received:', data);
+        dispatch(incrementUnreadNotifications());
         showNotification('📩 Payment Request', `${data.senderName} sent you a payment request for ₦${Number(data.amount).toLocaleString()}`, 'info');
       });
 
       newSocket.on('milestone_response', (data) => {
         console.log('📬 Milestone response:', data);
+        dispatch(incrementUnreadNotifications());
         const statusText = data.status === 'accepted' ? 'accepted' : 'declined';
         showNotification(
           data.status === 'accepted' ? '✅ Request Accepted' : '❌ Request Declined',

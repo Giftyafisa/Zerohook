@@ -23,10 +23,12 @@ import {
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import useCurrency from '../hooks/useCurrency';
 
 const BookingsPage = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const { format, symbol } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   const [bookings, setBookings] = useState([]);
@@ -252,7 +254,7 @@ const BookingsPage = () => {
 
                   <Box sx={styles.bookingFooter}>
                     <Typography sx={styles.price}>
-                      ${typeof booking.price === 'number' ? booking.price.toFixed(2) : (parseFloat(booking.price) || 0).toFixed(2)}
+                      {format(typeof booking.price === 'number' ? booking.price : (parseFloat(booking.price) || 0))}
                     </Typography>
                     {booking.status === 'upcoming' && (
                       <Box sx={styles.actionButtons}>

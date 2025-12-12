@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Badge,
@@ -29,17 +29,40 @@ import {
 } from '@mui/icons-material';
 import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { 
+  setUnreadNotifications, 
+  selectUnreadNotifications,
+  setNotificationsList,
+  selectNotificationsList,
+  markNotificationRead,
+  clearUnreadNotifications
+} from '../store/slices/uiSlice';
 
 const NotificationSystem = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
   
+  // Use Redux state for unread count and notifications list
+  const unreadCount = useSelector(selectUnreadNotifications);
+  const notificationsList = useSelector(selectNotificationsList);
+  
+  // Local state for UI
   const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [anchorEl, setAnchorEl] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Sync local notifications with Redux
+  useEffect(() => {
+    if (notificationsList && notificationsList.length > 0) {
+      setNotifications(notificationsList);
+    }
+  }, [notificationsList]);
 
   // Load notifications from API
   useEffect(() => {
@@ -48,15 +71,15 @@ const NotificationSystem = () => {
     }
   }, [user]);
 
-  // Socket.io real-time notifications
+  // Socket.io real-time notifications - NO LONGER needed here since SocketContext handles it
+  // But we keep listening for local UI updates
   useEffect(() => {
     if (!socket || !isConnected) return;
 
-    // Listen for new notifications
+    // Listen for new notifications - just update local state, Redux is updated in SocketContext
     socket.on('new_notification', (notification) => {
       console.log('🔔 New notification received:', notification);
       setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
     });
 
     // Listen for connection requests
@@ -72,7 +95,6 @@ const NotificationSystem = () => {
         data: request
       };
       setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
     });
 
     // Listen for messages
@@ -88,7 +110,6 @@ const NotificationSystem = () => {
         data: message
       };
       setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
     });
 
     // Listen for video call requests
@@ -104,7 +125,6 @@ const NotificationSystem = () => {
         data: call
       };
       setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
     });
 
     // Listen for verification updates
@@ -120,7 +140,6 @@ const NotificationSystem = () => {
         data: update
       };
       setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
     });
 
     // Listen for payment confirmations
@@ -136,7 +155,6 @@ const NotificationSystem = () => {
         data: payment
       };
       setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
     });
 
     return () => {
@@ -161,8 +179,11 @@ const NotificationSystem = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setNotifications(data.notifications || []);
-        setUnreadCount(data.notifications?.filter(n => !n.read).length || 0);
+        const notifs = data.notifications || [];
+        setNotifications(notifs);
+        dispatch(setNotificationsList(notifs));
+        const unreadTotal = notifs.filter(n => !n.read).length || 0;
+        dispatch(setUnreadNotifications(unreadTotal));
       }
     } catch (error) {
       console.error('Failed to load notifications:', error);
@@ -175,21 +196,34 @@ const NotificationSystem = () => {
     // Mark as read
     markAsRead(notification.id);
     
-    // Handle different notification types
+    // Close menu
+    handleMenuClose();
+    
+    // Handle different notification types - NAVIGATE to appropriate pages
     switch (notification.type) {
       case 'connection_request':
-        // Navigate to connections page or show connection dialog
-        console.log('Handle connection request:', notification.data);
+        navigate('/connections');
         break;
       case 'message':
-        // Navigate to chat or open chat dialog
-        console.log('Handle new message:', notification.data);
+        // Navigate to chat with specific conversation if available
+        if (notification.data?.conversationId) {
+          navigate(`/chat/${notification.data.conversationId}`);
+        } else {
+          navigate('/chat');
+        }
         break;
       case 'video_call':
-        // Handle video call request
-        console.log('Handle video call:', notification.data);
+        // Navigate to video call page
+        navigate('/video-call');
+        break;
+      case 'verification':
+        navigate('/verification');
+        break;
+      case 'payment':
+        navigate('/wallet');
         break;
       default:
+        // For generic notifications, just log
         console.log('Handle notification:', notification);
     }
   };
@@ -209,7 +243,9 @@ const NotificationSystem = () => {
           n.id === notificationId ? { ...n, read: true } : n
         )
       );
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      // Update Redux state
+      dispatch(markNotificationRead(notificationId));
+      dispatch(setUnreadNotifications(Math.max(0, unreadCount - 1)));
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
     }
@@ -226,7 +262,8 @@ const NotificationSystem = () => {
       });
 
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-      setUnreadCount(0);
+      // Update Redux state
+      dispatch(clearUnreadNotifications());
     } catch (error) {
       console.error('Failed to mark all notifications as read:', error);
     }

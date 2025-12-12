@@ -4,7 +4,8 @@ import {
   Routes, 
   Route, 
   Navigate,
-  useLocation
+  useLocation,
+  useParams
 } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { ThemeProvider } from '@mui/material/styles';
@@ -44,12 +45,13 @@ import AdultServiceDetail from './pages/AdultServiceDetail';
 import ProfileFeed from './pages/ProfileFeed';
 import ProfileDetailPage from './pages/ProfileDetailPage';
 import MessagesPage from './pages/MessagesPage';
-import PrivacySettings from './pages/PrivacySettings';
+import PrivacySettings from './pages/PrivacySettingsNew';
 import BookingsPage from './pages/BookingsPage';
 import BookingDetails from './pages/BookingDetails';
 import WalletPage from './pages/WalletPage';
 import MyMoneyPage from './pages/MyMoneyPage';
 import HelpSupportPage from './pages/HelpSupportPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 // Protected Route Component
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -62,6 +64,12 @@ import './styles/global.css';
 
 // Global Call System
 import CallSystem from './components/CallSystem';
+
+// Legacy route redirect component to preserve route params
+const LegacyServiceRedirect = () => {
+  const { id } = useParams();
+  return <Navigate to={`/adult-services/${id}`} replace />;
+};
 
 function App() {
   // Global error handler for unhandled errors
@@ -173,7 +181,7 @@ function AppContent() {
           style={{ 
             position: 'relative', 
             zIndex: 1,
-            paddingTop: isDesktop ? '0' : '80px', // No padding when using sidebar
+            // Padding handled by CSS media queries in global.css
           }}
         >
           <Routes>
@@ -288,6 +296,15 @@ function AppContent() {
                     } />
                     <Route path="/messages" element={<Navigate to="/chat" replace />} />
                     
+                    {/* Notifications Route */}
+                    <Route path="/notifications" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <NotificationsPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    
                     {/* Settings Routes */}
                     <Route path="/settings" element={
                       <ProtectedRoute requireSubscription={false}>
@@ -343,7 +360,7 @@ function AppContent() {
                     
                     {/* Redirects for Legacy Routes */}
                     <Route path="/services" element={<Navigate to="/adult-services" replace />} />
-                    <Route path="/services/:id" element={<Navigate to="/adult-services" replace />} />
+                    <Route path="/services/:id" element={<LegacyServiceRedirect />} />
                     
                     {/* Catch All - Redirect to Home */}
                     <Route path="*" element={<Navigate to="/" replace />} />

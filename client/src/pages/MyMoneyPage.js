@@ -30,10 +30,12 @@ import {
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import useCurrency from '../hooks/useCurrency';
 
 const MyMoneyPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const { symbol, format } = useCurrency();
   
   // Tab state
   const [activeTab, setActiveTab] = useState(0);
@@ -197,7 +199,7 @@ const MyMoneyPage = () => {
   // Add money via Paystack
   const handleAddMoney = async () => {
     if (!addAmount || Number(addAmount) < 100) {
-      alert('Minimum amount is ₦100');
+      alert(`Minimum amount is ${symbol}100`);
       return;
     }
     
@@ -322,7 +324,7 @@ const MyMoneyPage = () => {
         <Box sx={styles.balanceCard}>
           <Typography sx={styles.balanceLabel}>Available Balance</Typography>
           <Typography sx={styles.balanceAmount}>
-            ₦{Number(walletData.balance).toLocaleString()}
+            {symbol}{Number(walletData.balance).toLocaleString()}
           </Typography>
           
           {/* Quick Actions */}
@@ -406,7 +408,7 @@ const MyMoneyPage = () => {
                     />
                   </Box>
                   <Typography sx={styles.escrowAmount}>
-                    ₦{Number(escrow.amount).toLocaleString()}
+                    {symbol}{Number(escrow.amount).toLocaleString()}
                   </Typography>
                   <Typography sx={styles.escrowDate}>
                     {escrow.created_at ? new Date(escrow.created_at).toLocaleDateString() : 'Recently'}
@@ -479,7 +481,7 @@ const MyMoneyPage = () => {
                     </Typography>
                   </Box>
                   <Typography sx={{ ...styles.txAmount, color: escrow.status === 'released' ? '#00ff88' : '#ffa726' }}>
-                    ₦{Number(escrow.amount).toLocaleString()}
+                    {symbol}{Number(escrow.amount).toLocaleString()}
                   </Typography>
                 </Box>
               ))}
@@ -504,7 +506,7 @@ const MyMoneyPage = () => {
                     ...styles.txAmount, 
                     color: tx.type === 'credit' || tx.type === 'income' ? '#00ff88' : '#ff3333' 
                   }}>
-                    {tx.type === 'credit' || tx.type === 'income' ? '+' : '-'}₦{Number(tx.amount).toLocaleString()}
+                    {tx.type === 'credit' || tx.type === 'income' ? '+' : '-'}{symbol}{Number(tx.amount).toLocaleString()}
                   </Typography>
                 </Box>
               ))}
@@ -526,7 +528,7 @@ const MyMoneyPage = () => {
           </Typography>
           <TextField
             fullWidth
-            label="Amount (₦)"
+            label={`Amount (${symbol})`}
             type="number"
             value={addAmount}
             onChange={(e) => setAddAmount(e.target.value)}
@@ -537,7 +539,7 @@ const MyMoneyPage = () => {
             {[1000, 5000, 10000, 20000].map((amt) => (
               <Chip
                 key={amt}
-                label={`₦${amt.toLocaleString()}`}
+                label={`${symbol}${amt.toLocaleString()}`}
                 onClick={() => setAddAmount(amt.toString())}
                 sx={{ 
                   bgcolor: addAmount === amt.toString() ? '#00f2ea' : 'rgba(255,255,255,0.1)',
@@ -571,11 +573,11 @@ const MyMoneyPage = () => {
         <DialogTitle sx={styles.dialogTitle}>Withdraw</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Available: ₦{Number(walletData.balance).toLocaleString()}
+            Available: {symbol}{Number(walletData.balance).toLocaleString()}
           </Typography>
           <TextField
             fullWidth
-            label="Amount (₦)"
+            label={`Amount (${symbol})`}
             type="number"
             value={withdrawAmount}
             onChange={(e) => setWithdrawAmount(e.target.value)}

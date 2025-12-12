@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { authMiddleware } = require('./auth');
 const { query } = require('../config/database');
 const UserConnectionManager = require('../services/UserConnectionManager');
+const NotificationService = require('../services/NotificationService');
 
 const router = express.Router();
 const connectionManager = new UserConnectionManager();
@@ -76,16 +77,15 @@ router.post('/contact-request', authMiddleware, [
         timestamp: new Date().toISOString()
       });
       
-      // Also emit generic new_notification event
-      req.io.to(`user_${toUserId}`).emit('new_notification', {
-        id: Date.now(),
-        type: 'connection_request',
-        title: 'New Connection Request',
-        message: `${req.user.username || 'Someone'} wants to connect with you`,
-        timestamp: new Date().toISOString(),
-        read: false,
-        data: { connectionId: result.connectionId, fromUserId, message }
-      });
+      // Save notification to database AND emit via socket
+      await NotificationService.createAndEmit(
+        req.io,
+        toUserId,
+        'connection_request',
+        'New Connection Request',
+        `${req.user.username || 'Someone'} wants to connect with you`,
+        { connectionId: result.connectionId, fromUserId, fromUsername: req.user.username, message }
+      );
     }
 
     res.json(result);
@@ -212,21 +212,21 @@ router.post('/service-inquiry', authMiddleware, [
 
     // Emit socket event for real-time notification
     if (req.io && result.success) {
-      req.io.to(`user_${toUserId}`).emit('new_notification', {
-        id: Date.now(),
-        type: 'service_inquiry',
-        title: 'New Service Inquiry',
-        message: `You have a new inquiry about your service`,
-        timestamp: new Date().toISOString(),
-        read: false,
-        data: {
+      // Save notification to database AND emit via socket
+      await NotificationService.createAndEmit(
+        req.io,
+        toUserId,
+        'service_inquiry',
+        'New Service Inquiry',
+        `You have a new inquiry about your service`,
+        {
           fromUserId,
           fromUsername: req.user.username,
           serviceId,
           conversationId: result.conversationId,
           serviceTitle: result.serviceTitle
         }
-      });
+      );
     }
 
     res.json(result);

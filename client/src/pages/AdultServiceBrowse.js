@@ -31,6 +31,7 @@ import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
 import { getDefaultImage } from '../config/images';
 import { useAuth } from '../contexts/AuthContext';
+import useCurrency from '../hooks/useCurrency';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -64,6 +65,7 @@ const AdultServiceBrowse = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { isAuthenticated, user: currentUser } = useAuth();
+  const { symbol } = useCurrency();
 
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -76,8 +78,8 @@ const AdultServiceBrowse = () => {
   const headers = useMemo(() => ({ 'Content-Type': 'application/json' }), []);
 
   const formatPrice = (price) => {
-    if (price === undefined || price === null) return '$--';
-    return `$${Number(price).toLocaleString()}`;
+    if (price === undefined || price === null) return `${symbol}--`;
+    return `${symbol}${Number(price).toLocaleString()}`;
   };
 
   useEffect(() => {

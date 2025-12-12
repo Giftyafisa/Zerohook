@@ -2,6 +2,7 @@ const express = require('express');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
+const NotificationService = require('../services/NotificationService');
 
 /**
  * @route   POST /api/payments/create-payment-intent
@@ -684,6 +685,19 @@ router.post('/paystack-webhook', async (req, res) => {
             timestamp: new Date().toISOString()
           });
           console.log(`📡 Webhook payment notification sent to user: ${userId}`);
+          
+          // Save notification to database
+          try {
+            await NotificationService.createAndEmit(req.io, {
+              userId,
+              type: 'payment',
+              title: 'Subscription Activated',
+              message: 'Your subscription has been successfully activated!',
+              data: { reference: data.reference, subscriptionActivated: true }
+            });
+          } catch (notifErr) {
+            console.error('Failed to save payment notification:', notifErr);
+          }
         }
         
         console.log(`✅ Subscription activated for user: ${userId}`);
@@ -739,6 +753,19 @@ router.post('/coinbase-webhook', async (req, res) => {
           timestamp: new Date().toISOString()
         });
         console.log(`📡 Crypto payment notification sent to user: ${userId}`);
+        
+        // Save notification to database
+        try {
+          await NotificationService.createAndEmit(req.io, {
+            userId,
+            type: 'payment',
+            title: 'Crypto Payment Confirmed',
+            message: `Your crypto payment of ${transactionUpdate.rows[0].amount} ${transactionUpdate.rows[0].currency} has been confirmed!`,
+            data: { reference: data.id, amount: transactionUpdate.rows[0].amount, currency: transactionUpdate.rows[0].currency }
+          });
+        } catch (notifErr) {
+          console.error('Failed to save crypto payment notification:', notifErr);
+        }
       }
       
       console.log(`✅ Coinbase payment confirmed: ${data.id}`);

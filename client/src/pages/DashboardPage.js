@@ -21,10 +21,12 @@ import {
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import useCurrency from '../hooks/useCurrency';
 
 const DashboardPage = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
+  const { format, symbol } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     walletBalance: 0,
@@ -138,12 +140,12 @@ const DashboardPage = () => {
         <Box sx={styles.balanceCard}>
           <Typography sx={styles.balanceLabel}>Available Balance</Typography>
           <Typography sx={styles.balanceAmount}>
-            ${stats.walletBalance.toFixed(2)}
+            {format(stats.walletBalance)}
           </Typography>
           <Box sx={styles.escrowRow}>
             <Box sx={styles.escrowItem}>
               <Typography sx={styles.escrowLabel}>In Escrow</Typography>
-              <Typography sx={styles.escrowValue}>${stats.escrowHeld.toFixed(2)}</Typography>
+              <Typography sx={styles.escrowValue}>{format(stats.escrowHeld)}</Typography>
             </Box>
             <Box sx={styles.divider} />
             <Box sx={styles.escrowItem}>

@@ -9,6 +9,7 @@ import {
   ArrowBack as BackIcon
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../config/constants';
+import useCurrency from '../hooks/useCurrency';
 
 const devMock = {
   id: 'mock-1',
@@ -33,6 +34,7 @@ const statusColors = {
 const BookingDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { format } = useCurrency();
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -122,7 +124,7 @@ const BookingDetails = () => {
         </Box>
 
         <Box sx={styles.section}>
-          <Typography sx={styles.price}>${Number(booking.price || 0).toFixed(2)}</Typography>
+          <Typography sx={styles.price}>{format(Number(booking.price || 0))}</Typography>
           {booking.notes && <Typography sx={styles.notes}>{booking.notes}</Typography>}
         </Box>
 

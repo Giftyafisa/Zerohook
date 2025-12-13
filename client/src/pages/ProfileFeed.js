@@ -400,9 +400,9 @@ const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
     <Box 
       sx={{ 
         display: 'flex', 
-        gap: 1, 
+        gap: { xs: 0.5, sm: 1 }, 
         overflowX: 'auto',
-        py: 1,
+        py: { xs: 0.5, sm: 1 },
         px: 0.5,
         '&::-webkit-scrollbar': { display: 'none' },
         scrollbarWidth: 'none',
@@ -414,11 +414,13 @@ const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
           icon={filter.icon}
           label={filter.label}
           onClick={() => onFilterChange(filter.id)}
+          size="small"
           sx={{
-            borderRadius: '20px',
+            borderRadius: '16px',
             fontWeight: 600,
-            fontSize: '0.85rem',
-            px: 1,
+            fontSize: { xs: '0.75rem', sm: '0.85rem' },
+            px: { xs: 0.5, sm: 1 },
+            height: { xs: 28, sm: 32 },
             transition: 'all 0.2s ease',
             background: activeFilter === filter.id 
               ? 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)'
@@ -435,6 +437,7 @@ const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
             },
             '& .MuiChip-icon': {
               color: activeFilter === filter.id ? '#000' : '#00f2ea',
+              fontSize: { xs: '14px', sm: '18px' },
             }
           }}
         />
@@ -1430,13 +1433,13 @@ const ProfileFeed = () => {
       sx={{
         minHeight: '100vh',
         background: 'linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
-        pt: 2,
-        pb: 8,
+        pt: { xs: 0.5, sm: 1, md: 2 },
+        pb: { xs: 2, sm: 4, md: 8 },
       }}
     >
       <Container maxWidth="xl">
         {/* Header */}
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: { xs: 1.5, sm: 2, md: 3 } }}>
           <Typography
             variant={isMobile ? 'h5' : 'h4'}
             sx={{
@@ -1515,7 +1518,7 @@ const ProfileFeed = () => {
         </Box>
 
         {/* Search Bar */}
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ mb: { xs: 1, sm: 1.5, md: 2 } }}>
           <TextField
             fullWidth
             placeholder="Search by name, location, or interests..."

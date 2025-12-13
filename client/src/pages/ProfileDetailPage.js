@@ -262,13 +262,13 @@ const ProfileDetailPage = () => {
   const profileData = profile.profile_data || {};
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
+    <Container maxWidth="lg" sx={{ py: { xs: 0.5, sm: 1, md: 4 }, pt: { xs: 0, sm: 0.5, md: 4 } }}>
       {/* Back Button */}
       <Button
         variant="text"
         onClick={() => navigate('/profiles')}
         startIcon={<ArrowBack />}
-        sx={{ mb: 3, color: 'text.secondary' }}
+        sx={{ mb: { xs: 0.5, sm: 1, md: 3 }, color: 'text.secondary', minHeight: 36 }}
       >
         Back
       </Button>

@@ -27,6 +27,7 @@ import {
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsAuthenticated, selectIsSubscribed, logout } from '../../store/slices/authSlice';
 import { selectUnreadMessages, selectUnreadNotifications } from '../../store/slices/uiSlice';
+import tokens from '../../theme/tokens';
 
 const glowPulse = keyframes`
   0%, 100% { box-shadow: 0 0 15px rgba(0, 242, 234, 0.3); }
@@ -39,20 +40,20 @@ const GlassSidebar = styled(Box)({
   position: 'fixed',
   left: 0,
   top: 0,
-  background: 'rgba(15, 15, 19, 0.95)',
-  backdropFilter: 'blur(20px)',
-  borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+  background: `${tokens.colors.background.primary}f2`,
+  backdropFilter: tokens.backdropBlur.md,
+  borderRight: `1px solid ${tokens.colors.border.primary}`,
   display: 'flex',
   flexDirection: 'column',
-  padding: '24px 16px',
-  zIndex: 1200,
+  padding: `${tokens.spacing.xl}px ${tokens.spacing.lg}px`,
+  zIndex: tokens.zIndex.modal,
   overflowY: 'auto',
   
   '&::-webkit-scrollbar': {
     width: '4px',
   },
   '&::-webkit-scrollbar-thumb': {
-    background: 'rgba(0, 242, 234, 0.3)',
+    background: tokens.colors.border.accent,
     borderRadius: '4px',
   },
 });
@@ -62,37 +63,38 @@ const NavItem = styled(Box, {
 })(({ active }) => ({
   display: 'flex',
   alignItems: 'center',
-  gap: '14px',
-  padding: '14px 18px',
-  borderRadius: '14px',
+  gap: `${tokens.spacing.sm}px`,
+  padding: `${tokens.spacing.sm}px ${tokens.spacing.lg}px`,
+  minHeight: `${tokens.touchTarget.min}px`,
+  borderRadius: `${tokens.borderRadius.md}px`,
   cursor: 'pointer',
-  transition: 'all 0.3s ease',
-  background: active ? 'rgba(0, 242, 234, 0.12)' : 'transparent',
-  border: active ? '1px solid rgba(0, 242, 234, 0.3)' : '1px solid transparent',
-  marginBottom: '4px',
+  transition: tokens.transition.slow,
+  background: active ? `${tokens.colors.primary.main}1f` : 'transparent',
+  border: active ? `1px solid ${tokens.colors.border.accent}` : '1px solid transparent',
+  marginBottom: `${tokens.spacing.xs}px`,
   
   '& .nav-icon': {
-    color: active ? '#00f2ea' : 'rgba(255, 255, 255, 0.6)',
+    color: active ? tokens.colors.primary.main : tokens.colors.text.secondary,
     fontSize: '22px',
-    transition: 'all 0.3s ease',
+    transition: tokens.transition.slow,
   },
   
   '& .nav-label': {
-    color: active ? '#00f2ea' : 'rgba(255, 255, 255, 0.8)',
-    fontWeight: active ? 600 : 500,
-    fontSize: '15px',
+    color: active ? tokens.colors.primary.main : tokens.colors.text.primary,
+    fontWeight: active ? tokens.fontWeight.semibold : tokens.fontWeight.medium,
+    fontSize: `${tokens.fontSize.base}px`,
     fontFamily: '"Outfit", sans-serif',
-    transition: 'all 0.3s ease',
+    transition: tokens.transition.slow,
   },
   
   '&:hover': {
-    background: active ? 'rgba(0, 242, 234, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+    background: active ? `${tokens.colors.primary.main}26` : tokens.colors.overlay.light,
     
     '& .nav-icon': {
-      color: '#00f2ea',
+      color: tokens.colors.primary.main,
     },
     '& .nav-label': {
-      color: '#ffffff',
+      color: tokens.colors.text.primary,
     },
   },
 }));
@@ -116,11 +118,11 @@ const LogoText = styled(Typography)({
 });
 
 const UserProfileCard = styled(Box)({
-  background: 'rgba(255, 255, 255, 0.03)',
-  borderRadius: '16px',
-  padding: '16px',
-  border: '1px solid rgba(255, 255, 255, 0.08)',
-  marginBottom: '24px',
+  background: tokens.colors.overlay.light,
+  borderRadius: `${tokens.borderRadius.lg}px`,
+  padding: `${tokens.spacing.lg}px`,
+  border: `1px solid ${tokens.colors.border.primary}`,
+  marginBottom: `${tokens.spacing.xl}px`,
 });
 
 const PremiumBadge = styled(Chip)({
@@ -158,30 +160,31 @@ const CreateServiceButton = styled(Box)({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: '10px',
-  padding: '14px 18px',
-  background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
-  borderRadius: '14px',
+  gap: `${tokens.spacing.sm}px`,
+  padding: `${tokens.spacing.md}px ${tokens.spacing.lg}px`,
+  minHeight: `${tokens.touchTarget.min}px`,
+  background: tokens.gradients.primary,
+  borderRadius: `${tokens.borderRadius.md}px`,
   cursor: 'pointer',
-  transition: 'all 0.3s ease',
-  marginTop: '16px',
+  transition: tokens.transition.slow,
+  marginTop: `${tokens.spacing.lg}px`,
   animation: `${glowPulse} 3s ease-in-out infinite`,
   
   '& .MuiSvgIcon-root': {
-    color: '#0f0f13',
+    color: tokens.colors.background.primary,
     fontSize: '20px',
   },
   
   '& .btn-label': {
-    color: '#0f0f13',
-    fontWeight: 700,
-    fontSize: '14px',
+    color: tokens.colors.background.primary,
+    fontWeight: tokens.fontWeight.bold,
+    fontSize: `${tokens.fontSize.sm}px`,
     fontFamily: '"Outfit", sans-serif',
   },
   
   '&:hover': {
     transform: 'translateY(-2px)',
-    boxShadow: '0 8px 25px rgba(0, 242, 234, 0.4)',
+    boxShadow: tokens.shadows.glow.primary,
   },
   
   '&:active': {
@@ -392,11 +395,18 @@ const DesktopSidebar = () => {
           <Divider sx={{ my: 2, borderColor: 'rgba(255, 255, 255, 0.08)' }} />
           
           {/* Logout */}
-          <NavItem onClick={handleLogout}>
+          <NavItem 
+            onClick={handleLogout}
+            sx={{
+              '&:hover': {
+                background: 'rgba(255, 0, 85, 0.10)',
+              }
+            }}
+          >
             <Box className="nav-icon" component="span" sx={{ color: '#ff0055 !important' }}>
               <ExitToApp />
             </Box>
-            <Typography className="nav-label" sx={{ color: '#ff0055 !important' }}>
+            <Typography className="nav-label" sx={{ color: '#ff0055 !important', fontWeight: 600 }}>
               Log Out
             </Typography>
           </NavItem>

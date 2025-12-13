@@ -1,74 +1,90 @@
 import { createTheme } from '@mui/material/styles';
+import tokens from './tokens';
 
 export const theme = createTheme({
   palette: {
     mode: 'dark',
     primary: {
-      main: '#00f2ea', // Neon Cyan
-      dark: '#00c5be',
-      light: '#33f4ed',
-      contrastText: '#0f0f13',
+      main: tokens.colors.primary.main,
+      dark: tokens.colors.primary.dark,
+      light: tokens.colors.primary.light,
+      contrastText: tokens.colors.background.primary,
     },
     secondary: {
-      main: '#ff0055', // Neon Pink
-      dark: '#cc0044',
-      light: '#ff3377',
-      contrastText: '#FFFFFF',
+      main: tokens.colors.secondary.main,
+      dark: tokens.colors.secondary.dark,
+      light: tokens.colors.secondary.light,
+      contrastText: tokens.colors.text.primary,
     },
     background: {
-      default: '#0f0f13',
-      paper: '#1a1a1f',
+      default: tokens.colors.background.primary,
+      paper: tokens.colors.background.secondary,
     },
     text: {
-      primary: '#FFFFFF',
-      secondary: 'rgba(255, 255, 255, 0.7)',
+      primary: tokens.colors.text.primary,
+      secondary: tokens.colors.text.secondary,
+      disabled: tokens.colors.text.disabled,
     },
     error: {
-      main: '#ff0055',
+      main: tokens.colors.error,
     },
     success: {
-      main: '#00f2ea',
+      main: tokens.colors.success,
     },
     warning: {
-      main: '#ffaa00',
+      main: tokens.colors.warning,
     },
     info: {
-      main: '#00aaff',
+      main: tokens.colors.info,
     },
+    divider: tokens.colors.border.primary,
   },
   typography: {
     fontFamily: '"Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Inter", "Helvetica Neue", "Arial", sans-serif',
+    fontSize: tokens.fontSize.base,
     h1: {
-      fontSize: '3rem',
-      fontWeight: 800,
+      fontSize: `${tokens.fontSize['3xl']}px`,
+      fontWeight: tokens.fontWeight.extrabold,
+      lineHeight: 1.2,
     },
     h2: {
-      fontSize: '2.25rem',
-      fontWeight: 700,
+      fontSize: `${tokens.fontSize['2xl']}px`,
+      fontWeight: tokens.fontWeight.bold,
+      lineHeight: 1.3,
     },
     h3: {
-      fontSize: '1.75rem',
-      fontWeight: 700,
+      fontSize: `${tokens.fontSize.xl}px`,
+      fontWeight: tokens.fontWeight.bold,
+      lineHeight: 1.4,
     },
     h4: {
-      fontSize: '1.5rem',
-      fontWeight: 600,
+      fontSize: `${tokens.fontSize.lg}px`,
+      fontWeight: tokens.fontWeight.semibold,
+      lineHeight: 1.5,
     },
     body1: {
-      fontSize: '1rem',
+      fontSize: `${tokens.fontSize.base}px`,
       lineHeight: 1.7,
+      fontWeight: tokens.fontWeight.normal,
     },
     body2: {
-      fontSize: '0.875rem',
+      fontSize: `${tokens.fontSize.sm}px`,
       lineHeight: 1.7,
+      fontWeight: tokens.fontWeight.normal,
+    },
+    caption: {
+      fontSize: `${tokens.fontSize.xs}px`,
+      lineHeight: 1.5,
+      fontWeight: tokens.fontWeight.medium,
     },
     button: {
       textTransform: 'none',
-      fontWeight: 600,
+      fontWeight: tokens.fontWeight.semibold,
+      fontSize: `${tokens.fontSize.base}px`,
     },
   },
   shape: {
-    borderRadius: 12,
+    borderRadius: tokens.borderRadius.md,
   },
   components: {
     MuiCssBaseline: {
@@ -82,10 +98,12 @@ export const theme = createTheme({
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          padding: '12px 24px',
-          fontWeight: 600,
-          fontSize: '1rem',
+          borderRadius: `${tokens.borderRadius.md}px`,
+          padding: `${tokens.spacing.md}px ${tokens.spacing.xl}px`,
+          fontWeight: tokens.fontWeight.semibold,
+          fontSize: `${tokens.fontSize.base}px`,
+          minHeight: `${tokens.touchTarget.min}px`,
+          transition: tokens.transition.base,
         },
         contained: {
           '&:hover': {
@@ -108,14 +126,14 @@ export const theme = createTheme({
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 16,
-          background: 'rgba(255, 255, 255, 0.05)',
-          backdropFilter: 'blur(12px)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: `${tokens.borderRadius.lg}px`,
+          background: tokens.colors.overlay.light,
+          backdropFilter: tokens.backdropBlur.sm,
+          border: `1px solid ${tokens.colors.border.primary}`,
           '&:hover': {
             transform: 'translateY(-4px)',
           },
-          transition: 'all 0.3s ease-in-out',
+          transition: tokens.transition.slow,
         },
       },
     },
@@ -123,8 +141,17 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           '& .MuiOutlinedInput-root': {
-            borderRadius: 8,
+            borderRadius: `${tokens.borderRadius.sm}px`,
+            minHeight: `${tokens.touchTarget.min}px`,
           },
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          minWidth: `${tokens.touchTarget.min}px`,
+          minHeight: `${tokens.touchTarget.min}px`,
         },
       },
     },
@@ -138,7 +165,8 @@ export const theme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: `${tokens.borderRadius.sm}px`,
+          fontWeight: tokens.fontWeight.semibold,
         },
       },
     },

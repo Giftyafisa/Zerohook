@@ -726,25 +726,25 @@ const ProfileBrowse = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: isMobile ? 2 : 4 }}>
+    <Container maxWidth="xl" sx={{ py: isMobile ? 0.5 : 3, pt: isMobile ? 0 : 3 }}>
       {/* Header */}
-      <Box mb={isMobile ? 2 : 4}>
+      <Box mb={isMobile ? 1 : 3}>
         <Typography 
-          variant={isMobile ? "h4" : "h3"} 
+          variant={isMobile ? "h6" : "h4"} 
           component="h1" 
           gutterBottom 
           align="center" 
-          sx={{ fontWeight: 'bold' }}
+          sx={{ fontWeight: 'bold', mb: isMobile ? 0.25 : 1 }}
         >
-          Browse Profiles 🔥
+          Discover
         </Typography>
         <Typography 
-          variant={isMobile ? "body1" : "h6"} 
+          variant="body2" 
           color="text.secondary" 
           align="center"
-          sx={{ px: isMobile ? 1 : 0 }}
+          sx={{ px: isMobile ? 1 : 0, display: isMobile ? 'none' : 'block' }}
         >
-          Discover verified adult service providers in your area with location-based matching
+          Find verified profiles
         </Typography>
         
         {/* Enhanced Error Display */}
@@ -817,21 +817,39 @@ const ProfileBrowse = () => {
         )}
         
         {/* Location Status */}
-        <Box display="flex" justifyContent="center" alignItems="center" mt={2} gap={2}>
+        <Box display="flex" justifyContent="center" alignItems="center" mt={isMobile ? 1 : 2} gap={1}>
           {userLocation ? (
-            <Alert severity="success" sx={{ display: 'flex', alignItems: 'center' }}>
+            <Alert 
+              severity="success" 
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                py: isMobile ? 0.25 : 1,
+                px: isMobile ? 1 : 2,
+                '& .MuiAlert-message': { fontSize: isMobile ? '0.75rem' : 'inherit' }
+              }}
+            >
               📍 {userLocation.nearestCity.name}, {userLocation.nearestCity.country} 
-              ({userLocation.distance.toFixed(1)}km away)
+              ({userLocation.distance.toFixed(1)}km)
             </Alert>
           ) : (
-            <Alert severity="info" sx={{ display: 'flex', alignItems: 'center' }}>
-              📍 Enable location to see nearby providers
+            <Alert 
+              severity="info" 
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                py: isMobile ? 0.25 : 1,
+                px: isMobile ? 1 : 2,
+                '& .MuiAlert-message': { fontSize: isMobile ? '0.75rem' : 'inherit' }
+              }}
+            >
+              📍 Enable location
               <Button 
                 size="small" 
                 onClick={handleLocationPermission}
-                sx={{ ml: 2 }}
+                sx={{ ml: 1, minWidth: 'auto', px: 1, fontSize: '0.7rem' }}
               >
-                Enable Location
+                Enable
               </Button>
             </Alert>
           )}
@@ -868,7 +886,8 @@ const ProfileBrowse = () => {
           >
             <TextField
               fullWidth
-              placeholder="Search profiles by name, bio, or occupation..."
+              size={isMobile ? 'small' : 'medium'}
+              placeholder={isMobile ? 'Search profiles...' : 'Search profiles by name, bio, or occupation...'}
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -882,27 +901,39 @@ const ProfileBrowse = () => {
                 }, 500);
               }}
               InputProps={{
-                startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
+                startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />,
+                sx: { 
+                  height: isMobile ? 40 : 'auto',
+                  '& input': { py: isMobile ? 0.75 : 1.5 }
+                }
               }}
             />
             <Button
-              variant="outlined"
+              variant="contained"
+              color="primary"
               startIcon={<FilterList />}
               onClick={() => setShowFilters(!showFilters)}
               fullWidth={isMobile}
+              sx={{ 
+                minHeight: isMobile ? 40 : 48,
+                fontWeight: 600,
+                bgcolor: showFilters ? 'primary.dark' : 'primary.main',
+                boxShadow: showFilters ? 4 : 2
+              }}
             >
-              {showFilters ? 'Hide Filters' : 'Show Filters'}
+              {showFilters ? 'Hide' : 'Filters'}
             </Button>
           </Box>
           
           <Box 
             display="flex" 
             gap={1} 
-            flexDirection={isMobile ? 'column' : 'row'}
+            flexDirection="row"
+            alignItems="center"
             width={isMobile ? '100%' : 'auto'}
           >
-            <FormControl size="small" sx={{ minWidth: isMobile ? '100%' : 120 }}>
-              <InputLabel>Sort By</InputLabel>
+            <FormControl size="small" sx={{ minWidth: isMobile ? 90 : 120, flex: isMobile ? 1 : 'none' }}>
+              <InputLabel sx={{ fontSize: isMobile ? '0.8rem' : 'inherit' }}>Sort</InputLabel>
               <Select
                 value={sortBy}
                 onChange={(e) => {
@@ -910,54 +941,65 @@ const ProfileBrowse = () => {
                   // Refetch profiles when sorting changes
                   fetchProfiles(1, filters);
                 }}
-                label="Sort By"
+                label="Sort"
+                sx={{ height: isMobile ? 36 : 40 }}
               >
-                <MenuItem value="distance">Distance</MenuItem>
-                <MenuItem value="trustScore">Trust Score</MenuItem>
-                <MenuItem value="verificationTier">Verification</MenuItem>
-                <MenuItem value="recent">Recent</MenuItem>
-                <MenuItem value="price">Price (Low to High)</MenuItem>
-                <MenuItem value="priceHigh">Price (High to Low)</MenuItem>
-                <MenuItem value="age">Age</MenuItem>
-                <MenuItem value="popularity">Popularity</MenuItem>
+                <MenuItem value="distance">📍 Distance</MenuItem>
+                <MenuItem value="trustScore">⭐ Trust</MenuItem>
+                <MenuItem value="verificationTier">✓ Verified</MenuItem>
+                <MenuItem value="recent">🕐 Recent</MenuItem>
+                <MenuItem value="price">💰 Price ↑</MenuItem>
+                <MenuItem value="priceHigh">💰 Price ↓</MenuItem>
+                <MenuItem value="age">👤 Age</MenuItem>
+                <MenuItem value="popularity">🔥 Popular</MenuItem>
               </Select>
             </FormControl>
             
-            <Box display="flex" gap={1} width={isMobile ? '100%' : 'auto'}>
-              <Button
-                variant={viewMode === 'grid' ? 'contained' : 'outlined'}
+            <Box display="flex" gap={0.5}>
+              <IconButton
+                color={viewMode === 'grid' ? 'primary' : 'default'}
                 onClick={() => setViewMode('grid')}
-                startIcon={<ViewModule />}
-                fullWidth={isMobile}
+                sx={{ 
+                  bgcolor: viewMode === 'grid' ? 'primary.light' : 'transparent',
+                  borderRadius: 1,
+                  p: isMobile ? 0.75 : 1
+                }}
               >
-                Grid
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'contained' : 'outlined'}
+                <ViewModule fontSize={isMobile ? 'small' : 'medium'} />
+              </IconButton>
+              <IconButton
+                color={viewMode === 'list' ? 'primary' : 'default'}
                 onClick={() => setViewMode('list')}
-                startIcon={<ViewList />}
-                fullWidth={isMobile}
+                sx={{ 
+                  bgcolor: viewMode === 'list' ? 'primary.light' : 'transparent',
+                  borderRadius: 1,
+                  p: isMobile ? 0.75 : 1
+                }}
               >
-                List
-              </Button>
+                <ViewList fontSize={isMobile ? 'small' : 'medium'} />
+              </IconButton>
             </Box>
           </Box>
         </Box>
 
-        {/* Quick Filter Presets */}
-        <Box mb={2}>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Quick Filters:
-          </Typography>
+        {/* Quick Filter Presets - Enhanced Visibility */}
+        <Box mb={1}>
           <Box 
             display="flex" 
-            gap={isMobile ? 0.5 : 1} 
-            flexWrap="wrap"
-            flexDirection={isMobile ? 'column' : 'row'}
+            gap={1} 
+            flexWrap="nowrap"
+            sx={{ 
+              overflowX: 'auto', 
+              pb: 1,
+              mx: -1,
+              px: 1,
+              '&::-webkit-scrollbar': { display: 'none' },
+              scrollbarWidth: 'none'
+            }}
           >
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               onClick={() => {
                 const newFilters = {
                   ...filters,
@@ -969,30 +1011,59 @@ const ProfileBrowse = () => {
                 setPage(1);
                 fetchProfiles(1, newFilters);
               }}
-              fullWidth={isMobile}
+              sx={{ 
+                minWidth: 'auto', 
+                px: 1.5, 
+                py: 0.75, 
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                bgcolor: 'rgba(0, 242, 234, 0.15)',
+                color: '#00f2ea',
+                border: '1.5px solid rgba(0, 242, 234, 0.4)',
+                borderRadius: '20px',
+                whiteSpace: 'nowrap',
+                '&:hover': {
+                  bgcolor: 'rgba(0, 242, 234, 0.25)',
+                  border: '1.5px solid rgba(0, 242, 234, 0.6)'
+                }
+              }}
             >
-              🇬🇭 Ghana Only
+              🔥 Featured
             </Button>
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               onClick={() => {
                 const newFilters = {
                   ...filters,
-                  country: 'nigeria',
-                  city: '',
-                  distance: 50
+                  distance: 25
                 };
                 setFilters(newFilters);
                 setPage(1);
                 fetchProfiles(1, newFilters);
               }}
+              sx={{ 
+                minWidth: 'auto', 
+                px: 1.5, 
+                py: 0.75, 
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                bgcolor: 'rgba(0, 242, 234, 0.15)',
+                color: '#00f2ea',
+                border: '1.5px solid rgba(0, 242, 234, 0.4)',
+                borderRadius: '20px',
+                whiteSpace: 'nowrap',
+                '&:hover': {
+                  bgcolor: 'rgba(0, 242, 234, 0.25)',
+                  border: '1.5px solid rgba(0, 242, 234, 0.6)'
+                }
+              }}
             >
-              🇳🇬 Nigeria Only
+              📍 Nearby
             </Button>
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               onClick={() => {
                 const newFilters = {
                   ...filters,
@@ -1003,12 +1074,59 @@ const ProfileBrowse = () => {
                 setPage(1);
                 fetchProfiles(1, newFilters);
               }}
+              sx={{ 
+                minWidth: 'auto', 
+                px: 1.5, 
+                py: 0.75, 
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                bgcolor: 'rgba(0, 242, 234, 0.15)',
+                color: '#00f2ea',
+                border: '1.5px solid rgba(0, 242, 234, 0.4)',
+                borderRadius: '20px',
+                whiteSpace: 'nowrap',
+                '&:hover': {
+                  bgcolor: 'rgba(0, 242, 234, 0.25)',
+                  border: '1.5px solid rgba(0, 242, 234, 0.6)'
+                }
+              }}
             >
-              ⭐ Elite Only
+              ✓ Verified
             </Button>
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
+              onClick={() => {
+                const newFilters = {
+                  ...filters,
+                  online: true
+                };
+                setFilters(newFilters);
+                setPage(1);
+                fetchProfiles(1, newFilters);
+              }}
+              sx={{ 
+                minWidth: 'auto', 
+                px: 1.5, 
+                py: 0.75, 
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                bgcolor: 'rgba(0, 255, 136, 0.15)',
+                color: '#00ff88',
+                border: '1.5px solid rgba(0, 255, 136, 0.4)',
+                borderRadius: '20px',
+                whiteSpace: 'nowrap',
+                '&:hover': {
+                  bgcolor: 'rgba(0, 255, 136, 0.25)',
+                  border: '1.5px solid rgba(0, 255, 136, 0.6)'
+                }
+              }}
+            >
+              🟢 Online
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
               onClick={() => {
                 const newFilters = {
                   ...filters,
@@ -1019,28 +1137,28 @@ const ProfileBrowse = () => {
                 setPage(1);
                 fetchProfiles(1, newFilters);
               }}
-            >
-              💰 Budget Friendly
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => {
-                const newFilters = {
-                  ...filters,
-                  availability: 'Weekends',
-                  distance: 100
-                };
-                setFilters(newFilters);
-                setPage(1);
-                fetchProfiles(1, newFilters);
+              sx={{ 
+                minWidth: 'auto', 
+                px: 1.5, 
+                py: 0.75, 
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                bgcolor: 'rgba(255, 215, 0, 0.15)',
+                color: '#ffd700',
+                border: '1.5px solid rgba(255, 215, 0, 0.4)',
+                borderRadius: '20px',
+                whiteSpace: 'nowrap',
+                '&:hover': {
+                  bgcolor: 'rgba(255, 215, 0, 0.25)',
+                  border: '1.5px solid rgba(255, 215, 0, 0.6)'
+                }
               }}
             >
-              🗓️ Weekend Available
+              ⭐ Top Rated
             </Button>
             <Button
               size="small"
-              variant="outlined"
+              variant="text"
               onClick={() => {
                 const newFilters = {
                   country: 'all',
@@ -1059,8 +1177,18 @@ const ProfileBrowse = () => {
                 setPage(1);
                 fetchProfiles(1, newFilters);
               }}
+              sx={{ 
+                minWidth: 'auto', 
+                px: 1.5, 
+                py: 0.75, 
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                color: 'rgba(255, 255, 255, 0.6)',
+                borderRadius: '20px',
+                whiteSpace: 'nowrap'
+              }}
             >
-              🔄 Clear All
+              ✕ Clear
             </Button>
           </Box>
         </Box>

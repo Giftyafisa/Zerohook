@@ -22,21 +22,22 @@ import {
   setUnreadMessages 
 } from '../../store/slices/uiSlice';
 import { API_BASE_URL } from '../../config/constants';
+import tokens from '../../theme/tokens';
 
 const BottomNavContainer = styled(Box)({
   position: 'fixed',
   bottom: 0,
   left: 0,
   right: 0,
-  background: 'rgba(15, 15, 19, 0.95)',
-  backdropFilter: 'blur(20px)',
-  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+  height: '56px',
+  background: `${tokens.colors.background.primary}f2`,
+  backdropFilter: tokens.backdropBlur.md,
+  borderTop: `1px solid ${tokens.colors.border.primary}`,
   display: 'flex',
   justifyContent: 'space-around',
   alignItems: 'center',
-  padding: '8px 0',
-  paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
-  zIndex: 1200,
+  paddingBottom: 'env(safe-area-inset-bottom)',
+  zIndex: tokens.zIndex.modal,
 });
 
 const NavItem = styled(Box, {
@@ -46,33 +47,34 @@ const NavItem = styled(Box, {
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '8px 16px',
-  borderRadius: '12px',
+  padding: `${tokens.spacing.sm}px ${tokens.spacing.lg}px`,
+  borderRadius: `${tokens.borderRadius.md}px`,
   cursor: 'pointer',
-  transition: 'all 0.3s ease',
+  transition: tokens.transition.slow,
   minWidth: '60px',
+  minHeight: `${tokens.touchTarget.min}px`,
   position: 'relative',
   
   '& .nav-icon': {
-    color: active ? '#00f2ea' : 'rgba(255, 255, 255, 0.5)',
+    color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
     fontSize: '24px',
-    transition: 'all 0.3s ease',
+    transition: tokens.transition.slow,
   },
   
   '& .nav-label': {
-    color: active ? '#00f2ea' : 'rgba(255, 255, 255, 0.5)',
-    fontSize: '11px',
-    fontWeight: active ? 600 : 500,
-    marginTop: '4px',
+    color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
+    fontSize: `${tokens.fontSize.xs}px`,
+    fontWeight: active ? tokens.fontWeight.semibold : tokens.fontWeight.medium,
+    marginTop: `${tokens.spacing.xs}px`,
     fontFamily: '"Outfit", sans-serif',
-    transition: 'all 0.3s ease',
+    transition: tokens.transition.slow,
   },
   
   '&:active': {
     transform: 'scale(0.95)',
     
     '& .nav-icon, & .nav-label': {
-      color: '#00f2ea',
+      color: tokens.colors.primary.main,
     },
   },
 }));
@@ -80,18 +82,19 @@ const NavItem = styled(Box, {
 const NavBadge = styled(Box)({
   position: 'absolute',
   top: '2px',
-  right: '8px',
+  right: `${tokens.spacing.sm}px`,
   minWidth: '18px',
   height: '18px',
-  padding: '0 5px',
-  background: '#ff0055',
-  borderRadius: '9px',
-  fontSize: '10px',
-  fontWeight: 700,
-  color: 'white',
+  padding: `0 ${tokens.spacing.xs}px`,
+  background: tokens.colors.secondary.main,
+  borderRadius: tokens.borderRadius.full,
+  fontSize: `${tokens.fontSize.xs}px`,
+  fontWeight: tokens.fontWeight.bold,
+  color: tokens.colors.text.primary,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  boxShadow: tokens.shadows.glow.secondary,
 });
 
 const MobileBottomNav = () => {

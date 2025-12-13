@@ -419,7 +419,7 @@ const Navbar = () => {
   return (
     <>
       <GlassAppBar position="sticky">
-        <Toolbar sx={{ py: 1 }}>
+        <Toolbar sx={{ py: { xs: 0.5, sm: 1 }, minHeight: { xs: '56px', sm: '64px' } }}>
           {/* Mobile Menu Button */}
           {isMobile && (
             <IconButton
@@ -447,6 +447,10 @@ const Navbar = () => {
             sx={{
               flexGrow: isMobile ? 1 : 0,
               mr: 4,
+              minHeight: '44px',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '8px 0',
             }}
           >
             Zerohook

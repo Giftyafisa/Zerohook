@@ -1,6 +1,6 @@
 import React from 'react';
 import { useSelector } from 'react-redux';
-import { Box, Container, Typography, Grid } from '@mui/material';
+import { Box, Container, Typography, Grid, Chip } from '@mui/material';
 import { styled, keyframes } from '@mui/system';
 import {
   Shield,
@@ -10,7 +10,8 @@ import {
   Star,
   Explore,
   Whatshot,
-  ArrowForward
+  ArrowForward,
+  Bolt
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
@@ -32,14 +33,32 @@ const shimmer = keyframes`
   100% { background-position: 200% center; }
 `;
 
-const HeroSection = styled(Box)({
-  minHeight: '90vh',
+const pulseDot = keyframes`
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.35); opacity: 1; }
+`;
+
+const HeroSection = styled(Box)(({ theme }) => ({
+  minHeight: 'auto',
+  paddingTop: theme.spacing(2),
+  paddingBottom: theme.spacing(4),
   display: 'flex',
   alignItems: 'center',
   position: 'relative',
   overflow: 'hidden',
-  padding: '40px 0',
-});
+
+  [theme.breakpoints.up('md')]: {
+    minHeight: '90vh',
+    paddingTop: theme.spacing(5),
+    paddingBottom: theme.spacing(5),
+  },
+  
+  [theme.breakpoints.down('md')]: {
+    minHeight: 'auto',
+    paddingTop: theme.spacing(1),
+    paddingBottom: theme.spacing(3),
+  },
+}));
 
 const GradientText = styled(Typography)({
   fontFamily: '"Outfit", sans-serif',
@@ -52,7 +71,7 @@ const GradientText = styled(Typography)({
   animation: `${shimmer} 4s linear infinite`,
 });
 
-const FeatureIcon = styled(Box)({
+const FeatureIcon = styled(Box)(({ theme }) => ({
   width: '64px',
   height: '64px',
   borderRadius: '16px',
@@ -64,11 +83,18 @@ const FeatureIcon = styled(Box)({
   marginBottom: '16px',
   transition: 'all 0.3s ease',
   
+  [theme.breakpoints.down('sm')]: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    marginBottom: '12px',
+  },
+  
   '&:hover': {
     transform: 'scale(1.1)',
     boxShadow: '0 0 30px rgba(0, 242, 234, 0.4)',
   },
-});
+}));
 
 const CategoryCard = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'accentColor',
@@ -194,11 +220,12 @@ const HomePage = () => {
     }
   ];
 
+  // Use feature-based proof points (avoids hard claims we can't verify at runtime)
   const stats = [
-    { value: '50K+', label: 'Active Users' },
-    { value: '99.9%', label: 'Satisfaction Rate' },
-    { value: '24/7', label: 'Support Available' },
-    { value: '100%', label: 'Verified Profiles' }
+    { value: 'ID Verified', label: 'Provider verification' },
+    { value: 'Encrypted', label: 'Private messaging' },
+    { value: 'Escrow', label: 'Safer payments (optional)' },
+    { value: 'Live', label: 'Real-time chat & calls' }
   ];
 
   return (
@@ -237,6 +264,45 @@ const HomePage = () => {
 
       {/* Hero Section */}
       <HeroSection>
+        {/* Ambient animated accents */}
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            opacity: 0.9
+          }}
+        >
+          <motion.div
+            style={{
+              position: 'absolute',
+              top: '-120px',
+              left: '-120px',
+              width: 320,
+              height: 320,
+              borderRadius: 999,
+              background: 'radial-gradient(circle, rgba(0,242,234,0.35) 0%, rgba(0,242,234,0.0) 65%)',
+              filter: 'blur(10px)'
+            }}
+            animate={{ x: [0, 20, 0], y: [0, 30, 0] }}
+            transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div
+            style={{
+              position: 'absolute',
+              bottom: '-140px',
+              right: '-140px',
+              width: 360,
+              height: 360,
+              borderRadius: 999,
+              background: 'radial-gradient(circle, rgba(255,0,85,0.28) 0%, rgba(255,0,85,0.0) 70%)',
+              filter: 'blur(12px)'
+            }}
+            animate={{ x: [0, -24, 0], y: [0, -18, 0] }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+          />
+        </Box>
+
         <Container maxWidth="lg">
           <Grid container spacing={6} alignItems="center">
             <Grid item xs={12} md={7}>
@@ -254,11 +320,49 @@ const HomePage = () => {
                 >
                   Premium Adult Services Platform
                 </Typography>
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                  <Chip
+                    icon={
+                      <Box
+                        component="span"
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          bgcolor: '#00ff88',
+                          boxShadow: '0 0 10px rgba(0,255,136,0.45)',
+                          animation: `${pulseDot} 1.4s ease-in-out infinite`
+                        }}
+                      />
+                    }
+                    label="Live: real-time messaging"
+                    sx={{
+                      bgcolor: 'rgba(0, 255, 136, 0.08)',
+                      color: 'rgba(255,255,255,0.85)',
+                      border: '1px solid rgba(0, 255, 136, 0.22)',
+                      fontFamily: '"Outfit", sans-serif',
+                      fontWeight: 600,
+                      '& .MuiChip-icon': { ml: 1 }
+                    }}
+                  />
+                  <Chip
+                    icon={<Bolt sx={{ color: '#00f2ea' }} />}
+                    label="Fast matching"
+                    sx={{
+                      bgcolor: 'rgba(0, 242, 234, 0.08)',
+                      color: 'rgba(255,255,255,0.8)',
+                      border: '1px solid rgba(0, 242, 234, 0.22)',
+                      fontFamily: '"Outfit", sans-serif',
+                      fontWeight: 600
+                    }}
+                  />
+                </Box>
                 
                 <GradientText
                   variant="h1"
                   sx={{
-                    fontSize: { xs: '2.5rem', md: '4rem', lg: '5rem' },
+                    fontSize: { xs: '1.75rem', sm: '2.25rem', md: '4rem', lg: '5rem' },
                     lineHeight: 1.1,
                     mb: 3,
                   }}
@@ -364,7 +468,7 @@ const HomePage = () => {
       </HeroSection>
 
       {/* Stats Section */}
-      <Box sx={{ py: 6, borderTop: '1px solid rgba(255, 255, 255, 0.05)', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+      <Box sx={{ py: { xs: 4, md: 6 }, borderTop: '1px solid rgba(255, 255, 255, 0.05)', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
         <Container maxWidth="lg">
           <Grid container spacing={3}>
             {stats.map((stat, index) => (
@@ -378,7 +482,7 @@ const HomePage = () => {
                   <StatBox>
                     <Typography
                       sx={{
-                        fontSize: { xs: '32px', md: '40px' },
+                        fontSize: { xs: '22px', sm: '24px', md: '28px' },
                         fontWeight: 800,
                         color: '#00f2ea',
                         fontFamily: '"Outfit", sans-serif',
@@ -594,7 +698,7 @@ const HomePage = () => {
                 margin: '0 auto 32px',
               }}
             >
-              Join thousands of users enjoying premium adult services with complete privacy and security.
+              Get started in minutes with verified profiles, private chat, and safety-first features.
             </Typography>
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
               {!isAuthenticated ? (

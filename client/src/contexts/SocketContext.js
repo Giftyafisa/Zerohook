@@ -99,9 +99,18 @@ export const SocketProvider = ({ children }) => {
       newSocket.on('new_message', (data) => {
         console.log('💬 New message received:', data);
         // Only increment if not from self and not currently viewing chat
-        if (data.senderId !== user?.id) {
+        const pathname = window?.location?.pathname || '';
+        const isChatRoute = pathname.startsWith('/chat') || pathname.startsWith('/messages');
+
+        if (data.senderId !== user?.id && !isChatRoute) {
           dispatch(incrementUnreadMessages());
-          showNotification('💬 New Message', data.senderName ? `${data.senderName}: ${data.content?.substring(0, 50) || 'New message'}` : 'You have a new message', 'info');
+          showNotification(
+            '💬 New Message',
+            data.senderName
+              ? `${data.senderName}: ${data.content?.substring(0, 50) || 'New message'}`
+              : 'You have a new message',
+            'info'
+          );
         }
       });
 

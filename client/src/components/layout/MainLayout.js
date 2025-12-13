@@ -22,7 +22,8 @@ const MainContent = styled(Box, {
 })(({ hasSidebar }) => ({
   marginLeft: hasSidebar ? '280px' : 0,
   minHeight: '100vh',
-  paddingBottom: hasSidebar ? 0 : '80px', // Space for mobile/tablet bottom nav
+  // Bottom nav is 56px (optimized), add safe-area for iOS
+  paddingBottom: hasSidebar ? 0 : 'calc(56px + env(safe-area-inset-bottom))',
   transition: 'margin-left 0.3s ease',
 }));
 

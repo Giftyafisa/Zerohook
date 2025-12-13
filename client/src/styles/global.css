@@ -120,18 +120,42 @@ body {
   }
 }
 
+/* Accessibility: Respect prefers-reduced-motion (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  .blob {
+    animation: none !important;
+    opacity: 0.2 !important;
+  }
+  
+  .shimmer,
+  [class*="float"],
+  [class*="pulse"],
+  [class*="glow"] {
+    animation: none !important;
+  }
+}
+
 /* App Layout */
 .App {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
 }
 
 .main-content {
   flex: 1;
-  padding-top: 80px;
-  min-height: calc(100vh - 200px);
+  padding-top: calc(56px + env(safe-area-inset-top));
+  min-height: calc(100dvh - 112px);
   position: relative;
   z-index: 1;
 }
@@ -148,16 +172,22 @@ body {
 /* Tablet layout - now has bottom nav */
 @media (min-width: 900px) and (max-width: 1199px) {
   .main-content {
-    padding-top: 70px;
-    padding-bottom: 80px; /* Space for bottom nav */
+    padding-top: calc(56px + env(safe-area-inset-top));
+    padding-bottom: calc(56px + env(safe-area-inset-bottom)); /* 56px bottom nav - no extra spacing */
   }
 }
 
 /* Mobile bottom nav spacing */
 @media (max-width: 899px) {
   .main-content {
-    padding-top: 80px;
-    padding-bottom: 80px; /* Space for bottom nav */
+    padding-top: calc(56px + env(safe-area-inset-top));
+    padding-bottom: calc(56px + env(safe-area-inset-bottom)); /* 56px bottom nav - no extra spacing */
+  }
+  
+  /* Chat pages need zero padding since MessagesPage uses fixed positioning */
+  .main-content:has([class*="ChatSystem"]) {
+    padding: 0;
+    overflow: hidden;
   }
 }
 
@@ -290,18 +320,18 @@ body {
 /* Mobile-first responsive design */
 @media (max-width: 768px) {
   .main-content {
-    padding-top: 60px;
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-left: 8px;
+    padding-right: 8px;
   }
   
   .MuiContainer-root {
-    padding-left: 10px !important;
-    padding-right: 10px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
   }
   
   .MuiCard-root {
-    margin-bottom: 16px;
+    margin-bottom: 12px;
+    padding: 12px !important;
   }
   
   .MuiButton-root {
@@ -721,25 +751,50 @@ body {
 @media (max-width: 480px) {
   .main-content {
     padding-top: 50px;
-    padding-left: 8px;
-    padding-right: 8px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
   
   .MuiContainer-root {
-    padding-left: 8px !important;
-    padding-right: 8px !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
   }
   
   .MuiPaper-root {
     padding: 16px !important;
   }
   
-  .MuiTypography-h4 {
-    font-size: 1.5rem !important;
+  /* Improved mobile typography hierarchy */
+  .MuiTypography-h1 {
+    font-size: 1.75rem !important;
+    line-height: 1.2 !important;
   }
   
+  .MuiTypography-h2 {
+    font-size: 1.5rem !important;
+    line-height: 1.3 !important;
+  }
+  
+  .MuiTypography-h3 {
+    font-size: 1.25rem !important;
+  }
+
+  .MuiTypography-h4 {
+    font-size: 1.125rem !important;
+  }
+
   .MuiTypography-h6 {
     font-size: 1.1rem !important;
+  }
+  
+  /* Increase small text for better readability */
+  .MuiTypography-body2,
+  .MuiTypography-caption {
+    font-size: 13px !important;
+  }
+  
+  .MuiChip-label {
+    font-size: 13px !important;
   }
 }
 
@@ -836,12 +891,54 @@ body {
 
 /* Enhanced Mobile Touch Optimization */
 @media (max-width: 768px) {
-  /* Minimum touch target size */
+  /* WCAG 2.5.5 Level AAA: Minimum touch target size */
   .MuiButton-root, 
   .MuiIconButton-root,
+  .MuiChip-root,
+  .MuiTab-root,
+  a,
+  button {
+    min-height: 48px !important;
+    min-width: 48px !important;
+  }
+  
+  /* Text links need proper padding for touch targets */
+  a:not(.MuiButton-root) {
+    display: inline-flex;
+    align-items: center;
+    padding: 12px 4px;
+    min-height: 44px;
+  }
+  
+  /* Dropdown arrows and small icons */
+  .MuiSelect-icon,
+  .MuiSvgIcon-root {
+    width: 24px !important;
+    height: 24px !important;
+  }
+  
+  /* Delete and action icons */
+  .MuiIconButton-root .MuiSvgIcon-root {
+    font-size: 24px;
+  }
+  
   .MuiChip-root {
-    min-height: 44px !important;
-    min-width: 44px !important;
+    padding: 8px 12px !important;
+    height: auto !important;
+  }
+  
+  .MuiTab-root {
+    min-height: 56px !important;
+    padding: 12px 16px !important;
+  }
+  
+  /* Enhanced focus indicators for accessibility */
+  .MuiButton-root:focus-visible,
+  .MuiIconButton-root:focus-visible,
+  .MuiChip-root:focus-visible,
+  .MuiTab-root:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
   }
   
   /* Enhanced spacing for touch */

@@ -24,6 +24,8 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import useCurrency from '../hooks/useCurrency';
+import { ListSkeleton } from '../components/LoadingSkeleton';
+import { ErrorState, TimeoutError } from '../components/ErrorState';
 
 const BookingsPage = () => {
   const { isAuthenticated } = useAuth();
@@ -33,6 +35,7 @@ const BookingsPage = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [bookings, setBookings] = useState([]);
   const [error, setError] = useState(null);
+  const [isTimeout, setIsTimeout] = useState(false);
 
   const mockBookings = useMemo(() => [
     {
@@ -49,11 +52,25 @@ const BookingsPage = () => {
 
   useEffect(() => {
     const fetchBookings = async () => {
+      setLoading(true);
+      setError(null);
+      setIsTimeout(false);
+
+      // 10 second timeout
+      const timeoutId = setTimeout(() => {
+        setIsTimeout(true);
+        setLoading(false);
+      }, 10000);
+
       try {
         const token = localStorage.getItem('token');
         const response = await fetch(`${API_BASE_URL}/bookings`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(10000) // Browser API timeout
         });
+        
+        clearTimeout(timeoutId);
+        
         if (response.ok) {
           const data = await response.json();
           setBookings(data.bookings || []);
@@ -69,13 +86,19 @@ const BookingsPage = () => {
           setError(message);
         }
       } catch (error) {
+        clearTimeout(timeoutId);
         console.error('Bookings fetch error:', error);
-        if (process.env.NODE_ENV === 'development') {
-          setBookings(mockBookings);
+        
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+          setIsTimeout(true);
         } else {
-          setBookings([]);
+          if (process.env.NODE_ENV === 'development') {
+            setBookings(mockBookings);
+          } else {
+            setBookings([]);
+          }
+          setError('Unable to load bookings right now. Please try again.');
         }
-        setError('Unable to load bookings right now. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -116,6 +139,10 @@ const BookingsPage = () => {
     navigate(`/bookings/${bookingId}`);
   };
 
+  const handleRetry = () => {
+    window.location.reload();
+  };
+
   if (!isAuthenticated) {
     return (
       <Box sx={styles.container}>
@@ -136,8 +163,32 @@ const BookingsPage = () => {
 
   if (loading) {
     return (
-      <Box sx={styles.loadingContainer}>
-        <CircularProgress sx={{ color: '#00f2ea' }} />
+      <Box sx={styles.container}>
+        <Box sx={styles.header}>
+          <CalendarIcon sx={styles.headerIcon} />
+          <Typography sx={styles.headerTitle}>My Bookings</Typography>
+        </Box>
+        <ListSkeleton count={4} variant="booking" />
+      </Box>
+    );
+  }
+
+  if (isTimeout) {
+    return (
+      <Box sx={styles.container}>
+        <TimeoutError onRetry={handleRetry} />
+      </Box>
+    );
+  }
+
+  if (error && bookings.length === 0) {
+    return (
+      <Box sx={styles.container}>
+        <ErrorState
+          title="Unable to Load Bookings"
+          message={error}
+          onRetry={handleRetry}
+        />
       </Box>
     );
   }

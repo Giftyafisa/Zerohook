@@ -15,7 +15,9 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Chip
+  Chip,
+  Fab,
+  Drawer
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -36,16 +38,26 @@ import {
   AccountBalanceWallet as WalletIcon,
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
-  RequestQuote as RequestIcon
+  RequestQuote as RequestIcon,
+  Clear as ClearIcon,
+  SearchOff as SearchOffIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  Add as AddIcon,
+  ContentCopy as CopyIcon,
+  Close as CloseIcon,
+  Archive as ArchiveIcon
 } from '@mui/icons-material';
 import PaymentSheet from './PaymentSheet';
 import { MilestoneRequestDialog, MilestoneRequestCard } from './MilestoneRequest';
 import { keyframes } from '@emotion/react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSwipeable } from 'react-swipeable';
 import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import { useDispatch } from 'react-redux';
+import { decrementUnreadMessages } from '../store/slices/uiSlice';
 
 // Helper to resolve avatar URL from backend profilePicture (might be string, object, or JSON string)
 const resolveAvatarUrl = (profilePicture) => {
@@ -87,6 +99,122 @@ const typingBlink = keyframes`
   100% { opacity: 0.3; transform: translateY(0px); }
 `;
 
+// Swipeable Conversation Item Component
+const SwipeableConversationItem = ({ 
+  children, 
+  onSwipeLeft, 
+  onSwipeRight, 
+  conversationId,
+  swipedId,
+  setSwipedId,
+  hasUnread
+}) => {
+  const [translateX, setTranslateX] = useState(0);
+  
+  const handlers = useSwipeable({
+    onSwiping: (eventData) => {
+      const deltaX = eventData.deltaX;
+      // Limit swipe distance
+      const maxSwipe = 80;
+      const newTranslate = Math.max(-maxSwipe, Math.min(maxSwipe, deltaX));
+      setTranslateX(newTranslate);
+    },
+    onSwipedLeft: () => {
+      if (translateX < -40) {
+        setSwipedId(conversationId);
+        setTranslateX(-80);
+      } else {
+        setTranslateX(0);
+      }
+    },
+    onSwipedRight: () => {
+      if (translateX > 40 && hasUnread) {
+        onSwipeRight();
+        setTranslateX(0);
+      } else {
+        setTranslateX(0);
+      }
+    },
+    onTouchEndOrOnMouseUp: () => {
+      if (Math.abs(translateX) < 40) {
+        setTranslateX(0);
+      }
+    },
+    trackMouse: false,
+    trackTouch: true,
+    preventScrollOnSwipe: true,
+    delta: 10
+  });
+
+  // Reset when another item is swiped
+  React.useEffect(() => {
+    if (swipedId && swipedId !== conversationId) {
+      setTranslateX(0);
+    }
+  }, [swipedId, conversationId]);
+
+  return (
+    <Box sx={{ position: 'relative', overflow: 'hidden' }}>
+      {/* Background actions */}
+      <Box sx={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        alignItems: 'stretch'
+      }}>
+        {/* Left side - Mark as read (green) */}
+        <Box sx={{
+          flex: 1,
+          background: hasUnread ? 'linear-gradient(90deg, #00ff88, #00cc6a)' : 'rgba(255,255,255,0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+          pl: 2,
+          color: hasUnread ? '#000' : 'rgba(255,255,255,0.3)'
+        }}>
+          <DoneAllIcon />
+        </Box>
+        {/* Right side - Delete (red) */}
+        <Box 
+          sx={{
+            width: 80,
+            background: 'linear-gradient(90deg, #ff4444, #cc3333)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#fff',
+            cursor: 'pointer'
+          }}
+          onClick={() => {
+            if (swipedId === conversationId) {
+              onSwipeLeft();
+            }
+          }}
+        >
+          <DeleteIcon />
+        </Box>
+      </Box>
+      
+      {/* Foreground content */}
+      <Box
+        {...handlers}
+        sx={{
+          transform: `translateX(${translateX}px)`,
+          transition: translateX === 0 ? 'transform 0.2s ease-out' : 'none',
+          background: 'var(--bg-secondary, #1a1a22)',
+          position: 'relative',
+          zIndex: 1
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+};
+
 const ChatSystem = ({
   recipientId: propRecipientId = null,
   recipientName: propRecipientName = null,
@@ -95,6 +223,7 @@ const ChatSystem = ({
 }) => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
+  const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -135,8 +264,31 @@ const ChatSystem = ({
   // Menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const menuOpen = Boolean(menuAnchorEl);
+
+  // Emoji picker (lightweight)
+  const [emojiAnchorEl, setEmojiAnchorEl] = useState(null);
+  const emojiMenuOpen = Boolean(emojiAnchorEl);
+  
+  // Scroll-to-bottom FAB state
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  
+  // Mobile action drawer for input buttons
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  
+  // Message long-press menu state
+  const [messageMenuAnchor, setMessageMenuAnchor] = useState(null);
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const longPressTimer = useRef(null);
+  
+  // Attachment preview state
+  const [attachmentPreview, setAttachmentPreview] = useState(null);
+  const [pendingFile, setPendingFile] = useState(null);
+  
+  // Swipe action state for conversations
+  const [swipedConversationId, setSwipedConversationId] = useState(null);
   
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
   const hasBootstrappedRef = useRef(false);
@@ -174,6 +326,30 @@ const ChatSystem = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Handle scroll position for scroll-to-bottom FAB
+  const handleMessagesScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setShowScrollButton(!isNearBottom);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Auto-scroll to bottom when keyboard appears (mobile viewport resize)
+  useEffect(() => {
+    const handleViewportResize = () => {
+      if (window.visualViewport && selectedConversation) {
+        // When keyboard appears, viewport height decreases - scroll to bottom
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    };
+
+    window.visualViewport?.addEventListener('resize', handleViewportResize);
+    return () => window.visualViewport?.removeEventListener('resize', handleViewportResize);
+  }, [selectedConversation]);
 
   // Socket listeners
   useEffect(() => {
@@ -418,6 +594,28 @@ const ChatSystem = ({
     await sendMessagePayload({ content: messageContent, messageType: 'text' });
   };
 
+  // Show preview before uploading attachment
+  const handleFilePreview = (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedConversation) return;
+    
+    // Store the file for later upload
+    setPendingFile(file);
+    
+    // Generate preview for images
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => setAttachmentPreview(e.target.result);
+      reader.readAsDataURL(file);
+    } else {
+      // For non-images, show generic preview
+      setAttachmentPreview('file');
+    }
+    
+    // Clear the input
+    event.target.value = '';
+  };
+
   const handleFileSelect = async (event) => {
     const file = event.target.files?.[0];
     if (!file || !selectedConversation) return;
@@ -589,6 +787,38 @@ const ChatSystem = ({
       console.error('Failed to delete conversation:', error);
     }
     setMenuAnchorEl(null);
+  };
+
+  // Delete conversation by ID (for swipe action)
+  const handleDeleteConversationById = async (conversationId) => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_BASE_URL}/chat/conversations/${conversationId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setConversations(prev => prev.filter(c => c.id !== conversationId));
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(null);
+        setShowMobileChat(false);
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+    }
+    setSwipedConversationId(null);
+  };
+
+  // Mark conversation as read (swipe right action)
+  const handleMarkAsRead = async (conversationId) => {
+    try {
+      await markConversationRead(conversationId);
+      setConversations(prev => prev.map(c => 
+        c.id === conversationId ? { ...c, unreadCount: 0 } : c
+      ));
+    } catch (error) {
+      console.error('Failed to mark as read:', error);
+    }
+    setSwipedConversationId(null);
   };
 
   // Check for active escrow and pending milestones when conversation changes
@@ -812,6 +1042,7 @@ const ChatSystem = ({
 
   const selectConversation = (conv) => {
     if (!conv) return;
+    const decrementBy = Number(conv.unreadCount || 0);
     const mergedConv = {
       ...conv,
       participantName: conv.participantName || (conv.participantId === targetRecipientId ? targetRecipientName : conv.participantName),
@@ -821,6 +1052,11 @@ const ChatSystem = ({
     setShowMobileChat(true);
     setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c));
     markConversationRead(conv.id);
+
+    // Keep global unread badge in sync when a thread is opened.
+    if (decrementBy > 0) {
+      dispatch(decrementUnreadMessages(decrementBy));
+    }
   };
 
   const handleBackToList = () => {
@@ -866,6 +1102,7 @@ const ChatSystem = ({
                   sx={{ ...styles.headerActionBtn, display: { xs: 'none', sm: 'inline-flex' } }}
                   onClick={handleVoiceCall}
                   title="Voice Call"
+                  aria-label="Start voice call"
                 >
                   <PhoneIcon />
                 </IconButton>
@@ -873,6 +1110,7 @@ const ChatSystem = ({
                   sx={{ ...styles.headerActionBtn, display: { xs: 'none', sm: 'inline-flex' } }}
                   onClick={handleVideoCall}
                   title="Video Call"
+                  aria-label="Start video call"
                 >
                   <VideoIcon />
                 </IconButton>
@@ -880,6 +1118,7 @@ const ChatSystem = ({
                   sx={styles.headerActionBtn}
                   onClick={handleMenuOpen}
                   title="More Options"
+                  aria-label="Open conversation options menu"
                 >
                   <MoreIcon />
                 </IconButton>
@@ -897,11 +1136,25 @@ const ChatSystem = ({
                     '& .MuiMenuItem-root': {
                       color: '#fff',
                       gap: 1.5,
+                      minHeight: 48,
                       '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' }
                     }
                   }
                 }}
               >
+                {/* Mobile-only: Voice and Video Call options */}
+                <MenuItem 
+                  onClick={() => { handleMenuClose(); handleVoiceCall(); }}
+                  sx={{ display: { xs: 'flex', sm: 'none' } }}
+                >
+                  <PhoneIcon fontSize="small" sx={{ color: '#00f2ea' }} /> Voice Call
+                </MenuItem>
+                <MenuItem 
+                  onClick={() => { handleMenuClose(); handleVideoCall(); }}
+                  sx={{ display: { xs: 'flex', sm: 'none' } }}
+                >
+                  <VideoIcon fontSize="small" sx={{ color: '#00f2ea' }} /> Video Call
+                </MenuItem>
                 <MenuItem onClick={handleViewProfile}>
                   <PersonIcon fontSize="small" /> View Profile
                 </MenuItem>
@@ -954,7 +1207,14 @@ const ChatSystem = ({
             )}
 
             {/* Messages */}
-            <Box sx={styles.messagesContainer}>
+            <Box 
+              ref={messagesContainerRef}
+              sx={styles.messagesContainer}
+              role="log"
+              aria-live="polite"
+              aria-label="Chat messages"
+              onScroll={handleMessagesScroll}
+            >
               {messages.map((message, index) => (
                 <motion.div
                   key={message.id || index}
@@ -971,7 +1231,32 @@ const ChatSystem = ({
                     <Box
                       sx={{
                         ...styles.messageBubble,
-                        ...(message.senderId === user.id ? styles.sentBubble : styles.receivedBubble)
+                        ...(message.senderId === user.id ? styles.sentBubble : styles.receivedBubble),
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        WebkitTouchCallout: 'none'
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setSelectedMessage(message);
+                        setMessageMenuAnchor({ mouseX: e.clientX, mouseY: e.clientY });
+                      }}
+                      onTouchStart={() => {
+                        longPressTimer.current = setTimeout(() => {
+                          setSelectedMessage(message);
+                          setMessageMenuAnchor({ mouseX: null, mouseY: null });
+                        }, 500);
+                      }}
+                      onTouchEnd={() => {
+                        if (longPressTimer.current) {
+                          clearTimeout(longPressTimer.current);
+                        }
+                      }}
+                      onTouchMove={() => {
+                        if (longPressTimer.current) {
+                          clearTimeout(longPressTimer.current);
+                        }
                       }}
                     >
                       <Typography sx={styles.messageText}>{message.content}</Typography>
@@ -992,6 +1277,30 @@ const ChatSystem = ({
                 </motion.div>
               ))}
               <div ref={messagesEndRef} />
+              
+              {/* Scroll to bottom FAB */}
+              {showScrollButton && (
+                <Fab
+                  size="small"
+                  aria-label="Scroll to latest messages"
+                  onClick={scrollToBottom}
+                  sx={{
+                    position: 'absolute',
+                    bottom: 90,
+                    right: 16,
+                    background: 'rgba(0, 242, 234, 0.95)',
+                    color: '#000',
+                    width: 44,
+                    height: 44,
+                    boxShadow: '0 4px 12px rgba(0,242,234,0.4)',
+                    '&:hover': {
+                      background: '#00f2ea'
+                    }
+                  }}
+                >
+                  <KeyboardArrowDownIcon />
+                </Fab>
+              )}
             </Box>
 
             {/* Pending Milestone Requests */}
@@ -1018,18 +1327,34 @@ const ChatSystem = ({
                   type="file"
                   style={{ display: 'none' }}
                   accept="image/*,video/*"
-                  onChange={handleFileSelect}
+                  onChange={handleFilePreview}
                 />
+                
+                {/* More Actions Button (shows drawer with payment options on mobile) */}
+                <IconButton 
+                  sx={{
+                    ...styles.inputActionBtn,
+                    display: { xs: 'flex', sm: 'none' }
+                  }}
+                  onClick={() => setMoreActionsOpen(true)}
+                  aria-label="More actions"
+                >
+                  <AddIcon />
+                </IconButton>
+                
+                {/* Desktop: Show payment buttons inline */}
                 {/* Request Payment button - for sending milestone requests */}
                 {!activeEscrow && pendingMilestones.length === 0 && (
                   <IconButton 
                     sx={{
                       ...styles.requestBtn,
                       background: 'linear-gradient(135deg, #ffd700, #ffaa00)',
-                      color: '#000'
+                      color: '#000',
+                      display: { xs: 'none', sm: 'flex' }
                     }} 
                     onClick={() => setMilestoneDialogOpen(true)}
                     title={isProvider ? "Request Payment" : "Request Hold"}
+                    aria-label={isProvider ? "Request payment from client" : "Request escrow hold"}
                   >
                     <RequestIcon />
                   </IconButton>
@@ -1040,19 +1365,25 @@ const ChatSystem = ({
                     sx={{
                       ...styles.payNowBtn,
                       background: 'linear-gradient(135deg, #00ff88, #00cc6a)',
-                      color: '#000'
+                      color: '#000',
+                      display: { xs: 'none', sm: 'flex' }
                     }} 
                     onClick={() => setPaymentSheetOpen(true)}
                     title="Hold Money"
+                    aria-label="Open payment to hold money in escrow"
                   >
                     <WalletIcon />
                   </IconButton>
                 )}
-                {/* Attachment button */}
+                {/* Attachment button - always visible */}
                 <IconButton 
-                  sx={styles.inputActionBtn} 
+                  sx={{
+                    ...styles.inputActionBtn,
+                    display: { xs: 'none', sm: 'flex' }
+                  }}
                   onClick={() => fileInputRef.current?.click()}
                   title="Attach file"
+                  aria-label="Attach photo or video file"
                 >
                   <AttachIcon />
                 </IconButton>
@@ -1070,10 +1401,53 @@ const ChatSystem = ({
                   sx={styles.messageInput}
                   multiline
                   maxRows={4}
+                  inputProps={{
+                    'aria-label': 'Type a message'
+                  }}
                 />
-                <IconButton sx={styles.inputActionBtn} title="Emoji">
+                <IconButton
+                  sx={{
+                    ...styles.inputActionBtn,
+                    display: { xs: 'none', sm: 'flex' }
+                  }}
+                  title="Emoji"
+                  aria-label="Open emoji picker"
+                  onClick={(e) => setEmojiAnchorEl(e.currentTarget)}
+                >
                   <EmojiIcon />
                 </IconButton>
+                <Menu
+                  anchorEl={emojiAnchorEl}
+                  open={emojiMenuOpen}
+                  onClose={() => setEmojiAnchorEl(null)}
+                  PaperProps={{
+                    sx: {
+                      bgcolor: 'rgba(20, 20, 30, 0.98)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: '14px',
+                      backdropFilter: 'blur(18px)',
+                      '& .MuiMenuItem-root': {
+                        color: '#fff',
+                        fontSize: 20,
+                        minHeight: 44,
+                        borderRadius: '10px',
+                        '&:hover': { bgcolor: 'rgba(0,242,234,0.10)' }
+                      }
+                    }
+                  }}
+                >
+                  {['😀', '😂', '😍', '😘', '🔥', '👍', '🙏', '💯'].map((emo) => (
+                    <MenuItem
+                      key={emo}
+                      onClick={() => {
+                        setNewMessage((prev) => `${prev || ''}${emo}`);
+                        setEmojiAnchorEl(null);
+                      }}
+                    >
+                      {emo}
+                    </MenuItem>
+                  ))}
+                </Menu>
                 {/* Always show Send button, disabled when empty */}
                 <IconButton 
                   sx={{
@@ -1084,6 +1458,7 @@ const ChatSystem = ({
                   onClick={sendMessage}
                   disabled={!newMessage.trim()}
                   title="Send message"
+                  aria-label="Send message"
                 >
                   <SendIcon />
                 </IconButton>
@@ -1097,6 +1472,13 @@ const ChatSystem = ({
             <Typography sx={styles.noChatSubtitle}>
               Choose from your existing conversations or start a new one
             </Typography>
+            <Button
+              variant="contained"
+              onClick={() => navigate('/profiles')}
+              sx={styles.primaryCta}
+            >
+              Find people to chat
+            </Button>
           </Box>
         )}
       </Box>
@@ -1105,11 +1487,21 @@ const ChatSystem = ({
       <Box sx={{ ...styles.conversationsList, display: showMobileChat ? { xs: 'none', md: 'flex' } : 'flex' }}>
         <Box sx={styles.listHeader}>
           <Typography sx={styles.listTitle}>Messages</Typography>
-          <Box sx={styles.connectionStatus}>
-            <Box sx={{ ...styles.statusDot, background: isConnected ? '#00ff88' : '#ff3333' }} />
-            <Typography sx={styles.statusText}>
-              {isConnected ? 'Connected' : 'Offline'}
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={styles.connectionStatus}>
+              <Box sx={{ ...styles.statusDot, background: isConnected ? '#00ff88' : '#ff3333' }} />
+              <Typography sx={styles.statusText}>
+                {isConnected ? 'Connected' : 'Offline'}
+              </Typography>
+            </Box>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => navigate('/profiles')}
+              sx={styles.newChatBtn}
+            >
+              New
+            </Button>
           </Box>
         </Box>
 
@@ -1121,10 +1513,30 @@ const ChatSystem = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             sx={styles.searchInput}
+            inputProps={{
+              'aria-label': 'Search conversations'
+            }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
                   <SearchIcon sx={{ color: 'rgba(255,255,255,0.4)' }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery && (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                    sx={{ 
+                      color: 'rgba(255,255,255,0.5)',
+                      minWidth: 44,
+                      minHeight: 44,
+                      '&:hover': { color: '#fff' }
+                    }}
+                  >
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
                 </InputAdornment>
               )
             }}
@@ -1132,14 +1544,48 @@ const ChatSystem = ({
         </Box>
 
         {/* Conversations */}
-        <Box sx={styles.conversationsScroll}>
+        <Box 
+          sx={styles.conversationsScroll}
+          role="list"
+          aria-label="Conversations"
+        >
           {loading ? (
             <Box sx={styles.loadingContainer}>
               <CircularProgress size={32} sx={{ color: '#00f2ea' }} />
             </Box>
+          ) : filteredConversations.length === 0 && searchQuery ? (
+            <Box sx={styles.emptyState}>
+              <SearchOffIcon sx={{ fontSize: 48, color: 'rgba(255,255,255,0.3)', mb: 1 }} />
+              <Typography sx={styles.emptyText}>No results found</Typography>
+              <Typography sx={styles.emptySubtext}>
+                Try a different search term or clear your search.
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => setSearchQuery('')}
+                sx={{ 
+                  mt: 2, 
+                  borderColor: 'rgba(0,242,234,0.4)', 
+                  color: '#00f2ea',
+                  minHeight: 44,
+                  '&:hover': { borderColor: '#00f2ea', background: 'rgba(0,242,234,0.08)' }
+                }}
+              >
+                Clear Search
+              </Button>
+            </Box>
           ) : filteredConversations.length === 0 ? (
             <Box sx={styles.emptyState}>
               <Typography sx={styles.emptyText}>No conversations yet</Typography>
+              <Typography sx={styles.emptySubtext}>Start by browsing profiles and sending a message.</Typography>
+              <Button
+                variant="contained"
+                onClick={() => navigate('/profiles')}
+                sx={styles.primaryCta}
+              >
+                Explore Profiles
+              </Button>
             </Box>
           ) : (
             <AnimatePresence>
@@ -1148,61 +1594,86 @@ const ChatSystem = ({
                   key={conv.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -100 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <Box
-                    sx={{
-                      ...styles.conversationItem,
-                      background: selectedConversation?.id === conv.id ? 'rgba(0, 242, 234, 0.18)' : 'transparent'
-                    }}
-                    onClick={() => selectConversation(conv)}
+                  <SwipeableConversationItem
+                    conversationId={conv.id}
+                    swipedId={swipedConversationId}
+                    setSwipedId={setSwipedConversationId}
+                    hasUnread={conv.unreadCount > 0}
+                    onSwipeLeft={() => handleDeleteConversationById(conv.id)}
+                    onSwipeRight={() => handleMarkAsRead(conv.id)}
                   >
-                    <Badge
-                      overlap="circular"
-                      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                      badgeContent={
-                        conv.participantOnline && (
-                          <Box sx={styles.onlineBadge} />
-                        )
-                      }
+                    <Box
+                      role="listitem"
+                      tabIndex={0}
+                      aria-label={`Conversation with ${conv.participantName}${conv.unreadCount > 0 ? `, ${conv.unreadCount} unread messages` : ''}`}
+                      sx={{
+                        ...styles.conversationItem,
+                        background: selectedConversation?.id === conv.id ? 'rgba(0, 242, 234, 0.18)' : 'transparent'
+                      }}
+                      onClick={() => {
+                        if (swipedConversationId === conv.id) {
+                          setSwipedConversationId(null);
+                        } else {
+                          selectConversation(conv);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          selectConversation(conv);
+                        }
+                      }}
                     >
-                      <Avatar src={conv.participantAvatar} sx={styles.avatar}>
-                        {conv.participantName?.[0]}
-                      </Avatar>
-                    </Badge>
-                    <Box sx={styles.conversationInfo}>
-                      <Box sx={styles.conversationHeader}>
-                        <Typography sx={styles.conversationName}>
-                          {conv.participantName}
-                          {conv.participantVerified && (
-                            <Box component="span" sx={styles.verifiedIcon}>✓</Box>
-                          )}
-                        </Typography>
-                        <Typography sx={styles.conversationTime}>
-                          {formatTimeAgo(conv.lastMessageTime)}
-                        </Typography>
-                      </Box>
-                      {typingConversations.includes(conv.id) ? (
-                        <Box sx={styles.typingIndicator}>
-                          <Box sx={styles.typingDot} />
-                          <Box sx={styles.typingDot} />
-                          <Box sx={styles.typingDot} />
+                      <Badge
+                        overlap="circular"
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        badgeContent={
+                          conv.participantOnline && (
+                            <Box sx={styles.onlineBadge} />
+                          )
+                        }
+                      >
+                        <Avatar src={conv.participantAvatar} sx={styles.avatar}>
+                          {conv.participantName?.[0]}
+                        </Avatar>
+                      </Badge>
+                      <Box sx={styles.conversationInfo}>
+                        <Box sx={styles.conversationHeader}>
+                          <Typography sx={styles.conversationName}>
+                            {conv.participantName}
+                            {conv.participantVerified && (
+                              <Box component="span" sx={styles.verifiedIcon}>✓</Box>
+                            )}
+                          </Typography>
+                          <Typography sx={styles.conversationTime}>
+                            {formatTimeAgo(conv.lastMessageTime)}
+                          </Typography>
                         </Box>
-                      ) : (
-                        <Typography sx={styles.conversationPreview} noWrap>
-                          {conv.lastMessage || 'Start a conversation'}
-                        </Typography>
+                        {typingConversations.includes(conv.id) ? (
+                          <Box sx={styles.typingIndicator}>
+                            <Box sx={styles.typingDot} />
+                            <Box sx={styles.typingDot} />
+                            <Box sx={styles.typingDot} />
+                          </Box>
+                        ) : (
+                          <Typography sx={styles.conversationPreview} noWrap>
+                            {conv.lastMessage || 'Start a conversation'}
+                          </Typography>
+                        )}
+                      </Box>
+                      {conv.unreadCount > 0 && (
+                        <Box sx={styles.unreadBadge}>{conv.unreadCount}</Box>
+                      )}
+                      {conv.hasActiveEscrow && (
+                        <Box sx={styles.escrowIndicator}>
+                          <LockIcon sx={{ fontSize: 14 }} />
+                        </Box>
                       )}
                     </Box>
-                    {conv.unreadCount > 0 && (
-                      <Box sx={styles.unreadBadge}>{conv.unreadCount}</Box>
-                    )}
-                    {conv.hasActiveEscrow && (
-                      <Box sx={styles.escrowIndicator}>
-                        <LockIcon sx={{ fontSize: 14 }} />
-                      </Box>
-                    )}
-                  </Box>
+                  </SwipeableConversationItem>
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -1286,6 +1757,264 @@ const ChatSystem = ({
         isProvider={isProvider}
         onSuccess={handleMilestoneRequestSuccess}
       />
+
+      {/* Mobile Actions Drawer */}
+      <Drawer
+        anchor="bottom"
+        open={moreActionsOpen}
+        onClose={() => setMoreActionsOpen(false)}
+        PaperProps={{
+          sx: {
+            background: 'rgba(20, 20, 30, 0.98)',
+            borderTopLeftRadius: '20px',
+            borderTopRightRadius: '20px',
+            backdropFilter: 'blur(20px)',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            maxHeight: '60vh'
+          }
+        }}
+      >
+        <Box sx={{ p: 2 }}>
+          <Box sx={{ 
+            width: 40, 
+            height: 4, 
+            background: 'rgba(255,255,255,0.3)', 
+            borderRadius: 2, 
+            mx: 'auto', 
+            mb: 2 
+          }} />
+          <Typography sx={{ color: '#fff', fontWeight: 600, mb: 2, textAlign: 'center' }}>
+            Actions
+          </Typography>
+          
+          {!activeEscrow && pendingMilestones.length === 0 && (
+            <MenuItem 
+              onClick={() => {
+                setMoreActionsOpen(false);
+                setMilestoneDialogOpen(true);
+              }}
+              sx={{ 
+                color: '#fff', 
+                borderRadius: '12px', 
+                minHeight: 56,
+                gap: 2,
+                '&:hover': { background: 'rgba(255,215,0,0.1)' }
+              }}
+            >
+              <RequestIcon sx={{ color: '#ffd700' }} />
+              <Typography>{isProvider ? 'Request Payment' : 'Request Hold'}</Typography>
+            </MenuItem>
+          )}
+          
+          {!activeEscrow && (
+            <MenuItem 
+              onClick={() => {
+                setMoreActionsOpen(false);
+                setPaymentSheetOpen(true);
+              }}
+              sx={{ 
+                color: '#fff', 
+                borderRadius: '12px', 
+                minHeight: 56,
+                gap: 2,
+                '&:hover': { background: 'rgba(0,255,136,0.1)' }
+              }}
+            >
+              <WalletIcon sx={{ color: '#00ff88' }} />
+              <Typography>Hold Money</Typography>
+            </MenuItem>
+          )}
+          
+          <MenuItem 
+            onClick={() => {
+              setMoreActionsOpen(false);
+              fileInputRef.current?.click();
+            }}
+            sx={{ 
+              color: '#fff', 
+              borderRadius: '12px', 
+              minHeight: 56,
+              gap: 2,
+              '&:hover': { background: 'rgba(0,242,234,0.1)' }
+            }}
+          >
+            <AttachIcon sx={{ color: '#00f2ea' }} />
+            <Typography>Attach Photo/Video</Typography>
+          </MenuItem>
+          
+          <MenuItem 
+            onClick={(e) => {
+              setMoreActionsOpen(false);
+              setEmojiAnchorEl(e.currentTarget);
+            }}
+            sx={{ 
+              color: '#fff', 
+              borderRadius: '12px', 
+              minHeight: 56,
+              gap: 2,
+              '&:hover': { background: 'rgba(255,255,255,0.05)' }
+            }}
+          >
+            <EmojiIcon sx={{ color: 'rgba(255,255,255,0.8)' }} />
+            <Typography>Emoji</Typography>
+          </MenuItem>
+        </Box>
+      </Drawer>
+
+      {/* Message Long-Press Context Menu */}
+      <Menu
+        open={Boolean(messageMenuAnchor)}
+        onClose={() => {
+          setMessageMenuAnchor(null);
+          setSelectedMessage(null);
+        }}
+        anchorReference={messageMenuAnchor?.mouseX ? "anchorPosition" : "none"}
+        anchorPosition={
+          messageMenuAnchor?.mouseX
+            ? { top: messageMenuAnchor.mouseY, left: messageMenuAnchor.mouseX }
+            : undefined
+        }
+        sx={{
+          // Center menu when no anchor position (mobile long-press)
+          ...(!messageMenuAnchor?.mouseX && {
+            '& .MuiPaper-root': {
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)'
+            }
+          })
+        }}
+        PaperProps={{
+          sx: {
+            bgcolor: 'rgba(20, 20, 30, 0.98)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '14px',
+            backdropFilter: 'blur(18px)',
+            minWidth: 180,
+            '& .MuiMenuItem-root': {
+              color: '#fff',
+              gap: 1.5,
+              minHeight: 48,
+              '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' }
+            }
+          }
+        }}
+      >
+        <MenuItem onClick={() => {
+          if (selectedMessage?.content) {
+            navigator.clipboard.writeText(selectedMessage.content);
+          }
+          setMessageMenuAnchor(null);
+          setSelectedMessage(null);
+        }}>
+          <CopyIcon fontSize="small" sx={{ color: '#00f2ea' }} /> Copy
+        </MenuItem>
+        {selectedMessage?.senderId === user?.id && (
+          <MenuItem 
+            onClick={async () => {
+              if (!selectedMessage) return;
+              try {
+                const token = localStorage.getItem('token');
+                await fetch(`${API_BASE_URL}/chat/messages/${selectedMessage.id}`, {
+                  method: 'DELETE',
+                  headers: { 'Authorization': `Bearer ${token}` }
+                });
+                setMessages(prev => prev.filter(m => m.id !== selectedMessage.id));
+              } catch (error) {
+                console.error('Failed to delete message:', error);
+              }
+              setMessageMenuAnchor(null);
+              setSelectedMessage(null);
+            }}
+            sx={{ color: '#ff6b6b !important' }}
+          >
+            <DeleteIcon fontSize="small" /> Delete
+          </MenuItem>
+        )}
+      </Menu>
+
+      {/* Attachment Preview Modal */}
+      {attachmentPreview && (
+        <Box sx={{
+          position: 'fixed',
+          bottom: 80,
+          left: 0,
+          right: 0,
+          mx: 2,
+          p: 2,
+          background: 'rgba(20, 20, 30, 0.98)',
+          borderRadius: '16px',
+          border: '1px solid rgba(0,242,234,0.3)',
+          backdropFilter: 'blur(20px)',
+          zIndex: 1300,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2
+        }}>
+          <Box sx={{ 
+            width: 60, 
+            height: 60, 
+            borderRadius: '10px', 
+            overflow: 'hidden',
+            flexShrink: 0
+          }}>
+            {pendingFile?.type?.startsWith('image/') ? (
+              <img 
+                src={attachmentPreview} 
+                alt="Preview" 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+              />
+            ) : (
+              <Box sx={{ 
+                width: '100%', 
+                height: '100%', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                background: 'rgba(0,242,234,0.1)'
+              }}>
+                <AttachIcon sx={{ color: '#00f2ea' }} />
+              </Box>
+            )}
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ color: '#fff', fontWeight: 500, fontSize: '14px' }} noWrap>
+              {pendingFile?.name || 'File'}
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px' }}>
+              {pendingFile?.size ? `${(pendingFile.size / 1024).toFixed(1)} KB` : ''}
+            </Typography>
+          </Box>
+          <IconButton 
+            onClick={() => {
+              setAttachmentPreview(null);
+              setPendingFile(null);
+            }}
+            sx={{ color: 'rgba(255,255,255,0.7)' }}
+          >
+            <CloseIcon />
+          </IconButton>
+          <IconButton 
+            onClick={async () => {
+              if (pendingFile) {
+                // Create a synthetic event for handleFileSelect
+                const syntheticEvent = { target: { files: [pendingFile], value: '' } };
+                await handleFileSelect(syntheticEvent);
+              }
+              setAttachmentPreview(null);
+              setPendingFile(null);
+            }}
+            sx={{ 
+              background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
+              color: '#000',
+              '&:hover': { background: '#00f2ea' }
+            }}
+          >
+            <SendIcon />
+          </IconButton>
+        </Box>
+      )}
     </Box>
   );
 };
@@ -1294,7 +2023,8 @@ const styles = {
   container: {
     display: 'flex',
     flex: 1,
-    minHeight: 'calc(100vh - 0px)',
+    height: '100%',
+    minHeight: 0,
     background: 'var(--bg-primary, #0f0f13)',
     overflow: 'hidden'
   },
@@ -1306,17 +2036,20 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     background: 'var(--bg-secondary, #1a1a22)',
-    order: 2
+    order: 2,
+    minHeight: 0
   },
   listHeader: {
-    padding: '20px',
+    padding: { xs: '10px 12px', sm: '16px 16px' },
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottom: '1px solid rgba(255,255,255,0.08)'
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    background: 'rgba(15, 15, 19, 0.7)',
+    backdropFilter: 'blur(18px)'
   },
   listTitle: {
-    fontSize: '20px',
+    fontSize: { xs: '18px', sm: '20px' },
     fontWeight: 700,
     color: '#fff'
   },
@@ -1335,7 +2068,7 @@ const styles = {
     color: 'rgba(255,255,255,0.5)'
   },
   searchContainer: {
-    padding: '12px 20px'
+    padding: { xs: '8px 10px', sm: '12px 16px' }
   },
   searchInput: {
     '& .MuiOutlinedInput-root': {
@@ -1348,7 +2081,8 @@ const styles = {
   conversationsScroll: {
     flex: 1,
     overflow: 'auto',
-    padding: '8px 10px'
+    padding: '8px 10px',
+    minHeight: 0
   },
   loadingContainer: {
     display: 'flex',
@@ -1357,27 +2091,48 @@ const styles = {
   },
   emptyState: {
     textAlign: 'center',
-    padding: '40px 20px'
+    padding: '40px 20px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 12
   },
   emptyText: {
-    color: 'rgba(255,255,255,0.5)'
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: 700
+  },
+  emptySubtext: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: '14px',
+    maxWidth: 320
   },
   conversationItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
-    padding: '12px',
-    borderRadius: '16px',
+    gap: '10px',
+    padding: { xs: '10px 12px', sm: '16px 14px' },
+    borderRadius: '12px',
     cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    marginBottom: '6px',
+    transition: 'all 0.15s ease',
+    marginBottom: '4px',
+    minHeight: { xs: '64px', sm: '84px' },
+    userSelect: 'none',
+    WebkitTapHighlightColor: 'transparent',
     '&:hover': {
       background: 'rgba(255,255,255,0.05)'
+    },
+    '&:active': {
+      transform: 'scale(0.98)',
+      background: 'rgba(0, 242, 234, 0.15)'
+    },
+    '&:focus-visible': {
+      outline: '2px solid #00f2ea',
+      outlineOffset: '2px'
     }
   },
   avatar: {
-    width: 52,
-    height: 52
+    width: { xs: 44, sm: 56 },
+    height: { xs: 44, sm: 56 }
   },
   onlineBadge: {
     width: 14,
@@ -1418,13 +2173,14 @@ const styles = {
   },
   conversationTime: {
     fontSize: '12px',
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.90)',
     marginLeft: 'auto',
-    textAlign: 'right'
+    textAlign: 'right',
+    fontWeight: 500
   },
   conversationPreview: {
     fontSize: '14px',
-    color: 'rgba(255,255,255,0.6)'
+    color: 'rgba(255,255,255,0.85)'
   },
   typingIndicator: {
     display: 'flex',
@@ -1442,17 +2198,18 @@ const styles = {
     '&:nth-of-type(3)': { animationDelay: '0.3s' }
   },
   unreadBadge: {
-    minWidth: 20,
-    height: 20,
-    padding: '0 6px',
-    background: '#ff0055',
-    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    padding: '0 7px',
+    background: 'linear-gradient(135deg, #ff1744, #d50000)',
+    borderRadius: 11,
     fontSize: '12px',
-    fontWeight: 600,
+    fontWeight: 700,
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    boxShadow: '0 2px 6px rgba(255,23,68,0.4)'
   },
   escrowIndicator: {
     color: '#00ff88',
@@ -1462,12 +2219,13 @@ const styles = {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    background: 'var(--bg-primary, #0f0f13)'
+    background: 'var(--bg-primary, #0f0f13)',
+    minHeight: 0
   },
   chatHeader: {
     display: 'flex',
     alignItems: 'center',
-    padding: '16px 20px',
+    padding: '14px 14px',
     borderBottom: '1px solid rgba(255,255,255,0.08)',
     background: 'rgba(15, 15, 19, 0.9)',
     backdropFilter: 'blur(20px)'
@@ -1493,7 +2251,11 @@ const styles = {
   },
   chatUserStatus: {
     fontSize: '12px',
-    color: '#00ff88'
+    color: '#00ff88',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: { xs: '120px', sm: '150px' }
   },
   chatHeaderActions: {
     display: 'flex',
@@ -1501,20 +2263,26 @@ const styles = {
   },
   headerActionBtn: {
     color: '#fff',
+    minWidth: '44px',
+    minHeight: '44px',
     '&:hover': {
       background: 'rgba(255,255,255,0.1)'
+    },
+    '&:focus-visible': {
+      outline: '2px solid #00f2ea',
+      outlineOffset: '2px'
     }
   },
   escrowBar: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '10px 16px',
+    alignItems: { xs: 'flex-start', sm: 'center' },
+    flexDirection: { xs: 'column', sm: 'row' },
+    gap: { xs: '10px', sm: '8px' },
+    padding: { xs: '12px 16px', sm: '10px 16px' },
     background: 'rgba(0, 255, 136, 0.1)',
     borderBottom: '1px solid rgba(0, 255, 136, 0.15)',
     color: '#00ff88',
-    fontSize: '13px',
-    flexWrap: 'wrap'
+    fontSize: '13px'
   },
   escrowAmount: {
     fontWeight: 700
@@ -1530,18 +2298,21 @@ const styles = {
   messagesContainer: {
     flex: 1,
     overflow: 'auto',
-    padding: '16px 20px 72px',
+    padding: { xs: '8px 10px', sm: '20px 24px' },
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px'
+    gap: '8px',
+    minHeight: 0,
+    position: 'relative'
   },
   messageRow: {
     display: 'flex'
   },
   messageBubble: {
-    maxWidth: '75%',
-    padding: '12px 16px',
-    borderRadius: '20px'
+    maxWidth: { xs: '75%', sm: '70%', md: '65%' },
+    padding: { xs: '10px 14px', sm: '12px 16px' },
+    borderRadius: { xs: '16px', sm: '18px' },
+    wordBreak: 'break-word'
   },
   sentBubble: {
     background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
@@ -1554,8 +2325,8 @@ const styles = {
     borderBottomLeftRadius: '6px'
   },
   messageText: {
-    fontSize: '15px',
-    lineHeight: 1.4
+    fontSize: { xs: '16px', sm: '16px' },
+    lineHeight: 1.5
   },
   imageAttachment: {
     maxWidth: 280,
@@ -1574,56 +2345,108 @@ const styles = {
     marginTop: '4px'
   },
   messageTime: {
-    fontSize: '11px',
-    opacity: 0.7
+    fontSize: '12px',
+    opacity: 0.85
   },
   inputArea: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '12px 16px',
-    borderTop: '1px solid rgba(255,255,255,0.08)',
-    background: 'var(--bg-secondary, #1a1a22)',
-    position: 'sticky',
-    bottom: 0,
-    zIndex: 2
+    alignItems: 'flex-end',
+    gap: { xs: '4px', sm: '8px' },
+    padding: { xs: '4px 6px', sm: '10px 14px' },
+    paddingBottom: { xs: '4px', sm: '10px' },
+    borderTop: '1px solid rgba(255,255,255,0.12)',
+    background: 'rgba(20, 20, 30, 0.98)',
+    backdropFilter: 'blur(24px)',
+    boxShadow: '0 -2px 12px rgba(0,0,0,0.25)',
+    flexShrink: 0,
+    minHeight: { xs: 44, sm: 56 }
   },
   inputActionBtn: {
-    color: 'rgba(255,255,255,0.6)',
+    width: { xs: 40, sm: 48 },
+    height: { xs: 40, sm: 48 },
+    minWidth: { xs: 40, sm: 48 },
+    minHeight: { xs: 40, sm: 48 },
+    color: 'rgba(255,255,255,0.75)',
+    flexShrink: 0,
     '&:hover': {
-      color: '#fff'
+      color: '#fff',
+      background: 'rgba(255,255,255,0.08)'
+    },
+    '&:focus-visible': {
+      outline: '2px solid #00f2ea',
+      outlineOffset: '2px'
     }
   },
   messageInput: {
     flex: 1,
+    minWidth: 0,
     '& .MuiOutlinedInput-root': {
-      background: 'rgba(255,255,255,0.05)',
-      borderRadius: '24px',
-      '& fieldset': { border: '1px solid rgba(255,255,255,0.08)' },
-      '&:hover fieldset': { border: '1px solid rgba(255,255,255,0.15)' },
-      '&.Mui-focused fieldset': { border: '1px solid #00f2ea' },
-      '& input, & textarea': { color: '#fff', padding: '12px 16px' }
+      background: 'rgba(255,255,255,0.06)',
+      borderRadius: { xs: '18px', sm: '22px' },
+      '& fieldset': { border: '1px solid rgba(255,255,255,0.12)' },
+      '&:hover fieldset': { border: '1px solid rgba(255,255,255,0.20)' },
+      '&.Mui-focused fieldset': { border: '2px solid #00f2ea' },
+      '& input, & textarea': { 
+        color: '#fff', 
+        padding: { xs: '8px 12px', sm: '10px 14px' },
+        fontSize: { xs: '15px', sm: '16px' }
+      }
     }
   },
   sendBtn: {
-    background: '#00f2ea',
+    width: { xs: 40, sm: 48 },
+    height: { xs: 40, sm: 48 },
+    minWidth: { xs: 40, sm: 48 },
+    minHeight: { xs: 40, sm: 48 },
+    background: 'linear-gradient(135deg, #00f2ea, #00c9c2)',
     color: '#000',
+    flexShrink: 0,
+    boxShadow: '0 2px 8px rgba(0,242,234,0.3)',
     '&:hover': {
-      background: '#00d4ce'
+      background: 'linear-gradient(135deg, #00d4ce, #00b0a9)',
+      boxShadow: '0 4px 12px rgba(0,242,234,0.4)'
+    },
+    '&:disabled': {
+      background: 'rgba(255,255,255,0.1)',
+      boxShadow: 'none'
+    },
+    '&:focus-visible': {
+      outline: '2px solid #00f2ea',
+      outlineOffset: '2px'
     }
   },
   payNowBtn: {
     borderRadius: '12px',
-    padding: '10px',
+    width: 48,
+    height: 48,
+    minWidth: 48,
+    minHeight: 48,
+    flexShrink: 0,
+    boxShadow: '0 2px 8px rgba(0,255,136,0.25)',
     '&:hover': {
-      background: 'linear-gradient(135deg, #00cc6a, #00aa55) !important'
+      background: 'linear-gradient(135deg, #00cc6a, #00aa55) !important',
+      boxShadow: '0 4px 12px rgba(0,255,136,0.35)'
+    },
+    '&:focus-visible': {
+      outline: '2px solid #00ff88',
+      outlineOffset: '2px'
     }
   },
   requestBtn: {
     borderRadius: '12px',
-    padding: '10px',
+    width: 48,
+    height: 48,
+    minWidth: 48,
+    minHeight: 48,
+    flexShrink: 0,
+    boxShadow: '0 2px 8px rgba(255,170,0,0.25)',
     '&:hover': {
-      background: 'linear-gradient(135deg, #ffaa00, #ff8800) !important'
+      background: 'linear-gradient(135deg, #ffaa00, #ff8800) !important',
+      boxShadow: '0 4px 12px rgba(255,170,0,0.35)'
+    },
+    '&:focus-visible': {
+      outline: '2px solid #ffaa00',
+      outlineOffset: '2px'
     }
   },
   milestoneRequestsArea: {
@@ -1661,6 +2484,19 @@ const styles = {
     color: '#000',
     mt: 1,
     '&:hover': { background: '#00d4ce' }
+  },
+  newChatBtn: {
+    borderColor: 'rgba(0,242,234,0.35)',
+    color: '#00f2ea',
+    fontWeight: 700,
+    borderRadius: '12px',
+    textTransform: 'none',
+    px: 1.5,
+    minWidth: 0,
+    '&:hover': {
+      borderColor: 'rgba(0,242,234,0.55)',
+      background: 'rgba(0,242,234,0.08)'
+    }
   }
 };
 

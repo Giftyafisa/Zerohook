@@ -80,14 +80,6 @@ const ProfilePage = () => {
   const [editData, setEditData] = useState({});
 
   // Fetch supported countries on mount
-            {locationLookupLoading && (
-              <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Validating city...</Typography>
-            )}
-            {locationSuggestion && (
-              <Typography sx={{ color: '#00f2ea', fontSize: 12 }}>
-                Found: {locationSuggestion.city}, {locationSuggestion.country} ({Number(locationSuggestion.lat).toFixed(3)}, {Number(locationSuggestion.lng).toFixed(3)})
-              </Typography>
-            )}
   useEffect(() => {
     const fetchCountries = async () => {
       try {
@@ -696,8 +688,8 @@ const styles = {
   container: {
     minHeight: '100vh',
     background: 'var(--bg-primary, #0f0f13)',
-    padding: '20px',
-    paddingBottom: '100px'
+    padding: { xs: '12px', sm: '16px', md: '20px' },
+    paddingBottom: '80px'
   },
   loadingContainer: {
     minHeight: '100vh',
@@ -710,10 +702,10 @@ const styles = {
     background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.1), rgba(255, 0, 85, 0.05))',
     backdropFilter: 'blur(20px)',
     border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '24px',
-    padding: '32px 24px',
+    borderRadius: '20px',
+    padding: { xs: '20px 16px', sm: '28px 20px', md: '32px 24px' },
     textAlign: 'center',
-    marginBottom: '24px'
+    marginBottom: '16px'
   },
   avatarContainer: {
     position: 'relative',

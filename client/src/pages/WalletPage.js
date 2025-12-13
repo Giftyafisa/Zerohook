@@ -31,11 +31,15 @@ import {
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { ListSkeleton, WalletCardSkeleton } from '../components/LoadingSkeleton';
+import { ErrorState, TimeoutError } from '../components/ErrorState';
 
 const WalletPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [isTimeout, setIsTimeout] = useState(false);
+  const [error, setError] = useState(null);
   const [depositDialog, setDepositDialog] = useState(false);
   const [withdrawDialog, setWithdrawDialog] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
@@ -61,11 +65,25 @@ const WalletPage = () => {
 
   useEffect(() => {
     const fetchWalletData = async () => {
+      setLoading(true);
+      setError(null);
+      setIsTimeout(false);
+
+      // 10 second timeout
+      const timeoutId = setTimeout(() => {
+        setIsTimeout(true);
+        setLoading(false);
+      }, 10000);
+
       try {
         const token = localStorage.getItem('token');
         const response = await fetch(`${API_BASE_URL}/payments/wallet`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(10000)
         });
+        
+        clearTimeout(timeoutId);
+        
         if (response.ok) {
           const data = await response.json();
           setWalletData({
@@ -77,7 +95,9 @@ const WalletPage = () => {
             currencySymbol: data.wallet?.currencySymbol || data.currencySymbol || '₦',
             transactions: data.transactions || mockTransactions
           });
+          setError(null);
         } else {
+          setError(`Failed to load wallet (${response.status})`);
           // Fallback mock data
           setWalletData({
             balance: 0,
@@ -90,16 +110,23 @@ const WalletPage = () => {
           });
         }
       } catch (error) {
+        clearTimeout(timeoutId);
         console.error('Wallet fetch error:', error);
-        setWalletData({
-          balance: 0,
-          escrowHeld: 0,
-          pendingWithdrawal: 0,
-          totalEarnings: 0,
-          currency: 'NGN',
-          currencySymbol: '₦',
-          transactions: mockTransactions
-        });
+        
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+          setIsTimeout(true);
+        } else {
+          setError('Unable to load wallet data. Please try again.');
+          setWalletData({
+            balance: 0,
+            escrowHeld: 0,
+            pendingWithdrawal: 0,
+            totalEarnings: 0,
+            currency: 'NGN',
+            currencySymbol: '₦',
+            transactions: mockTransactions
+          });
+        }
       } finally {
         setLoading(false);
       }
@@ -260,6 +287,10 @@ const WalletPage = () => {
     { icon: <LockIcon />, label: 'Escrow', color: '#00ff88', onClick: () => navigate('/transactions') }
   ];
 
+  const handleRetry = () => {
+    window.location.reload();
+  };
+
   if (!isAuthenticated) {
     return (
       <Box sx={styles.container}>
@@ -280,8 +311,33 @@ const WalletPage = () => {
 
   if (loading) {
     return (
-      <Box sx={styles.loadingContainer}>
-        <CircularProgress sx={{ color: '#00f2ea' }} />
+      <Box sx={styles.container}>
+        <Box sx={styles.header}>
+          <WalletIcon sx={styles.headerIcon} />
+          <Typography sx={styles.headerTitle}>My Wallet</Typography>
+        </Box>
+        <WalletCardSkeleton />
+        <ListSkeleton count={5} variant="transaction" />
+      </Box>
+    );
+  }
+
+  if (isTimeout) {
+    return (
+      <Box sx={styles.container}>
+        <TimeoutError onRetry={handleRetry} />
+      </Box>
+    );
+  }
+
+  if (error && walletData.balance === 0) {
+    return (
+      <Box sx={styles.container}>
+        <ErrorState
+          title="Unable to Load Wallet"
+          message={error}
+          onRetry={handleRetry}
+        />
       </Box>
     );
   }

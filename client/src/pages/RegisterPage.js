@@ -545,11 +545,31 @@ const RegisterPage = () => {
                     }}
                   >
                     I agree to the{' '}
-                    <Link to="/terms" style={{ color: '#00f2ea', textDecoration: 'none' }}>
+                    <Link 
+                      to="/terms" 
+                      style={{ 
+                        color: '#00f2ea', 
+                        textDecoration: 'none',
+                        minHeight: '44px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '12px 4px',
+                      }}
+                    >
                       Terms of Service
                     </Link>{' '}
                     and{' '}
-                    <Link to="/privacy" style={{ color: '#00f2ea', textDecoration: 'none' }}>
+                    <Link 
+                      to="/privacy" 
+                      style={{ 
+                        color: '#00f2ea', 
+                        textDecoration: 'none',
+                        minHeight: '44px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '12px 4px',
+                      }}
+                    >
                       Privacy Policy
                     </Link>
                   </Typography>

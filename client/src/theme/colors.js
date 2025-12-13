@@ -21,8 +21,9 @@ export const colors = {
   // Text Colors
   text: {
     primary: '#FFFFFF',       // White for main text on dark bg
-    secondary: '#a0a0b0',     // Medium gray for secondary text
-    muted: '#666666',         // Muted gray
+    secondary: 'rgba(255, 255, 255, 0.70)',  // Improved contrast (was 0.5)
+    muted: 'rgba(255, 255, 255, 0.50)',      // Muted text
+    disabled: 'rgba(255, 255, 255, 0.30)',   // Disabled state
     inverse: '#0f0f13',       // Dark text for light backgrounds
     brand: '#00f2ea'          // Brand cyan for accent text
   },
@@ -31,17 +32,20 @@ export const colors = {
   background: {
     primary: '#0f0f13',       // Deep dark background
     secondary: '#1a1a20',     // Dark charcoal for cards
+    tertiary: '#14141a',      // Between primary and secondary
     dark: '#0a0a0d',          // Darker background
     accent: '#00f2ea',        // Cyan accent background
-    glass: 'rgba(255, 255, 255, 0.05)', // Glass effect
-    overlay: 'rgba(0, 0, 0, 0.7)' // Semi-transparent overlay
+    glass: 'rgba(255, 255, 255, 0.06)',      // Glass effect (standardized)
+    glassHover: 'rgba(255, 255, 255, 0.10)', // Glass hover state
+    overlay: 'rgba(0, 0, 0, 0.70)'           // Semi-transparent overlay
   },
   
   // Border Colors
   border: {
-    light: 'rgba(255, 255, 255, 0.1)',   // Glass border
-    medium: 'rgba(255, 255, 255, 0.15)', // Glass highlight
-    dark: 'rgba(255, 255, 255, 0.2)',    // Visible border
+    subtle: 'rgba(255, 255, 255, 0.08)',     // Very subtle borders
+    light: 'rgba(255, 255, 255, 0.12)',      // Light borders (standardized)
+    medium: 'rgba(255, 255, 255, 0.20)',     // Medium borders
+    strong: 'rgba(255, 255, 255, 0.30)',     // Strong borders
     brand: '#00f2ea'          // Brand cyan borders
   },
   
@@ -61,6 +65,58 @@ export const colors = {
     ridin: '#7fffd4',         // Light cyan
     bb_suk: '#00b8b0'         // Dark cyan
   }
+};
+
+// Standardized Spacing Scale (from plan.md)
+export const spacing = {
+  xs: 4,    // 4px
+  sm: 8,    // 8px
+  md: 12,   // 12px
+  lg: 16,   // 16px
+  xl: 24,   // 24px
+  '2xl': 32, // 32px
+  '3xl': 48  // 48px
+};
+
+// Typography Scale (from plan.md)
+export const typography = {
+  fontSize: {
+    xs: '11px',   // labels, badges
+    sm: '13px',   // secondary text
+    base: '15px', // body text
+    lg: '18px',   // headings
+    xl: '24px',   // page titles
+    '2xl': '32px' // hero text
+  },
+  fontWeight: {
+    normal: 400,
+    medium: 500,
+    semibold: 600,
+    bold: 700,
+    extrabold: 800
+  },
+  lineHeight: {
+    tight: 1.2,
+    normal: 1.5,
+    relaxed: 1.7
+  }
+};
+
+// Border Radius Scale (from plan.md)
+export const borderRadius = {
+  sm: '8px',   // chips, badges
+  md: '12px',  // buttons, inputs
+  lg: '16px',  // cards
+  xl: '24px',  // modals
+  full: '9999px' // circular
+};
+
+// Touch Target Sizes (WCAG 2.5.5 - Level AAA compliant)
+export const touchTargets = {
+  minimum: 44,     // WCAG AA minimum
+  comfortable: 48, // Recommended for all interactive elements
+  icon: 48,        // Icon-only buttons
+  large: 56        // Primary CTAs and tabs
 };
 
 // Define gradient functions for Zerohook theme

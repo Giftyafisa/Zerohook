@@ -45,21 +45,22 @@ import {
 } from '../store/slices/uiSlice';
 import { API_BASE_URL } from '../config/constants';
 import { motion, AnimatePresence } from 'framer-motion';
+import tokens from '../theme/tokens';
 
 // Styled components
 const styles = {
   container: {
     minHeight: '100vh',
-    background: '#0f0f13',
+    background: tokens.colors.background.primary,
     pb: 10,
   },
   header: {
     position: 'sticky',
     top: 0,
-    zIndex: 100,
-    background: 'rgba(15, 15, 19, 0.95)',
-    backdropFilter: 'blur(20px)',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+    zIndex: tokens.zIndex.sticky,
+    background: `${tokens.colors.background.primary}f2`,
+    backdropFilter: tokens.backdropBlur.md,
+    borderBottom: `1px solid ${tokens.colors.border.primary}`,
     px: 3,
     py: 2,
   },
@@ -72,9 +73,9 @@ const styles = {
   },
   title: {
     fontFamily: '"Outfit", sans-serif',
-    fontWeight: 700,
-    fontSize: '24px',
-    color: '#fff',
+    fontWeight: tokens.fontWeight.bold,
+    fontSize: `${tokens.fontSize.xl}px`,
+    color: tokens.colors.text.primary,
   },
   tabs: {
     maxWidth: '800px',
@@ -108,27 +109,42 @@ const styles = {
     display: 'flex',
     gap: 2,
     p: 2,
-    borderRadius: '16px',
+    minHeight: '56px',  // Comfortable touch target
+    borderRadius: '12px',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
+    position: 'relative',
     '&:hover': {
-      background: 'rgba(255, 255, 255, 0.05)',
+      background: 'rgba(255, 255, 255, 0.06)',
+    },
+    '&:active': {
+      transform: 'scale(0.98)',
+    },
+  },
+  notificationItemUnread: {
+    background: 'rgba(0, 242, 234, 0.08)',
+    borderLeft: '3px solid #00f2ea',
+    '&:hover': {
+      background: 'rgba(0, 242, 234, 0.12)',
     },
   },
   unreadIndicator: {
-    width: '8px',
-    height: '8px',
+    width: '12px',
+    height: '12px',
     borderRadius: '50%',
     background: '#00f2ea',
     flexShrink: 0,
     mt: 1.5,
+    boxShadow: '0 0 8px rgba(0, 242, 234, 0.6)',
+    border: '2px solid #0f0f13',
   },
   avatar: {
-    width: 48,
-    height: 48,
-    bgcolor: 'rgba(0, 242, 234, 0.15)',
-    color: '#00f2ea',
-    border: '2px solid rgba(0, 242, 234, 0.3)',
+    width: tokens.touchTarget.min,
+    height: tokens.touchTarget.min,
+    bgcolor: `${tokens.colors.primary.main}26`,
+    color: tokens.colors.primary.main,
+    border: `2px solid ${tokens.colors.border.accent}`,
+    fontWeight: tokens.fontWeight.bold,
   },
   emptyState: {
     textAlign: 'center',
@@ -136,20 +152,39 @@ const styles = {
     px: 3,
   },
   markAllBtn: {
-    color: '#00f2ea',
+    color: tokens.colors.primary.main,
     fontFamily: '"Outfit", sans-serif',
-    fontWeight: 600,
-    fontSize: '13px',
+    fontWeight: tokens.fontWeight.semibold,
+    fontSize: `${tokens.fontSize.sm}px`,
     textTransform: 'none',
+    minHeight: `${tokens.touchTarget.min}px`,
+    px: 2,
     '&:hover': {
-      background: 'rgba(0, 242, 234, 0.1)',
+      background: `${tokens.colors.primary.main}1a`,
     },
   },
   refreshBtn: {
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255, 255, 255, 0.70)',
+    minWidth: '48px',
+    minHeight: '48px',
     '&:hover': {
       color: '#00f2ea',
+      background: 'rgba(0, 242, 234, 0.10)',
     },
+  },
+  deleteBtn: {
+    color: 'rgba(255, 255, 255, 0.50)',
+    minWidth: '44px',
+    minHeight: '44px',
+    '&:hover': {
+      color: '#ff0055',
+      background: 'rgba(255, 0, 85, 0.10)',
+    },
+  },
+  actionText: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#00f2ea',
   },
 };
 
@@ -487,7 +522,7 @@ const NotificationsPage = () => {
                   <Box 
                     sx={{
                       ...styles.notificationItem,
-                      background: !notification.read ? 'rgba(0, 242, 234, 0.05)' : 'transparent',
+                      ...(!notification.read && styles.notificationItemUnread),
                     }}
                     onClick={() => handleNotificationClick(notification)}
                   >

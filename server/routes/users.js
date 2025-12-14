@@ -390,8 +390,12 @@ router.get('/profiles', async (req, res) => {
       searchQuery: search || null
     };
 
-    // Use recommendation engine for advanced ranking
-    const result = await recommendationEngine.getRecommendedProfiles({
+    // Use ACCOUNT-TYPE-AWARE recommendation engine for advanced ranking
+    // This routes to the correct method based on user's accountType:
+    // - sugar_daddy/sugar_mommy → getSugarRecommendations (verified providers, opposite sex, young)
+    // - client → getRecommendedProfiles (all providers)
+    // - provider → getRecommendedProfiles (all clients/providers for networking)
+    const result = await recommendationEngine.getAccountTypeAwareRecommendations({
       userId: currentUserId,
       userLocation,
       limit: parseInt(limit),

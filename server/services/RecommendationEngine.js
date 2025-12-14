@@ -1477,11 +1477,20 @@ class RecommendationEngine {
         params.push(preferredGender);
       }
 
-      // Filter by preferred age range (calculate from dateOfBirth)
+      // Filter by preferred age range
+      // Support BOTH dateOfBirth (new users) and age (legacy users)
       whereClause += ` AND (
-        EXTRACT(YEAR FROM AGE(CURRENT_DATE, (u.profile_data->>'dateOfBirth')::date)) 
-        BETWEEN $${paramIndex++} AND $${paramIndex++}
-        OR u.profile_data->>'dateOfBirth' IS NULL
+        -- New users with dateOfBirth
+        (u.profile_data->>'dateOfBirth' IS NOT NULL 
+         AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, (u.profile_data->>'dateOfBirth')::date)) 
+         BETWEEN $${paramIndex++} AND $${paramIndex++})
+        OR
+        -- Legacy users with age field
+        (u.profile_data->>'age' IS NOT NULL 
+         AND (u.profile_data->>'age')::int BETWEEN $${paramIndex - 2} AND $${paramIndex - 1})
+        OR
+        -- Users without age data (include them)
+        (u.profile_data->>'dateOfBirth' IS NULL AND u.profile_data->>'age' IS NULL)
       )`;
       params.push(preferredAgeRange.min, preferredAgeRange.max);
 
@@ -1556,13 +1565,162 @@ class RecommendationEngine {
   }
 
   /**
+   * Get recommendations for CLIENT accounts
+   * Clients see ONLY providers (sex workers)
+   * - Only accountType = 'provider'
+   * - Must be subscribed or active
+   * - Sorted by location, quality, engagement
+   */
+  async getClientRecommendations(options = {}) {
+    const {
+      userId,
+      userLocation = null,
+      limit = 20,
+      offset = 0,
+      filters = {}
+    } = options;
+
+    console.log(`👤 Client recommendations for user ${userId}`);
+
+    // Modify the filters to ensure only providers are shown
+    const clientFilters = {
+      ...filters,
+      accountTypeFilter: 'provider'  // Clients only see providers
+    };
+
+    // Use the base recommendation engine with provider-only filter
+    return this.getRecommendedProfiles({
+      ...options,
+      filters: clientFilters
+    });
+  }
+
+  /**
+   * Get recommendations for PROVIDER accounts
+   * Providers see ONLY clients (potential customers)
+   * - Only accountType = 'client'
+   * - NEVER shows sugar profiles (they need separate paid access)
+   * - Sorted by location, engagement
+   */
+  async getProviderRecommendations(options = {}) {
+    const {
+      userId,
+      userLocation = null,
+      limit = 20,
+      offset = 0,
+      filters = {}
+    } = options;
+
+    console.log(`💼 Provider recommendations for user ${userId}`);
+
+    try {
+      // Get user preferences if available
+      let userPreferences = null;
+      let userEmbedding = null;
+      let adaptiveWeights = this.weights;
+
+      if (userId) {
+        try {
+          userPreferences = await this.getUserPreferences(userId);
+        } catch (err) {
+          console.log('⚠️  User preferences fetch failed:', err.message);
+        }
+        
+        try {
+          userEmbedding = await this.generateUserEmbedding(userId);
+        } catch (err) {
+          console.log('⚠️  User embedding generation failed:', err.message);
+        }
+      }
+
+      // Build query specifically for CLIENTS
+      // Providers NEVER see sugar_daddy or sugar_mommy here - they need paid access
+      let whereClause = `WHERE u.profile_data IS NOT NULL 
+        AND u.profile_data->>'accountType' = 'client'
+        AND u.verification_tier >= 1`;
+      const params = [];
+      let paramIndex = 1;
+
+      // Exclude current user
+      if (userId) {
+        whereClause += ` AND u.id != $${paramIndex++}`;
+        params.push(userId);
+      }
+
+      // Apply location filters
+      if (filters.country && filters.country !== 'all') {
+        whereClause += ` AND LOWER(u.profile_data->'location'->>'country') = LOWER($${paramIndex++})`;
+        params.push(filters.country);
+      }
+
+      if (filters.city) {
+        whereClause += ` AND LOWER(u.profile_data->'location'->>'city') ILIKE $${paramIndex++}`;
+        params.push(`%${filters.city.toLowerCase()}%`);
+      }
+
+      // Fetch clients
+      const result = await query(`
+        SELECT 
+          u.id,
+          u.username,
+          u.profile_data,
+          u.verification_tier,
+          u.reputation_score,
+          u.is_subscribed,
+          u.subscription_tier,
+          u.created_at,
+          COALESCE(u.last_active, u.created_at) as last_active
+        FROM users u
+        ${whereClause}
+        ORDER BY u.last_active DESC NULLS LAST
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+      `, [...params, limit, offset]);
+
+      // Get total count
+      const countResult = await query(`
+        SELECT COUNT(*) as total FROM users u ${whereClause}
+      `, params);
+
+      // Score and sort profiles
+      let scoredProfiles = result.rows;
+      if (userLocation) {
+        scoredProfiles = result.rows.map(profile => 
+          this.calculateProfileScore(profile, userLocation, userPreferences, result.rows, userEmbedding, adaptiveWeights)
+        );
+        scoredProfiles.sort((a, b) => (b.recommendationScore || 0) - (a.recommendationScore || 0));
+      }
+
+      return {
+        profiles: scoredProfiles,
+        total: parseInt(countResult.rows[0].total),
+        page: Math.floor(offset / limit) + 1,
+        limit,
+        forProviderAccount: true,
+        message: 'Showing potential clients'
+      };
+
+    } catch (error) {
+      console.error('Provider recommendations error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get user's account type and determine which recommendation method to use
+   * 
+   * ROUTING LOGIC:
+   * - client → getClientRecommendations (sees ONLY providers)
+   * - provider → getProviderRecommendations (sees ONLY clients, no sugar)
+   * - sugar_daddy → getSugarRecommendations (sees verified young female providers)
+   * - sugar_mommy → getSugarRecommendations (sees verified young male providers)
+   * - unauthenticated → getRecommendedProfiles (public providers only)
    */
   async getAccountTypeAwareRecommendations(options = {}) {
     const { userId, ...restOptions } = options;
 
     if (!userId) {
-      // Unauthenticated - use standard provider recommendations
+      // Unauthenticated - show public providers only
+      console.log('👁️ Unauthenticated user - showing public provider profiles');
       return this.getRecommendedProfiles(options);
     }
 
@@ -1578,16 +1736,26 @@ class RecommendationEngine {
       }
 
       const accountType = userResult.rows[0].account_type;
+      console.log(`🔍 Account-type-aware recommendations for: ${accountType} (userId: ${userId})`);
 
       // Route to appropriate recommendation method based on account type
       switch (accountType) {
         case 'sugar_daddy':
         case 'sugar_mommy':
+          // Sugar accounts see verified young providers of opposite sex
           return this.getSugarRecommendations(options);
         
         case 'client':
+          // Clients see only providers
+          return this.getClientRecommendations(options);
+        
         case 'provider':
+          // Providers see only clients (NOT sugar profiles - they need paid access)
+          return this.getProviderRecommendations(options);
+        
         default:
+          // Unknown account type - default to provider recommendations
+          console.log(`⚠️ Unknown account type: ${accountType}, defaulting to provider view`);
           return this.getRecommendedProfiles(options);
       }
 

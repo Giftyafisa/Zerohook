@@ -27,7 +27,9 @@ import {
   Explore,
   Whatshot,
   Chat,
-  Close
+  Close,
+  Diamond,  // For sugar profiles
+  WorkOutline  // For provider services
 } from '@mui/icons-material';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsAuthenticated, selectIsSubscribed, logout } from '../../store/slices/authSlice';
@@ -173,8 +175,47 @@ const Navbar = () => {
     return user.username || user.email?.split('@')[0] || 'User';
   };
 
+  // Get user's account type for conditional rendering
+  const accountType = user?.profile_data?.accountType || 'client';
+  const isProvider = accountType === 'provider';
+  const isClient = accountType === 'client';
+  const isSugarDaddy = accountType === 'sugar_daddy';
+  const isSugarMommy = accountType === 'sugar_mommy';
+  const isSugarAccount = isSugarDaddy || isSugarMommy;
+
+  // Get account type label for display
+  const getAccountTypeLabel = () => {
+    switch (accountType) {
+      case 'provider': return 'Provider';
+      case 'client': return 'Client';
+      case 'sugar_daddy': return 'Sugar Daddy';
+      case 'sugar_mommy': return 'Sugar Mommy';
+      default: return 'User';
+    }
+  };
+
   const getSubscriptionBadge = () => {
     if (!isAuthenticated) return null;
+    
+    // Sugar accounts get special VVIP badge
+    if (isSugarAccount) {
+      return (
+        <Chip 
+          label="VVIP" 
+          size="small"
+          sx={{
+            background: 'linear-gradient(135deg, rgba(255, 215, 0, 0.3), rgba(255, 140, 0, 0.3))',
+            color: '#FFD700',
+            border: '1px solid rgba(255, 215, 0, 0.5)',
+            fontFamily: '"Outfit", sans-serif',
+            fontWeight: 600,
+            fontSize: '10px',
+            height: '22px',
+          }}
+        />
+      );
+    }
+    
     if (isSubscribed) {
       const tier = user?.subscription_tier || 'premium';
       return (
@@ -226,13 +267,44 @@ const Navbar = () => {
     }
   };
 
-  const menuItems = [
-    { label: 'Dashboard', path: '/dashboard', icon: <Dashboard /> },
-    { label: 'Profile', path: '/profile', icon: <Person /> },
-    { label: 'Trust Score', path: '/trust-score', icon: <Security /> },
-    { label: 'Transactions', path: '/transactions', icon: <Payment /> },
-    { label: 'Create Service', path: '/create-service', icon: <Add /> },
-  ];
+  // Build menu items based on account type
+  const getMenuItems = () => {
+    const baseItems = [
+      { label: 'Dashboard', path: '/dashboard', icon: <Dashboard /> },
+      { label: 'Profile', path: '/profile', icon: <Person /> },
+      { label: 'Trust Score', path: '/trust-score', icon: <Security /> },
+      { label: 'Transactions', path: '/transactions', icon: <Payment /> },
+    ];
+
+    // Provider-specific items
+    if (isProvider) {
+      baseItems.push({ 
+        label: 'Create Service', 
+        path: '/create-service', 
+        icon: <Add /> 
+      });
+      baseItems.push({ 
+        label: 'Sugar Profiles', 
+        path: '/sugar-profiles', 
+        icon: <Diamond sx={{ color: '#FFD700' }} />,
+        special: true
+      });
+    }
+
+    // Client-specific items
+    if (isClient) {
+      // Clients can browse services
+    }
+
+    // Sugar account items are simpler
+    if (isSugarAccount) {
+      // Sugar accounts have privacy-focused options
+    }
+
+    return baseItems;
+  };
+
+  const menuItems = getMenuItems();
 
   const renderMenu = (
     <GlassMenu
@@ -328,17 +400,41 @@ const Navbar = () => {
               Messages
             </Box>
           </GlassMenuItem>
-          <GlassMenuItem
-            onClick={() => {
-              navigate('/create-service');
-              handleMenuClose();
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Add sx={{ color: '#00f2ea' }} />
-              Create Service
-            </Box>
-          </GlassMenuItem>
+          {/* Provider-specific: Create Service */}
+          {isProvider && (
+            <GlassMenuItem
+              onClick={() => {
+                navigate('/create-service');
+                handleMenuClose();
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Add sx={{ color: '#00f2ea' }} />
+                Create Service
+              </Box>
+            </GlassMenuItem>
+          )}
+          {/* Provider-specific: Sugar Profiles (paid access) */}
+          {isProvider && (
+            <GlassMenuItem
+              onClick={() => {
+                navigate('/sugar-profiles');
+                handleMenuClose();
+              }}
+              sx={{ 
+                background: 'rgba(255, 215, 0, 0.1)',
+                '&:hover': { 
+                  background: 'rgba(255, 215, 0, 0.2)',
+                  color: '#FFD700' 
+                }
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Diamond sx={{ color: '#FFD700' }} />
+                Sugar Profiles
+              </Box>
+            </GlassMenuItem>
+          )}
           <GlassMenuItem
             onClick={() => {
               navigate('/dashboard');
@@ -482,13 +578,32 @@ const Navbar = () => {
                   >
                     Messages
                   </NavButton>
-                  <NavButton
-                    component={Link}
-                    to="/create-service"
-                    startIcon={<Add sx={{ fontSize: 18 }} />}
-                  >
-                    Create Service
-                  </NavButton>
+                  {/* Provider-specific: Create Service */}
+                  {isProvider && (
+                    <NavButton
+                      component={Link}
+                      to="/create-service"
+                      startIcon={<Add sx={{ fontSize: 18 }} />}
+                    >
+                      Create Service
+                    </NavButton>
+                  )}
+                  {/* Provider-specific: Sugar Profiles (paid access) */}
+                  {isProvider && (
+                    <NavButton
+                      component={Link}
+                      to="/sugar-profiles"
+                      startIcon={<Diamond sx={{ fontSize: 18, color: '#FFD700' }} />}
+                      sx={{
+                        '&:hover': {
+                          color: '#FFD700',
+                          background: 'rgba(255, 215, 0, 0.1)',
+                        }
+                      }}
+                    >
+                      Sugar Profiles
+                    </NavButton>
+                  )}
                 </>
               )}
             </Box>

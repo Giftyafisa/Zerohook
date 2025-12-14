@@ -1400,6 +1400,202 @@ class RecommendationEngine {
       console.error('Error tracking activity:', error);
     }
   }
+
+  // ============================================
+  // USER TYPE SPECIFIC RECOMMENDATION METHODS
+  // ============================================
+
+  /**
+   * Get recommendations specifically for Sugar Daddy/Mommy accounts
+   * 
+   * Sugar accounts see:
+   * - Only providers (accountType = 'provider')
+   * - Well verified providers (verification_tier >= 2)
+   * - Filtered by their preferred gender (opposite sex by default)
+   * - Filtered by their preferred age range (young by default)
+   * - Sorted by verification level, then distance
+   */
+  async getSugarRecommendations(options = {}) {
+    const {
+      userId,
+      userLocation = null,
+      limit = 20,
+      offset = 0,
+      filters = {}
+    } = options;
+
+    try {
+      // Get the sugar user's profile and preferences
+      const userResult = await query(`
+        SELECT 
+          profile_data->>'accountType' as account_type,
+          profile_data->>'gender' as gender,
+          profile_data->'sugarSettings' as sugar_settings
+        FROM users WHERE id = $1
+      `, [userId]);
+
+      if (userResult.rows.length === 0) {
+        throw new Error('User not found');
+      }
+
+      const userData = userResult.rows[0];
+      const accountType = userData.account_type;
+
+      // Verify this is a sugar account
+      if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
+        throw new Error('This method is only for Sugar Daddy/Mommy accounts');
+      }
+
+      // Get sugar settings with defaults
+      const sugarSettings = userData.sugar_settings || {};
+      const preferredGender = filters.preferredGender || sugarSettings.preferredGender || 
+        (accountType === 'sugar_daddy' ? 'female' : 'male');
+      const preferredAgeRange = filters.preferredAgeRange || sugarSettings.preferredAgeRange || 
+        { min: 18, max: 30 };
+
+      console.log(`👑 Sugar ${accountType} recommendations:`, {
+        preferredGender,
+        preferredAgeRange,
+        userId
+      });
+
+      // Build the query for verified providers matching preferences
+      let whereClause = `WHERE u.profile_data IS NOT NULL 
+        AND u.profile_data->>'accountType' = 'provider'
+        AND u.verification_tier >= 2`;  // Only well-verified providers
+
+      const params = [];
+      let paramIndex = 1;
+
+      // Exclude current user
+      whereClause += ` AND u.id != $${paramIndex++}`;
+      params.push(userId);
+
+      // Filter by preferred gender
+      if (preferredGender && preferredGender !== 'any') {
+        whereClause += ` AND u.profile_data->>'gender' = $${paramIndex++}`;
+        params.push(preferredGender);
+      }
+
+      // Filter by preferred age range (calculate from dateOfBirth)
+      whereClause += ` AND (
+        EXTRACT(YEAR FROM AGE(CURRENT_DATE, (u.profile_data->>'dateOfBirth')::date)) 
+        BETWEEN $${paramIndex++} AND $${paramIndex++}
+        OR u.profile_data->>'dateOfBirth' IS NULL
+      )`;
+      params.push(preferredAgeRange.min, preferredAgeRange.max);
+
+      // Apply additional filters from request
+      if (filters.country && filters.country !== 'all') {
+        whereClause += ` AND LOWER(u.profile_data->'location'->>'country') = LOWER($${paramIndex++})`;
+        params.push(filters.country);
+      }
+
+      if (filters.city) {
+        whereClause += ` AND LOWER(u.profile_data->'location'->>'city') ILIKE $${paramIndex++}`;
+        params.push(`%${filters.city.toLowerCase()}%`);
+      }
+
+      // Fetch profiles sorted by verification tier, then last active
+      const result = await query(`
+        SELECT 
+          u.id,
+          u.username,
+          u.profile_data,
+          u.verification_tier,
+          u.reputation_score,
+          u.is_subscribed,
+          u.subscription_tier,
+          u.created_at,
+          COALESCE(u.last_active, u.created_at) as last_active
+        FROM users u
+        ${whereClause}
+        ORDER BY u.verification_tier DESC, u.last_active DESC NULLS LAST
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+      `, [...params, limit, offset]);
+
+      // Get total count
+      const countResult = await query(`
+        SELECT COUNT(*) as total FROM users u ${whereClause}
+      `, params);
+
+      // Calculate scores if we have user location
+      let scoredProfiles = result.rows;
+      if (userLocation) {
+        scoredProfiles = result.rows.map(profile => 
+          this.calculateProfileScore(profile, userLocation, null, result.rows, null, this.weights)
+        );
+        // Re-sort by verification then distance
+        scoredProfiles.sort((a, b) => {
+          if (b.verification_tier !== a.verification_tier) {
+            return b.verification_tier - a.verification_tier;
+          }
+          const distA = a.distance ?? 9999;
+          const distB = b.distance ?? 9999;
+          return distA - distB;
+        });
+      }
+
+      return {
+        profiles: scoredProfiles,
+        total: parseInt(countResult.rows[0].total),
+        page: Math.floor(offset / limit) + 1,
+        limit,
+        forSugarAccount: true,
+        appliedFilters: {
+          preferredGender,
+          preferredAgeRange,
+          ...filters
+        }
+      };
+
+    } catch (error) {
+      console.error('Sugar recommendations error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user's account type and determine which recommendation method to use
+   */
+  async getAccountTypeAwareRecommendations(options = {}) {
+    const { userId, ...restOptions } = options;
+
+    if (!userId) {
+      // Unauthenticated - use standard provider recommendations
+      return this.getRecommendedProfiles(options);
+    }
+
+    try {
+      // Get user's account type
+      const userResult = await query(`
+        SELECT profile_data->>'accountType' as account_type
+        FROM users WHERE id = $1
+      `, [userId]);
+
+      if (userResult.rows.length === 0) {
+        return this.getRecommendedProfiles(options);
+      }
+
+      const accountType = userResult.rows[0].account_type;
+
+      // Route to appropriate recommendation method based on account type
+      switch (accountType) {
+        case 'sugar_daddy':
+        case 'sugar_mommy':
+          return this.getSugarRecommendations(options);
+        
+        case 'client':
+        case 'provider':
+        default:
+          return this.getRecommendedProfiles(options);
+      }
+
+    } catch (error) {
+      console.error('Account type aware recommendations error:', error);
+      return this.getRecommendedProfiles(options);
+    }
+  }
 }
 
 module.exports = RecommendationEngine;

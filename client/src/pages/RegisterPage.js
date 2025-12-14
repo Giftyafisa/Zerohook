@@ -15,14 +15,24 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  InputAdornment
+  InputAdornment,
+  TextField,
+  RadioGroup,
+  Radio,
+  Collapse,
+  Alert
 } from '@mui/material';
 import { 
   Lock, 
   Person, 
   Email,
   Phone,
-  PersonAdd
+  PersonAdd,
+  Cake,
+  Wc,
+  VerifiedUser,
+  Diamond,
+  Star
 } from '@mui/icons-material';
 import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 import { API_BASE_URL } from '../config/constants';
@@ -54,6 +64,9 @@ const RegisterPage = () => {
     password: '',
     confirmPassword: '',
     accountType: 'client',
+    gender: '',
+    dateOfBirth: '',
+    faceVerificationConsent: false,
     agreeTerms: false
   });
   const [localError, setLocalError] = useState('');
@@ -107,6 +120,26 @@ const RegisterPage = () => {
       setLocalError('Password must be at least 6 characters long');
       return false;
     }
+    if (!formData.gender) {
+      setLocalError('Please select your gender');
+      return false;
+    }
+    if (!formData.dateOfBirth) {
+      setLocalError('Please enter your date of birth');
+      return false;
+    }
+    // Validate age (must be 18+)
+    const birthDate = new Date(formData.dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    if (age < 18) {
+      setLocalError('You must be at least 18 years old to register');
+      return false;
+    }
     if (!formData.agreeTerms) {
       setLocalError('You must agree to the Terms of Service');
       return false;
@@ -133,6 +166,9 @@ const RegisterPage = () => {
         lastName: formData.lastName,
         phone: fullPhoneNumber,
         accountType: formData.accountType,
+        gender: formData.gender,
+        dateOfBirth: formData.dateOfBirth,
+        faceVerificationConsent: formData.faceVerificationConsent,
         countryCode: selectedCountry.code
       }));
       
@@ -424,6 +460,136 @@ const RegisterPage = () => {
               </Box>
             </Grid>
 
+            {/* Gender Selection */}
+            <Grid item xs={12} sm={6}>
+              <FormControl 
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: '16px',
+                    color: '#ffffff',
+                    '& fieldset': {
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '16px',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(0, 242, 234, 0.5)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#00f2ea',
+                      borderWidth: '2px',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    fontFamily: '"Outfit", sans-serif',
+                    '&.Mui-focused': {
+                      color: '#00f2ea',
+                    },
+                  },
+                  '& .MuiSelect-icon': {
+                    color: 'rgba(255, 255, 255, 0.5)',
+                  },
+                }}
+              >
+                <InputLabel>Gender *</InputLabel>
+                <Select
+                  name="gender"
+                  value={formData.gender}
+                  onChange={handleChange}
+                  label="Gender *"
+                  startAdornment={<Wc sx={{ color: '#00f2ea', mr: 1 }} />}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        background: '#1a1a1f',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        '& .MuiMenuItem-root': {
+                          fontFamily: '"Outfit", sans-serif',
+                          color: '#ffffff',
+                          '&:hover': {
+                            background: 'rgba(0, 242, 234, 0.1)',
+                          },
+                          '&.Mui-selected': {
+                            background: 'rgba(0, 242, 234, 0.2)',
+                            '&:hover': {
+                              background: 'rgba(0, 242, 234, 0.3)',
+                            },
+                          },
+                        },
+                      },
+                    },
+                  }}
+                >
+                  <MenuItem value="male">Male</MenuItem>
+                  <MenuItem value="female">Female</MenuItem>
+                  <MenuItem value="non_binary">Non-Binary</MenuItem>
+                  <MenuItem value="prefer_not_to_say">Prefer not to say</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Date of Birth */}
+            <Grid item xs={12} sm={6}>
+              <Box>
+                <Typography 
+                  sx={{ 
+                    color: 'rgba(255, 255, 255, 0.6)', 
+                    fontSize: '14px', 
+                    mb: 1,
+                    fontFamily: '"Outfit", sans-serif'
+                  }}
+                >
+                  Date of Birth * (Must be 18+)
+                </Typography>
+                <Box 
+                  sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    height: '56px',
+                    px: 2,
+                    overflow: 'hidden',
+                    '&:hover': {
+                      borderColor: 'rgba(0, 242, 234, 0.5)',
+                    },
+                    '&:focus-within': {
+                      borderColor: '#00f2ea',
+                      borderWidth: '2px',
+                    }
+                  }}
+                >
+                  <Cake sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
+                  <input
+                    name="dateOfBirth"
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={handleChange}
+                    required
+                    max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
+                    style={{
+                      flex: 1,
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: '#fff',
+                      fontSize: '16px',
+                      fontFamily: '"Outfit", sans-serif',
+                      height: '100%',
+                      WebkitBoxShadow: '0 0 0 1000px transparent inset',
+                      WebkitTextFillColor: '#fff',
+                      colorScheme: 'dark'
+                    }}
+                  />
+                </Box>
+              </Box>
+            </Grid>
+
             {/* Account Type */}
             <Grid item xs={12}>
               <FormControl 
@@ -486,11 +652,130 @@ const RegisterPage = () => {
                     },
                   }}
                 >
-                  <MenuItem value="client">Client - Looking for services</MenuItem>
-                  <MenuItem value="provider">Provider - Offering services</MenuItem>
-                  <MenuItem value="both">Both - Client & Provider</MenuItem>
+                  <MenuItem value="client">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Person sx={{ color: '#00f2ea', fontSize: 20 }} />
+                      <Box>
+                        <Typography sx={{ fontWeight: 600 }}>Client</Typography>
+                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Looking for services</Typography>
+                      </Box>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="provider">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Star sx={{ color: '#ff0055', fontSize: 20 }} />
+                      <Box>
+                        <Typography sx={{ fontWeight: 600 }}>Provider</Typography>
+                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Offering services</Typography>
+                      </Box>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="sugar_daddy">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Diamond sx={{ color: '#FFD700', fontSize: 20 }} />
+                      <Box>
+                        <Typography sx={{ fontWeight: 600, color: '#FFD700' }}>Sugar Daddy</Typography>
+                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>VVIP Member - Enhanced privacy</Typography>
+                      </Box>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="sugar_mommy">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Diamond sx={{ color: '#FF69B4', fontSize: 20 }} />
+                      <Box>
+                        <Typography sx={{ fontWeight: 600, color: '#FF69B4' }}>Sugar Mommy</Typography>
+                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>VVIP Member - Enhanced privacy</Typography>
+                      </Box>
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
+            </Grid>
+
+            {/* Sugar Account Info Box */}
+            <Collapse in={formData.accountType === 'sugar_daddy' || formData.accountType === 'sugar_mommy'} sx={{ width: '100%' }}>
+              <Grid item xs={12} sx={{ mt: 1 }}>
+                <Alert 
+                  severity="info" 
+                  icon={<Diamond sx={{ color: '#FFD700' }} />}
+                  sx={{ 
+                    background: 'rgba(255, 215, 0, 0.1)', 
+                    border: '1px solid rgba(255, 215, 0, 0.3)',
+                    borderRadius: '12px',
+                    '& .MuiAlert-message': {
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      fontFamily: '"Outfit", sans-serif'
+                    }
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#FFD700', mb: 0.5 }}>
+                    VVIP Account Benefits
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                    • Your profile is private by default (hidden from providers)<br/>
+                    • You can toggle visibility in settings anytime<br/>
+                    • Only verified providers with special access can view your profile<br/>
+                    • Automatic matching with young, verified providers<br/>
+                    • Provider connections are limited to 1 year for your protection
+                  </Typography>
+                </Alert>
+              </Grid>
+            </Collapse>
+
+            {/* Face Verification Consent */}
+            <Grid item xs={12}>
+              <Box 
+                sx={{ 
+                  p: 2, 
+                  borderRadius: '12px', 
+                  background: 'rgba(0, 242, 234, 0.05)',
+                  border: '1px solid rgba(0, 242, 234, 0.2)'
+                }}
+              >
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      name="faceVerificationConsent"
+                      checked={formData.faceVerificationConsent}
+                      onChange={handleChange}
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        '&.Mui-checked': {
+                          color: '#00f2ea',
+                        },
+                      }}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography 
+                        sx={{ 
+                          color: '#ffffff',
+                          fontFamily: '"Outfit", sans-serif',
+                          fontSize: '14px',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1
+                        }}
+                      >
+                        <VerifiedUser sx={{ color: '#00f2ea', fontSize: 18 }} />
+                        I consent to face verification
+                      </Typography>
+                      <Typography 
+                        sx={{ 
+                          color: 'rgba(255, 255, 255, 0.5)',
+                          fontFamily: '"Outfit", sans-serif',
+                          fontSize: '12px',
+                          mt: 0.5
+                        }}
+                      >
+                        Face verification helps build trust and unlocks premium features. Your data is securely stored.
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </Box>
             </Grid>
 
             {/* Password Fields */}

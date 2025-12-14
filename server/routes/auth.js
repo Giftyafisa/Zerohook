@@ -69,7 +69,19 @@ router.post('/register', rateLimitMiddleware, [
     .optional()
     .isLength({ min: 3, max: 30 })
     .matches(/^[a-zA-Z0-9_]+$/)
-    .withMessage('Username must be 3-30 characters and contain only letters, numbers, and underscores')
+    .withMessage('Username must be 3-30 characters and contain only letters, numbers, and underscores'),
+  body('gender')
+    .optional()
+    .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say'])
+    .withMessage('Invalid gender option'),
+  body('dateOfBirth')
+    .optional()
+    .isISO8601()
+    .withMessage('Date of birth must be a valid date'),
+  body('accountType')
+    .optional()
+    .isIn(['client', 'provider', 'sugar_daddy', 'sugar_mommy'])
+    .withMessage('Invalid account type')
 ], async (req, res) => {
   try {
     // Check for validation errors
@@ -82,12 +94,28 @@ router.post('/register', rateLimitMiddleware, [
       });
     }
 
-    const { email, password, phone, referralCode, firstName, lastName, accountType } = req.body;
+    const { email, password, phone, referralCode, firstName, lastName, accountType, gender, dateOfBirth, faceVerificationConsent } = req.body;
     let { username } = req.body;
     
     // Generate username if not provided
     if (!username) {
       username = await generateUsername(firstName, lastName);
+    }
+
+    // Validate age (must be 18+) if dateOfBirth provided
+    if (dateOfBirth) {
+      const birthDate = new Date(dateOfBirth);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      if (age < 18) {
+        return res.status(400).json({
+          error: 'You must be at least 18 years old to register'
+        });
+      }
     }
 
     // Fraud detection analysis
@@ -121,11 +149,31 @@ router.post('/register', rateLimitMiddleware, [
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Create user with profile data including firstName and lastName
+    // Create user with profile data including all new fields
+    // Determine if this is a sugar account (VVIP)
+    const isSugarAccount = accountType === 'sugar_daddy' || accountType === 'sugar_mommy';
+    
     const profileData = {
       firstName: firstName || '',
       lastName: lastName || '',
       accountType: accountType || 'client',
+      gender: gender || null,
+      dateOfBirth: dateOfBirth || null,
+      faceVerification: {
+        verified: false,
+        verifiedAt: null,
+        verificationMethod: null,
+        consentGiven: faceVerificationConsent || false,
+        consentGivenAt: faceVerificationConsent ? new Date().toISOString() : null
+      },
+      // Sugar account specific settings
+      ...(isSugarAccount && {
+        sugarSettings: {
+          visibleToProviders: false, // Private by default
+          preferredAgeRange: { min: 18, max: 30 }, // Young providers by default
+          preferredGender: accountType === 'sugar_daddy' ? 'female' : 'male' // Opposite sex by default
+        }
+      }),
       registration_ip: req.ip,
       registration_user_agent: req.get('User-Agent'),
       referral_code: referralCode || null

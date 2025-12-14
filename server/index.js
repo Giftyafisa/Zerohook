@@ -34,6 +34,7 @@ const callRoutes = require('./routes/calls');
 const geolocationRoutes = require('./routes/geolocation');
 const bookingsRoutes = require('./routes/bookings');
 const milestoneRoutes = require('./routes/milestone');
+const sugarAccessRoutes = require('./routes/sugarAccess');
 
 // Import services
 const TrustEngine = require('./services/TrustEngine');
@@ -408,6 +409,7 @@ app.use('/api/connections', userConnectionRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calls', callRoutes);
 app.use('/api/geolocation', geolocationRoutes);
+app.use('/api/sugar-access', sugarAccessRoutes);
 app.use('/api/status', require('./routes/status'));
 
 // Health check endpoint

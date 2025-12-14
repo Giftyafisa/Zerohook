@@ -52,6 +52,7 @@ import WalletPage from './pages/WalletPage';
 import MyMoneyPage from './pages/MyMoneyPage';
 import HelpSupportPage from './pages/HelpSupportPage';
 import NotificationsPage from './pages/NotificationsPage';
+import SugarProfilesPage from './pages/SugarProfilesPage';
 
 // Protected Route Component
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -342,6 +343,22 @@ function AppContent() {
                       <ProtectedRoute requireSubscription={false}>
                         <ErrorBoundary>
                           <MyMoneyPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    
+                    {/* Sugar Profiles Route - For providers to view VVIP members */}
+                    <Route path="/sugar-profiles" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <SugarProfilesPage />
+                        </ErrorBoundary>
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/sugar-access/callback" element={
+                      <ProtectedRoute requireSubscription={false}>
+                        <ErrorBoundary>
+                          <SugarProfilesPage />
                         </ErrorBoundary>
                       </ProtectedRoute>
                     } />

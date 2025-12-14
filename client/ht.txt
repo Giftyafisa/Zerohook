@@ -223,3 +223,38 @@ Add/adjust a small set of assertions to prevent regressions (nav links, footer l
 Further Considerations
 For the 900–1199px “tablet” range: prefer Option A show bottom nav up to <1200, Option B introduce a compact sidebar, or Option C keep Navbar-only but ensure consistent padding/header offsets everywhere.
 For Footer routes: either create simple informational pages or change links to existing destinations to avoid “route broken” UX.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Also I want to specify what each specified user is supposed to have access to and on what conditions.
+
+
+
+client → General users (sex seekers) = This group of users to connect to sex workers and book them.
+
+provider → Providers (sex workers)= This group of people are to offer sex services.
+
+only providers that have made paayment to see Sugar Daddies/Sugar Mommies will be allowed to see them.
+
+There should be a page for them to see the profile of the Sugar Daddies/Sugar when they are verified to have made  Sugar Daddies/Sugar payment. 
+
+Note this Daddies/Sugar payment are different from the suscrition fee.
+
+
+
+
+
+sugar_daddy → Sugar Daddies= This group of people are VVIP member and their accounts must be more privacy focus. They are allowed to see providers based on any filter prefrence they set but by default the system should offer them young providers of their opposite sex. By default, their accounts are not to be visible to any provider but there should be an option for them to make it visible or not. And even if their account is visible to the providers, only providers that have made paayment to see Sugar Daddies will be allowed to see them and note that connection providers connection to Sugar Daddies are limmited to a year.But note that the Sugar Daddies are to be given only well verified users.
+
+sugar_mommy → Sugar Mommies =This group of people are VVIP member and their accounts must be more privacy focus. They are allowed to see providers based on any filter prefrence they set but by default the system should offer them young providers of their opposite sex. By default, their accounts are not to be visible to any provider but there should be an option for them to make it visible or not. And even if their account is visible to the providers, only providers that have made paayment to see Sugar Mommies will be allowed to see them and note that connection providers connection to Sugar Mommies are limmited to a year. But note that the Sugar Mommies are to be given only well verified users.

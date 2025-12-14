@@ -607,4 +607,328 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
   }
 });
 
+// ============================================
+// SUGAR ACCOUNT MANAGEMENT ROUTES
+// ============================================
+
+/**
+ * @route   PUT /api/users/sugar-visibility
+ * @desc    Toggle sugar account visibility to providers
+ * @access  Private (Sugar Daddy/Mommy only)
+ */
+router.put('/sugar-visibility', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { visible } = req.body;
+
+    // Get user's account type
+    const userResult = await query(`
+      SELECT profile_data->>'accountType' as account_type, profile_data
+      FROM users WHERE id = $1
+    `, [userId]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const accountType = userResult.rows[0].account_type;
+    
+    // Only sugar accounts can toggle visibility
+    if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
+      return res.status(403).json({ 
+        error: 'Only Sugar Daddy/Mommy accounts can toggle visibility settings' 
+      });
+    }
+
+    // Update the sugarSettings.visibleToProviders field
+    const updateResult = await query(`
+      UPDATE users 
+      SET profile_data = jsonb_set(
+        profile_data, 
+        '{sugarSettings,visibleToProviders}', 
+        $1::jsonb
+      ),
+      updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING id, username, profile_data
+    `, [JSON.stringify(visible), userId]);
+
+    res.json({
+      success: true,
+      message: `Profile visibility ${visible ? 'enabled' : 'disabled'} for providers`,
+      visibleToProviders: visible,
+      user: updateResult.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Toggle sugar visibility error:', error);
+    res.status(500).json({
+      error: 'Failed to update visibility settings',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/users/sugar-preferences
+ * @desc    Update sugar account preferences (age range, gender preference)
+ * @access  Private (Sugar Daddy/Mommy only)
+ */
+router.put('/sugar-preferences', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { preferredAgeRange, preferredGender } = req.body;
+
+    // Get user's account type
+    const userResult = await query(`
+      SELECT profile_data->>'accountType' as account_type, profile_data
+      FROM users WHERE id = $1
+    `, [userId]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const accountType = userResult.rows[0].account_type;
+    
+    // Only sugar accounts can update these preferences
+    if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
+      return res.status(403).json({ 
+        error: 'Only Sugar Daddy/Mommy accounts can update these preferences' 
+      });
+    }
+
+    // Build the update object
+    const currentProfileData = userResult.rows[0].profile_data || {};
+    const currentSugarSettings = currentProfileData.sugarSettings || {};
+    
+    const updatedSugarSettings = {
+      ...currentSugarSettings,
+      ...(preferredAgeRange && { preferredAgeRange }),
+      ...(preferredGender && { preferredGender })
+    };
+
+    // Update the sugarSettings
+    const updateResult = await query(`
+      UPDATE users 
+      SET profile_data = jsonb_set(
+        profile_data, 
+        '{sugarSettings}', 
+        $1::jsonb
+      ),
+      updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING id, username, profile_data
+    `, [JSON.stringify(updatedSugarSettings), userId]);
+
+    res.json({
+      success: true,
+      message: 'Sugar preferences updated successfully',
+      sugarSettings: updatedSugarSettings,
+      user: updateResult.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Update sugar preferences error:', error);
+    res.status(500).json({
+      error: 'Failed to update preferences',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/users/sugar-access-status
+ * @desc    Check if a provider has access to view sugar profiles
+ * @access  Private (Providers only)
+ */
+router.get('/sugar-access-status', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Get user's account type
+    const userResult = await query(`
+      SELECT profile_data->>'accountType' as account_type
+      FROM users WHERE id = $1
+    `, [userId]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const accountType = userResult.rows[0].account_type;
+    
+    // Only providers need sugar access
+    if (accountType !== 'provider') {
+      return res.json({
+        success: true,
+        hasSugarDaddyAccess: accountType === 'sugar_daddy' || accountType === 'sugar_mommy' || accountType === 'client',
+        hasSugarMommyAccess: accountType === 'sugar_daddy' || accountType === 'sugar_mommy' || accountType === 'client',
+        message: 'Non-provider accounts do not need sugar access payments'
+      });
+    }
+
+    // Check for active sugar access payments
+    const accessResult = await query(`
+      SELECT 
+        access_type,
+        access_starts_at,
+        access_expires_at,
+        payment_status
+      FROM sugar_access_payments
+      WHERE provider_id = $1 
+        AND payment_status = 'completed'
+        AND access_expires_at > CURRENT_TIMESTAMP
+      ORDER BY access_expires_at DESC
+    `, [userId]);
+
+    const hasAccess = accessResult.rows.reduce((acc, row) => {
+      if (row.access_type === 'sugar_daddy' || row.access_type === 'both') {
+        acc.hasSugarDaddyAccess = true;
+        acc.sugarDaddyExpiresAt = row.access_expires_at;
+      }
+      if (row.access_type === 'sugar_mommy' || row.access_type === 'both') {
+        acc.hasSugarMommyAccess = true;
+        acc.sugarMommyExpiresAt = row.access_expires_at;
+      }
+      return acc;
+    }, { hasSugarDaddyAccess: false, hasSugarMommyAccess: false });
+
+    res.json({
+      success: true,
+      ...hasAccess,
+      accessRecords: accessResult.rows
+    });
+
+  } catch (error) {
+    console.error('Check sugar access status error:', error);
+    res.status(500).json({
+      error: 'Failed to check sugar access status',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/users/sugar-profiles
+ * @desc    Get sugar profiles for providers with access
+ * @access  Private (Providers with sugar access only)
+ */
+router.get('/sugar-profiles', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { type = 'all', page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    // Get user's account type
+    const userResult = await query(`
+      SELECT profile_data->>'accountType' as account_type
+      FROM users WHERE id = $1
+    `, [userId]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const accountType = userResult.rows[0].account_type;
+    
+    // Only providers can access this endpoint (they need to pay)
+    if (accountType !== 'provider') {
+      return res.status(403).json({ 
+        error: 'Only providers can access sugar profiles' 
+      });
+    }
+
+    // Check for active sugar access
+    const accessResult = await query(`
+      SELECT access_type FROM sugar_access_payments
+      WHERE provider_id = $1 
+        AND payment_status = 'completed'
+        AND access_expires_at > CURRENT_TIMESTAMP
+    `, [userId]);
+
+    if (accessResult.rows.length === 0) {
+      return res.status(403).json({
+        error: 'Sugar access required',
+        message: 'You need to purchase sugar access to view these profiles',
+        requiresPayment: true
+      });
+    }
+
+    // Determine what access types the provider has
+    const accessTypes = accessResult.rows.map(r => r.access_type);
+    const hasDaddyAccess = accessTypes.includes('sugar_daddy') || accessTypes.includes('both');
+    const hasMommyAccess = accessTypes.includes('sugar_mommy') || accessTypes.includes('both');
+
+    // Build query based on access and requested type
+    let accountTypeFilter = [];
+    if ((type === 'all' || type === 'sugar_daddy') && hasDaddyAccess) {
+      accountTypeFilter.push("'sugar_daddy'");
+    }
+    if ((type === 'all' || type === 'sugar_mommy') && hasMommyAccess) {
+      accountTypeFilter.push("'sugar_mommy'");
+    }
+
+    if (accountTypeFilter.length === 0) {
+      return res.status(403).json({
+        error: 'No access to requested sugar profile type',
+        hasSugarDaddyAccess: hasDaddyAccess,
+        hasSugarMommyAccess: hasMommyAccess
+      });
+    }
+
+    // Fetch sugar profiles that are visible to providers
+    const profilesResult = await query(`
+      SELECT 
+        u.id,
+        u.username,
+        u.profile_data,
+        u.verification_tier,
+        u.reputation_score,
+        u.created_at,
+        u.last_active
+      FROM users u
+      WHERE u.profile_data->>'accountType' IN (${accountTypeFilter.join(',')})
+        AND u.verification_tier >= 2  -- Only well-verified users
+        AND (u.profile_data->'sugarSettings'->>'visibleToProviders')::boolean = true
+      ORDER BY u.last_active DESC
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+
+    // Get total count
+    const countResult = await query(`
+      SELECT COUNT(*) as total
+      FROM users u
+      WHERE u.profile_data->>'accountType' IN (${accountTypeFilter.join(',')})
+        AND u.verification_tier >= 2
+        AND (u.profile_data->'sugarSettings'->>'visibleToProviders')::boolean = true
+    `);
+
+    res.json({
+      success: true,
+      profiles: profilesResult.rows.map(p => ({
+        ...p,
+        // Sanitize sensitive data
+        profile_data: {
+          ...p.profile_data,
+          registration_ip: undefined,
+          registration_user_agent: undefined
+        }
+      })),
+      total: parseInt(countResult.rows[0].total),
+      page: parseInt(page),
+      limit: parseInt(limit),
+      hasSugarDaddyAccess: hasDaddyAccess,
+      hasSugarMommyAccess: hasMommyAccess
+    });
+
+  } catch (error) {
+    console.error('Get sugar profiles error:', error);
+    res.status(500).json({
+      error: 'Failed to get sugar profiles',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 module.exports = router;

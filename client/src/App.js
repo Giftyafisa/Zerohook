@@ -65,6 +65,9 @@ import ErrorBoundary from './components/ErrorBoundary';
 // Global Styles
 import './styles/global.css';
 
+// Error Reporter Service
+import { reportError, reportWarning } from './services/errorReporter';
+
 // Global Call System - Lazy loaded to reduce bundle size on non-chat routes
 const CallSystem = lazy(() => import('./components/CallSystem'));
 
@@ -87,17 +90,13 @@ function App() {
         return;
       }
       
-      console.error('🚨 Global error caught:', event.error);
-      // Log to external service in production
-      if (process.env.NODE_ENV === 'production') {
-        console.error('Production global error:', {
-          message: event.error?.message,
-          stack: event.error?.stack,
-          timestamp: new Date().toISOString(),
-          url: window.location.href
-        });
-        // TODO: Send to error reporting service (Sentry/Datadog)
-      }
+      // Use centralized error reporter
+      reportError(event.error || event.message, {
+        type: 'global_error',
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+      });
     };
 
     const handleUnhandledRejection = (event) => {
@@ -117,16 +116,10 @@ function App() {
         return;
       }
       
-      console.error('🚨 Unhandled promise rejection:', reason);
-      // Log to external service in production
-      if (process.env.NODE_ENV === 'production') {
-        console.error('Production unhandled rejection:', {
-          reason: reason,
-          timestamp: new Date().toISOString(),
-          url: window.location.href
-        });
-        // TODO: Send to error reporting service (Sentry/Datadog)
-      }
+      // Use centralized error reporter
+      reportError(reason, {
+        type: 'unhandled_rejection',
+      });
     };
 
     // Performance monitoring

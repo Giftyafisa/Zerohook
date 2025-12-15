@@ -99,6 +99,15 @@ const ProfileBrowse = () => {
   // Search timeout ref for debounced search
   const searchTimeout = useRef(null);
   
+  // AbortController ref for cancelling in-flight requests
+  const abortControllerRef = useRef(null);
+  
+  // Request ID to ignore stale responses
+  const requestIdRef = useRef(0);
+  
+  // Mounted ref to prevent state updates after unmount
+  const mountedRef = useRef(true);
+  
   // Ref to prevent infinite loops
   const isInitialMount = useRef(true);
 
@@ -221,17 +230,27 @@ const ProfileBrowse = () => {
     }
   }, [debugMode]); // Only depends on debugMode
 
-  // FIXED: Stable callback with proper dependencies
+  // IMPROVED: Stable callback with AbortController for race condition prevention
   const fetchProfiles = useCallback(async (pageNum = 1, currentFilters = null) => {
-    if (isFetchingProfiles.current) return; // Prevent multiple simultaneous calls
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new AbortController for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    
+    // Track request ID to ignore stale responses
+    const currentRequestId = ++requestIdRef.current;
+    
+    // Guard against state updates if unmounted
+    if (!mountedRef.current) return;
     
     try {
-      isFetchingProfiles.current = true;
       setLoading(true);
       setError(null);
-      setRetryCount(0);
       setIsRetrying(false);
-      setLastErrorTime(null);
       
       // Use passed filters or current state filters
       const filtersToUse = currentFilters || filters;
@@ -271,8 +290,26 @@ const ProfileBrowse = () => {
         queryParams.append('availability', filtersToUse.availability);
       }
       
-      // Fetch profiles with filters and pagination
-      const response = await fetch(`${API_BASE_URL}/users/profiles?${queryParams.toString()}`);
+      // Add sortBy to server request for server-side sorting
+      if (sortBy) {
+        queryParams.append('sortBy', sortBy);
+      }
+      
+      // Add user location for distance calculation if available
+      if (userLocation?.coordinates) {
+        queryParams.append('lat', userLocation.coordinates.lat.toString());
+        queryParams.append('lng', userLocation.coordinates.lng.toString());
+      }
+      
+      // Fetch profiles with filters, pagination, and AbortController signal
+      const response = await fetch(`${API_BASE_URL}/users/profiles?${queryParams.toString()}`, {
+        signal: controller.signal
+      });
+      
+      // Ignore stale responses
+      if (currentRequestId !== requestIdRef.current || !mountedRef.current) {
+        return;
+      }
       
       if (response.status === 500) {
         // API is unavailable, use fallback data
@@ -375,76 +412,89 @@ const ProfileBrowse = () => {
       console.log('📊 Processed profiles count:', processedProfiles.length);
       console.log('📊 Sample processed profile:', processedProfiles[0]);
       
+      if (!mountedRef.current) return;
+      
       setProfiles(processedProfiles);
       setTotalPages(data.pagination.pages);
       setPage(data.pagination.page);
     } catch (error) {
-      console.error('Error fetching profiles:', error);
+      // Silently ignore abort errors - these are expected when cancelling requests
+      if (error.name === 'AbortError') {
+        return;
+      }
       
-      // Enhanced error handling with retry logic
+      // Ignore stale responses
+      if (currentRequestId !== requestIdRef.current || !mountedRef.current) {
+        return;
+      }
+      
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error fetching profiles:', error);
+      }
+      
+      // Enhanced error handling
       const errorMessage = error.message || 'Failed to fetch profiles. Please try again.';
       setError(errorMessage);
       setLastErrorTime(new Date().toISOString());
-      
-      // Increment retry count for exponential backoff
-      setRetryCount(prev => prev + 1);
-      
       setProfiles([]);
-      
-      // Log additional error details for debugging
-      if (error.response) {
-        console.error('Response error:', error.response);
-      } else if (error.request) {
-        console.error('Request error:', error.request);
-      }
-      
-      // Auto-retry logic for network errors (max 3 retries)
-      if (retryCount < 3 && (error.code === 'ERR_NETWORK' || error.message.includes('fetch'))) {
-        console.log(`🔄 Auto-retrying in 2 seconds... (attempt ${retryCount + 1}/3)`);
-        setTimeout(() => {
-          if (retryCount < 3) {
-            fetchProfiles(pageNum, currentFilters);
-          }
-        }, 2000);
-      }
     } finally {
-      setLoading(false);
-      setIsRetrying(false);
-      isFetchingProfiles.current = false;
+      if (mountedRef.current) {
+        setLoading(false);
+        setIsRetrying(false);
+      }
     }
-  }, [API_BASE_URL, userLocation, filters, retryCount, currentUser, isAuthenticated]); // FIXED: Added missing dependencies
+  // Dependencies minimized - filters and userLocation passed as params, not deps
+  // This prevents excessive re-creations of the callback
+  }, [isAuthenticated, currentUser?.id, sortBy]);
 
   // FIXED: Stable useEffect that only runs once on mount
   useEffect(() => {
+  // FIXED: Initial mount effect
+  useEffect(() => {
+    mountedRef.current = true;
+    
     if (isInitialMount.current) {
-      console.log('🚀 ProfileBrowse component mounted, initializing...');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🚀 ProfileBrowse component mounted, initializing...');
+      }
       detectUserLocation();
       fetchProfiles();
       isInitialMount.current = false;
     }
+    
+    // Cleanup on unmount: cancel pending requests and timers
+    return () => {
+      mountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current);
+      }
+    };
   }, [detectUserLocation, fetchProfiles]); // FIXED: Added missing dependencies
 
   // FIXED: Separate effect for location-based profile updates
   useEffect(() => {
     if (userLocation && !isInitialMount.current) {
       // Only refetch if location changes after initial mount
-      console.log('📍 Location changed, refetching profiles with distance calculations');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('📍 Location changed, refetching profiles with distance calculations');
+      }
       fetchProfiles(1, filters);
     }
-  }, [userLocation, filters, fetchProfiles]); // FIXED: Include all dependencies
+  }, [userLocation]); // Simplified: only re-run when location changes
 
   // Debug effect to monitor state changes (only in development)
   useEffect(() => {
-    if (debugMode) {
+    if (debugMode && process.env.NODE_ENV !== 'production') {
       console.log('📊 Profiles state updated:', {
         count: profiles.length,
         loading,
-        error,
-        filters,
-        userLocation
+        error
       });
     }
-  }, [profiles.length, loading, error, filters, userLocation, debugMode]);
+  }, [profiles.length, loading, error, debugMode]);
 
   // FIXED: Stable filter change handler with debouncing
   const handleFilterChange = useCallback((field, value) => {
@@ -509,8 +559,11 @@ const ProfileBrowse = () => {
     const matchesTrustScore = profile.trustScore >= filters.trustScore[0] && 
       profile.trustScore <= filters.trustScore[1];
     
-    const matchesDistance = !userLocation || !profile.distance || 
-      profile.distance <= filters.distance;
+    // FIX: Improved distance filter - if distance filter is active AND user has location,
+    // profiles without distance should be placed at end (not excluded) unless distance is very restrictive
+    const distanceFilterActive = userLocation && filters.distance < 100; // Only apply strict filtering when distance < 100km
+    const matchesDistance = !distanceFilterActive || 
+      (profile.distance != null && profile.distance <= filters.distance);
     
     // Fix: Add matchesOnline filter for "Online" preset to work
     const matchesOnline = !filters.online || profile.isOnline === true;
@@ -518,9 +571,10 @@ const ProfileBrowse = () => {
     const matchesCategory = filters.category === 'all' || 
       profile.profileData?.serviceCategories?.includes(filters.category);
     
-    const matchesPrice = !profile.profileData?.basePrice || 
-      (profile.profileData.basePrice >= filters.priceRange[0] && 
-       profile.profileData.basePrice <= filters.priceRange[1]);
+    // FIX: Price filter - treat missing price as 0, not as "matches all"
+    const profilePrice = profile.profileData?.basePrice ?? 0;
+    const matchesPrice = profilePrice >= filters.priceRange[0] && 
+      profilePrice <= filters.priceRange[1];
     
     const matchesAvailability = filters.availability === 'all' || 
       profile.profileData?.availability?.includes(filters.availability);
@@ -549,24 +603,27 @@ const ProfileBrowse = () => {
   const sortedProfiles = [...filteredProfiles].sort((a, b) => {
     switch (sortBy) {
       case 'distance':
-        if (a.distance === null && b.distance === null) return 0;
-        if (a.distance === null) return 1;
-        if (b.distance === null) return -1;
+        // Null/undefined distances go to end
+        if (a.distance == null && b.distance == null) return 0;
+        if (a.distance == null) return 1;
+        if (b.distance == null) return -1;
         return a.distance - b.distance;
       case 'trustScore':
-        return b.trustScore - a.trustScore;
+        return (b.trustScore ?? 0) - (a.trustScore ?? 0);
       case 'verificationTier':
-        return b.verificationTier - a.verificationTier;
+        return (b.verificationTier ?? 0) - (a.verificationTier ?? 0);
       case 'recent':
-        return new Date(b.lastActive) - new Date(a.lastActive);
+        return new Date(b.lastActive || 0) - new Date(a.lastActive || 0);
       case 'price':
-        return a.profileData?.basePrice - b.profileData?.basePrice;
+        // Low to high - missing prices treated as 0
+        return (a.profileData?.basePrice ?? 0) - (b.profileData?.basePrice ?? 0);
       case 'priceHigh':
-        return b.profileData?.basePrice - a.profileData?.basePrice;
+        // High to low - missing prices treated as 0 (go to end)
+        return (b.profileData?.basePrice ?? 0) - (a.profileData?.basePrice ?? 0);
       case 'age':
-        return a.profileData?.age - b.profileData?.age;
+        return (a.profileData?.age ?? 0) - (b.profileData?.age ?? 0);
       case 'popularity':
-        return b.trustScore - a.trustScore; // Assuming trustScore is a proxy for popularity
+        return (b.trustScore ?? 0) - (a.trustScore ?? 0);
       default:
         return 0;
     }
@@ -962,6 +1019,8 @@ const ProfileBrowse = () => {
               <IconButton
                 color={viewMode === 'grid' ? 'primary' : 'default'}
                 onClick={() => setViewMode('grid')}
+                aria-label="Grid view"
+                title="Grid view"
                 sx={{ 
                   bgcolor: viewMode === 'grid' ? 'primary.light' : 'transparent',
                   borderRadius: 1,
@@ -973,6 +1032,8 @@ const ProfileBrowse = () => {
               <IconButton
                 color={viewMode === 'list' ? 'primary' : 'default'}
                 onClick={() => setViewMode('list')}
+                aria-label="List view"
+                title="List view"
                 sx={{ 
                   bgcolor: viewMode === 'list' ? 'primary.light' : 'transparent',
                   borderRadius: 1,
@@ -1551,7 +1612,9 @@ const ProfileBrowse = () => {
                 component="img"
                 height={isMobile ? "200" : "250"}
                 image={getUploadUrl(profile.profileData?.profilePicture) || getDefaultImage('PROFILE', profile.profileData?.gender)}
-                alt={`${profile.profileData?.firstName} ${profile.profileData?.lastName}`}
+                alt={`${profile.profileData?.firstName || 'User'} ${profile.profileData?.lastName || ''} profile photo`}
+                loading="lazy"
+                decoding="async"
                 sx={{ objectFit: 'cover' }}
                 onError={(e) => {
                   // Fallback to default image if profile picture fails to load
@@ -1589,6 +1652,8 @@ const ProfileBrowse = () => {
                   <IconButton
                     size="small"
                     onClick={() => handleFavorite(profile)}
+                    aria-label={`Add ${profile.profileData?.firstName || profile.username} to favorites`}
+                    title="Add to favorites"
                     sx={{ minWidth: 'auto', p: 0.5 }}
                   >
                     <FavoriteBorder fontSize="small" />
@@ -1801,6 +1866,8 @@ const ProfileBrowse = () => {
                   <Box display="flex" gap={1} justifyContent="center" mb={1}>
                     <IconButton
                       size="small"
+                      aria-label={`Video call ${profile.profileData?.firstName || profile.username}`}
+                      title="Start video call"
                       sx={{
                         bgcolor: 'rgba(0, 242, 234, 0.1)',
                         '&:hover': { bgcolor: 'rgba(0, 242, 234, 0.2)' },
@@ -1842,6 +1909,8 @@ const ProfileBrowse = () => {
                         size="small"
                         onClick={() => handleQuickChat(profile)}
                         color="primary"
+                        aria-label={`Quick chat with ${profile.profileData?.firstName || profile.username}`}
+                        title="Quick chat"
                         sx={{ 
                           border: 1, 
                           borderColor: 'primary.main',
@@ -1856,6 +1925,8 @@ const ProfileBrowse = () => {
                       size="small"
                       onClick={() => handleFavorite(profile)}
                       color={profile.isFavorited ? 'error' : 'default'}
+                      aria-label={profile.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+                      title={profile.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
                     >
                       {profile.isFavorited ? <Favorite /> : <FavoriteBorder />}
                     </IconButton>
@@ -2000,7 +2071,7 @@ const ProfileBrowse = () => {
         </Box>
       )}
 
-      {/* User Connection Dialog */}
+      {/* User Connection Dialog - Improved accessibility */}
       {connectionDialog && selectedUser && (
         <Dialog
           open={connectionDialog}
@@ -2010,15 +2081,29 @@ const ProfileBrowse = () => {
           }}
           maxWidth="md"
           fullWidth
+          aria-labelledby="connection-dialog-title"
+          PaperProps={{
+            sx: { height: { xs: '90vh', md: '80vh' }, maxHeight: '90vh' }
+          }}
         >
-          <DialogTitle>Connect with {selectedUser.username}</DialogTitle>
-          <DialogContent sx={{ p: 0 }}>
+          <DialogTitle id="connection-dialog-title">
+            Connect with {selectedUser.profileData?.firstName || selectedUser.username}
+          </DialogTitle>
+          <DialogContent 
+            sx={{ 
+              p: 0, 
+              height: '100%', 
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
             <ChatSystem currentUser={selectedUser} />
           </DialogContent>
         </Dialog>
       )}
 
-        {/* Quick Chat Dialog */}
+        {/* Quick Chat Dialog - Improved scroll handling and accessibility */}
         {quickChatDialog && selectedUser && (
           <Dialog
             open={quickChatDialog}
@@ -2028,19 +2113,33 @@ const ProfileBrowse = () => {
             }}
             maxWidth="md"
             fullWidth
-            sx={{ height: '80vh' }}
+            aria-labelledby="quick-chat-dialog-title"
+            PaperProps={{
+              sx: { height: { xs: '90vh', md: '80vh' }, maxHeight: '90vh' }
+            }}
           >
-            <DialogTitle>
-              Quick Chat with {selectedUser.username}
+            <DialogTitle id="quick-chat-dialog-title">
+              Quick Chat with {selectedUser.profileData?.firstName || selectedUser.username}
             </DialogTitle>
-            <DialogContent sx={{ p: 0 }}>
+            <DialogContent 
+              sx={{ 
+                p: 0, 
+                height: '100%', 
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column'
+              }}
+            >
               <ChatSystem currentUser={selectedUser} />
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => {
-                setQuickChatDialog(false);
-                setSelectedUser(null);
-              }}>
+              <Button 
+                onClick={() => {
+                  setQuickChatDialog(false);
+                  setSelectedUser(null);
+                }}
+                aria-label="Close chat dialog"
+              >
                 Close
               </Button>
             </DialogActions>

@@ -2,6 +2,14 @@
  * Route Utilities - Centralized route detection and layout configuration
  * Single source of truth for route-based layout decisions
  * 
+ * This module is the SINGLE SOURCE OF TRUTH for:
+ * - Which routes use chat/communication layout
+ * - Which routes can initiate/receive calls
+ * - Which routes need performance optimization
+ * - Which routes require full-height layout
+ * 
+ * When adding new routes, update the appropriate constant arrays.
+ * 
  * @module utils/routeUtils
  */
 
@@ -19,9 +27,23 @@ export const CALL_ELIGIBLE_ROUTES = ['/chat', '/messages', '/inbox', '/profile/'
 
 /**
  * Performance-sensitive routes where AnimatedBackground should be simplified/disabled
- * These routes have complex UIs or time-sensitive interactions
+ * These routes have complex UIs, heavy lists, or time-sensitive interactions
+ * Updated to include: profile listings, services, wallet, bookings
  */
-export const PERFORMANCE_SENSITIVE_ROUTES = ['/chat', '/messages', '/inbox', '/booking'];
+export const PERFORMANCE_SENSITIVE_ROUTES = [
+  '/chat', '/messages', '/inbox', // Communication routes
+  '/booking', '/bookings',          // Booking routes  
+  '/profiles', '/profile/',         // Profile listings and detail
+  '/adult-services',                // Service listings
+  '/wallet', '/transactions',       // Financial pages
+  '/dashboard'                      // Dashboard with multiple widgets
+];
+
+/**
+ * Routes requiring full-height layout (100vh, flex-based)
+ * These should work independently of footer visibility
+ */
+export const FULL_HEIGHT_ROUTES = ['/chat', '/messages', '/inbox', '/booking'];
 
 /**
  * Check if pathname matches a chat/messaging route
@@ -56,6 +78,17 @@ export const isPerformanceSensitiveRoute = (pathname) => {
 };
 
 /**
+ * Check if route requires full-height flex layout (independent of footer)
+ * These routes use minHeight: 100vh and flex for layout, not relying on footer absence
+ * 
+ * @param {string} pathname - Current route pathname
+ * @returns {boolean} True if route needs full-height layout
+ */
+export const isFullHeightRoute = (pathname) => {
+  return FULL_HEIGHT_ROUTES.some(prefix => pathname.startsWith(prefix));
+};
+
+/**
  * Get layout configuration for a given route
  * Centralizes all route-based layout decisions
  * 
@@ -63,22 +96,27 @@ export const isPerformanceSensitiveRoute = (pathname) => {
  * @param {boolean} isDesktop - Whether user is on desktop breakpoint
  * @returns {Object} Layout configuration object
  */
-export const getRouteLayoutConfig = (pathname, isDesktop) => {
+export const getRouteLayoutConfig = (pathname, isDesktop, prefersReducedMotion = false) => {
   const chatRoute = isChatRoute(pathname);
   const performanceSensitive = isPerformanceSensitiveRoute(pathname);
   const callEligible = isCallEligibleRoute(pathname);
+  const fullHeight = isFullHeightRoute(pathname);
   
   return {
     // Hide footer on chat routes to give full height
     showFooter: isDesktop && !chatRoute,
-    // Disable/simplify animated background on performance routes or mobile
-    showAnimatedBackground: !performanceSensitive,
+    // Disable animated background on: performance routes, mobile, or reduced motion preference
+    showAnimatedBackground: isDesktop && !performanceSensitive && !prefersReducedMotion,
     // Only mount CallSystem on eligible routes
     mountCallSystem: callEligible,
-    // Chat routes need full-height layout
-    fullHeightLayout: chatRoute,
-    // Toast position based on device
+    // Full-height flex layout (independent of footer)
+    fullHeightLayout: fullHeight,
+    // Chat route flag for specific chat layout adjustments
+    isChatRoute: chatRoute,
+    // Toast position based on device (top-center avoids mobile keyboard/nav)
     toastPosition: isDesktop ? 'bottom-right' : 'top-center',
+    // Shorter toast duration on mobile for less obstruction
+    toastDuration: isDesktop ? 5000 : 3000,
   };
 };
 
@@ -86,8 +124,10 @@ export default {
   CHAT_ROUTE_PREFIXES,
   CALL_ELIGIBLE_ROUTES,
   PERFORMANCE_SENSITIVE_ROUTES,
+  FULL_HEIGHT_ROUTES,
   isChatRoute,
   isCallEligibleRoute,
   isPerformanceSensitiveRoute,
+  isFullHeightRoute,
   getRouteLayoutConfig,
 };

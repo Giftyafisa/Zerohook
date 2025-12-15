@@ -29,16 +29,24 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import useCurrency from '../hooks/useCurrency';
+
+// Tab name to index mapping for URL-based tab selection
+const TAB_MAP = {
+  'wallet': 0,
+  'transactions': 1,
+};
 
 const MyMoneyPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { symbol, format } = useCurrency();
   
-  // Tab state
-  const [activeTab, setActiveTab] = useState(0);
+  // Tab state - initialize from URL param if present
+  const initialTab = TAB_MAP[searchParams.get('tab')] ?? 0;
+  const [activeTab, setActiveTab] = useState(initialTab);
   
   // Loading states
   const [loading, setLoading] = useState(true);

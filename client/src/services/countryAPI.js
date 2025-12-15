@@ -16,44 +16,24 @@ api.interceptors.request.use((config) => {
 const countryAPI = {
   async detectCountry() {
     try {
-      console.log('🌍 countryAPI.detectCountry() called');
-      
-      // In development mode, try to get real public IP first
-      if (process.env.NODE_ENV === 'development' || window.location.hostname === 'localhost') {
-        try {
-          console.log('🔍 Development mode: attempting to get real public IP...');
-          const ipResponse = await fetch('https://api.ipgeolocation.io/ipgeo?apiKey=1d24707d2a554ee697b852f28dd6533e');
-          
-          if (ipResponse.ok) {
-            const ipData = await ipResponse.json();
-            console.log('✅ Real IP detected:', ipData.country_name, `(${ipData.ip})`);
-            
-            // Send the detected IP to backend for processing
-            const response = await api.post('/countries/detect', {
-              ipAddress: ipData.ip,
-              detectedLocation: {
-                country: ipData.country_name,
-                countryCode: ipData.country_code2,
-                city: ipData.city,
-                lat: parseFloat(ipData.latitude),
-                lng: parseFloat(ipData.longitude)
-              }
-            });
-            console.log('🌍 countryAPI response (with real IP):', response.data);
-            return response.data;
-          }
-        } catch (ipError) {
-          console.log('⚠️ Could not get real IP, falling back to backend detection:', ipError.message);
-        }
+      // Gate logging in production
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🌍 countryAPI.detectCountry() called');
       }
       
-      // Normal flow: Backend will auto-detect IP from request headers
+      // SECURITY FIX: Route all IP detection through backend to avoid exposing API keys
+      // Backend handles IP detection via request headers or server-side API calls
       const response = await api.post('/countries/detect', {});
-      console.log('🌍 countryAPI response:', response.data);
+      
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🌍 countryAPI response:', response.data);
+      }
       return response.data;
     } catch (error) {
-      console.error('❌ Error detecting country:', error);
-      console.error('❌ Error details:', error.response?.data || error.message);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error detecting country:', error);
+        console.error('❌ Error details:', error.response?.data || error.message);
+      }
       // Return fallback country on error
       return {
         success: true,

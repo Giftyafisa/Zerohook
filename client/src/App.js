@@ -23,7 +23,7 @@ import Footer from './components/layout/FooterNew';
 import MainLayout from './components/layout/MainLayout';
 
 // Route utilities - Single source of truth for route-based layout decisions
-import { isChatRoute, isCallEligibleRoute, isPerformanceSensitiveRoute } from './utils/routeUtils';
+import { getRouteLayoutConfig } from './utils/routeUtils';
 
 // UI Components
 import { AnimatedBackground, ToastProvider } from './components/ui';
@@ -68,12 +68,12 @@ import './styles/global.css';
 // Global Call System - Lazy loaded to reduce bundle size on non-chat routes
 const CallSystem = lazy(() => import('./components/CallSystem'));
 
-// Legacy route redirect component to preserve route params AND query string
+// Legacy route redirect component to preserve route params, query string, AND hash
 const LegacyServiceRedirect = () => {
   const { id } = useParams();
   const location = useLocation();
-  // Preserve query parameters when redirecting
-  const targetUrl = `/adult-services/${id}${location.search}`;
+  // Preserve query parameters AND hash fragment when redirecting
+  const targetUrl = `/adult-services/${id}${location.search}${location.hash}`;
   return <Navigate to={targetUrl} replace />;
 };
 
@@ -178,7 +178,14 @@ function App() {
         <ToastProvider>
           <AuthProvider>
             <SocketProvider>
-              <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              {/* 
+                  React Router v7 future flags:
+                  - v7_startTransition: Uses React.startTransition for state updates (smoother navigation)
+                  - v7_relativeSplatPath: Changes how relative paths work in splat routes
+                  Requires react-router-dom >= 6.4. If upgrading causes issues, these can be removed.
+                  Docs: https://reactrouter.com/en/main/upgrading/future
+                */}
+                <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <AppContent />
               </Router>
             </SocketProvider>
@@ -193,18 +200,25 @@ function App() {
 function AppContent() {
   const muiTheme = useTheme();
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up('lg')); // >= 1200px
+  const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const location = useLocation();
   
-  // Use centralized route detection utilities
-  const chatRoute = isChatRoute(location.pathname);
-  const callEligible = isCallEligibleRoute(location.pathname);
-  const performanceSensitive = isPerformanceSensitiveRoute(location.pathname);
+  // Get all layout configuration from centralized utility (single source of truth)
+  const layoutConfig = getRouteLayoutConfig(location.pathname, isDesktop, prefersReducedMotion);
+  const { 
+    showFooter, 
+    showAnimatedBackground, 
+    mountCallSystem, 
+    isChatRoute: chatRoute,
+    toastPosition,
+    toastDuration 
+  } = layoutConfig;
   
   return (
     <MainLayout showNavigation={true}>
       <Box className="App" sx={{ position: 'relative', minHeight: '100vh' }}>
-        {/* Animated Background - Disabled on performance-sensitive routes */}
-        {!performanceSensitive && <AnimatedBackground />}
+        {/* Animated Background - Disabled on performance-sensitive routes, mobile, and reduced-motion */}
+        {showAnimatedBackground && <AnimatedBackground />}
         
         {/* Navigation is handled by MainLayout (Sidebar on desktop, BottomNav on mobile) */}
         {/* Removed duplicate Navbar here - MainLayout is the single navigation authority */}
@@ -311,7 +325,7 @@ function AppContent() {
                         </ErrorBoundary>
                       </ProtectedRoute>
                     } />
-                    <Route path="/transactions" element={<Navigate to="/wallet" replace />} />
+                    <Route path="/transactions" element={<Navigate to="/wallet?tab=transactions" replace />} />
                     <Route path="/trust-score" element={
                       <ProtectedRoute requireSubscription={true}>
                         <ErrorBoundary>
@@ -408,19 +422,19 @@ function AppContent() {
                 </main>
                 
                 {/* Footer - Hide on chat routes to give chat full height */}
-                {isDesktop && !chatRoute && <Footer />}
+                {showFooter && <Footer />}
                 
                 {/* Global Call System - Only mounted on call-eligible routes to reduce socket overhead */}
-                {callEligible && (
+                {mountCallSystem && (
                   <Suspense fallback={null}>
                     <CallSystem />
                   </Suspense>
                 )}
                 
-                {/* Toast Notifications - Position adjusts for mobile */}
+                {/* Toast Notifications - Position and duration adjust for mobile */}
                 <ToastContainer
-                  position={isDesktop ? "bottom-right" : "top-center"}
-                  autoClose={isDesktop ? 5000 : 3000}
+                  position={toastPosition}
+                  autoClose={toastDuration}
                   hideProgressBar={false}
                   newestOnTop={false}
                   closeOnClick

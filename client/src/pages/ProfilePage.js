@@ -591,19 +591,19 @@ const ProfilePage = () => {
       {/* Quick Links */}
       <Typography sx={styles.sectionTitle}>Quick Links</Typography>
       <Box sx={styles.linksGrid}>
-        <Box sx={styles.linkCard} onClick={() => navigate('/trust')}>
+        <Box sx={styles.linkCard} onClick={() => navigate('/trust')} role="button" tabIndex={0} aria-label="View trust score" onKeyDown={(e) => e.key === 'Enter' && navigate('/trust')}>
           <ShieldIcon sx={{ color: '#00f2ea' }} />
           <Typography>Trust Score</Typography>
         </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/transactions')}>
+        <Box sx={styles.linkCard} onClick={() => navigate('/transactions')} role="button" tabIndex={0} aria-label="View wallet and transactions" onKeyDown={(e) => e.key === 'Enter' && navigate('/transactions')}>
           <StarIcon sx={{ color: '#ffd700' }} />
           <Typography>Wallet</Typography>
         </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/verification')}>
+        <Box sx={styles.linkCard} onClick={() => navigate('/verification')} role="button" tabIndex={0} aria-label="Get verified" onKeyDown={(e) => e.key === 'Enter' && navigate('/verification')}>
           <VerifiedIcon sx={{ color: '#00ff88' }} />
           <Typography>Verify</Typography>
         </Box>
-        <Box sx={styles.linkCard}>
+        <Box sx={styles.linkCard} onClick={() => navigate('/settings')} role="button" tabIndex={0} aria-label="Open settings" onKeyDown={(e) => e.key === 'Enter' && navigate('/settings')}>
           <SettingsIcon sx={{ color: '#ff0055' }} />
           <Typography>Settings</Typography>
         </Box>

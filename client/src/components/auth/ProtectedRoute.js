@@ -8,12 +8,15 @@ const ProtectedRoute = ({ children, requireSubscription = true }) => {
   const isSubscribed = useSelector(selectIsSubscribed);
   const location = useLocation();
 
-  console.log('🔐 ProtectedRoute Check:', { 
-    isAuthenticated, 
-    isSubscribed, 
-    requireSubscription,
-    currentPath: location.pathname 
-  });
+  // Only log in development to avoid leaking auth state in production
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔐 ProtectedRoute Check:', { 
+      isAuthenticated, 
+      isSubscribed, 
+      requireSubscription,
+      currentPath: location.pathname 
+    });
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;

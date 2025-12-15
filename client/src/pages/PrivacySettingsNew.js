@@ -2,9 +2,12 @@
  * PrivacySettings - Modern Settings Page
  * TikTok-inspired clean design with collapsible sections
  * Zerohook Platform
+ * 
+ * NOW WITH BACKEND PERSISTENCE - settings are loaded on mount and saved to server
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useSelector } from 'react-redux';
 import {
   Box,
   Typography,
@@ -22,7 +25,8 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
-  InputAdornment
+  InputAdornment,
+  CircularProgress
 } from '@mui/material';
 import {
   ArrowBack,
@@ -44,6 +48,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { API_BASE_URL } from '../config/constants';
 
 // Modern TikTok-style design system
 const styles = {
@@ -236,13 +241,19 @@ const privacyLevels = [
 
 const PrivacySettings = () => {
   const navigate = useNavigate();
+  const { token } = useSelector((state) => state.auth);
   const [expandedSection, setExpandedSection] = useState('privacy');
   const [hasChanges, setHasChanges] = useState(false);
   const [showSaveSnackbar, setShowSaveSnackbar] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
   
-  const [settings, setSettings] = useState({
+  // Default settings - will be overwritten by backend data
+  const defaultSettings = {
     // Privacy Level
     privacyLevel: 'standard',
     
@@ -286,7 +297,56 @@ const PrivacySettings = () => {
     twoFactorAuth: false,
     loginAlerts: true,
     sessionTimeout: true,
-  });
+  };
+
+  const [settings, setSettings] = useState(defaultSettings);
+
+  // Load settings from backend on mount
+  const loadSettings = useCallback(async () => {
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setLoadError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/users/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load settings');
+      }
+
+      const data = await response.json();
+      const profileData = data.user?.profile_data || {};
+      const userSettings = profileData.settings || {};
+
+      // Merge backend settings with defaults (backend takes precedence)
+      setSettings(prev => ({
+        ...prev,
+        ...userSettings,
+        // Also pull in specific profile fields that might be stored separately
+        basePrice: profileData.basePrice || prev.basePrice,
+        priceCurrency: profileData.currency || prev.priceCurrency,
+      }));
+
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      setLoadError('Failed to load your settings. Using defaults.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
   
   const handleToggle = (key) => {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
@@ -303,10 +363,43 @@ const PrivacySettings = () => {
   };
   
   const handleSave = async () => {
-    // Simulate save
-    await new Promise(r => setTimeout(r, 500));
-    setHasChanges(false);
-    setShowSaveSnackbar(true);
+    if (!token) {
+      setSaveError('You must be logged in to save settings');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setSaveError(null);
+
+      const response = await fetch(`${API_BASE_URL}/users/me`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          profile_data: {
+            settings: settings,
+            basePrice: settings.basePrice,
+            currency: settings.priceCurrency,
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save settings');
+      }
+
+      setHasChanges(false);
+      setShowSaveSnackbar(true);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      setSaveError(error.message || 'Failed to save settings. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
   
   // Setting row component
@@ -390,6 +483,29 @@ const PrivacySettings = () => {
       {/* Content */}
       <Box sx={styles.content}>
         
+        {/* Loading State */}
+        {isLoading && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+            <CircularProgress sx={{ color: '#00f2ea' }} />
+          </Box>
+        )}
+
+        {/* Error Alert */}
+        {loadError && (
+          <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setLoadError(null)}>
+            {loadError}
+          </Alert>
+        )}
+
+        {saveError && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSaveError(null)}>
+            {saveError}
+          </Alert>
+        )}
+
+        {/* Settings Content - only show when not loading */}
+        {!isLoading && (
+          <>
         {/* Privacy Level Section */}
         <Section section={sections[0]}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -705,18 +821,31 @@ const PrivacySettings = () => {
             </Button>
           </Box>
         </Box>
+          </>
+        )}
       </Box>
       
-      {/* Save Button */}
+      {/* Save Button - only show when there are changes and not saving */}
       <AnimatePresence>
-        {hasChanges && (
+        {hasChanges && !isLoading && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
           >
-            <Button sx={styles.saveButton} onClick={handleSave}>
-              Save Changes
+            <Button 
+              sx={styles.saveButton} 
+              onClick={handleSave}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <CircularProgress size={20} sx={{ color: '#0f0f13', mr: 1 }} />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
             </Button>
           </motion.div>
         )}

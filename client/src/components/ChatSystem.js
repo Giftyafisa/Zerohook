@@ -443,13 +443,16 @@ const ChatSystem = ({
 
   const loadConversations = async ({ silent = false } = {}) => {
     try {
+      console.log('🔄 Loading conversations...');
       if (!silent) setLoading(true);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      console.log('📡 Conversations API response:', response.status, response.ok);
       if (response.ok) {
         const data = await response.json();
+        console.log('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
         const transformedConversations = (data.conversations || []).map(conv => ({
           id: conv.id,
@@ -464,12 +467,16 @@ const ChatSystem = ({
           hasActiveEscrow: conv.hasActiveEscrow || false,
           createdAt: conv.createdAt
         }));
+        console.log('🔄 Transformed conversations:', transformedConversations);
         const sorted = sortConversations(transformedConversations);
         setConversations(sorted);
+        console.log('✅ Conversations loaded successfully:', sorted.length, 'conversations');
         return sorted;
+      } else {
+        console.error('❌ Conversations API failed:', response.status, response.statusText);
       }
     } catch (error) {
-      console.error('Failed to load conversations:', error);
+      console.error('❌ Failed to load conversations:', error);
       alert('Unable to load conversations right now.');
     } finally {
       if (!silent) setLoading(false);
@@ -478,13 +485,17 @@ const ChatSystem = ({
 
   const loadMessages = async (conversationId) => {
     try {
+      console.log('📨 Loading messages for conversation:', conversationId);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/chat/messages/${conversationId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      console.log('📨 Messages API response:', response.status, response.ok);
       if (response.ok) {
         const data = await response.json();
+        console.log('💬 Messages data:', data);
         setMessages(data.messages || []);
+        console.log('💬 Messages set to state:', data.messages?.length || 0);
         setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
         await markConversationRead(conversationId);
       }
@@ -548,6 +559,7 @@ const ChatSystem = ({
     setMessages(prev => [...prev, tempMessage]);
 
     try {
+      console.log('📤 Sending message payload:', { content, messageType, metadata }, 'to conversation:', selectedConversation.id);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/chat/send`, {
         method: 'POST',
@@ -563,8 +575,10 @@ const ChatSystem = ({
         })
       });
 
+      console.log('📤 Send API response:', response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log('📤 Message sent successfully, data:', data);
         const saved = data.message;
         if (saved) {
           setMessages(prev =>
@@ -580,6 +594,8 @@ const ChatSystem = ({
               .sort((a, b) => new Date(b.lastMessageTime || b.createdAt || 0) - new Date(a.lastMessageTime || a.createdAt || 0))
           );
         }
+      } else {
+        console.error('📤 Send failed:', response.status, response.statusText);
       }
     } catch (error) {
       console.error('Failed to send message:', error);

@@ -48,7 +48,7 @@ import MessagesPage from './pages/MessagesPage';
 import PrivacySettings from './pages/PrivacySettingsNew';
 import BookingsPage from './pages/BookingsPage';
 import BookingDetails from './pages/BookingDetails';
-import WalletPage from './pages/WalletPage';
+// WalletPage removed - using MyMoneyPage instead for consistency
 import MyMoneyPage from './pages/MyMoneyPage';
 import HelpSupportPage from './pages/HelpSupportPage';
 import NotificationsPage from './pages/NotificationsPage';
@@ -66,10 +66,13 @@ import './styles/global.css';
 // Global Call System
 import CallSystem from './components/CallSystem';
 
-// Legacy route redirect component to preserve route params
+// Legacy route redirect component to preserve route params AND query string
 const LegacyServiceRedirect = () => {
   const { id } = useParams();
-  return <Navigate to={`/adult-services/${id}`} replace />;
+  const location = useLocation();
+  // Preserve query parameters when redirecting
+  const targetUrl = `/adult-services/${id}${location.search}`;
+  return <Navigate to={targetUrl} replace />;
 };
 
 function App() {
@@ -306,7 +309,7 @@ function AppContent() {
                       </ProtectedRoute>
                     } />
                     
-                    {/* Settings Routes */}
+                    {/* Settings Routes - /settings is canonical, /privacy-settings redirects */}
                     <Route path="/settings" element={
                       <ProtectedRoute requireSubscription={false}>
                         <ErrorBoundary>
@@ -314,13 +317,7 @@ function AppContent() {
                         </ErrorBoundary>
                       </ProtectedRoute>
                     } />
-                    <Route path="/privacy-settings" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <PrivacySettings />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
+                    <Route path="/privacy-settings" element={<Navigate to="/settings" replace />} />
                     
                     {/* Bookings Route */}
                     <Route path="/bookings" element={

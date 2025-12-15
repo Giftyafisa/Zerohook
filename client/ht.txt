@@ -37,14 +37,14 @@ For visitors/searchers from other countries: Show profiles based on ALL criteria
 
 
 you got the above wrong.
-I mean a user be it resgisted or unregister not local and visitor as you say bro.
+I mean a user be it registered or unregistered not local and visitor as you say bro.
 
 For the test user: Should I create a completely new test provider profile, or should I find an existing user and convert them to a provider?  create 50 new ones and share them into the verious towns and cities in the Accra region.
 
 For the algorithm:
 
 When a user from Nigeria visits, should they see:
-Option A: Nigerian providers first, then other countries? yes each country and it citizens feed first. but search of a speicific users profile  should not be bund by the location limite.
+Option A: Nigerian providers first, then other countries? yes each country and its citizens feed first. but search of a specific user's profile should not be bound by the location limit.
 
 Option B: Best-rated providers globally, with location as just one factor? yes(but country specific based on the site users current country of origin)
 
@@ -62,7 +62,7 @@ Or show a mix of local + highly-rated international providers? location then sta
 
 And Note: If you take a look at our types of users that we admite to the system, you will notice we have the sex workers(sex providers) the 2 the ones in search of the sex service(client/costomers).
 
-So note that the profilefeed/browser page is surposed to provide only the sex worker so do the differenciation well to avoid confusion.
+So note that the ProfileFeed/browser page is supposed to provide only the sex worker so do the differentiation well to avoid confusion.
 
 
 Clear Understanding:

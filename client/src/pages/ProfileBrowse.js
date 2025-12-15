@@ -512,6 +512,9 @@ const ProfileBrowse = () => {
     const matchesDistance = !userLocation || !profile.distance || 
       profile.distance <= filters.distance;
     
+    // Fix: Add matchesOnline filter for "Online" preset to work
+    const matchesOnline = !filters.online || profile.isOnline === true;
+    
     const matchesCategory = filters.category === 'all' || 
       profile.profileData?.serviceCategories?.includes(filters.category);
     
@@ -539,7 +542,7 @@ const ProfileBrowse = () => {
       profile.profileData?.occupation?.toLowerCase().includes(searchTerm.toLowerCase());
     
     return matchesCountry && matchesCity && matchesAge && matchesVerification && 
-           matchesTrustScore && matchesDistance && matchesCategory && matchesPrice &&
+           matchesTrustScore && matchesDistance && matchesOnline && matchesCategory && matchesPrice &&
            matchesAvailability && matchesLanguages && matchesSpecializations && matchesSearch;
   });
 

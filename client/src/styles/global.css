@@ -855,6 +855,25 @@ body {
   background: linear-gradient(135deg, var(--accent-color), #00b8b0);
 }
 
+/* Toast Container - Safe area padding for notched devices */
+.Toastify__toast-container--bottom-center {
+  bottom: calc(1em + env(safe-area-inset-bottom, 0px));
+}
+
+.Toastify__toast-container--bottom-right {
+  bottom: calc(1em + env(safe-area-inset-bottom, 0px));
+  right: calc(1em + env(safe-area-inset-right, 0px));
+}
+
+/* On mobile, ensure toasts don't overlap bottom navigation */
+@media (max-width: 899px) {
+  .Toastify__toast-container--bottom-center {
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px)); /* Account for bottom nav */
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
 /* Verification Badge Styles - Zerohook Theme */
 .verification-badge {
   display: inline-flex;

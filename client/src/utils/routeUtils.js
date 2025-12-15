@@ -113,8 +113,9 @@ export const getRouteLayoutConfig = (pathname, isDesktop, prefersReducedMotion =
     fullHeightLayout: fullHeight,
     // Chat route flag for specific chat layout adjustments
     isChatRoute: chatRoute,
-    // Toast position based on device (top-center avoids mobile keyboard/nav)
-    toastPosition: isDesktop ? 'bottom-right' : 'top-center',
+    // Toast position: bottom-right on desktop, bottom-center on mobile (avoids header)
+    // Bottom-center allows for safe-area padding on notched devices
+    toastPosition: isDesktop ? 'bottom-right' : 'bottom-center',
     // Shorter toast duration on mobile for less obstruction
     toastDuration: isDesktop ? 5000 : 3000,
   };

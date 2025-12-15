@@ -211,13 +211,17 @@ const ProfileBrowse = () => {
         }));
       }
       
-      console.log('📍 User location detected:', location);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('📍 User location detected:', location);
+      }
     } catch (error) {
-      console.error('📍 Location detection failed:', error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('📍 Location detection failed:', error);
+      }
       setLocationPermission('denied');
       
       // Set default location for testing
-      if (debugMode) {
+      if (debugMode && process.env.NODE_ENV !== 'production') {
         console.log('📍 Setting default location for debugging');
         setUserLocation({
           coordinates: { lat: 5.5600, lng: -0.2057 }, // Accra, Ghana
@@ -313,7 +317,9 @@ const ProfileBrowse = () => {
       
       if (response.status === 500) {
         // API is unavailable, use fallback data
-        console.log('⚠️ API returned 500 error, using fallback data');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('⚠️ API returned 500 error, using fallback data');
+        }
         setApiUnavailable(true);
         
         // Process fallback profiles with the same logic
@@ -358,7 +364,9 @@ const ProfileBrowse = () => {
       }
       
       const data = await response.json();
-      console.log('🔍 Fetched profiles:', data);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🔍 Fetched profiles:', data);
+      }
       
       // Validate that we have users data
       if (!data.users || !Array.isArray(data.users)) {
@@ -370,7 +378,9 @@ const ProfileBrowse = () => {
         try {
           // CRITICAL FIX: Skip the logged-in user's own profile
           if (isAuthenticated && currentUser && currentUser.id === user.id) {
-            console.log('🚫 Skipping logged-in user profile:', user.username);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('🚫 Skipping logged-in user profile:', user.username);
+            }
             return null; // This will be filtered out
           }
 
@@ -409,8 +419,10 @@ const ProfileBrowse = () => {
         }
       }).filter(Boolean); // CRITICAL: Remove null profiles (including logged-in user)
       
-      console.log('📊 Processed profiles count:', processedProfiles.length);
-      console.log('📊 Sample processed profile:', processedProfiles[0]);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('📊 Processed profiles count:', processedProfiles.length);
+        console.log('📊 Sample processed profile:', processedProfiles[0]);
+      }
       
       if (!mountedRef.current) return;
       
@@ -455,7 +467,9 @@ const ProfileBrowse = () => {
     
     if (isInitialMount.current) {
       if (process.env.NODE_ENV !== 'production') {
-        console.log('🚀 ProfileBrowse component mounted, initializing...');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('🚀 ProfileBrowse component mounted, initializing...');
+        }
       }
       detectUserLocation();
       fetchProfiles();
@@ -479,7 +493,9 @@ const ProfileBrowse = () => {
     if (userLocation && !isInitialMount.current) {
       // Only refetch if location changes after initial mount
       if (process.env.NODE_ENV !== 'production') {
-        console.log('📍 Location changed, refetching profiles with distance calculations');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('📍 Location changed, refetching profiles with distance calculations');
+        }
       }
       fetchProfiles(1, filters);
     }
@@ -488,7 +504,8 @@ const ProfileBrowse = () => {
   // Debug effect to monitor state changes (only in development)
   useEffect(() => {
     if (debugMode && process.env.NODE_ENV !== 'production') {
-      console.log('📊 Profiles state updated:', {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('📊 Profiles state updated:', {
         count: profiles.length,
         loading,
         error
@@ -516,13 +533,17 @@ const ProfileBrowse = () => {
 
   // Handler functions for profile actions
   const handleFavorite = useCallback((profile) => {
-    console.log('Favorite profile:', profile.username);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Favorite profile:', profile.username);
+    }
     // Add to favorites logic
     // You can implement this based on your requirements
   }, []);
 
   const handleViewProfile = useCallback((profile) => {
-    console.log('View profile:', profile.username);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('View profile:', profile.username);
+    }
     navigate(`/profile/${profile.id}`);
   }, [navigate]);
 
@@ -535,11 +556,25 @@ const ProfileBrowse = () => {
         // Refetch profiles after location is detected to include distance calculations
         fetchProfiles(1, filters);
       }).catch((error) => {
-        console.error('Location detection failed:', error);
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Location detection failed:', error);
+        }
       });
     }
   };
 
+  /**
+   * CLIENT-SIDE FILTERING
+   * 
+   * Note: The server already applies filters via the RecommendationEngine.
+   * This client-side filtering provides:
+   * 1. Instant UI feedback while waiting for server response
+   * 2. Additional refinement for quick search within current page
+   * 3. Backup filtering if server doesn't support a specific filter
+   * 
+   * For pagination consistency, prefer server-driven filtering.
+   * Local filtering here is a UX enhancement, not the source of truth.
+   */
   const filteredProfiles = profiles.filter(profile => {
     // Handle missing profile data gracefully
     if (!profile.profileData) return false;
@@ -862,7 +897,8 @@ const ProfileBrowse = () => {
               variant="outlined"
               size="small"
               onClick={() => {
-                console.log('🔍 Debug Info:', {
+                if (process.env.NODE_ENV !== 'production') {
+                  console.log('🔍 Debug Info:', {
                   profiles: profiles.length,
                   userLocation,
                   filters,
@@ -960,6 +996,9 @@ const ProfileBrowse = () => {
                   fetchProfiles(1, newFilters);
                 }, 500);
               }}
+              inputProps={{
+                'aria-label': 'Search profiles by name, bio, or occupation'
+              }}
               InputProps={{
                 startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />,
                 sx: { 
@@ -974,6 +1013,9 @@ const ProfileBrowse = () => {
               startIcon={<FilterList />}
               onClick={() => setShowFilters(!showFilters)}
               fullWidth={isMobile}
+              aria-expanded={showFilters}
+              aria-controls="profile-filters-panel"
+              aria-label={showFilters ? 'Hide filter options' : 'Show filter options'}
               sx={{ 
                 minHeight: isMobile ? 40 : 48,
                 fontWeight: 600,
@@ -1259,13 +1301,18 @@ const ProfileBrowse = () => {
 
         {/* Advanced Filters */}
         {showFilters && (
-          <Box sx={{ 
-            p: isMobile ? 2 : 3, 
-            border: '1px solid', 
-            borderColor: 'divider', 
-            borderRadius: 2, 
-            mb: isMobile ? 2 : 3 
-          }}>
+          <Box
+            id="profile-filters-panel"
+            role="region"
+            aria-label="Profile filter options"
+            sx={{ 
+              p: isMobile ? 2 : 3, 
+              border: '1px solid', 
+              borderColor: 'divider', 
+              borderRadius: 2, 
+              mb: isMobile ? 2 : 3 
+            }}
+          >
             <Grid container spacing={isMobile ? 2 : 3}>
               <Grid item xs={12} md={3}>
                 <FormControl fullWidth>

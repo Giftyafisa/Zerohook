@@ -55,6 +55,15 @@ import MyMoneyPage from './pages/MyMoneyPage';
 import HelpSupportPage from './pages/HelpSupportPage';
 import NotificationsPage from './pages/NotificationsPage';
 import SugarProfilesPage from './pages/SugarProfilesPage';
+// Info Pages
+import { 
+  AboutPage, 
+  PrivacyPage, 
+  TermsPage, 
+  TrustSafetyPage, 
+  HowItWorksPage, 
+  ContactPage 
+} from './pages/InfoPages';
 
 // Protected Route Component
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -404,6 +413,14 @@ function AppContent() {
                       </ErrorBoundary>
                     } />
                     <Route path="/support" element={<Navigate to="/help" replace />} />
+                    
+                    {/* Info Pages - Public routes */}
+                    <Route path="/about" element={<ErrorBoundary><AboutPage /></ErrorBoundary>} />
+                    <Route path="/privacy" element={<ErrorBoundary><PrivacyPage /></ErrorBoundary>} />
+                    <Route path="/terms" element={<ErrorBoundary><TermsPage /></ErrorBoundary>} />
+                    <Route path="/trust-safety" element={<ErrorBoundary><TrustSafetyPage /></ErrorBoundary>} />
+                    <Route path="/how-it-works" element={<ErrorBoundary><HowItWorksPage /></ErrorBoundary>} />
+                    <Route path="/contact" element={<ErrorBoundary><ContactPage /></ErrorBoundary>} />
                     
                     {/* Redirects for Legacy Routes */}
                     <Route path="/services" element={<Navigate to="/adult-services" replace />} />

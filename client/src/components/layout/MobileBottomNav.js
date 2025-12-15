@@ -4,16 +4,23 @@
  * Zerohook Platform
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Box, Typography, Badge } from '@mui/material';
+import { Box, Typography, Badge, Menu, MenuItem, Divider } from '@mui/material';
 import { styled } from '@mui/system';
 import {
   Home,
   Chat,
   CalendarToday,
   AccountBalanceWallet,
-  Person
+  Person,
+  MoreHoriz,
+  Info,
+  Gavel,
+  PrivacyTip,
+  Help,
+  Security,
+  ContactSupport
 } from '@mui/icons-material';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectIsAuthenticated } from '../../store/slices/authSlice';
@@ -103,6 +110,7 @@ const MobileBottomNav = () => {
   const dispatch = useDispatch();
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const unreadMessages = useSelector(selectUnreadMessages);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState(null);
   
   // Fetch unread message count on mount
   useEffect(() => {
@@ -133,6 +141,23 @@ const MobileBottomNav = () => {
     }
     return location.pathname === paths || location.pathname.startsWith(paths + '/');
   };
+
+  const handleMoreClick = (event) => {
+    setMoreMenuAnchor(event.currentTarget);
+  };
+
+  const handleMoreClose = () => {
+    setMoreMenuAnchor(null);
+  };
+
+  const moreMenuItems = [
+    { icon: <Info />, label: 'About Us', path: '/about' },
+    { icon: <Security />, label: 'Trust & Safety', path: '/trust-safety' },
+    { icon: <Help />, label: 'How it Works', path: '/how-it-works' },
+    { icon: <PrivacyTip />, label: 'Privacy Policy', path: '/privacy' },
+    { icon: <Gavel />, label: 'Terms of Service', path: '/terms' },
+    { icon: <ContactSupport />, label: 'Contact Us', path: '/contact' },
+  ];
   
   const navItems = [
     { 
@@ -171,32 +196,83 @@ const MobileBottomNav = () => {
       paths: ['/profile', '/dashboard', '/settings'],
       onClick: () => isAuthenticated ? navigate('/profile') : navigate('/login')
     },
+    { 
+      icon: <MoreHoriz />, 
+      label: 'More',
+      ariaLabel: 'More options', 
+      paths: ['/about', '/privacy', '/terms', '/contact', '/trust-safety', '/how-it-works'],
+      onClick: handleMoreClick,
+      isMore: true
+    },
   ];
   
   return (
-    <BottomNavContainer role="navigation" aria-label="Main navigation">
-      {navItems.map((item, index) => (
-        <NavItem
-          key={index}
-          active={isActive(item.paths)}
-          onClick={item.onClick}
-          role="button"
-          tabIndex={0}
-          aria-label={item.ariaLabel}
-          aria-current={isActive(item.paths) ? 'page' : undefined}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              item.onClick();
-            }
-          }}
-        >
-          <Box className="nav-icon" component="span" aria-hidden="true">{item.icon}</Box>
-          <Typography className="nav-label" aria-hidden="true">{item.label}</Typography>
-          {item.badge && <NavBadge aria-hidden="true">{item.badge}</NavBadge>}
-        </NavItem>
-      ))}
-    </BottomNavContainer>
+    <>
+      <BottomNavContainer role="navigation" aria-label="Main navigation">
+        {navItems.map((item, index) => (
+          <NavItem
+            key={index}
+            active={isActive(item.paths)}
+            onClick={item.onClick}
+            role="button"
+            tabIndex={0}
+            aria-label={item.ariaLabel}
+            aria-current={isActive(item.paths) ? 'page' : undefined}
+            aria-haspopup={item.isMore ? 'menu' : undefined}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                item.onClick(e);
+              }
+            }}
+          >
+            <Box className="nav-icon" component="span" aria-hidden="true">{item.icon}</Box>
+            <Typography className="nav-label" aria-hidden="true">{item.label}</Typography>
+            {item.badge && <NavBadge aria-hidden="true">{item.badge}</NavBadge>}
+          </NavItem>
+        ))}
+      </BottomNavContainer>
+
+      {/* More Menu */}
+      <Menu
+        anchorEl={moreMenuAnchor}
+        open={Boolean(moreMenuAnchor)}
+        onClose={handleMoreClose}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        PaperProps={{
+          sx: {
+            bgcolor: tokens.colors.background.secondary,
+            backdropFilter: tokens.backdropBlur.md,
+            border: `1px solid ${tokens.colors.border.primary}`,
+            borderRadius: `${tokens.borderRadius.lg}px`,
+            minWidth: 200,
+            mb: 1,
+          }
+        }}
+      >
+        {moreMenuItems.map((item, index) => (
+          <MenuItem
+            key={index}
+            onClick={() => {
+              navigate(item.path);
+              handleMoreClose();
+            }}
+            sx={{
+              color: tokens.colors.text.primary,
+              py: 1.5,
+              gap: 1.5,
+              '&:hover': {
+                bgcolor: `${tokens.colors.primary.main}20`,
+              }
+            }}
+          >
+            <Box sx={{ color: tokens.colors.text.secondary }}>{item.icon}</Box>
+            <Typography sx={{ fontSize: '0.9rem' }}>{item.label}</Typography>
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
   );
 };
 

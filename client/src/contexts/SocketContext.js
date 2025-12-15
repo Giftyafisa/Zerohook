@@ -59,7 +59,9 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     // Only attempt connection if authenticated and have user data
     if (isAuthenticated && user && localStorage.getItem('token')) {
-      console.log('🔌 Attempting socket connection...');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🔌 Attempting socket connection...');
+      }
       
       const newSocket = io(process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000', {
         auth: {
@@ -73,31 +75,26 @@ export const SocketProvider = ({ children }) => {
 
       newSocket.on('connect', () => {
         setIsConnected(true);
-        console.log('✅ Connected to server');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('✅ Connected to server');
+        }
       });
 
       newSocket.on('disconnect', (reason) => {
         setIsConnected(false);
-        console.log('❌ Disconnected from server:', reason);
-        
-        // Don't show error for intentional disconnections
-        if (reason !== 'io client disconnect') {
-          console.log('⚠️ Socket disconnected unexpectedly');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('❌ Disconnected from server:', reason);
         }
       });
 
       newSocket.on('connect_error', (error) => {
-        console.log('❌ Socket connection error:', error.message);
-        
-        // Don't show error for authentication failures (expected for unauthenticated users)
-        if (error.message !== 'Authentication error') {
-          console.log('⚠️ Socket connection failed');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('❌ Socket connection error:', error.message);
         }
       });
 
       // NEW MESSAGE - increment unread count
       newSocket.on('new_message', (data) => {
-        console.log('💬 New message received:', data);
         // Only increment if not from self and not currently viewing chat
         const pathname = window?.location?.pathname || '';
         const isChatRoute = pathname.startsWith('/chat') || pathname.startsWith('/messages');
@@ -116,7 +113,6 @@ export const SocketProvider = ({ children }) => {
 
       // NOTIFICATIONS - general notification handler
       newSocket.on('new_notification', (data) => {
-        console.log('🔔 New notification:', data);
         dispatch(incrementUnreadNotifications());
         dispatch(addToNotificationsList({
           id: data.id || Date.now(),
@@ -131,7 +127,6 @@ export const SocketProvider = ({ children }) => {
 
       // CONNECTION REQUEST notification
       newSocket.on('connection_request', (data) => {
-        console.log('🤝 Connection request:', data);
         dispatch(incrementUnreadNotifications());
         dispatch(addToNotificationsList({
           id: data.id || Date.now(),
@@ -147,39 +142,33 @@ export const SocketProvider = ({ children }) => {
 
       // VIDEO CALL notification
       newSocket.on('video_call_request', (data) => {
-        console.log('📹 Video call request:', data);
         dispatch(incrementUnreadNotifications());
         showNotification('📹 Incoming Call', `${data.callerName || 'Someone'} is calling you`, 'warning');
       });
 
       // Escrow notification handlers
       newSocket.on('escrow_created', (data) => {
-        console.log('💰 Escrow created:', data);
         dispatch(incrementUnreadNotifications());
         showNotification('💰 Payment Held', data.message || `₦${Number(data.amount).toLocaleString()} held for your service`, 'success');
       });
 
       newSocket.on('escrow_released', (data) => {
-        console.log('✅ Escrow released:', data);
         dispatch(incrementUnreadNotifications());
         showNotification('✅ Payment Released', data.message || `₦${Number(data.amount).toLocaleString()} added to your wallet`, 'success');
       });
 
       newSocket.on('escrow_disputed', (data) => {
-        console.log('⚠️ Escrow disputed:', data);
         dispatch(incrementUnreadNotifications());
         showNotification('⚠️ Dispute Opened', data.message || 'A dispute has been opened on a payment', 'warning');
       });
 
       // Milestone request notification handlers
       newSocket.on('milestone_request', (data) => {
-        console.log('📩 Milestone request received:', data);
         dispatch(incrementUnreadNotifications());
         showNotification('📩 Payment Request', `${data.senderName} sent you a payment request for ₦${Number(data.amount).toLocaleString()}`, 'info');
       });
 
       newSocket.on('milestone_response', (data) => {
-        console.log('📬 Milestone response:', data);
         dispatch(incrementUnreadNotifications());
         const statusText = data.status === 'accepted' ? 'accepted' : 'declined';
         showNotification(
@@ -192,7 +181,9 @@ export const SocketProvider = ({ children }) => {
       setSocket(newSocket);
 
       return () => {
-        console.log('🔌 Cleaning up socket connection...');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('🔌 Cleaning up socket connection...');
+        }
         newSocket.disconnect();
         setSocket(null);
         setIsConnected(false);
@@ -200,7 +191,9 @@ export const SocketProvider = ({ children }) => {
     } else {
       // Clear socket if not authenticated
       if (socket) {
-        console.log('🔌 User not authenticated, clearing socket...');
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('🔌 User not authenticated, clearing socket...');
+        }
         socket.disconnect();
         setSocket(null);
         setIsConnected(false);

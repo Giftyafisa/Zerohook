@@ -71,101 +71,12 @@ const NotificationSystem = () => {
     }
   }, [user]);
 
-  // Socket.io real-time notifications - NO LONGER needed here since SocketContext handles it
-  // But we keep listening for local UI updates
-  useEffect(() => {
-    if (!socket || !isConnected) return;
-
-    // Listen for new notifications - just update local state, Redux is updated in SocketContext
-    socket.on('new_notification', (notification) => {
-      console.log('🔔 New notification received:', notification);
-      setNotifications(prev => [notification, ...prev]);
-    });
-
-    // Listen for connection requests
-    socket.on('connection_request', (request) => {
-      console.log('🔔 Connection request received:', request);
-      const notification = {
-        id: Date.now(),
-        type: 'connection_request',
-        title: 'New Connection Request',
-        message: `${request.fromUser || request.fromUsername || 'Someone'} wants to connect with you`,
-        timestamp: new Date(),
-        read: false,
-        data: request
-      };
-      setNotifications(prev => [notification, ...prev]);
-    });
-
-    // Listen for messages
-    socket.on('new_message', (message) => {
-      console.log('🔔 New message received:', message);
-      const notification = {
-        id: Date.now(),
-        type: 'message',
-        title: 'New Message',
-        message: `New message from ${message.senderName || message.senderUsername || 'Someone'}`,
-        timestamp: new Date(),
-        read: false,
-        data: message
-      };
-      setNotifications(prev => [notification, ...prev]);
-    });
-
-    // Listen for video call requests
-    socket.on('video_call_request', (call) => {
-      console.log('🔔 Video call request received:', call);
-      const notification = {
-        id: Date.now(),
-        type: 'video_call',
-        title: 'Video Call Request',
-        message: `${call.callerName || call.callerUsername || 'Someone'} wants to video call you`,
-        timestamp: new Date(),
-        read: false,
-        data: call
-      };
-      setNotifications(prev => [notification, ...prev]);
-    });
-
-    // Listen for verification updates
-    socket.on('verification_update', (update) => {
-      console.log('🔔 Verification update received:', update);
-      const notification = {
-        id: Date.now(),
-        type: 'verification',
-        title: 'Verification Update',
-        message: update.message || 'Your verification status has been updated',
-        timestamp: new Date(),
-        read: false,
-        data: update
-      };
-      setNotifications(prev => [notification, ...prev]);
-    });
-
-    // Listen for payment confirmations
-    socket.on('payment_confirmation', (payment) => {
-      console.log('🔔 Payment confirmation received:', payment);
-      const notification = {
-        id: Date.now(),
-        type: 'payment',
-        title: 'Payment Confirmed',
-        message: `Payment of $${payment.amount || 'N/A'} has been confirmed`,
-        timestamp: new Date(),
-        read: false,
-        data: payment
-      };
-      setNotifications(prev => [notification, ...prev]);
-    });
-
-    return () => {
-      socket.off('new_notification');
-      socket.off('connection_request');
-      socket.off('new_message');
-      socket.off('video_call_request');
-      socket.off('verification_update');
-      socket.off('payment_confirmation');
-    };
-  }, [socket, isConnected]);
+  // REMOVED: Duplicate socket.on handlers - SocketContext is the SINGLE source of truth
+  // for socket events. It dispatches Redux actions which this component subscribes to.
+  // This prevents double counting and event duplication.
+  // 
+  // The Redux store (via notificationsList selector) will automatically update
+  // when SocketContext receives socket events and dispatches addToNotificationsList.
 
   const loadNotifications = async () => {
     try {

@@ -48,6 +48,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
 import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
+import { isProvider, ACCOUNT_TYPES } from '../utils/accountTypeUtils';
 import { selectUserCountry, selectDetectedCountry, selectExchangeRates } from '../store/slices/countrySlice';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { LOCATIONS } from '../config/locations';
@@ -1306,6 +1307,15 @@ const ProfileFeed = () => {
           // 'hidden' is legacy, 'authenticated' means logged-in users only
           if (user.profile_visibility === 'hidden') return false;
           if (user.profile_data?.profileVisibility === 'hidden') return false;
+          
+          // CRITICAL: ProfileFeed should only show providers (sex workers)
+          // Backend should filter this, but double-check as safety net
+          // This prevents clients, sugar_daddy, sugar_mommy from appearing in feed
+          if (!isProvider(user)) {
+            console.warn(`Filtering out non-provider from feed: ${user.username} (${user.profile_data?.accountType || 'unknown'})`);
+            return false;
+          }
+          
           return true;
         })
         .map(user => {

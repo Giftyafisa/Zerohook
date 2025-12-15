@@ -43,6 +43,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
 import { selectIsSubscribed } from '../store/slices/authSlice';
+import { isProvider } from '../utils/accountTypeUtils';
 import { 
   getAllCities, 
   getCitiesByCountry, 
@@ -382,6 +383,15 @@ const ProfileBrowse = () => {
               console.log('🚫 Skipping logged-in user profile:', user.username);
             }
             return null; // This will be filtered out
+          }
+          
+          // CRITICAL: ProfileBrowse should only show providers (sex workers)
+          // Backend filters this, but double-check as safety net
+          if (!isProvider(user)) {
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn(`🚫 Filtering non-provider from browse: ${user.username} (${user.profile_data?.accountType || 'unknown'})`);
+            }
+            return null;
           }
 
           // ENHANCED: Add subscription status indicators

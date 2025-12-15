@@ -49,6 +49,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../config/constants';
+import { isSugarAccount, getAccountType } from '../utils/accountTypeUtils';
 
 // Modern TikTok-style design system
 const styles = {
@@ -265,6 +266,9 @@ const PrivacySettings = () => {
     showVerificationStatus: true,
     showTrustScore: true,
     showReviews: true,
+    
+    // Sugar Account Visibility (for sugar_daddy/sugar_mommy only)
+    sugarVisibility: 'hidden', // 'hidden' or 'visible'
     
     // Pricing
     showPriceOnProfile: true,
@@ -580,6 +584,48 @@ const PrivacySettings = () => {
             checked={settings.showTrustScore}
             onChange={() => handleToggle('showTrustScore')}
           />
+          
+          {/* Sugar Account Visibility - Only shown for sugar_daddy/sugar_mommy accounts */}
+          {isSugarAccount(user) && (
+            <Box sx={{ 
+              mt: 2, 
+              p: 2, 
+              borderRadius: '12px', 
+              background: 'linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, rgba(255, 105, 180, 0.1) 100%)',
+              border: '1px solid rgba(255, 215, 0, 0.3)'
+            }}>
+              <Typography sx={{ 
+                color: '#ffd700', 
+                fontWeight: 600, 
+                fontSize: '14px',
+                mb: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1
+              }}>
+                <Shield sx={{ fontSize: 18 }} />
+                Sugar Profile Visibility
+              </Typography>
+              <Typography sx={{ 
+                color: 'rgba(255,255,255,0.6)', 
+                fontSize: '12px',
+                mb: 2
+              }}>
+                Control whether providers with paid access can see your profile.
+                Your profile is hidden by default for maximum privacy.
+              </Typography>
+              <SettingRow 
+                label="Allow Profile Discovery"
+                description={settings.sugarVisibility === 'visible' 
+                  ? "Providers with paid sugar access can see your profile"
+                  : "Your profile is completely hidden from providers"}
+                checked={settings.sugarVisibility === 'visible'}
+                onChange={() => handleChange('sugarVisibility', 
+                  settings.sugarVisibility === 'visible' ? 'hidden' : 'visible'
+                )}
+              />
+            </Box>
+          )}
         </Section>
         
         <Box sx={styles.divider} />

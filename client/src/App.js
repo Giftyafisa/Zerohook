@@ -19,9 +19,11 @@ import { AuthProvider } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
 
 // Layout Components
-import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/FooterNew';
 import MainLayout from './components/layout/MainLayout';
+
+// Route utilities - Single source of truth for route-based layout decisions
+import { isChatRoute, isCallEligibleRoute, isPerformanceSensitiveRoute } from './utils/routeUtils';
 
 // UI Components
 import { AnimatedBackground, ToastProvider } from './components/ui';
@@ -193,18 +195,19 @@ function AppContent() {
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up('lg')); // >= 1200px
   const location = useLocation();
   
-  // Centralized chat layout detection - easy to extend if new chat paths are added
-  const CHAT_ROUTE_PREFIXES = ['/chat', '/messages', '/inbox'];
-  const isChatRoute = CHAT_ROUTE_PREFIXES.some(prefix => location.pathname.startsWith(prefix));
+  // Use centralized route detection utilities
+  const chatRoute = isChatRoute(location.pathname);
+  const callEligible = isCallEligibleRoute(location.pathname);
+  const performanceSensitive = isPerformanceSensitiveRoute(location.pathname);
   
   return (
     <MainLayout showNavigation={true}>
       <Box className="App" sx={{ position: 'relative', minHeight: '100vh' }}>
-        {/* Animated Background */}
-        <AnimatedBackground />
+        {/* Animated Background - Disabled on performance-sensitive routes */}
+        {!performanceSensitive && <AnimatedBackground />}
         
-        {/* Top Navigation - Only for tablet/mobile when not using sidebar */}
-        {!isDesktop && <Navbar />}
+        {/* Navigation is handled by MainLayout (Sidebar on desktop, BottomNav on mobile) */}
+        {/* Removed duplicate Navbar here - MainLayout is the single navigation authority */}
         
         {/* Main Content */}
         <main 
@@ -405,17 +408,19 @@ function AppContent() {
                 </main>
                 
                 {/* Footer - Hide on chat routes to give chat full height */}
-                {isDesktop && !isChatRoute && <Footer />}
+                {isDesktop && !chatRoute && <Footer />}
                 
-                {/* Global Call System - Only rendered when needed via Suspense */}
-                <Suspense fallback={null}>
-                  <CallSystem />
-                </Suspense>
+                {/* Global Call System - Only mounted on call-eligible routes to reduce socket overhead */}
+                {callEligible && (
+                  <Suspense fallback={null}>
+                    <CallSystem />
+                  </Suspense>
+                )}
                 
                 {/* Toast Notifications - Position adjusts for mobile */}
                 <ToastContainer
                   position={isDesktop ? "bottom-right" : "top-center"}
-                  autoClose={5000}
+                  autoClose={isDesktop ? 5000 : 3000}
                   hideProgressBar={false}
                   newestOnTop={false}
                   closeOnClick

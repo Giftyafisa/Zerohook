@@ -66,7 +66,11 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
-      // Custom fallback UI
+      // User-friendly fallback UI with clear CTAs
+      // Production: Clean, reassuring message without technical details
+      // Development: Additional debug information
+      const isProduction = process.env.NODE_ENV === 'production';
+      
       return (
         <Container maxWidth="md" sx={{ py: 8 }}>
           <Box
@@ -79,66 +83,83 @@ class ErrorBoundary extends React.Component {
             <Error sx={{ fontSize: 80, color: 'error.main', mb: 3 }} />
             
             <Typography variant="h4" color="error" gutterBottom>
-              Something went wrong
+              Oops! Something went wrong
             </Typography>
             
-            <Typography variant="body1" color="text.secondary" sx={{ mb: 4, maxWidth: 600 }}>
-              We encountered an unexpected error. This has been logged and our team will investigate.
-              {this.state.errorId && (
-                <Box component="span" display="block" mt={1}>
-                  Error ID: {this.state.errorId}
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2, maxWidth: 600 }}>
+              We're sorry for the inconvenience. The page didn't load correctly, but don't worry — your data is safe.
+            </Typography>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 4, maxWidth: 600 }}>
+              Please try one of the options below, or come back in a few minutes if the problem persists.
+              {this.state.errorId && !isProduction && (
+                <Box component="span" display="block" mt={1} sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                  Reference: {this.state.errorId}
                 </Box>
               )}
             </Typography>
 
-            <Alert severity="error" sx={{ mb: 4, maxWidth: 600, textAlign: 'left' }}>
-              <Typography variant="body2" component="div">
-                <strong>Error Details:</strong>
-                <Box component="pre" sx={{ mt: 1, fontSize: '0.8rem', overflow: 'auto' }}>
-                  {this.state.error?.message || 'Unknown error occurred'}
-                </Box>
-                {process.env.NODE_ENV === 'development' && this.state.errorInfo && (
-                  <Box component="pre" sx={{ mt: 1, fontSize: '0.7rem', overflow: 'auto' }}>
-                    {this.state.errorInfo.componentStack}
+            {/* Only show technical details in development */}
+            {!isProduction && (
+              <Alert severity="error" sx={{ mb: 4, maxWidth: 600, textAlign: 'left' }}>
+                <Typography variant="body2" component="div">
+                  <strong>Error Details (Dev Only):</strong>
+                  <Box component="pre" sx={{ mt: 1, fontSize: '0.8rem', overflow: 'auto' }}>
+                    {this.state.error?.message || 'Unknown error occurred'}
                   </Box>
-                )}
-              </Typography>
-            </Alert>
+                  {this.state.errorInfo && (
+                    <Box component="pre" sx={{ mt: 1, fontSize: '0.7rem', overflow: 'auto', maxHeight: 200 }}>
+                      {this.state.errorInfo.componentStack}
+                    </Box>
+                  )}
+                </Typography>
+              </Alert>
+            )}
 
             <Box display="flex" gap={2} flexWrap="wrap" justifyContent="center">
               <Button
                 variant="contained"
+                color="primary"
                 startIcon={<Refresh />}
                 onClick={this.handleRetry}
                 size="large"
+                sx={{ minWidth: 140 }}
               >
                 Try Again
               </Button>
               
               <Button
-                variant="outlined"
+                variant="contained"
+                color="secondary"
                 startIcon={<Home />}
                 onClick={this.handleGoHome}
                 size="large"
+                sx={{ minWidth: 140 }}
               >
-                Go Home
+                Go to Home
               </Button>
               
               <Button
                 variant="outlined"
                 onClick={this.handleReload}
                 size="large"
+                sx={{ minWidth: 140 }}
               >
-                Reload Page
+                Refresh Page
               </Button>
             </Box>
+            
+            <Typography variant="caption" color="text.disabled" sx={{ mt: 4 }}>
+              If this keeps happening, please contact support.
+            </Typography>
 
-            {process.env.NODE_ENV === 'development' && (
-              <Box mt={4} p={2} border={1} borderColor="divider" borderRadius={1} maxWidth="800px">
+            {/* Full debug panel only in development */}
+            {!isProduction && (
+              <Box mt={4} p={2} border={1} borderColor="divider" borderRadius={1} maxWidth="800px" width="100%">
                 <Typography variant="h6" gutterBottom>
-                  Development Debug Info
+                  🔧 Development Debug Info
                 </Typography>
-                <Typography variant="body2" component="pre" sx={{ fontSize: '0.7rem', overflow: 'auto' }}>
+                <Typography variant="body2" component="pre" sx={{ fontSize: '0.7rem', overflow: 'auto', textAlign: 'left' }}>
                   {JSON.stringify({
                     error: this.state.error?.message,
                     stack: this.state.error?.stack,

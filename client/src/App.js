@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, lazy, Suspense } from 'react';
 import { 
   BrowserRouter as Router, 
   Routes, 
@@ -38,7 +38,7 @@ import CreateServicePage from './pages/CreateServicePage';
 import AdultServiceCreate from './pages/AdultServiceCreate';
 import ProfilePage from './pages/ProfilePage';
 import VerificationPage from './pages/VerificationPage';
-import TransactionsPage from './pages/TransactionsPage';
+// TransactionsPage removed - route redirects to /wallet (MyMoneyPage)
 import TrustScorePage from './pages/TrustScorePage';
 import AdultServiceBrowse from './pages/AdultServiceBrowse';
 import AdultServiceDetail from './pages/AdultServiceDetail';
@@ -63,8 +63,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 // Global Styles
 import './styles/global.css';
 
-// Global Call System
-import CallSystem from './components/CallSystem';
+// Global Call System - Lazy loaded to reduce bundle size on non-chat routes
+const CallSystem = lazy(() => import('./components/CallSystem'));
 
 // Legacy route redirect component to preserve route params AND query string
 const LegacyServiceRedirect = () => {
@@ -387,17 +387,13 @@ function AppContent() {
                       </ProtectedRoute>
                     } />
                     
-                    {/* Help & Support Route */}
+                    {/* Help & Support Route - /help is canonical */}
                     <Route path="/help" element={
                       <ErrorBoundary>
                         <HelpSupportPage />
                       </ErrorBoundary>
                     } />
-                    <Route path="/support" element={
-                      <ErrorBoundary>
-                        <HelpSupportPage />
-                      </ErrorBoundary>
-                    } />
+                    <Route path="/support" element={<Navigate to="/help" replace />} />
                     
                     {/* Redirects for Legacy Routes */}
                     <Route path="/services" element={<Navigate to="/adult-services" replace />} />
@@ -411,12 +407,14 @@ function AppContent() {
                 {/* Footer - Hide on chat routes to give chat full height */}
                 {isDesktop && !isChatRoute && <Footer />}
                 
-                {/* Global Call System */}
-                <CallSystem />
+                {/* Global Call System - Only rendered when needed via Suspense */}
+                <Suspense fallback={null}>
+                  <CallSystem />
+                </Suspense>
                 
-                {/* Toast Notifications */}
+                {/* Toast Notifications - Position adjusts for mobile */}
                 <ToastContainer
-                  position="bottom-right"
+                  position={isDesktop ? "bottom-right" : "top-center"}
                   autoClose={5000}
                   hideProgressBar={false}
                   newestOnTop={false}

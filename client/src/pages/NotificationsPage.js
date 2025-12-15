@@ -407,6 +407,7 @@ const NotificationsPage = () => {
             <IconButton 
               onClick={() => navigate(-1)}
               sx={{ color: '#fff' }}
+              aria-label="Go back"
             >
               <ArrowBack />
             </IconButton>
@@ -432,6 +433,7 @@ const NotificationsPage = () => {
               onClick={() => fetchNotifications(true)}
               disabled={refreshing}
               sx={styles.refreshBtn}
+              aria-label={refreshing ? 'Refreshing notifications' : 'Refresh notifications'}
             >
               <Refresh sx={{ 
                 animation: refreshing ? 'spin 1s linear infinite' : 'none',
@@ -574,6 +576,7 @@ const NotificationsPage = () => {
                               p: 0.5,
                               '&:hover': { color: '#ff0055' }
                             }}
+                            aria-label={`Delete notification: ${notification.title}`}
                           >
                             <DeleteOutline fontSize="small" />
                           </IconButton>

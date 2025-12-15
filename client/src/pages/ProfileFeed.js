@@ -183,7 +183,11 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
           <EditLocation sx={{ color: '#00f2ea' }} />
           <Typography variant="h6">Select Your Location</Typography>
         </Box>
-        <IconButton onClick={onClose} sx={{ color: 'rgba(255,255,255,0.6)' }}>
+        <IconButton 
+          onClick={onClose} 
+          sx={{ color: 'rgba(255,255,255,0.6)' }}
+          aria-label="Close location picker"
+        >
           <Close />
         </IconButton>
       </DialogTitle>
@@ -687,7 +691,9 @@ const ProfileCard = ({
               onLike(profile.id);
               activityTracker.trackLike(profile.id, !isLiked);
             }}
-            sx={{
+            aria-label={isLiked ? 'Remove from favorites' : 'Add to favorites'}
+            title={isLiked ? 'Remove from favorites' : 'Add to favorites'}
+            sx={{{
               position: 'absolute',
               bottom: 12,
               left: 12,
@@ -1569,7 +1575,11 @@ const ProfileFeed = () => {
               ),
               endAdornment: searchQuery && (
                 <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setSearchQuery('')}>
+                  <IconButton 
+                    size="small" 
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                  >
                     <Close sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 18 }} />
                   </IconButton>
                 </InputAdornment>

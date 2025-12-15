@@ -345,6 +345,7 @@ const ProfileDetailPage = () => {
                 <IconButton
                   onClick={handleFavoriteToggle}
                   sx={{ color: isFavorite ? 'error.main' : 'text.secondary' }}
+                  aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 >
                   {isFavorite ? <Favorite /> : <FavoriteBorder />}
                 </IconButton>

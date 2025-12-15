@@ -253,10 +253,10 @@ const HelpSupportPage = () => {
         />
         <Box sx={styles.contactActions}>
           <Box sx={styles.contactMethods}>
-            <IconButton sx={styles.contactIcon}>
+            <IconButton sx={styles.contactIcon} aria-label="Contact via email">
               <EmailIcon />
             </IconButton>
-            <IconButton sx={styles.contactIcon}>
+            <IconButton sx={styles.contactIcon} aria-label="Contact via chat">
               <ChatIcon />
             </IconButton>
           </Box>

@@ -448,7 +448,7 @@ const PrivacySettings = () => {
               </Typography>
             </Box>
           </Box>
-          <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+          <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.5)' }} aria-label={isExpanded ? 'Collapse section' : 'Expand section'}>
             {isExpanded ? <ExpandLess /> : <ExpandMore />}
           </IconButton>
         </Box>
@@ -473,7 +473,7 @@ const PrivacySettings = () => {
       {/* Header */}
       <Box sx={styles.header}>
         <Box sx={styles.headerContent}>
-          <IconButton onClick={() => navigate(-1)} sx={{ color: '#fff' }}>
+          <IconButton onClick={() => navigate(-1)} sx={{ color: '#fff' }} aria-label="Go back">
             <ArrowBack />
           </IconButton>
           <Typography sx={styles.title}>Settings</Typography>

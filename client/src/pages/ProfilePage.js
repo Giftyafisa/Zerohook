@@ -321,7 +321,12 @@ const ProfilePage = () => {
             >
               {fullName[0]?.toUpperCase()}
             </Avatar>
-            <IconButton sx={styles.cameraBtn} onClick={() => setPhotoDialog(true)}>
+            <IconButton 
+              sx={styles.cameraBtn} 
+              onClick={() => setPhotoDialog(true)}
+              aria-label="Change profile photo"
+              title="Change profile photo"
+            >
               <CameraIcon />
             </IconButton>
           </Box>

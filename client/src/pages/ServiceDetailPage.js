@@ -240,13 +240,25 @@ const ServiceDetailPage = () => {
                   }}
                 />
                 <Box sx={{ position: 'absolute', top: 16, right: 16 }}>
-                  <IconButton sx={{ bgcolor: 'rgba(255,255,255,0.9)', mr: 1 }}>
+                  <IconButton 
+                    sx={{ bgcolor: 'rgba(255,255,255,0.9)', mr: 1 }}
+                    aria-label="Add to favorites"
+                    title="Add to favorites"
+                  >
                     <Favorite />
                   </IconButton>
-                  <IconButton sx={{ bgcolor: 'rgba(255,255,255,0.9)', mr: 1 }}>
+                  <IconButton 
+                    sx={{ bgcolor: 'rgba(255,255,255,0.9)', mr: 1 }}
+                    aria-label="Share this service"
+                    title="Share"
+                  >
                     <Share />
                   </IconButton>
-                  <IconButton sx={{ bgcolor: 'rgba(255,255,255,0.9)' }}>
+                  <IconButton 
+                    sx={{ bgcolor: 'rgba(255,255,255,0.9)' }}
+                    aria-label="Bookmark this service"
+                    title="Bookmark"
+                  >
                     <Bookmark />
                   </IconButton>
                 </Box>

@@ -341,8 +341,9 @@ const TransactionsPage = () => {
         open={releaseDialog.open} 
         onClose={() => setReleaseDialog({ open: false, escrowId: null })}
         PaperProps={{ sx: styles.dialog }}
+        aria-labelledby="release-dialog-title"
       >
-        <DialogTitle sx={styles.dialogTitle}>
+        <DialogTitle id="release-dialog-title" sx={styles.dialogTitle}>
           <ReleaseIcon sx={{ color: '#66bb6a', mr: 1 }} />
           Release Payment?
         </DialogTitle>
@@ -377,8 +378,9 @@ const TransactionsPage = () => {
         open={disputeDialog.open} 
         onClose={() => setDisputeDialog({ open: false, escrowId: null })}
         PaperProps={{ sx: styles.dialog }}
+        aria-labelledby="dispute-dialog-title"
       >
-        <DialogTitle sx={styles.dialogTitle}>
+        <DialogTitle id="dispute-dialog-title" sx={styles.dialogTitle}>
           <DisputeIcon sx={{ color: '#ef5350', mr: 1 }} />
           Report an Issue?
         </DialogTitle>

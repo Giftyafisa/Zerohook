@@ -12,6 +12,17 @@ export { default as FilterTabs } from './FilterTabs';
 export { default as SafetyBanner } from './SafetyBanner';
 export { ToastProvider, useToast } from './Toast';
 
+// Status Badges - Centralized badge components for consistency
+export { 
+  VerificationBadge, 
+  SubscriptionBadge, 
+  OnlineStatusBadge,
+  VERIFICATION_TIERS,
+  SUBSCRIPTION_TIERS,
+  getVerificationTierConfig,
+  getSubscriptionTierConfig 
+} from './StatusBadge';
+
 // Usage Examples:
 // 
 // import { 

@@ -588,8 +588,14 @@ const VerificationCenter = () => {
       </Grid>
 
       {/* Document Upload Dialog */}
-      <Dialog open={showUploadDialog} onClose={() => setShowUploadDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Upload Document</DialogTitle>
+      <Dialog 
+        open={showUploadDialog} 
+        onClose={() => setShowUploadDialog(false)} 
+        maxWidth="sm" 
+        fullWidth
+        aria-labelledby="upload-dialog-title"
+      >
+        <DialogTitle id="upload-dialog-title">Upload Document</DialogTitle>
         <DialogContent>
           <Box mb={3}>
             <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -633,8 +639,14 @@ const VerificationCenter = () => {
       </Dialog>
 
       {/* Verification Process Dialog */}
-      <Dialog open={showVerificationDialog} onClose={() => setShowVerificationDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Verification Process - {verificationTiers[currentTier - 1]?.name} Tier</DialogTitle>
+      <Dialog 
+        open={showVerificationDialog} 
+        onClose={() => setShowVerificationDialog(false)} 
+        maxWidth="md" 
+        fullWidth
+        aria-labelledby="verification-dialog-title"
+      >
+        <DialogTitle id="verification-dialog-title">Verification Process - {verificationTiers[currentTier - 1]?.name} Tier</DialogTitle>
         <DialogContent>
           <Stepper activeStep={verificationStep} orientation="vertical" sx={{ mb: 3 }}>
             {verificationTiers[currentTier - 1]?.requirements.map((req, index) => (

@@ -487,8 +487,9 @@ const WalletPage = () => {
         PaperProps={{ sx: styles.dialog }}
         maxWidth="sm"
         fullWidth
+        aria-labelledby="deposit-dialog-title"
       >
-        <DialogTitle sx={styles.dialogTitle}>Add Funds via Paystack</DialogTitle>
+        <DialogTitle id="deposit-dialog-title" sx={styles.dialogTitle}>Add Funds via Paystack</DialogTitle>
         <DialogContent>
           <Typography sx={{ color: '#888', mb: 2, mt: 1 }}>
             Your country's currency: <strong style={{ color: '#00f2ea' }}>{walletData.currency}</strong>
@@ -528,10 +529,11 @@ const WalletPage = () => {
         open={withdrawDialog} 
         onClose={() => setWithdrawDialog(false)}
         PaperProps={{ sx: styles.dialog }}
+        aria-labelledby="withdraw-dialog-title"
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle sx={styles.dialogTitle}>Withdraw to Bank Account</DialogTitle>
+        <DialogTitle id="withdraw-dialog-title" sx={styles.dialogTitle}>Withdraw to Bank Account</DialogTitle>
         <DialogContent>
           <Typography sx={{ color: '#888', mb: 2, mt: 1 }}>
             Available: <span style={{ color: '#00ff88', fontWeight: 600 }}>{walletData.currencySymbol}{walletData.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>

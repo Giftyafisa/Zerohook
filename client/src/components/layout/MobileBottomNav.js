@@ -137,48 +137,63 @@ const MobileBottomNav = () => {
   const navItems = [
     { 
       icon: <Home />, 
-      label: 'Home', 
+      label: 'Home',
+      ariaLabel: 'Go to home page', 
       paths: ['/', '/profiles', '/adult-services'],
       onClick: () => navigate('/')
     },
     { 
       icon: <Chat />, 
-      label: 'Messages', 
+      label: 'Messages',
+      ariaLabel: unreadMessages > 0 ? `Messages, ${unreadMessages} unread` : 'View messages', 
       paths: ['/chat', '/messages'],
       onClick: () => isAuthenticated ? navigate('/chat') : navigate('/login'),
       badge: isAuthenticated && unreadMessages > 0 ? unreadMessages : null
     },
     { 
       icon: <CalendarToday />, 
-      label: 'Bookings', 
+      label: 'Bookings',
+      ariaLabel: 'View your bookings', 
       paths: ['/bookings'],
       onClick: () => isAuthenticated ? navigate('/bookings') : navigate('/login')
     },
     { 
       icon: <AccountBalanceWallet />, 
-      label: 'Wallet', 
+      label: 'Wallet',
+      ariaLabel: 'View wallet and transactions', 
       paths: ['/wallet', '/transactions'],
       onClick: () => isAuthenticated ? navigate('/wallet') : navigate('/login')
     },
     { 
       icon: <Person />, 
-      label: 'Profile', 
+      label: 'Profile',
+      ariaLabel: 'View your profile', 
       paths: ['/profile', '/dashboard', '/settings'],
       onClick: () => isAuthenticated ? navigate('/profile') : navigate('/login')
     },
   ];
   
   return (
-    <BottomNavContainer>
+    <BottomNavContainer role="navigation" aria-label="Main navigation">
       {navItems.map((item, index) => (
         <NavItem
           key={index}
           active={isActive(item.paths)}
           onClick={item.onClick}
+          role="button"
+          tabIndex={0}
+          aria-label={item.ariaLabel}
+          aria-current={isActive(item.paths) ? 'page' : undefined}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              item.onClick();
+            }
+          }}
         >
-          <Box className="nav-icon" component="span">{item.icon}</Box>
-          <Typography className="nav-label">{item.label}</Typography>
-          {item.badge && <NavBadge>{item.badge}</NavBadge>}
+          <Box className="nav-icon" component="span" aria-hidden="true">{item.icon}</Box>
+          <Typography className="nav-label" aria-hidden="true">{item.label}</Typography>
+          {item.badge && <NavBadge aria-hidden="true">{item.badge}</NavBadge>}
         </NavItem>
       ))}
     </BottomNavContainer>

@@ -43,7 +43,7 @@ export const PERFORMANCE_SENSITIVE_ROUTES = [
  * Routes requiring full-height layout (100vh, flex-based)
  * These should work independently of footer visibility
  */
-export const FULL_HEIGHT_ROUTES = ['/chat', '/messages', '/inbox', '/booking'];
+export const FULL_HEIGHT_ROUTES = ['/chat', '/messages', '/inbox', '/bookings'];
 
 /**
  * Check if pathname matches a chat/messaging route

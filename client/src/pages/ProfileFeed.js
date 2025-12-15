@@ -975,6 +975,10 @@ const ProfileFeed = () => {
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   
   const loadMoreRef = useRef(null);
+  // AbortController for fetch cancellation - prevents race conditions
+  const abortControllerRef = useRef(null);
+  // Request ID to ignore stale responses
+  const requestIdRef = useRef(0);
 
   const locationLabel = useMemo(() => {
     if (!userLocation) return null;
@@ -1213,6 +1217,15 @@ const ProfileFeed = () => {
   // Public access: Shows public profiles to everyone
   // Authenticated users see all profiles (public + authenticated-only)
   const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
+    // Cancel any in-flight request to prevent race conditions
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    
+    // Track this request to ignore stale responses
+    const currentRequestId = ++requestIdRef.current;
+    
     try {
       if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
@@ -1257,7 +1270,15 @@ const ProfileFeed = () => {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/users/profiles?${queryParams}`, { headers });
+      const response = await fetch(`${API_BASE_URL}/users/profiles?${queryParams}`, { 
+        headers,
+        signal: abortControllerRef.current.signal 
+      });
+      
+      // Ignore stale responses from cancelled or outdated requests
+      if (currentRequestId !== requestIdRef.current) {
+        return;
+      }
       
       if (!response.ok) {
         throw new Error('Failed to fetch profiles');
@@ -1322,13 +1343,29 @@ const ProfileFeed = () => {
       }
 
     } catch (err) {
+      // Ignore abort errors - these are expected when cancelling requests
+      if (err.name === 'AbortError') {
+        return;
+      }
       console.error('Error fetching profiles:', err);
       setError(err.message);
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      // Only update loading state if this is still the current request
+      if (currentRequestId === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, [activeFilter, searchQuery, isAuthenticated, isSubscribed, currentUser, reduxUser, userLocation, convertPrice]);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   // Initial load - fetch profiles immediately, don't wait for location
   // Location detection runs in parallel and will trigger a refresh when complete

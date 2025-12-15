@@ -19,9 +19,14 @@ export const useSocket = () => {
 };
 
 // Simple toast notification function (can be enhanced with a proper toast library)
+// Includes aria-live for screen reader accessibility
 const showNotification = (title, message, type = 'info') => {
   // Create a simple toast notification
   const toast = document.createElement('div');
+  // Set accessibility attributes for screen readers
+  toast.setAttribute('role', 'alert');
+  toast.setAttribute('aria-live', 'polite');
+  toast.setAttribute('aria-atomic', 'true');
   toast.style.cssText = `
     position: fixed;
     bottom: 140px;

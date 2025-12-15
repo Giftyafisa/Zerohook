@@ -79,6 +79,12 @@ function App() {
   // Global error handler for unhandled errors
   useEffect(() => {
     const handleGlobalError = (event) => {
+      // Filter benign errors that don't need logging
+      const benignErrors = ['ResizeObserver loop', 'Script error'];
+      if (benignErrors.some(msg => event.error?.message?.includes(msg))) {
+        return;
+      }
+      
       console.error('🚨 Global error caught:', event.error);
       // Log to external service in production
       if (process.env.NODE_ENV === 'production') {
@@ -88,18 +94,36 @@ function App() {
           timestamp: new Date().toISOString(),
           url: window.location.href
         });
+        // TODO: Send to error reporting service (Sentry/Datadog)
       }
     };
 
     const handleUnhandledRejection = (event) => {
-      console.error('🚨 Unhandled promise rejection:', event.reason);
+      // Filter benign rejections that are expected during normal operation
+      const reason = event.reason;
+      const benignRejections = ['AbortError', 'cancelled', 'Request aborted'];
+      
+      // Check if this is a benign rejection we should ignore
+      const isBenign = benignRejections.some(msg => 
+        reason?.name === msg || 
+        reason?.message?.includes(msg) ||
+        String(reason).includes(msg)
+      );
+      
+      if (isBenign) {
+        // Silently ignore abort/cancel errors - these are expected
+        return;
+      }
+      
+      console.error('🚨 Unhandled promise rejection:', reason);
       // Log to external service in production
       if (process.env.NODE_ENV === 'production') {
         console.error('Production unhandled rejection:', {
-          reason: event.reason,
+          reason: reason,
           timestamp: new Date().toISOString(),
           url: window.location.href
         });
+        // TODO: Send to error reporting service (Sentry/Datadog)
       }
     };
 
@@ -168,7 +192,10 @@ function AppContent() {
   const muiTheme = useTheme();
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up('lg')); // >= 1200px
   const location = useLocation();
-  const isChatRoute = location.pathname.startsWith('/chat') || location.pathname.startsWith('/messages');
+  
+  // Centralized chat layout detection - easy to extend if new chat paths are added
+  const CHAT_ROUTE_PREFIXES = ['/chat', '/messages', '/inbox'];
+  const isChatRoute = CHAT_ROUTE_PREFIXES.some(prefix => location.pathname.startsWith(prefix));
   
   return (
     <MainLayout showNavigation={true}>

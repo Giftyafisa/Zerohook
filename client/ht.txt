@@ -262,3 +262,5 @@ sugar_mommy → Sugar Mommies =This group of people are VVIP member and their ac
 
 
 Scan the codebase to find any UI/UX bugs and design mistakes. Also make the suggestion of improvement of the logic and algorithm of the platform.
+Scan the codebase to find any UI/UX bugs and design mistakes. Also make the suggestion of improvement of the logic and algorithm of the platform. More of the logic and algorithm the help sell the platform well. You can take inspiration from ht.txt on help the platform is to be and note not everything there might be correct and well explained.
+

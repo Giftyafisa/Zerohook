@@ -53,6 +53,7 @@ import { selectUserCountry, selectDetectedCountry, selectExchangeRates } from '.
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { LOCATIONS } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
+import { VERIFICATION_TIERS, getVerificationTierConfig } from '../components/ui/StatusBadge';
 
 // Get all locations from user's country (or default to Ghana/Nigeria)
 const getAllLocations = (countryCode) => {
@@ -509,10 +510,27 @@ const ProfileCard = ({
   const priceSymbol = profile.displayPrice?.symbol || profile.displayPrice?.currency || '$';
   const isPriceConverted = Boolean(profile.displayPrice && profile.displayPrice.currency && profile.displayPrice.currency !== 'USD');
   const isOnline = profile.isOnline; // From backend
+  const lastActive = profile.lastActive; // From backend
   const verificationTier = profile.verificationTier || 1;
   const distance = profile.distance; // From backend recommendation engine
   const successRate = profile.successRate; // From backend
   const distanceLabel = distance != null ? (profile.distanceEstimated ? `${distance}km est` : `${distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`}`) : null;
+
+  // Helper function to format last active time
+  const formatLastActive = (lastActiveDate) => {
+    if (!lastActiveDate) return null;
+    const date = new Date(lastActiveDate);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return `${Math.floor(diffDays / 7)}w ago`;
+  };
 
   // Get profile image using shared utility
   const profileImage = resolveProfileImage(profileData);
@@ -621,12 +639,38 @@ const ProfileCard = ({
             </Box>
           )}
 
+          {/* Last Active Indicator - Show when offline */}
+          {!isOnline && lastActive && formatLastActive(lastActive) && (
+            <Tooltip title={`Last seen: ${new Date(lastActive).toLocaleString()}`} arrow placement="right">
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 12,
+                  left: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  bgcolor: 'rgba(0,0,0,0.6)',
+                  backdropFilter: 'blur(4px)',
+                  borderRadius: '12px',
+                  px: 1,
+                  py: 0.5,
+                }}
+              >
+                <AccessTime sx={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }} />
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                  {formatLastActive(lastActive)}
+                </Typography>
+              </Box>
+            </Tooltip>
+          )}
+
           {/* Distance Badge - Only show if we have distance data */}
           {distance !== null && distance !== undefined && (
             <Box
               sx={{
                 position: 'absolute',
-                top: isOnline ? 48 : 12,
+                top: 48, // Always below online/last-active indicator
                 left: 12,
                 display: 'flex',
                 alignItems: 'center',
@@ -646,22 +690,38 @@ const ProfileCard = ({
             </Box>
           )}
 
-          {/* Verification Badge */}
+          {/* Verification Badge - Enhanced with tier label */}
           {verificationTier >= 2 && (
             <Box
               sx={{
                 position: 'absolute',
                 top: 12,
                 right: 12,
-                bgcolor: verificationTier >= 3 ? '#FFD700' : '#00f2ea',
-                borderRadius: '50%',
-                p: 0.5,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
+                gap: 0.5,
+                bgcolor: verificationTier >= 3 ? 'rgba(255, 215, 0, 0.9)' : 'rgba(0, 242, 234, 0.9)',
+                backdropFilter: 'blur(4px)',
+                borderRadius: '20px',
+                px: 1,
+                py: 0.5,
+                boxShadow: verificationTier >= 3 
+                  ? '0 0 10px rgba(255, 215, 0, 0.5)' 
+                  : '0 0 10px rgba(0, 242, 234, 0.5)',
               }}
             >
-              <Verified sx={{ fontSize: 18, color: '#000' }} />
+              <Verified sx={{ fontSize: 16, color: '#000' }} />
+              <Typography 
+                sx={{ 
+                  fontSize: '0.7rem', 
+                  fontWeight: 700, 
+                  color: '#000',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}
+              >
+                {getVerificationTierConfig(verificationTier).label}
+              </Typography>
             </Box>
           )}
 
@@ -694,7 +754,7 @@ const ProfileCard = ({
             }}
             aria-label={isLiked ? 'Remove from favorites' : 'Add to favorites'}
             title={isLiked ? 'Remove from favorites' : 'Add to favorites'}
-            sx={{{
+            sx={{
               position: 'absolute',
               bottom: 12,
               left: 12,
@@ -743,12 +803,40 @@ const ProfileCard = ({
             
             {/* Trust Score & Success Rate */}
             <Box sx={{ textAlign: 'right' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Star sx={{ fontSize: 16, color: '#FFD700' }} />
-                <Typography variant="body2" sx={{ color: '#FFD700', fontWeight: 600 }}>
-                  {Math.round(parseFloat(profile.trustScore) || 75)}%
-                </Typography>
-              </Box>
+              <Tooltip 
+                title={
+                  <Box sx={{ p: 0.5 }}>
+                    <Typography sx={{ fontWeight: 700, mb: 0.5, fontSize: '0.8rem' }}>Trust Score Breakdown</Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <Typography sx={{ fontSize: '0.7rem' }}>Verification</Typography>
+                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>{verificationTier >= 3 ? 'Elite' : verificationTier >= 2 ? 'Verified' : 'Basic'}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <Typography sx={{ fontSize: '0.7rem' }}>Success Rate</Typography>
+                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>{successRate ? `${Math.round(parseFloat(successRate))}%` : 'N/A'}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <Typography sx={{ fontSize: '0.7rem' }}>Response Time</Typography>
+                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>Fast</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <Typography sx={{ fontSize: '0.7rem' }}>Disputes</Typography>
+                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>0</Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                }
+                arrow
+                placement="left"
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer' }}>
+                  <Star sx={{ fontSize: 16, color: '#FFD700' }} />
+                  <Typography variant="body2" sx={{ color: '#FFD700', fontWeight: 600 }}>
+                    {Math.round(parseFloat(profile.trustScore) || 75)}%
+                  </Typography>
+                </Box>
+              </Tooltip>
               {successRate && parseFloat(successRate) > 0 && (
                 <Tooltip title="Success Rate" arrow placement="left">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, justifyContent: 'flex-end' }}>

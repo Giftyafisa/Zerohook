@@ -630,7 +630,34 @@ const Navbar = () => {
                       >
                         {getUserDisplayName()}
                       </Typography>
-                      {getSubscriptionBadge()}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
+                        {/* Account Type Indicator */}
+                        <Chip
+                          label={getAccountTypeLabel()}
+                          size="small"
+                          sx={{
+                            height: '18px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            fontFamily: '"Outfit", sans-serif',
+                            bgcolor: isSugarAccount 
+                              ? 'rgba(255, 215, 0, 0.15)' 
+                              : isProvider 
+                                ? 'rgba(255, 0, 85, 0.15)' 
+                                : 'rgba(0, 242, 234, 0.15)',
+                            color: isSugarAccount 
+                              ? '#FFD700' 
+                              : isProvider 
+                                ? '#ff0055' 
+                                : '#00f2ea',
+                            border: `1px solid ${isSugarAccount ? 'rgba(255, 215, 0, 0.3)' : isProvider ? 'rgba(255, 0, 85, 0.3)' : 'rgba(0, 242, 234, 0.3)'}`,
+                            '& .MuiChip-label': {
+                              px: 0.75,
+                            }
+                          }}
+                        />
+                        {getSubscriptionBadge()}
+                      </Box>
                     </Box>
                   )}
                   <IconButton

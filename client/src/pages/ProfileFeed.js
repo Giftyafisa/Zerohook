@@ -1787,20 +1787,49 @@ const ProfileFeed = () => {
             {!hasMore && displayedProfiles.length > 0 && (
               <Box sx={{ textAlign: 'center', py: 4 }}>
                 <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-                  You've seen all profiles
+                  You've seen all profiles 🎉
                 </Typography>
               </Box>
             )}
 
-            {/* Empty State */}
+            {/* Empty State - Enhanced with icon and suggestions */}
             {displayedProfiles.length === 0 && (
-              <Box sx={{ textAlign: 'center', py: 8 }}>
+              <Box 
+                sx={{ 
+                  textAlign: 'center', 
+                  py: 8,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 2
+                }}
+              >
+                <Search sx={{ fontSize: 64, color: 'rgba(255,255,255,0.2)' }} />
                 <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.7)' }}>
                   No profiles found
                 </Typography>
-                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', mt: 1 }}>
-                  Try adjusting your filters
+                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', maxWidth: 320 }}>
+                  Try expanding your search radius, removing filters, or checking back later for new profiles
                 </Typography>
+                <Button
+                  variant="outlined"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setActiveFilter('all');
+                    loadProfiles(1, false, '', 'all');
+                  }}
+                  sx={{
+                    mt: 1,
+                    borderColor: 'rgba(0,242,234,0.5)',
+                    color: '#00f2ea',
+                    '&:hover': {
+                      borderColor: '#00f2ea',
+                      bgcolor: 'rgba(0,242,234,0.1)',
+                    }
+                  }}
+                >
+                  Clear Filters
+                </Button>
               </Box>
             )}
           </>

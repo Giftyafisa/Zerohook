@@ -83,7 +83,7 @@ const ProfilePage = () => {
   useEffect(() => {
     const fetchCountries = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/countries`);
+        const response = await fetch(`/api/countries`);
         if (response.ok) {
           const data = await response.json();
           setCountries(data.countries || []);
@@ -105,7 +105,7 @@ const ProfilePage = () => {
       
       setLoadingCities(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/cities?search=${cityInputValue}`);
+        const response = await fetch(`/api/countries/${editData.countryCode}/cities?search=${cityInputValue}`);
         if (response.ok) {
           const data = await response.json();
           setCities(data.cities || []);
@@ -129,7 +129,7 @@ const ProfilePage = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
+      const response = await fetch(`/api/dashboard/stats`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -176,16 +176,18 @@ const ProfilePage = () => {
     setLocationLookupLoading(true);
     setLocationSuggestion(null);
     try {
-      const url = `${API_BASE_URL}/geolocation/lookup-city?city=${encodeURIComponent(city)}${country ? `&country=${encodeURIComponent(country)}` : ''}`;
+      // Try to get coordinates from geolocation API if available
+      const url = `/api/geolocation/lookup-city?city=${encodeURIComponent(city)}${country ? `&country=${encodeURIComponent(country)}` : ''}`;
       const response = await fetch(url);
       if (!response.ok) {
+        console.warn('Geolocation lookup not available, saving location without coordinates');
         return null;
       }
       const data = await response.json();
       setLocationSuggestion(data?.data || null);
       return data?.data || null;
     } catch (error) {
-      console.error('Location lookup failed:', error);
+      console.warn('Location lookup failed, saving location without coordinates:', error);
       return null;
     } finally {
       setLocationLookupLoading(false);
@@ -197,16 +199,12 @@ const ProfilePage = () => {
     try {
       let resolvedLocation = null;
       if (editData.city) {
+        // Try to get coordinates but don't fail if it doesn't work
         resolvedLocation = await resolveLocationCoordinates(editData.city, editData.country);
-        if (!resolvedLocation) {
-          setSnackbar({ open: true, message: 'City not found. Please check spelling or pick a suggestion.', severity: 'error' });
-          setSaving(false);
-          return;
-        }
       }
 
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/users/me`, {
+      const response = await fetch(`/api/users/me`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

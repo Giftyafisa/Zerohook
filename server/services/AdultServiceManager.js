@@ -1,11 +1,8 @@
-const { Pool } = require('pg');
+const { AdultService, User } = require('../config/database');
 
 class AdultServiceManager {
   constructor() {
-    this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-    });
+    // No pool needed - using Mongoose models
   }
 
   // Service Categories
@@ -74,32 +71,23 @@ class AdultServiceManager {
     } = serviceData;
 
     try {
-      const query = `
-        INSERT INTO adult_services (
-          provider_id, category, subcategory, title, description, price, 
-          duration_minutes, location_type, location_data, availability, 
-          requirements, images, is_active, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW())
-        RETURNING *
-      `;
-
-      const values = [
-        userId, 
-        category, 
-        subcategory || null,
-        title, 
-        description, 
-        price, 
-        duration,
-        'flexible',
-        JSON.stringify(location || {}),
-        JSON.stringify(availability || {}),
-        JSON.stringify(specialRequirements || {}),
-        photos || []
-      ];
-
-      const result = await this.pool.query(query, values);
-      return result.rows[0];
+      const service = await AdultService.create({
+        provider_id: userId,
+        category,
+        subcategory: subcategory || null,
+        title,
+        description,
+        price,
+        duration_minutes: duration,
+        location_type: 'flexible',
+        location_data: location || {},
+        availability: availability || {},
+        requirements: specialRequirements || {},
+        images: photos || [],
+        is_active: true
+      });
+      
+      return service;
     } catch (error) {
       console.error('Error creating service listing:', error);
       throw new Error('Failed to create service listing');
@@ -109,82 +97,57 @@ class AdultServiceManager {
   // Get service listings with filters
   async getServiceListings(filters = {}) {
     try {
-      let query = `
-        SELECT 
-          s.*,
-          u.username,
-          u.verification_tier,
-          u.trust_score,
-          u.profile_data->>'avatar' as avatar,
-          u.profile_data->>'profilePicture' as profile_picture,
-          s.is_verified as service_verified
-        FROM adult_services s
-        JOIN users u ON s.provider_id = u.id
-        WHERE s.is_active = true
-      `;
-
-      const values = [];
-      let valueIndex = 1;
+      let query = { is_active: true };
 
       // Add category filter
       if (filters.category) {
-        query += ` AND s.category = $${valueIndex}`;
-        values.push(filters.category);
-        valueIndex++;
+        query.category = filters.category;
       }
 
       // Add price range filter
       if (filters.minPrice || filters.maxPrice) {
+        query.price = {};
         if (filters.minPrice) {
-          query += ` AND s.price >= $${valueIndex}`;
-          values.push(filters.minPrice);
-          valueIndex++;
+          query.price.$gte = filters.minPrice;
         }
         if (filters.maxPrice) {
-          query += ` AND s.price <= $${valueIndex}`;
-          values.push(filters.maxPrice);
-          valueIndex++;
+          query.price.$lte = filters.maxPrice;
         }
       }
 
       // Add location filter
       if (filters.location) {
-        query += ` AND (s.location_data->>'city' ILIKE $${valueIndex} OR s.location_data->>'country' ILIKE $${valueIndex})`;
-        values.push(`%${filters.location}%`);
-        valueIndex++;
+        query.$or = [
+          { 'location_data.city': { $regex: filters.location, $options: 'i' } },
+          { 'location_data.country': { $regex: filters.location, $options: 'i' } }
+        ];
       }
 
-      // Add verification tier filter
-      if (filters.verificationTier) {
-        query += ` AND u.verification_tier >= $${valueIndex}`;
-        values.push(filters.verificationTier);
-        valueIndex++;
-      }
+      const services = await AdultService.find(query)
+        .populate({
+          path: 'provider_id',
+          select: 'username verification_tier trust_score profile_data',
+          match: filters.verificationTier ? { verification_tier: { $gte: filters.verificationTier } } : {},
+        })
+        .sort({ created_at: -1 })
+        .skip(filters.offset || 0)
+        .limit(filters.limit || 20);
 
-      // Add trust score filter
-      if (filters.minTrustScore) {
-        query += ` AND u.trust_score >= $${valueIndex}`;
-        values.push(filters.minTrustScore);
-        valueIndex++;
-      }
+      // Filter out services where provider didn't match (due to verification tier filter)
+      const filteredServices = services.filter(s => s.provider_id !== null);
 
-      // Add sorting
-      query += ` ORDER BY u.trust_score DESC, u.verification_tier DESC, s.created_at DESC`;
-
-      // Add pagination
-      if (filters.limit) {
-        query += ` LIMIT $${valueIndex}`;
-        values.push(filters.limit);
-        valueIndex++;
-      }
-
-      if (filters.offset) {
-        query += ` OFFSET $${valueIndex}`;
-        values.push(filters.offset);
-      }
-
-      const result = await this.pool.query(query, values);
-      return result.rows;
+      // Transform to expected format
+      return filteredServices.map(s => ({
+        id: s._id,
+        ...s.toObject(),
+        user_id: s.provider_id?._id,
+        username: s.provider_id?.username,
+        verification_tier: s.provider_id?.verification_tier,
+        trust_score: s.provider_id?.trust_score || 0,
+        avatar: s.provider_id?.profile_data?.avatar,
+        profile_picture: s.provider_id?.profile_data?.profilePicture,
+        service_verified: s.is_verified
+      }));
     } catch (error) {
       console.error('Error getting service listings:', error);
       throw new Error('Failed to get service listings');
@@ -194,23 +157,26 @@ class AdultServiceManager {
   // Get service by ID
   async getServiceById(serviceId) {
     try {
-      const query = `
-        SELECT 
-          s.*,
-          u.username,
-          u.verification_tier,
-          u.trust_score,
-          u.profile_data->>'avatar' as avatar,
-          u.profile_data->>'profilePicture' as profile_picture,
-          s.is_verified as service_verified,
-          u.created_at as user_joined
-        FROM adult_services s
-        JOIN users u ON s.provider_id = u.id
-        WHERE s.id = $1 AND s.is_active = true
-      `;
+      const service = await AdultService.findOne({ _id: serviceId, is_active: true })
+        .populate({
+          path: 'provider_id',
+          select: 'username verification_tier trust_score profile_data created_at'
+        });
 
-      const result = await this.pool.query(query, [serviceId]);
-      return result.rows[0];
+      if (!service) return null;
+
+      return {
+        id: service._id,
+        ...service.toObject(),
+        user_id: service.provider_id?._id,
+        username: service.provider_id?.username,
+        verification_tier: service.provider_id?.verification_tier,
+        trust_score: service.provider_id?.trust_score || 0,
+        avatar: service.provider_id?.profile_data?.avatar,
+        profile_picture: service.provider_id?.profile_data?.profilePicture,
+        service_verified: service.is_verified,
+        user_joined: service.provider_id?.created_at
+      };
     } catch (error) {
       console.error('Error getting service by ID:', error);
       throw new Error('Failed to get service');
@@ -225,32 +191,24 @@ class AdultServiceManager {
         'subcategory', 'location_data', 'availability', 'requirements', 'images'
       ];
 
-      const updates = [];
-      const values = [];
-      let valueIndex = 1;
-
+      const updates = {};
       for (const [key, value] of Object.entries(updateData)) {
         if (allowedFields.includes(key)) {
-          updates.push(`${key} = $${valueIndex}`);
-          values.push(typeof value === 'object' ? JSON.stringify(value) : value);
-          valueIndex++;
+          updates[key] = value;
         }
       }
 
-      if (updates.length === 0) {
+      if (Object.keys(updates).length === 0) {
         throw new Error('No valid fields to update');
       }
 
-      values.push(serviceId, userId);
-      const query = `
-        UPDATE adult_services 
-        SET ${updates.join(', ')}, updated_at = NOW()
-        WHERE id = $${valueIndex} AND provider_id = $${valueIndex + 1}
-        RETURNING *
-      `;
+      const service = await AdultService.findOneAndUpdate(
+        { _id: serviceId, provider_id: userId },
+        { $set: updates },
+        { new: true }
+      );
 
-      const result = await this.pool.query(query, values);
-      return result.rows[0];
+      return service;
     } catch (error) {
       console.error('Error updating service listing:', error);
       throw new Error('Failed to update service listing');
@@ -260,15 +218,13 @@ class AdultServiceManager {
   // Delete service listing
   async deleteServiceListing(serviceId, userId) {
     try {
-      const query = `
-        UPDATE adult_services 
-        SET is_active = false, updated_at = NOW()
-        WHERE id = $1 AND provider_id = $2
-        RETURNING *
-      `;
+      const service = await AdultService.findOneAndUpdate(
+        { _id: serviceId, provider_id: userId },
+        { $set: { is_active: false } },
+        { new: true }
+      );
 
-      const result = await this.pool.query(query, [serviceId, userId]);
-      return result.rows[0];
+      return service;
     } catch (error) {
       console.error('Error deleting service listing:', error);
       throw new Error('Failed to delete service listing');
@@ -278,14 +234,12 @@ class AdultServiceManager {
   // Get user's service listings
   async getUserServices(userId) {
     try {
-      const query = `
-        SELECT * FROM adult_services 
-        WHERE provider_id = $1 AND is_active = true
-        ORDER BY created_at DESC
-      `;
+      const services = await AdultService.find({
+        provider_id: userId,
+        is_active: true
+      }).sort({ created_at: -1 });
 
-      const result = await this.pool.query(query, [userId]);
-      return result.rows;
+      return services;
     } catch (error) {
       console.error('Error getting user services:', error);
       throw new Error('Failed to get user services');
@@ -295,52 +249,46 @@ class AdultServiceManager {
   // Search services
   async searchServices(searchTerm, filters = {}) {
     try {
-      let query = `
-        SELECT 
-          s.*,
-          u.username,
-          u.verification_tier,
-          u.trust_score,
-          u.profile_data->>'avatar' as avatar,
-          u.profile_data->>'profilePicture' as profile_picture,
-          s.is_verified as service_verified
-        FROM adult_services s
-        JOIN users u ON s.provider_id = u.id
-        WHERE s.is_active = true
-        AND (
-          s.title ILIKE $1 
-          OR s.description ILIKE $1 
-          OR s.location_data->>'city' ILIKE $1
-          OR s.location_data->>'country' ILIKE $1
-        )
-      `;
+      const query = {
+        is_active: true,
+        $or: [
+          { title: { $regex: searchTerm, $options: 'i' } },
+          { description: { $regex: searchTerm, $options: 'i' } },
+          { 'location_data.city': { $regex: searchTerm, $options: 'i' } },
+          { 'location_data.country': { $regex: searchTerm, $options: 'i' } }
+        ]
+      };
 
-      const values = [`%${searchTerm}%`];
-      let valueIndex = 2;
-
-      // Add additional filters
       if (filters.category) {
-        query += ` AND s.category = $${valueIndex}`;
-        values.push(filters.category);
-        valueIndex++;
+        query.category = filters.category;
       }
 
       if (filters.minPrice) {
-        query += ` AND s.price >= $${valueIndex}`;
-        values.push(filters.minPrice);
-        valueIndex++;
+        query.price = { ...query.price, $gte: filters.minPrice };
       }
 
       if (filters.maxPrice) {
-        query += ` AND s.price <= $${valueIndex}`;
-        values.push(filters.maxPrice);
-        valueIndex++;
+        query.price = { ...query.price, $lte: filters.maxPrice };
       }
 
-      query += ` ORDER BY u.trust_score DESC, u.verification_tier DESC`;
+      const services = await AdultService.find(query)
+        .populate({
+          path: 'provider_id',
+          select: 'username verification_tier trust_score profile_data'
+        })
+        .sort({ 'provider_id.trust_score': -1, 'provider_id.verification_tier': -1 });
 
-      const result = await this.pool.query(query, values);
-      return result.rows;
+      return services.map(s => ({
+        id: s._id,
+        ...s.toObject(),
+        user_id: s.provider_id?._id,
+        username: s.provider_id?.username,
+        verification_tier: s.provider_id?.verification_tier,
+        trust_score: s.provider_id?.trust_score || 0,
+        avatar: s.provider_id?.profile_data?.avatar,
+        profile_picture: s.provider_id?.profile_data?.profilePicture,
+        service_verified: s.is_verified
+      }));
     } catch (error) {
       console.error('Error searching services:', error);
       throw new Error('Failed to search services');
@@ -350,20 +298,26 @@ class AdultServiceManager {
   // Get service statistics
   async getServiceStats() {
     try {
-      const query = `
-        SELECT 
-          category,
-          COUNT(*) as total_services,
-          AVG(price) as avg_price,
-          MIN(price) as min_price,
-          MAX(price) as max_price
-        FROM adult_services 
-        WHERE is_active = true
-        GROUP BY category
-      `;
+      const stats = await AdultService.aggregate([
+        { $match: { is_active: true } },
+        {
+          $group: {
+            _id: '$category',
+            total_services: { $sum: 1 },
+            avg_price: { $avg: '$price' },
+            min_price: { $min: '$price' },
+            max_price: { $max: '$price' }
+          }
+        }
+      ]);
 
-      const result = await this.pool.query(query);
-      return result.rows;
+      return stats.map(s => ({
+        category: s._id,
+        total_services: s.total_services,
+        avg_price: s.avg_price,
+        min_price: s.min_price,
+        max_price: s.max_price
+      }));
     } catch (error) {
       console.error('Error getting service stats:', error);
       throw new Error('Failed to get service statistics');

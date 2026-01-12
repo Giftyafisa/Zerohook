@@ -325,6 +325,54 @@ const userEngagementEventSchema = new mongoose.Schema({
 
 userEngagementEventSchema.index({ userId: 1, createdAt: -1 });
 
+// Adult Service Schema
+const adultServiceSchema = new mongoose.Schema({
+  provider_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  category: { type: String, required: true },
+  subcategory: String,
+  title: { type: String, required: true },
+  description: String,
+  price: { type: Number, required: true },
+  duration_minutes: { type: Number, default: 60 },
+  location_type: { type: String, default: 'flexible' },
+  location_data: { type: mongoose.Schema.Types.Mixed, default: {} },
+  availability: { type: mongoose.Schema.Types.Mixed, default: {} },
+  requirements: { type: mongoose.Schema.Types.Mixed, default: {} },
+  images: { type: [String], default: [] },
+  is_active: { type: Boolean, default: true },
+  is_verified: { type: Boolean, default: false },
+  views: { type: Number, default: 0 },
+  bookings: { type: Number, default: 0 }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+adultServiceSchema.index({ category: 1, is_active: 1 });
+adultServiceSchema.index({ provider_id: 1 });
+adultServiceSchema.index({ price: 1 });
+
+// User Privacy Settings Schema
+const userPrivacySettingsSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  privacy_level: { type: String, enum: ['minimal', 'standard', 'enhanced', 'premium'], default: 'minimal' },
+  profile_visibility: { type: String, enum: ['public', 'private', 'connections'], default: 'public' },
+  data_sharing_preferences: { type: String, enum: ['minimal', 'standard', 'enhanced'], default: 'minimal' },
+  location_sharing: { type: Boolean, default: false },
+  photo_sharing: { type: Boolean, default: false },
+  contact_sharing: { type: Boolean, default: false }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+userPrivacySettingsSchema.index({ user_id: 1 });
+
+// Privacy Consent Schema
+const privacyConsentSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  consent_type: { type: String, required: true },
+  granted: { type: Boolean, default: false },
+  granted_at: { type: Date },
+  revoked_at: { type: Date }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+privacyConsentSchema.index({ user_id: 1, consent_type: 1 }, { unique: true });
+
 // Create Models
 const User = mongoose.model('User', userSchema);
 const ServiceCategory = mongoose.model('ServiceCategory', serviceCategorySchema);
@@ -350,6 +398,9 @@ const ApiPerformanceLog = mongoose.model('ApiPerformanceLog', apiPerformanceLogS
 const SugarAccessPayment = mongoose.model('SugarAccessPayment', sugarAccessPaymentSchema);
 const UserEngagementMetric = mongoose.model('UserEngagementMetric', userEngagementMetricSchema);
 const UserEngagementEvent = mongoose.model('UserEngagementEvent', userEngagementEventSchema);
+const AdultService = mongoose.model('AdultService', adultServiceSchema);
+const UserPrivacySettings = mongoose.model('UserPrivacySettings', userPrivacySettingsSchema);
+const PrivacyConsent = mongoose.model('PrivacyConsent', privacyConsentSchema);
 
 const initializeCollections = async () => {
   try {
@@ -452,5 +503,8 @@ module.exports = {
   ApiPerformanceLog,
   SugarAccessPayment,
   UserEngagementMetric,
-  UserEngagementEvent
+  UserEngagementEvent,
+  AdultService,
+  UserPrivacySettings,
+  PrivacyConsent
 };

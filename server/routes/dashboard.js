@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { query } = require('../config/database');
+const { User, Service, Transaction, Review } = require('../config/database');
 const { authMiddleware } = require('./auth');
 
 /**
@@ -13,68 +13,73 @@ router.get('/stats', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     // Get user profile data
-    const userResult = await query(`
-      SELECT 
-        id, username, email, verification_tier, 
-        reputation_score, profile_data, 
-        created_at, last_active
-      FROM users 
-      WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId).select(
+      'username email verification_tier reputation_score profile_data created_at last_active'
+    );
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    const user = userResult.rows[0];
     
     // Get user services count
-    const servicesResult = await query(`
-      SELECT 
-        COUNT(*) as total_services,
-        COUNT(CASE WHEN status = 'active' THEN 1 END) as active_services,
-        COUNT(CASE WHEN status = 'inactive' THEN 1 END) as inactive_services
-      FROM services 
-      WHERE provider_id = $1
-    `, [userId]);
+    const serviceStats = await Service.aggregate([
+      { $match: { provider_id: user._id } },
+      {
+        $group: {
+          _id: null,
+          total_services: { $sum: 1 },
+          active_services: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
+          inactive_services: { $sum: { $cond: [{ $eq: ['$status', 'inactive'] }, 1, 0] } }
+        }
+      }
+    ]);
 
     // Get user transactions count (as client or provider)
-    const transactionsResult = await query(`
-      SELECT 
-        COUNT(*) as total_transactions,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_transactions,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_transactions
-      FROM transactions 
-      WHERE client_id = $1 OR provider_id = $1
-    `, [userId]);
+    const transactionStats = await Transaction.aggregate([
+      { $match: { $or: [{ client_id: user._id }, { provider_id: user._id }] } },
+      {
+        $group: {
+          _id: null,
+          total_transactions: { $sum: 1 },
+          completed_transactions: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          pending_transactions: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } }
+        }
+      }
+    ]);
 
     // Get user earnings (as provider only)
-    const earningsResult = await query(`
-      SELECT 
-        COALESCE(SUM(amount), 0) as total_earnings,
-        COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as completed_earnings
-      FROM transactions 
-      WHERE provider_id = $1 AND status = 'completed'
-    `, [userId]);
+    const earningsStats = await Transaction.aggregate([
+      { $match: { provider_id: user._id, status: 'completed' } },
+      {
+        $group: {
+          _id: null,
+          total_earnings: { $sum: '$amount' },
+          completed_earnings: { $sum: '$amount' }
+        }
+      }
+    ]);
 
     // Get user reviews count
-    const reviewsResult = await query(`
-      SELECT 
-        COUNT(*) as total_reviews,
-        AVG(rating) as average_rating
-      FROM reviews 
-      WHERE reviewee_id = $1
-    `, [userId]);
+    const reviewStats = await Review.aggregate([
+      { $match: { reviewee_id: user._id } },
+      {
+        $group: {
+          _id: null,
+          total_reviews: { $sum: 1 },
+          average_rating: { $avg: '$rating' }
+        }
+      }
+    ]);
 
-    const services = servicesResult.rows[0] || { total_services: 0, active_services: 0, inactive_services: 0 };
-    const transactions = transactionsResult.rows[0] || { total_transactions: 0, completed_transactions: 0, pending_transactions: 0 };
-    const earnings = earningsResult.rows[0] || { total_earnings: 0, completed_earnings: 0 };
-    const reviews = reviewsResult.rows[0] || { total_reviews: 0, average_rating: 0 };
+    const services = serviceStats[0] || { total_services: 0, active_services: 0, inactive_services: 0 };
+    const transactions = transactionStats[0] || { total_transactions: 0, completed_transactions: 0, pending_transactions: 0 };
+    const earnings = earningsStats[0] || { total_earnings: 0, completed_earnings: 0 };
+    const reviews = reviewStats[0] || { total_reviews: 0, average_rating: 0 };
 
     // Calculate dashboard statistics
     const dashboardStats = {
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         email: user.email,
         verificationTier: user.verification_tier,

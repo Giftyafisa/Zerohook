@@ -20,7 +20,9 @@ import {
   PrivacyTip,
   Help,
   Security,
-  ContactSupport
+  ContactSupport,
+  Search,
+  Favorite
 } from '@mui/icons-material';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectIsAuthenticated } from '../../store/slices/authSlice';
@@ -150,7 +152,11 @@ const MobileBottomNav = () => {
     setMoreMenuAnchor(null);
   };
 
+  // More menu items - includes bookings for authenticated users
   const moreMenuItems = [
+    ...(isAuthenticated ? [
+      { icon: <CalendarToday />, label: 'Bookings', path: '/bookings' }
+    ] : []),
     { icon: <Info />, label: 'About Us', path: '/about' },
     { icon: <Security />, label: 'Trust & Safety', path: '/trust-safety' },
     { icon: <Help />, label: 'How it Works', path: '/how-it-works' },
@@ -159,42 +165,28 @@ const MobileBottomNav = () => {
     { icon: <ContactSupport />, label: 'Contact Us', path: '/contact' },
   ];
   
-  const navItems = [
+  // Navigation items based on authentication status
+  const unauthenticatedNavItems = [
     { 
       icon: <Home />, 
       label: 'Home',
       ariaLabel: 'Go to home page', 
-      paths: ['/', '/profiles', '/adult-services'],
+      paths: ['/'],
       onClick: () => navigate('/')
     },
     { 
-      icon: <Chat />, 
-      label: 'Messages',
-      ariaLabel: unreadMessages > 0 ? `Messages, ${unreadMessages} unread` : 'View messages', 
-      paths: ['/chat', '/messages'],
-      onClick: () => isAuthenticated ? navigate('/chat') : navigate('/login'),
-      badge: isAuthenticated && unreadMessages > 0 ? unreadMessages : null
+      icon: <Search />, 
+      label: 'Browse',
+      ariaLabel: 'Browse profiles', 
+      paths: ['/profiles', '/browse'],
+      onClick: () => navigate('/profiles')
     },
     { 
-      icon: <CalendarToday />, 
-      label: 'Bookings',
-      ariaLabel: 'View your bookings', 
-      paths: ['/bookings'],
-      onClick: () => isAuthenticated ? navigate('/bookings') : navigate('/login')
-    },
-    { 
-      icon: <AccountBalanceWallet />, 
-      label: 'Wallet',
-      ariaLabel: 'View wallet and transactions', 
-      paths: ['/wallet', '/transactions'],
-      onClick: () => isAuthenticated ? navigate('/wallet') : navigate('/login')
-    },
-    { 
-      icon: <Person />, 
-      label: 'Profile',
-      ariaLabel: 'View your profile', 
-      paths: ['/profile', '/dashboard', '/settings'],
-      onClick: () => isAuthenticated ? navigate('/profile') : navigate('/login')
+      icon: <Favorite />, 
+      label: 'Services',
+      ariaLabel: 'Browse adult services', 
+      paths: ['/adult-services'],
+      onClick: () => navigate('/adult-services')
     },
     { 
       icon: <MoreHoriz />, 
@@ -205,6 +197,48 @@ const MobileBottomNav = () => {
       isMore: true
     },
   ];
+
+  const authenticatedNavItems = [
+    { 
+      icon: <Search />, 
+      label: 'Browse',
+      ariaLabel: 'Browse profiles', 
+      paths: ['/profiles', '/browse'],
+      onClick: () => navigate('/profiles')
+    },
+    { 
+      icon: <Favorite />, 
+      label: 'Services',
+      ariaLabel: 'Browse adult services', 
+      paths: ['/adult-services'],
+      onClick: () => navigate('/adult-services')
+    },
+    { 
+      icon: <Chat />, 
+      label: 'Messages',
+      ariaLabel: unreadMessages > 0 ? `Messages, ${unreadMessages} unread` : 'View messages', 
+      paths: ['/chat', '/messages'],
+      onClick: () => navigate('/chat'),
+      badge: unreadMessages > 0 ? unreadMessages : null
+    },
+    { 
+      icon: <AccountBalanceWallet />, 
+      label: 'Wallet',
+      ariaLabel: 'View wallet and transactions', 
+      paths: ['/wallet', '/transactions'],
+      onClick: () => navigate('/wallet')
+    },
+    { 
+      icon: <Person />, 
+      label: 'Profile',
+      ariaLabel: 'View your profile', 
+      paths: ['/profile', '/dashboard', '/settings'],
+      onClick: () => navigate('/profile')
+    },
+  ];
+
+  // Select nav items based on authentication
+  const navItems = isAuthenticated ? authenticatedNavItems : unauthenticatedNavItems;
   
   return (
     <>
@@ -252,24 +286,26 @@ const MobileBottomNav = () => {
         }}
       >
         {moreMenuItems.map((item, index) => (
-          <MenuItem
-            key={index}
-            onClick={() => {
-              navigate(item.path);
-              handleMoreClose();
-            }}
-            sx={{
-              color: tokens.colors.text.primary,
-              py: 1.5,
-              gap: 1.5,
-              '&:hover': {
-                bgcolor: `${tokens.colors.primary.main}20`,
-              }
-            }}
-          >
-            <Box sx={{ color: tokens.colors.text.secondary }}>{item.icon}</Box>
-            <Typography sx={{ fontSize: '0.9rem' }}>{item.label}</Typography>
-          </MenuItem>
+          <React.Fragment key={index}>
+            {index === 1 && isAuthenticated && <Divider sx={{ my: 0.5, borderColor: tokens.colors.border.primary }} />}
+            <MenuItem
+              onClick={() => {
+                navigate(item.path);
+                handleMoreClose();
+              }}
+              sx={{
+                color: tokens.colors.text.primary,
+                py: 1.5,
+                gap: 1.5,
+                '&:hover': {
+                  bgcolor: `${tokens.colors.primary.main}20`,
+                }
+              }}
+            >
+              <Box sx={{ color: tokens.colors.text.secondary }}>{item.icon}</Box>
+              <Typography sx={{ fontSize: '0.9rem' }}>{item.label}</Typography>
+            </MenuItem>
+          </React.Fragment>
         ))}
       </Menu>
     </>

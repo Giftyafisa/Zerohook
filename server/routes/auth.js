@@ -202,7 +202,7 @@ router.post('/register', rateLimitMiddleware, [
     // Generate JWT token
     const token = jwt.sign(
       { 
-        userId: user.id,
+        userId: user._id.toString(),
         username: user.username,
         verificationTier: user.verification_tier
       },
@@ -376,7 +376,7 @@ router.post('/login', rateLimitMiddleware, [
     // Generate JWT token
     const token = jwt.sign(
       { 
-        userId: user._id,
+        userId: user._id.toString(),
         username: user.username,
         verificationTier: user.verification_tier
       },
@@ -713,18 +713,15 @@ async function authMiddleware(req, res, next) {
       return next();
     }
     
-    // Verify user still exists
-    const userResult = await query(
-      'SELECT id, username, verification_tier, status, is_subscribed, subscription_tier, subscription_expires_at, profile_data FROM users WHERE id = $1',
-      [decoded.userId]
+    // Verify user still exists using MongoDB
+    const user = await User.findById(decoded.userId).select(
+      'username verification_tier status is_subscribed subscription_tier subscription_expires_at profile_data'
     );
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    const user = userResult.rows[0];
-    
     if (user.status === 'suspended') {
       return res.status(403).json({ error: 'Account suspended' });
     }

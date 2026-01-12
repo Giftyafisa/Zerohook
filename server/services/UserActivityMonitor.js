@@ -51,15 +51,21 @@ class UserActivityMonitor {
       const sessionToken = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + this.sessionTimeout);
       
-      const session = await UserSession.create({
-        userId,
-        sessionToken,
-        socketId,
-        ipAddress,
-        userAgent,
-        expiresAt,
-        isActive: true
-      });
+      // Use findOneAndUpdate with upsert to avoid duplicate key errors
+      const session = await UserSession.findOneAndUpdate(
+        { userId, socketId },
+        {
+          $set: {
+            sessionToken,
+            ipAddress,
+            userAgent,
+            expiresAt,
+            isActive: true,
+            lastActivity: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
       
       // Update user presence to online
       await this.updateUserPresence(userId, 'online', socketId);

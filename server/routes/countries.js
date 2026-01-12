@@ -130,7 +130,7 @@ router.get('/:code', async (req, res) => {
  */
 router.post('/detect', async (req, res) => {
   try {
-    const { query } = require('../config/database');
+    const { User } = require('../config/database');
     const CountryManager = require('../services/CountryManager');
     const countryManager = new CountryManager();
     
@@ -151,9 +151,9 @@ router.post('/detect', async (req, res) => {
           userPhone = '+233241234567'; // Mock user is Ghanaian
           console.log('🌍 Using mock user phone number:', userPhone);
         } else {
-          const userResult = await query('SELECT phone, profile_data FROM users WHERE id = $1', [userId]);
-          if (userResult.rows.length > 0) {
-            userPhone = userResult.rows[0].phone || userResult.rows[0].profile_data?.phone;
+          const user = await User.findById(userId).select('phone profile_data');
+          if (user) {
+            userPhone = user.phone || user.profile_data?.phone;
           }
         }
       } catch (jwtError) {

@@ -1116,8 +1116,18 @@ const ProfileFeed = () => {
 
   const locationLabel = useMemo(() => {
     if (!userLocation) return null;
-    const name = userLocation.city || userLocation.name || 'Location enabled';
-    return userLocation.source ? `${name} • ${userLocation.source}` : name;
+    // Display format: Country, Region/State, City/Town
+    const city = userLocation.city || userLocation.name;
+    const region = userLocation.region || userLocation.district || userLocation.state;
+    const country = userLocation.country;
+    
+    // Build display string
+    const parts = [];
+    if (country) parts.push(country);
+    if (region) parts.push(region);
+    if (city) parts.push(city);
+    
+    return parts.length > 0 ? parts.join(', ') : 'Location enabled';
   }, [userLocation]);
 
   const convertPrice = useCallback((basePriceUSD) => {
@@ -1925,14 +1935,14 @@ const ProfileFeed = () => {
         onClose={() => setShowLocationPicker(false)}
         currentLocation={userLocation}
         countryCode={userCountry || detectedCountry || 'ghana'}
-        onSelectLocation={(location) => {
+        onSelectLocation={async (location) => {
           console.log('📍 Location selected:', location.name, location.lat, location.lng);
           
           // Determine country from location data or user country
           const selectedCountry = location.country || userCountry || detectedCountry || 'Unknown';
           
-          // Save to localStorage for persistence
-          localStorage.setItem('userManualLocation', JSON.stringify({
+          // Build location object
+          const locationData = {
             lat: location.lat,
             lng: location.lng,
             city: location.name,
@@ -1941,13 +1951,44 @@ const ProfileFeed = () => {
             region: location.region,
             method: location.method,
             precision: location.precision
-          }));
+          };
+          
+          // Save to localStorage for persistence
+          localStorage.setItem('userManualLocation', JSON.stringify(locationData));
+          
+          // Save to backend
+          const token = localStorage.getItem('token');
+          if (token) {
+            try {
+              const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/users/me`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  profile_data: {
+                    location: locationData
+                  }
+                })
+              });
+              if (response.ok) {
+                console.log('✅ Location saved to profile');
+                toast.success('Location updated successfully!');
+              }
+            } catch (error) {
+              console.error('Failed to save location to backend:', error);
+              // Still update locally even if backend fails
+            }
+          }
           
           setUserLocation({
             lat: location.lat,
             lng: location.lng,
             city: location.name,
             country: selectedCountry,
+            district: location.district,
+            region: location.region,
             source: location.method,
             precision: location.precision
           });

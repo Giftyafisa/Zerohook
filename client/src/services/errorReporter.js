@@ -200,9 +200,11 @@ export const setupGlobalErrorHandlers = () => {
   });
 };
 
-export default {
+const errorReporter = {
   reportError,
   reportWarning,
   reportInfo,
   setupGlobalErrorHandlers,
 };
+
+export default errorReporter;

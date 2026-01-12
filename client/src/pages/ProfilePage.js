@@ -23,7 +23,7 @@ import {
   FormControlLabel,
   InputAdornment
 } from '@mui/material';
-import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import { API_BASE_URL } from '../config/constants';
 import { resolveProfileImage } from '../utils/imageUtils';
 import {
   Edit as EditIcon,

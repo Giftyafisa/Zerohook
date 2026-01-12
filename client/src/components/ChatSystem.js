@@ -19,6 +19,7 @@ import {
   Fab,
   Drawer
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import {
   Send as SendIcon,
   AttachFile as AttachIcon,
@@ -477,7 +478,7 @@ const ChatSystem = ({
       }
     } catch (error) {
       console.error('❌ Failed to load conversations:', error);
-      alert('Unable to load conversations right now.');
+      toast.error('Unable to load conversations right now.');
     } finally {
       if (!silent) setLoading(false);
     }
@@ -501,7 +502,7 @@ const ChatSystem = ({
       }
     } catch (error) {
       console.error('Failed to load messages:', error);
-      alert('Unable to load messages right now.');
+      toast.error('Unable to load messages right now.');
     }
   };
 
@@ -535,7 +536,7 @@ const ChatSystem = ({
       return created || null;
     } catch (error) {
       console.error('Failed to start conversation:', error);
-      alert('Unable to start conversation right now.');
+      toast.error('Unable to start conversation right now.');
       return null;
     } finally {
       setStartingConversation(false);
@@ -599,7 +600,7 @@ const ChatSystem = ({
       }
     } catch (error) {
       console.error('Failed to send message:', error);
-      alert('Failed to send message.');
+      toast.error('Failed to send message.');
     }
   };
 
@@ -656,7 +657,7 @@ const ChatSystem = ({
       await sendMessagePayload({ content: contentUrl, messageType: fileType, metadata });
     } catch (err) {
       console.error('Attachment upload failed:', err);
-      alert('Failed to upload attachment.');
+      toast.error('Failed to upload attachment.');
     } finally {
       event.target.value = '';
     }
@@ -922,13 +923,13 @@ const ChatSystem = ({
           ));
           setSelectedConversation(prev => prev ? { ...prev, hasActiveEscrow: false, escrowAmount: null } : prev);
         }
-        alert('✅ Payment released! The provider has received the funds.');
+        toast.success('Payment released! The provider has received the funds.');
       } else {
-        alert('Failed to release payment. Please try again.');
+        toast.error('Failed to release payment. Please try again.');
       }
     } catch (error) {
       console.error('Failed to release payment:', error);
-      alert('Error releasing payment.');
+      toast.error('Error releasing payment.');
     } finally {
       setEscrowLoading(false);
     }
@@ -953,13 +954,13 @@ const ChatSystem = ({
       });
       if (response.ok) {
         setActiveEscrow(prev => prev ? { ...prev, status: 'disputed' } : null);
-        alert('🔍 Issue reported. Our support team will review and contact you soon.');
+        toast.info('Issue reported. Our support team will review and contact you soon.');
       } else {
-        alert('Failed to report issue. Please try again.');
+        toast.error('Failed to report issue. Please try again.');
       }
     } catch (error) {
       console.error('Failed to report problem:', error);
-      alert('Error reporting issue.');
+      toast.error('Error reporting issue.');
     } finally {
       setEscrowLoading(false);
     }
@@ -969,7 +970,7 @@ const ChatSystem = ({
   const handleMilestoneRequestSuccess = (data) => {
     setPendingMilestones(prev => [...prev, data.request]);
     setMilestoneDialogOpen(false);
-    alert('✅ Payment request sent!');
+    toast.success('Payment request sent!');
   };
 
   // Accept milestone request
@@ -991,7 +992,7 @@ const ChatSystem = ({
       }
     } catch (error) {
       console.error('Failed to accept milestone:', error);
-      alert('Failed to accept request');
+      toast.error('Failed to accept request');
     }
   };
 
@@ -1012,7 +1013,7 @@ const ChatSystem = ({
       }
     } catch (error) {
       console.error('Failed to decline milestone:', error);
-      alert('Failed to decline request');
+      toast.error('Failed to decline request');
     }
   };
 
@@ -1032,11 +1033,11 @@ const ChatSystem = ({
         const data = await response.json();
         setActiveEscrow(data.escrow);
         setPendingMilestones(prev => prev.filter(m => m.id !== request.id));
-        alert('✅ Payment held successfully!');
+        toast.success('Payment held successfully!');
       }
     } catch (error) {
       console.error('Failed to pay milestone:', error);
-      alert('Payment failed. Try again.');
+      toast.error('Payment failed. Try again.');
     }
   };
 

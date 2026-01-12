@@ -16,6 +16,14 @@ import {
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 
+const defaultBadges = [
+  { id: 1, name: 'ID Verified', icon: '🆔', earned: true },
+  { id: 2, name: 'Phone Verified', icon: '📱', earned: true },
+  { id: 3, name: 'Email Verified', icon: '✉️', earned: true },
+  { id: 4, name: 'First Service', icon: '⭐', earned: false },
+  { id: 5, name: 'Top Rated', icon: '👑', earned: false }
+];
+
 const TrustScorePage = () => {
   const { user, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -99,13 +107,6 @@ const TrustScorePage = () => {
     return colors[level] || '#00f2ea';
   };
 
-  const defaultBadges = [
-    { id: 1, name: 'ID Verified', icon: '🆔', earned: true },
-    { id: 2, name: 'Phone Verified', icon: '📱', earned: true },
-    { id: 3, name: 'Email Verified', icon: '✉️', earned: true },
-    { id: 4, name: 'First Service', icon: '⭐', earned: false },
-    { id: 5, name: 'Top Rated', icon: '👑', earned: false }
-  ];
 
   if (!isAuthenticated) {
     return (

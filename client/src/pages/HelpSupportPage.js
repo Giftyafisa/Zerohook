@@ -14,6 +14,7 @@ import {
   IconButton,
   InputAdornment
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import {
   Help as HelpIcon,
   ExpandMore as ExpandMoreIcon,
@@ -116,7 +117,7 @@ const HelpSupportPage = () => {
   const handleContactSubmit = () => {
     if (contactMessage.trim()) {
       // Would send to backend
-      alert('Your message has been sent. We\'ll respond within 24 hours.');
+      toast.success('Your message has been sent. We\'ll respond within 24 hours.');
       setContactMessage('');
     }
   };

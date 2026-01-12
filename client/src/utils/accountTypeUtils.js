@@ -269,7 +269,7 @@ export const getSugarAgePreference = (user) => {
   };
 };
 
-export default {
+const accountTypeUtils = {
   ACCOUNT_TYPES,
   SUGAR_TYPES,
   ALL_ACCOUNT_TYPES,
@@ -289,3 +289,5 @@ export default {
   getSugarGenderPreference,
   getSugarAgePreference
 };
+
+export default accountTypeUtils;

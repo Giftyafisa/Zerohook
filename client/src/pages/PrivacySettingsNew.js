@@ -242,7 +242,7 @@ const privacyLevels = [
 
 const PrivacySettings = () => {
   const navigate = useNavigate();
-  const { token } = useSelector((state) => state.auth);
+  const { token, user } = useSelector((state) => state.auth);
   const [expandedSection, setExpandedSection] = useState('privacy');
   const [hasChanges, setHasChanges] = useState(false);
   const [showSaveSnackbar, setShowSaveSnackbar] = useState(false);
@@ -252,7 +252,6 @@ const PrivacySettings = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
-  const [user, setUser] = useState(null);
   
   // Default settings - will be overwritten by backend data
   const defaultSettings = {
@@ -331,9 +330,6 @@ const PrivacySettings = () => {
       const data = await response.json();
       const profileData = data.user?.profile_data || {};
       const userSettings = profileData.settings || {};
-
-      // Store user data for account type checking
-      setUser(data.user);
 
       // Merge backend settings with defaults (backend takes precedence)
       setSettings(prev => ({

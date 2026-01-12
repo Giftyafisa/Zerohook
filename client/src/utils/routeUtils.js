@@ -121,7 +121,7 @@ export const getRouteLayoutConfig = (pathname, isDesktop, prefersReducedMotion =
   };
 };
 
-export default {
+const routeUtils = {
   CHAT_ROUTE_PREFIXES,
   CALL_ELIGIBLE_ROUTES,
   PERFORMANCE_SENSITIVE_ROUTES,
@@ -132,3 +132,5 @@ export default {
   isFullHeightRoute,
   getRouteLayoutConfig,
 };
+
+export default routeUtils;

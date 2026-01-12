@@ -6,7 +6,6 @@ import {
   Box,
   Container,
   Typography,
-  CircularProgress,
   Divider,
   FormControlLabel,
   Checkbox,
@@ -15,10 +14,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  InputAdornment,
-  TextField,
-  RadioGroup,
-  Radio,
   Collapse,
   Alert
 } from '@mui/material';
@@ -26,7 +21,6 @@ import {
   Lock, 
   Person, 
   Email,
-  Phone,
   PersonAdd,
   Cake,
   Wc,

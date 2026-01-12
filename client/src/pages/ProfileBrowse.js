@@ -26,6 +26,7 @@ import {
   useTheme,
   useMediaQuery
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import {
   LocationOn,
   Star,
@@ -469,17 +470,13 @@ const ProfileBrowse = () => {
   // This prevents excessive re-creations of the callback
   }, [isAuthenticated, currentUser?.id, sortBy]);
 
-  // FIXED: Stable useEffect that only runs once on mount
-  useEffect(() => {
-  // FIXED: Initial mount effect
+  // FIXED: Initial mount effect - runs once on component mount
   useEffect(() => {
     mountedRef.current = true;
     
     if (isInitialMount.current) {
       if (process.env.NODE_ENV !== 'production') {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('🚀 ProfileBrowse component mounted, initializing...');
-        }
+        console.log('🚀 ProfileBrowse component mounted, initializing...');
       }
       detectUserLocation();
       fetchProfiles();
@@ -503,9 +500,7 @@ const ProfileBrowse = () => {
     if (userLocation && !isInitialMount.current) {
       // Only refetch if location changes after initial mount
       if (process.env.NODE_ENV !== 'production') {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('📍 Location changed, refetching profiles with distance calculations');
-        }
+        console.log('📍 Location changed, refetching profiles with distance calculations');
       }
       fetchProfiles(1, filters);
     }
@@ -514,8 +509,7 @@ const ProfileBrowse = () => {
   // Debug effect to monitor state changes (only in development)
   useEffect(() => {
     if (debugMode && process.env.NODE_ENV !== 'production') {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('📊 Profiles state updated:', {
+      console.log('📊 Profiles state updated:', {
         count: profiles.length,
         loading,
         error
@@ -560,7 +554,7 @@ const ProfileBrowse = () => {
   const handleLocationPermission = () => {
     if (locationPermission === 'denied') {
       // Show instructions to enable location
-      alert('Please enable location services in your browser settings to get location-based results.');
+      toast.info('Please enable location services in your browser settings to get location-based results.');
     } else {
       detectUserLocation().then(() => {
         // Refetch profiles after location is detected to include distance calculations
@@ -1829,10 +1823,10 @@ const ProfileBrowse = () => {
                   )}
                 </Box>
 
-                {/* Distance */}
-                {profile.distance && (
+                {/* Distance - show even when 0km (very close) */}
+                {profile.distance != null && (
                   <Typography variant="caption" color="primary" sx={{ mb: 1, display: 'block' }}>
-                    📍 {profile.distance.toFixed(1)}km away
+                    📍 {profile.distance < 1 ? `${Math.round(profile.distance * 1000)}m` : `${profile.distance.toFixed(1)}km`} away
                   </Typography>
                 )}
 

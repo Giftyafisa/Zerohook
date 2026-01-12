@@ -211,6 +211,7 @@ function AppContent() {
     showFooter, 
     showAnimatedBackground, 
     mountCallSystem, 
+    fullHeightLayout,
     isChatRoute: chatRoute,
     toastPosition,
     toastDuration 
@@ -231,7 +232,14 @@ function AppContent() {
           style={{ 
             position: 'relative', 
             zIndex: 1,
-            // Padding handled by CSS media queries in global.css
+            // Apply full-height layout for chat/messaging routes
+            ...(fullHeightLayout && {
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: '100vh',
+              height: '100vh',
+              overflow: 'hidden'
+            })
           }}
         >
           <Routes>

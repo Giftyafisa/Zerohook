@@ -10,6 +10,7 @@ import {
   DialogActions,
   Alert
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import { API_BASE_URL } from '../config/constants';
 import {
   AccountBalanceWallet as WalletIcon,
@@ -28,10 +29,17 @@ import { useNavigate } from 'react-router-dom';
 import EscrowCard from '../components/EscrowCard';
 import useCurrency from '../hooks/useCurrency';
 
+const defaultTransactions = [
+  { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago' },
+  { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago' },
+  { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday' },
+  { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago' }
+];
+
 const TransactionsPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const { symbol, format } = useCurrency();
+  const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [walletData, setWalletData] = useState({
     balance: 0,
@@ -129,14 +137,15 @@ const TransactionsPage = () => {
 
       if (response.ok) {
         // Refresh data
+        toast.success('Payment released successfully!');
         window.location.reload();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to release payment');
+        toast.error(data.error || 'Failed to release payment');
       }
     } catch (error) {
       console.error('Release error:', error);
-      alert('Failed to release payment. Please try again.');
+      toast.error('Failed to release payment. Please try again.');
     } finally {
       setActionLoading(false);
       setReleaseDialog({ open: false, escrowId: null });
@@ -158,27 +167,20 @@ const TransactionsPage = () => {
       });
 
       if (response.ok) {
-        alert('Dispute submitted. Our team will review and contact you.');
+        toast.info('Dispute submitted. Our team will review and contact you.');
         window.location.reload();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to submit dispute');
+        toast.error(data.error || 'Failed to submit dispute');
       }
     } catch (error) {
       console.error('Dispute error:', error);
-      alert('Failed to submit dispute. Please try again.');
+      toast.error('Failed to submit dispute. Please try again.');
     } finally {
       setActionLoading(false);
       setDisputeDialog({ open: false, escrowId: null });
     }
   };
-
-  const defaultTransactions = [
-    { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago' },
-    { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago' },
-    { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday' },
-    { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago' }
-  ];
 
   const quickActions = [
     { icon: <AddIcon />, label: 'Add Money', color: '#00f2ea', onClick: () => navigate('/wallet') },

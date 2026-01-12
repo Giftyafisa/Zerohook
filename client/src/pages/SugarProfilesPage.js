@@ -6,19 +6,13 @@ import {
   Container,
   Typography,
   Grid,
-  Card,
   CardContent,
   CardMedia,
-  Button,
   Chip,
   CircularProgress,
   Alert,
   Tab,
-  Tabs,
-  Divider,
-  IconButton,
-  Avatar,
-  Badge
+  Tabs
 } from '@mui/material';
 import {
   Diamond,
@@ -27,8 +21,6 @@ import {
   Verified,
   LocationOn,
   Star,
-  FilterList,
-  Refresh,
   ShoppingCart
 } from '@mui/icons-material';
 import { GlassCard, GlassButton } from '../components/ui';

@@ -101,10 +101,12 @@ export const getCurrencySymbol = (countryCode, exchangeRates = null) => {
   return currencyInfo.symbol;
 };
 
-export default {
+const currencyUtils = {
   formatCurrency,
   formatLocalPrice,
   getCurrencyInfo,
   getCurrencySymbol,
   DEFAULT_EXCHANGE_RATES
 };
+
+export default currencyUtils;

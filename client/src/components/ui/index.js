@@ -17,6 +17,7 @@ export {
   VerificationBadge, 
   SubscriptionBadge, 
   OnlineStatusBadge,
+  TrustScoreBreakdown,
   VERIFICATION_TIERS,
   SUBSCRIPTION_TIERS,
   getVerificationTierConfig,

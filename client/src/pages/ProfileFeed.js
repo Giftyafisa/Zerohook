@@ -27,6 +27,7 @@ import {
   ListItemText,
   Divider
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import {
   LocationOn,
   Verified,
@@ -53,7 +54,7 @@ import { selectUserCountry, selectDetectedCountry, selectExchangeRates } from '.
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { LOCATIONS } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
-import { VERIFICATION_TIERS, getVerificationTierConfig } from '../components/ui/StatusBadge';
+import { VERIFICATION_TIERS, getVerificationTierConfig, VerificationBadge, TrustScoreBreakdown } from '../components/ui/StatusBadge';
 
 // Get all locations from user's country (or default to Ghana/Nigeria)
 const getAllLocations = (countryCode) => {
@@ -154,7 +155,7 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
       onClose();
     } catch (error) {
       console.error('GPS Error:', error);
-      alert('Could not get GPS location. Please select manually.');
+      toast.warning('Could not get GPS location. Please select manually.');
     } finally {
       setGpsLoading(false);
     }
@@ -515,6 +516,11 @@ const ProfileCard = ({
   const distance = profile.distance; // From backend recommendation engine
   const successRate = profile.successRate; // From backend
   const distanceLabel = distance != null ? (profile.distanceEstimated ? `${distance}km est` : `${distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(1)}km`}`) : null;
+  
+  // Quality scoring from recommendation engine
+  const recommendationScore = profile.recommendationScore || 0;
+  const scoreBreakdown = profile.scoreBreakdown || {};
+  const matchPercentage = Math.round(recommendationScore) || (scoreBreakdown.compatibility ? Math.round(scoreBreakdown.compatibility) : null);
 
   // Helper function to format last active time
   const formatLastActive = (lastActiveDate) => {
@@ -690,40 +696,84 @@ const ProfileCard = ({
             </Box>
           )}
 
-          {/* Verification Badge - Enhanced with tier label */}
-          {verificationTier >= 2 && (
-            <Box
-              sx={{
-                position: 'absolute',
-                top: 12,
-                right: 12,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-                bgcolor: verificationTier >= 3 ? 'rgba(255, 215, 0, 0.9)' : 'rgba(0, 242, 234, 0.9)',
-                backdropFilter: 'blur(4px)',
-                borderRadius: '20px',
-                px: 1,
-                py: 0.5,
-                boxShadow: verificationTier >= 3 
-                  ? '0 0 10px rgba(255, 215, 0, 0.5)' 
-                  : '0 0 10px rgba(0, 242, 234, 0.5)',
-              }}
+          {/* Match Quality Score Badge */}
+          {matchPercentage && matchPercentage > 0 && (
+            <Tooltip
+              title={
+                <Box sx={{ p: 0.5 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>Match Quality Breakdown</Typography>
+                  <Box sx={{ mt: 0.5, fontSize: '11px' }}>
+                    {scoreBreakdown.countryMatch !== undefined && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <span>🌍 Location</span>
+                        <span>{Math.round(scoreBreakdown.countryMatch + (scoreBreakdown.distance || 0))}%</span>
+                      </Box>
+                    )}
+                    {scoreBreakdown.quality !== undefined && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <span>⭐ Quality</span>
+                        <span>{Math.round(scoreBreakdown.quality)}%</span>
+                      </Box>
+                    )}
+                    {scoreBreakdown.engagement !== undefined && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <span>🔥 Activity</span>
+                        <span>{Math.round(scoreBreakdown.engagement)}%</span>
+                      </Box>
+                    )}
+                    {scoreBreakdown.popularity !== undefined && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <span>💖 Popularity</span>
+                        <span>{Math.round(scoreBreakdown.popularity)}%</span>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              }
+              arrow
+              placement="right"
             >
-              <Verified sx={{ fontSize: 16, color: '#000' }} />
-              <Typography 
-                sx={{ 
-                  fontSize: '0.7rem', 
-                  fontWeight: 700, 
-                  color: '#000',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px'
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: distance !== null && distance !== undefined ? 84 : 48, // Below distance if present
+                  left: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  bgcolor: matchPercentage >= 80 ? 'rgba(74,222,128,0.2)' : matchPercentage >= 60 ? 'rgba(255,215,0,0.2)' : 'rgba(255,107,107,0.2)',
+                  backdropFilter: 'blur(4px)',
+                  borderRadius: '12px',
+                  px: 1,
+                  py: 0.5,
+                  border: `1px solid ${matchPercentage >= 80 ? 'rgba(74,222,128,0.3)' : matchPercentage >= 60 ? 'rgba(255,215,0,0.3)' : 'rgba(255,107,107,0.3)'}`,
+                  cursor: 'pointer',
                 }}
               >
-                {getVerificationTierConfig(verificationTier).label}
-              </Typography>
-            </Box>
+                <Whatshot sx={{ fontSize: 12, color: matchPercentage >= 80 ? '#4ade80' : matchPercentage >= 60 ? '#FFD700' : '#ff6b6b' }} />
+                <Typography variant="caption" sx={{ color: matchPercentage >= 80 ? '#4ade80' : matchPercentage >= 60 ? '#FFD700' : '#ff6b6b', fontWeight: 600 }}>
+                  {matchPercentage}% Match
+                </Typography>
+              </Box>
+            </Tooltip>
           )}
+
+          {/* Verification Badge - Always visible with appropriate tier styling */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+            }}
+          >
+            <VerificationBadge 
+              tier={verificationTier} 
+              variant="chip" 
+              size="medium"
+              showUnverified={true}
+              showTooltip={true}
+            />
+          </Box>
 
           {/* Price Tag */}
           {price > 0 && (
@@ -805,27 +855,15 @@ const ProfileCard = ({
             <Box sx={{ textAlign: 'right' }}>
               <Tooltip 
                 title={
-                  <Box sx={{ p: 0.5 }}>
-                    <Typography sx={{ fontWeight: 700, mb: 0.5, fontSize: '0.8rem' }}>Trust Score Breakdown</Typography>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                        <Typography sx={{ fontSize: '0.7rem' }}>Verification</Typography>
-                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>{verificationTier >= 3 ? 'Elite' : verificationTier >= 2 ? 'Verified' : 'Basic'}</Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                        <Typography sx={{ fontSize: '0.7rem' }}>Success Rate</Typography>
-                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>{successRate ? `${Math.round(parseFloat(successRate))}%` : 'N/A'}</Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                        <Typography sx={{ fontSize: '0.7rem' }}>Response Time</Typography>
-                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>Fast</Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                        <Typography sx={{ fontSize: '0.7rem' }}>Disputes</Typography>
-                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600 }}>0</Typography>
-                      </Box>
-                    </Box>
-                  </Box>
+                  <TrustScoreBreakdown 
+                    profile={{
+                      verification_tier: verificationTier,
+                      completion_rate: successRate ? parseFloat(successRate) : 80,
+                      last_active: profile.lastActive,
+                      dispute_count: 0
+                    }}
+                    variant="compact"
+                  />
                 }
                 arrow
                 placement="left"
@@ -1068,6 +1106,7 @@ const ProfileFeed = () => {
   const [userLocation, setUserLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(true);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [searchMetadata, setSearchMetadata] = useState(null); // For radius expansion suggestions
   
   const loadMoreRef = useRef(null);
   // AbortController for fetch cancellation - prevents race conditions
@@ -1429,6 +1468,10 @@ const ProfileFeed = () => {
             successRate: parseFloat(user.successRate) || 0,
             sameCountry: user.sameCountry,
             displayPrice: converted,
+            // Quality scoring breakdown
+            scoreBreakdown: user.scoreBreakdown || null,
+            eloRating: user.eloRating || 1200,
+            matchPercentage: user.matchPercentage || null,
           };
         });
 
@@ -1440,6 +1483,11 @@ const ProfileFeed = () => {
 
       setHasMore(processedProfiles.length === 24);
       setPage(pageNum);
+      
+      // Capture search metadata for radius expansion suggestions
+      if (data.metadata) {
+        setSearchMetadata(data.metadata);
+      }
 
       // Track search/filter activity
       if (searchQuery) {
@@ -1747,6 +1795,41 @@ const ProfileFeed = () => {
         {/* Profiles Grid */}
         {!loading && !error && (
           <>
+            {/* Radius Expansion Suggestion */}
+            {searchMetadata?.suggestedRadiusExpansion && displayedProfiles.length > 0 && displayedProfiles.length < 10 && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 2,
+                  p: 1.5,
+                  bgcolor: 'rgba(0,242,234,0.1)',
+                  border: '1px solid rgba(0,242,234,0.2)',
+                  borderRadius: 2,
+                }}
+              >
+                <NearMe sx={{ color: '#00f2ea', fontSize: 20 }} />
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500 }}>
+                    Only {searchMetadata.nearbyCount?.within10km || displayedProfiles.length} providers within 10km
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                    {searchMetadata.suggestedRadiusExpansion.message}
+                  </Typography>
+                </Box>
+                <Chip
+                  size="small"
+                  label={`${searchMetadata.nearbyCount?.within25km || 0} within 25km`}
+                  sx={{
+                    bgcolor: 'rgba(0,242,234,0.2)',
+                    color: '#00f2ea',
+                    fontWeight: 600,
+                  }}
+                />
+              </Box>
+            )}
+            
             <Box
               sx={{
                 display: 'grid',
@@ -1816,7 +1899,7 @@ const ProfileFeed = () => {
                   onClick={() => {
                     setSearchQuery('');
                     setActiveFilter('all');
-                    loadProfiles(1, false, '', 'all');
+                    fetchProfiles(1, false);
                   }}
                   sx={{
                     mt: 1,

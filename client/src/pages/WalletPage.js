@@ -4,8 +4,6 @@ import {
   Typography,
   CircularProgress,
   Button,
-  IconButton,
-  Divider,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -24,9 +22,7 @@ import {
   ArrowDownward as WithdrawIcon,
   Lock as LockIcon,
   TrendingUp as TrendingUpIcon,
-  History as HistoryIcon,
-  ContentCopy as CopyIcon,
-  QrCode as QrCodeIcon
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
@@ -34,8 +30,16 @@ import { useNavigate } from 'react-router-dom';
 import { ListSkeleton, WalletCardSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState, TimeoutError } from '../components/ErrorState';
 
+const mockTransactions = [
+  { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago', status: 'completed' },
+  { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago', status: 'completed' },
+  { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday', status: 'completed' },
+  { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago', status: 'completed' },
+  { id: 5, type: 'income', title: 'Tip Received', amount: 25.00, date: '3 days ago', status: 'completed' }
+];
+
 const WalletPage = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [isTimeout, setIsTimeout] = useState(false);
@@ -272,14 +276,6 @@ const WalletPage = () => {
       setProcessingWithdraw(false);
     }
   };
-
-  const mockTransactions = [
-    { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago', status: 'completed' },
-    { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago', status: 'completed' },
-    { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday', status: 'completed' },
-    { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago', status: 'completed' },
-    { id: 5, type: 'income', title: 'Tip Received', amount: 25.00, date: '3 days ago', status: 'completed' }
-  ];
 
   const quickActions = [
     { icon: <AddIcon />, label: 'Add Funds', color: '#00f2ea', onClick: () => setDepositDialog(true) },

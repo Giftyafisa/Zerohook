@@ -46,7 +46,7 @@ const SubscriptionPage = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
-  const { userCountry, detectedCountry, loading: countryLoading } = useSelector(state => state.country);
+  const { userCountry, detectedCountry } = useSelector(state => state.country);
   
   const [loading] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);

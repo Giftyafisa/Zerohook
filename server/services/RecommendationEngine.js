@@ -1285,6 +1285,31 @@ class RecommendationEngine {
       const avgElo = paginatedProfiles.reduce((sum, p) => sum + (p.eloRating || this.eloConfig.initialRating), 0) / paginatedProfiles.length;
       const avgCompat = paginatedProfiles.reduce((sum, p) => sum + (p.scoreBreakdown?.compatibility || 0), 0) / paginatedProfiles.length;
       
+      // SEARCH RADIUS EXPANSION METADATA
+      // Count profiles at various radius levels for smart expansion suggestions
+      const nearbyCount = {
+        within5km: scoredProfiles.filter(p => p.sameCountry && p.distance != null && p.distance <= 5).length,
+        within10km: scoredProfiles.filter(p => p.sameCountry && p.distance != null && p.distance <= 10).length,
+        within25km: scoredProfiles.filter(p => p.sameCountry && p.distance != null && p.distance <= 25).length,
+        within50km: scoredProfiles.filter(p => p.sameCountry && p.distance != null && p.distance <= 50).length,
+        within100km: scoredProfiles.filter(p => p.sameCountry && p.distance != null && p.distance <= 100).length,
+        sameCountry: sameCountryCount
+      };
+      
+      // Suggest radius expansion if few results nearby
+      let suggestedRadiusExpansion = null;
+      if (nearbyCount.within5km < 5 && nearbyCount.within10km >= 5) {
+        suggestedRadiusExpansion = { from: 5, to: 10, message: 'Expand to 10km for more options' };
+      } else if (nearbyCount.within10km < 5 && nearbyCount.within25km >= 5) {
+        suggestedRadiusExpansion = { from: 10, to: 25, message: 'Expand to 25km for more options' };
+      } else if (nearbyCount.within25km < 5 && nearbyCount.within50km >= 5) {
+        suggestedRadiusExpansion = { from: 25, to: 50, message: 'Expand to 50km for more options' };
+      } else if (nearbyCount.within50km < 5 && nearbyCount.within100km >= 5) {
+        suggestedRadiusExpansion = { from: 50, to: 100, message: 'Expand to 100km for more options' };
+      } else if (nearbyCount.within100km < 5 && sameCountryCount > nearbyCount.within100km) {
+        suggestedRadiusExpansion = { from: 100, to: 500, message: 'Expand search to whole country' };
+      }
+      
       console.log(`📊 Advanced Recommendation Stats:
         - Total providers: ${scoredProfiles.length}
         - User location: ${userLocation ? `lat:${userLocation.lat?.toFixed(4)}, lng:${userLocation.lng?.toFixed(4)}` : 'Unknown'}
@@ -1293,7 +1318,8 @@ class RecommendationEngine {
         - Avg distance: ${avgDistance.toFixed(1)}km
         - Avg Elo rating: ${avgElo.toFixed(0)}
         - Avg Compatibility: ${avgCompat.toFixed(1)}/100
-        - Session context: ${sessionContext?.timeOfDay || 'unknown'} on ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][sessionContext?.dayOfWeek || 0]}`);
+        - Session context: ${sessionContext?.timeOfDay || 'unknown'} on ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][sessionContext?.dayOfWeek || 0]}
+        - Nearby (5km/10km/25km/50km): ${nearbyCount.within5km}/${nearbyCount.within10km}/${nearbyCount.within25km}/${nearbyCount.within50km}`);
 
       return {
         profiles: paginatedProfiles,
@@ -1307,7 +1333,11 @@ class RecommendationEngine {
           adaptiveWeightsUsed: true,
           topScore: paginatedProfiles[0]?.recommendationScore || 0,
           topCompatibility: paginatedProfiles[0]?.scoreBreakdown?.compatibility || 0,
-          sessionContext: sessionContext
+          sessionContext: sessionContext,
+          // NEW: Search radius expansion data
+          nearbyCount: nearbyCount,
+          suggestedRadiusExpansion: suggestedRadiusExpansion,
+          currentSearchRadius: nearbyCount.within10km >= 5 ? 10 : nearbyCount.within25km >= 5 ? 25 : 50
         }
       };
     } catch (error) {

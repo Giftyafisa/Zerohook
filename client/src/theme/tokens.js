@@ -157,7 +157,7 @@ export const gradients = {
   overlay: 'linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.8) 100%)',
 };
 
-export default {
+const tokens = {
   spacing,
   fontSize,
   fontWeight,
@@ -171,3 +171,5 @@ export default {
   backdropBlur,
   gradients,
 };
+
+export default tokens;

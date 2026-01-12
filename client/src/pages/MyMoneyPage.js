@@ -15,6 +15,7 @@ import {
   MenuItem,
   Alert
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import { API_BASE_URL } from '../config/constants';
 import {
   AccountBalanceWallet as WalletIcon,
@@ -154,14 +155,14 @@ const MyMoneyPage = () => {
             e.id === escrowId ? { ...e, status: 'released' } : e
           )
         }));
-        alert('✅ Payment released successfully!');
+        toast.success('Payment released successfully!');
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to release payment');
+        toast.error(data.error || 'Failed to release payment');
       }
     } catch (error) {
       console.error('Release error:', error);
-      alert('Failed to release payment.');
+      toast.error('Failed to release payment.');
     } finally {
       setActionLoading(false);
     }
@@ -191,14 +192,14 @@ const MyMoneyPage = () => {
             e.id === escrowId ? { ...e, status: 'disputed' } : e
           )
         }));
-        alert('🔍 Issue reported. Support will contact you.');
+        toast.info('Issue reported. Support will contact you.');
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to report issue');
+        toast.error(data.error || 'Failed to report issue');
       }
     } catch (error) {
       console.error('Dispute error:', error);
-      alert('Failed to report issue.');
+      toast.error('Failed to report issue.');
     } finally {
       setActionLoading(false);
     }
@@ -207,7 +208,7 @@ const MyMoneyPage = () => {
   // Add money via Paystack
   const handleAddMoney = async () => {
     if (!addAmount || Number(addAmount) < 100) {
-      alert(`Minimum amount is ${symbol}100`);
+      toast.warning(`Minimum amount is ${symbol}100`);
       return;
     }
     
@@ -232,11 +233,11 @@ const MyMoneyPage = () => {
           window.location.href = data.authorizationUrl || data.authorization_url;
         }
       } else {
-        alert('Failed to initiate payment');
+        toast.error('Failed to initiate payment');
       }
     } catch (error) {
       console.error('Payment error:', error);
-      alert('Payment failed. Try again.');
+      toast.error('Payment failed. Try again.');
     } finally {
       setActionLoading(false);
       setAddMoneyDialog(false);
@@ -246,7 +247,7 @@ const MyMoneyPage = () => {
   // Withdraw money
   const handleWithdraw = async () => {
     if (!withdrawAmount || Number(withdrawAmount) > walletData.balance) {
-      alert('Invalid amount or insufficient balance');
+      toast.warning('Invalid amount or insufficient balance');
       return;
     }
     
@@ -263,7 +264,7 @@ const MyMoneyPage = () => {
       });
 
       if (response.ok) {
-        alert('✅ Withdrawal initiated! You will receive it within 24 hours.');
+        toast.success('Withdrawal initiated! You will receive it within 24 hours.');
         setWalletData(prev => ({
           ...prev,
           balance: prev.balance - Number(withdrawAmount),
@@ -271,11 +272,11 @@ const MyMoneyPage = () => {
         }));
       } else {
         const data = await response.json();
-        alert(data.error || 'Withdrawal failed');
+        toast.error(data.error || 'Withdrawal failed');
       }
     } catch (error) {
       console.error('Withdraw error:', error);
-      alert('Withdrawal failed.');
+      toast.error('Withdrawal failed.');
     } finally {
       setActionLoading(false);
       setWithdrawDialog(false);

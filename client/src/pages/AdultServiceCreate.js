@@ -22,6 +22,7 @@ import {
   Card,
   CardContent
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import {
   Add,
   Save,
@@ -310,11 +311,11 @@ const AdultServiceCreate = () => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     const validFiles = files.filter(file => {
       if (!allowedTypes.includes(file.type)) {
-        alert(`File ${file.name} is not a supported image type. Please use JPEG, PNG, GIF, or WebP.`);
+        toast.warning(`File ${file.name} is not a supported image type. Please use JPEG, PNG, GIF, or WebP.`);
         return false;
       }
       if (file.size > 50 * 1024 * 1024) { // 50MB limit
-        alert(`File ${file.name} is too large. Maximum size is 50MB.`);
+        toast.warning(`File ${file.name} is too large. Maximum size is 50MB.`);
         return false;
       }
       return true;

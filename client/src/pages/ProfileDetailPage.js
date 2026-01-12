@@ -21,6 +21,7 @@ import {
   Tabs,
   Tab
 } from '@mui/material';
+import { toast } from 'react-toastify';
 import {
   LocationOn,
   Star,
@@ -162,7 +163,7 @@ const ProfileDetailPage = () => {
       });
 
       if (response.ok) {
-        alert('Contact request sent successfully!');
+        toast.success('Contact request sent successfully!');
         setContactDialog(false);
         setContactMessage('');
         // Refresh connection status
@@ -172,18 +173,18 @@ const ProfileDetailPage = () => {
         
         // Handle specific error cases
         if (response.status === 409) {
-          alert('You are already connected with this user!');
+          toast.info('You are already connected with this user!');
         } else if (response.status === 403) {
-          alert('Cannot connect with this user due to blocking.');
+          toast.error('Cannot connect with this user due to blocking.');
         } else if (response.status === 404) {
-          alert('User not found. Please try again.');
+          toast.error('User not found. Please try again.');
         } else {
           throw new Error(errorData.message || 'Failed to send contact request');
         }
       }
     } catch (error) {
       console.error('Send contact request error:', error);
-      alert(`Failed to send contact request: ${error.message}`);
+      toast.error(`Failed to send contact request: ${error.message}`);
     } finally {
       setSendingMessage(false);
     }

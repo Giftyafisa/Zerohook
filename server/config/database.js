@@ -9,6 +9,7 @@ console.log('🔧 Database configuration loaded:');
 console.log('   Environment:', process.env.NODE_ENV);
 console.log('   Using MongoDB Atlas');
 console.log('   Database:', 'zerohook');
+console.log('   MONGODB_URI set:', !!process.env.MONGODB_URI);
 
 // Redis connection (optional)
 let redisClient = null;
@@ -25,10 +26,16 @@ try {
 let dbAvailable = false;
 
 const connectDB = async () => {
+  console.log('🔄 Attempting MongoDB connection...');
   try {
-    await mongoose.connect(MONGODB_URI);
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+    });
     
     console.log('✅ MongoDB connected successfully');
+    console.log('   Host:', mongoose.connection.host);
+    console.log('   Database:', mongoose.connection.name);
     dbAvailable = true;
     
     // Initialize collections and indexes
@@ -37,6 +44,8 @@ const connectDB = async () => {
     return true;
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);
+    console.error('   Error code:', error.code);
+    console.error('   Full error:', error);
     console.log('⚠️  Continuing without database for frontend testing...');
     dbAvailable = false;
     return false;

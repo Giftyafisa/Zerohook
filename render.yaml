@@ -1,6 +1,6 @@
 # Render Blueprint - Deploy Zerohook with one click
 # https://render.com/docs/blueprint-spec
-# NOTE: This uses your EXISTING PostgreSQL database on Render
+# NOTE: This uses MongoDB Atlas for the database
 
 services:
   # Backend API Service
@@ -16,8 +16,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        value: postgresql://zerohook:9gc8nNYOUAWP6fwcnogoANkLleKLcFYA@dpg-d4m9bqili9vc73emk150-a.oregon-postgres.render.com/zerohookdb?sslmode=require
+      - key: MONGODB_URI
+        value: mongodb+srv://zerohook:11221122Ga@zerohook.cnyphi4.mongodb.net/zerohook?retryWrites=true&w=majority
       - key: JWT_SECRET
         value: zerohook-production-jwt-secret-2024-secure-key
       - key: JWT_EXPIRE

@@ -83,7 +83,7 @@ const ProfilePage = () => {
   useEffect(() => {
     const fetchCountries = async () => {
       try {
-        const response = await fetch(`/api/countries`);
+        const response = await fetch(`${API_BASE_URL}/countries`);
         if (response.ok) {
           const data = await response.json();
           setCountries(data.countries || []);
@@ -105,7 +105,7 @@ const ProfilePage = () => {
       
       setLoadingCities(true);
       try {
-        const response = await fetch(`/api/countries/${editData.countryCode}/cities?search=${cityInputValue}`);
+        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/cities?search=${cityInputValue}`);
         if (response.ok) {
           const data = await response.json();
           setCities(data.cities || []);
@@ -129,7 +129,7 @@ const ProfilePage = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/dashboard/stats`, {
+      const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -177,7 +177,7 @@ const ProfilePage = () => {
     setLocationSuggestion(null);
     try {
       // Try to get coordinates from geolocation API if available
-      const url = `/api/geolocation/lookup-city?city=${encodeURIComponent(city)}${country ? `&country=${encodeURIComponent(country)}` : ''}`;
+      const url = `${API_BASE_URL}/geolocation/lookup-city?city=${encodeURIComponent(city)}${country ? `&country=${encodeURIComponent(country)}` : ''}`;
       const response = await fetch(url);
       if (!response.ok) {
         console.warn('Geolocation lookup not available, saving location without coordinates');
@@ -204,7 +204,7 @@ const ProfilePage = () => {
       }
 
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/users/me`, {
+      const response = await fetch(`${API_BASE_URL}/users/me`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

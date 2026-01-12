@@ -259,12 +259,12 @@ const userPresenceSchema = new mongoose.Schema({
 
 const userSessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  sessionToken: { type: String, required: true, unique: true },
+  sessionToken: { type: String, sparse: true },
   socketId: String,
   ipAddress: String,
   userAgent: String,
   isActive: { type: Boolean, default: true },
-  expiresAt: { type: Date, required: true },
+  expiresAt: { type: Date },
   lastActivity: { type: Date, default: Date.now }
 }, { timestamps: true });
 

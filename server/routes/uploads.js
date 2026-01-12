@@ -3,7 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const { User, FileUpload } = require('../config/database');
 const router = express.Router();
 
 // Configure multer for local file uploads (fallback)
@@ -107,10 +107,15 @@ router.post('/chat-attachment', authMiddleware, (req, res, next) => {
 
     // Optional: log uploads for auditing
     try {
-      await query(`
-        INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type, storage_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [req.user.userId, filename || req.file.public_id, publicUrl, size, mimetype, 'chat_attachment', isCloudinary ? 'cloudinary' : 'local']);
+      await FileUpload.create({
+        user_id: req.user.userId,
+        file_name: filename || req.file.public_id,
+        file_path: publicUrl,
+        file_size: size,
+        mime_type: mimetype,
+        upload_type: 'chat_attachment',
+        storage_type: isCloudinary ? 'cloudinary' : 'local'
+      });
     } catch (logErr) {
       console.warn('Chat attachment log failed:', logErr.message);
     }
@@ -155,53 +160,44 @@ router.post('/profile-picture', authMiddleware, (req, res, next) => {
     const isVideo = mimeType?.startsWith('video/');
     const fileType = isVideo ? 'video' : 'image';
     
-    // Update user's profile_data with new profile picture
-    // Update ALL three image fields for consistency:
-    // 1. profile_picture (object with metadata) - new standard
-    // 2. photos (array) - used by imageUtils.js first
-    // 3. profilePicture (string) - legacy field
-    const updateResult = await query(`
-      UPDATE users 
-      SET profile_data = jsonb_set(
-        jsonb_set(
-          jsonb_set(
-            COALESCE(profile_data, '{}'::jsonb), 
-            '{profile_picture}', 
-            $1::jsonb
-          ),
-          '{photos}',
-          $2::jsonb
-        ),
-        '{profilePicture}',
-        $3::jsonb
-      )
-      WHERE id = $4
-      RETURNING profile_data
-    `, [
-      JSON.stringify({ 
-        url: publicUrl, 
-        filename: fileName, 
-        fileSize, 
-        mimeType, 
-        fileType,
-        storageType: isCloudinary ? 'cloudinary' : 'local',
-        publicId: req.file.public_id || null
-      }),
-      JSON.stringify([publicUrl]), // Set as single-element array
-      JSON.stringify(publicUrl), // Also update legacy string field
-      userId
-    ]);
+    // Update user's profile_data with new profile picture using MongoDB
+    const profilePictureData = { 
+      url: publicUrl, 
+      filename: fileName, 
+      fileSize, 
+      mimeType, 
+      fileType,
+      storageType: isCloudinary ? 'cloudinary' : 'local',
+      publicId: req.file.public_id || null
+    };
+    
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          'profile_data.profile_picture': profilePictureData,
+          'profile_data.photos': [publicUrl],
+          'profile_data.profilePicture': publicUrl
+        }
+      },
+      { new: true }
+    );
 
-    if (updateResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Log file upload to file_uploads table
+    // Log file upload to file_uploads collection
     try {
-      await query(`
-        INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type, storage_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [userId, fileName, publicUrl, fileSize, mimeType, 'profile_picture', isCloudinary ? 'cloudinary' : 'local']);
+      await FileUpload.create({
+        user_id: userId,
+        file_name: fileName,
+        file_path: publicUrl,
+        file_size: fileSize,
+        mime_type: mimeType,
+        upload_type: 'profile_picture',
+        storage_type: isCloudinary ? 'cloudinary' : 'local'
+      });
     } catch (logErr) {
       console.warn('Profile picture log failed:', logErr.message);
     }
@@ -280,12 +276,18 @@ router.post('/service-media', authMiddleware, serviceUpload.array('media', 10), 
         }
       }
       
-      // Log file upload to file_uploads table
+      // Log file upload to file_uploads collection
       try {
-        await query(`
-          INSERT INTO file_uploads (user_id, service_id, file_name, file_path, file_size, mime_type, upload_type, storage_type)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        `, [userId, serviceId, fileName, publicUrl, fileSize, mimeType, 'service_media', storageType]);
+        await FileUpload.create({
+          user_id: userId,
+          service_id: serviceId,
+          file_name: fileName,
+          file_path: publicUrl,
+          file_size: fileSize,
+          mime_type: mimeType,
+          upload_type: 'service_media',
+          storage_type: storageType
+        });
       } catch (logErr) {
         console.warn('Service media log failed:', logErr.message);
       }
@@ -348,11 +350,15 @@ router.post('/user-video', authMiddleware, videoUpload.single('video'), async (r
     
     const publicUrl = `/uploads/${fileName}`;
     
-    // Log video upload to file_uploads table
-    await query(`
-      INSERT INTO file_uploads (user_id, file_name, file_path, file_size, mime_type, upload_type)
-      VALUES ($1, $2, $3, $4, $5, $6)
-    `, [userId, fileName, filePath, fileSize, mimeType, 'user_video']);
+    // Log video upload to file_uploads collection
+    await FileUpload.create({
+      user_id: userId,
+      file_name: fileName,
+      file_path: filePath,
+      file_size: fileSize,
+      mime_type: mimeType,
+      upload_type: 'user_video'
+    });
     
     res.json({
       success: true,
@@ -379,15 +385,13 @@ router.get('/user-files', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    const files = await query(`
-      SELECT id, file_name, file_path, file_size, mime_type, upload_type, created_at
-      FROM file_uploads
-      WHERE user_id = $1 AND status = 'active'
-      ORDER BY created_at DESC
-    `, [userId]);
+    const files = await FileUpload.find({
+      user_id: userId,
+      status: 'active'
+    }).sort({ created_at: -1 });
     
-    const processedFiles = files.rows.map(file => ({
-      id: file.id,
+    const processedFiles = files.map(file => ({
+      id: file._id,
       fileName: file.file_name,
       url: `/uploads/${file.file_name}`,
       fileSize: file.file_size,
@@ -417,16 +421,17 @@ router.delete('/:fileId', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     // Get file info and verify ownership
-    const fileResult = await query(`
-      SELECT file_path, file_name FROM file_uploads 
-      WHERE id = $1 AND user_id = $2 AND status = 'active'
-    `, [fileId, userId]);
+    const file = await FileUpload.findOne({
+      _id: fileId,
+      user_id: userId,
+      status: 'active'
+    });
     
-    if (fileResult.rows.length === 0) {
+    if (!file) {
       return res.status(404).json({ error: 'File not found or access denied' });
     }
     
-    const filePath = fileResult.rows[0].file_path;
+    const filePath = file.file_path;
     
     // Delete physical file
     if (fs.existsSync(filePath)) {
@@ -434,9 +439,7 @@ router.delete('/:fileId', authMiddleware, async (req, res) => {
     }
     
     // Mark as deleted in database
-    await query(`
-      UPDATE file_uploads SET status = 'deleted' WHERE id = $1
-    `, [fileId]);
+    await FileUpload.findByIdAndUpdate(fileId, { status: 'deleted' });
     
     res.json({
       success: true,

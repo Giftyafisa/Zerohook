@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { query } = require('../config/database');
+const { User, FraudLog } = require('../config/database');
 const { body, validationResult } = require('express-validator');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
@@ -33,8 +33,8 @@ const generateUsername = async (firstName, lastName) => {
   let counter = 1;
   
   while (true) {
-    const existing = await query('SELECT id FROM users WHERE username = $1', [username]);
-    if (existing.rows.length === 0) break;
+    const existing = await User.findOne({ username });
+    if (!existing) break;
     username = `${base}${counter}`;
     counter++;
   }
@@ -134,12 +134,11 @@ router.post('/register', rateLimitMiddleware, [
     }
 
     // Check if user already exists
-    const existingUser = await query(
-      'SELECT id FROM users WHERE email = $1 OR username = $2',
-      [email, username]
-    );
+    const existingUser = await User.findOne({
+      $or: [{ email }, { username }]
+    });
 
-    if (existingUser.rows.length > 0) {
+    if (existingUser) {
       return res.status(400).json({
         error: 'User already exists with this email or username'
       });
@@ -179,24 +178,18 @@ router.post('/register', rateLimitMiddleware, [
       referral_code: referralCode || null
     };
 
-    const userResult = await query(`
-      INSERT INTO users (username, email, password_hash, phone, verification_tier, profile_data)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, username, email, verification_tier, reputation_score, trust_score, created_at, profile_data
-    `, [
+    const user = await User.create({
       username,
       email,
-      passwordHash,
-      phone || null,
-      1, // Default to basic verification tier
-      JSON.stringify(profileData)
-    ]);
-
-    const user = userResult.rows[0];
+      password_hash: passwordHash,
+      phone: phone || null,
+      verification_tier: 1, // Default to basic verification tier
+      profile_data: profileData
+    });
 
     // Record trust event for new registration
     await req.trustEngine.recordTrustEvent(
-      user.id,
+      user._id,
       'registration',
       {
         method: 'email_password',
@@ -222,7 +215,7 @@ router.post('/register', rateLimitMiddleware, [
       message: 'Registration successful',
       token,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         email: user.email,
         verificationTier: user.verification_tier,
@@ -325,18 +318,12 @@ router.post('/login', rateLimitMiddleware, [
     }
 
     // Try database authentication
-    let userResult;
+    let user;
     try {
       // Check if loginIdentifier is an email (contains @) or username
       const isEmail = loginIdentifier.includes('@');
-      userResult = await query(`
-        SELECT id, username, email, password_hash, verification_tier, 
-               reputation_score, trust_score, status, last_active,
-               is_subscribed, subscription_tier, subscription_expires_at,
-               profile_data, created_at
-        FROM users 
-        WHERE ${isEmail ? 'email' : 'username'} = $1
-      `, [loginIdentifier]);
+      const searchField = isEmail ? { email: loginIdentifier } : { username: loginIdentifier };
+      user = await User.findOne(searchField);
     } catch (dbError) {
       console.log('⚠️ Database unavailable, using mock authentication');
       return res.status(503).json({
@@ -345,13 +332,10 @@ router.post('/login', rateLimitMiddleware, [
       });
     }
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({
-        error: 'Invalid credentials'
       });
     }
-
-    const user = userResult.rows[0];
 
     // Check if account is suspended
     if (user.status === 'suspended') {
@@ -370,7 +354,7 @@ router.post('/login', rateLimitMiddleware, [
 
     // Fraud detection for login attempt
     const fraudAnalysis = await req.fraudDetection.analyzeFraudRisk(
-      user.id,
+      user._id,
       'login',
       { identifier: loginIdentifier },
       {
@@ -387,15 +371,12 @@ router.post('/login', rateLimitMiddleware, [
     }
 
     // Update last active timestamp
-    await query(
-      'UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE id = $1',
-      [user.id]
-    );
+    await User.findByIdAndUpdate(user._id, { last_active: new Date() });
 
     // Generate JWT token
     const token = jwt.sign(
       { 
-        userId: user.id,
+        userId: user._id,
         username: user.username,
         verificationTier: user.verification_tier
       },
@@ -405,7 +386,7 @@ router.post('/login', rateLimitMiddleware, [
 
     // Record trust event for successful login
     await req.trustEngine.recordTrustEvent(
-      user.id,
+      user._id,
       'login',
       {
         ip: req.ip,
@@ -419,7 +400,7 @@ router.post('/login', rateLimitMiddleware, [
       message: 'Login successful',
       token,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         email: user.email,
         verificationTier: user.verification_tier,
@@ -469,12 +450,12 @@ router.post('/verify-tier', authMiddleware, [
     const userId = req.user.userId;
 
     // Check current verification tier
-    const userResult = await query(
-      'SELECT verification_tier FROM users WHERE id = $1',
-      [userId]
-    );
+    const userDoc = await User.findById(userId);
+    if (!userDoc) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
-    const currentTier = userResult.rows[0].verification_tier;
+    const currentTier = userDoc.verification_tier;
     
     if (tier <= currentTier) {
       return res.status(400).json({
@@ -521,20 +502,16 @@ router.post('/refresh', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     // Get fresh user data
-    const userResult = await query(`
-      SELECT id, username, verification_tier, is_subscribed, subscription_tier, subscription_expires_at, profile_data FROM users WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId);
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
-
-    const user = userResult.rows[0];
 
     // Generate new token
     const token = jwt.sign(
       { 
-        userId: user.id,
+        userId: user._id,
         username: user.username,
         verificationTier: user.verification_tier
       },
@@ -546,7 +523,7 @@ router.post('/refresh', authMiddleware, async (req, res) => {
       message: 'Token refreshed successfully',
       token,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         verificationTier: user.verification_tier,
         is_subscribed: user.is_subscribed,
@@ -595,19 +572,14 @@ router.post('/validate-token', async (req, res) => {
       const decoded = jwt.verify(token, JWT_SECRET);
       
       // Verify user still exists
-      const userResult = await query(
-        'SELECT id, username, verification_tier, status, is_subscribed, subscription_tier, subscription_expires_at, profile_data FROM users WHERE id = $1',
-        [decoded.userId]
-      );
+      const user = await User.findById(decoded.userId);
 
-      if (userResult.rows.length === 0) {
+      if (!user) {
         return res.json({ 
           valid: false, 
           error: 'User not found' 
         });
       }
-
-      const user = userResult.rows[0];
       
       if (user.status === 'suspended') {
         return res.json({ 
@@ -685,25 +657,16 @@ router.get('/me', authMiddleware, async (req, res) => {
       });
     }
     
-    const userResult = await query(`
-      SELECT 
-        id, username, email, verification_tier, 
-        reputation_score, trust_score, profile_data,
-        is_subscribed, subscription_tier, subscription_expires_at,
-        status, created_at, last_active
-      FROM users WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId);
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    const user = userResult.rows[0];
     
     res.json({
       success: true,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         email: user.email,
         verificationTier: user.verification_tier,

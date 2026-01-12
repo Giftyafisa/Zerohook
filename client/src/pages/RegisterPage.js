@@ -246,93 +246,263 @@ const RegisterPage = () => {
 
         {/* Registration Form */}
         <Box component="form" onSubmit={handleSubmit}>
-          <Grid container spacing={2}>
-            {/* Name Fields */}
-            <Grid item xs={12} sm={6}>
-              <GlassInput
-                name="firstName"
-                label="First Name"
-                value={formData.firstName}
-                onChange={handleChange}
-                required
-                startIcon={<Person sx={{ color: '#00f2ea' }} />}
-                placeholder="Enter first name"
-              />
-            </Grid>
-            
-            <Grid item xs={12} sm={6}>
-              <GlassInput
-                name="lastName"
-                label="Last Name"
-                value={formData.lastName}
-                onChange={handleChange}
-                required
-                startIcon={<Person sx={{ color: '#00f2ea' }} />}
-                placeholder="Enter last name"
-              />
-            </Grid>
+          {/* Section 1: Personal Information */}
+          <Box sx={{ mb: 4 }}>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: '#00f2ea',
+                fontFamily: '"Outfit", sans-serif',
+                fontWeight: 700,
+                fontSize: '16px',
+                mb: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+              }}
+            >
+              <Person sx={{ fontSize: 20 }} />
+              Personal Information
+            </Typography>
+            <Grid container spacing={2}>
+              {/* Name Fields */}
+              <Grid item xs={12} sm={6}>
+                <GlassInput
+                  name="firstName"
+                  label="First Name"
+                  value={formData.firstName}
+                  onChange={handleChange}
+                  required
+                  startIcon={<Person sx={{ color: '#00f2ea' }} />}
+                  placeholder="Enter first name"
+                />
+              </Grid>
+              
+              <Grid item xs={12} sm={6}>
+                <GlassInput
+                  name="lastName"
+                  label="Last Name"
+                  value={formData.lastName}
+                  onChange={handleChange}
+                  required
+                  startIcon={<Person sx={{ color: '#00f2ea' }} />}
+                  placeholder="Enter last name"
+                />
+              </Grid>
 
-            {/* Contact Fields - Email and Phone on same row */}
-            <Grid item xs={12} sm={6}>
-              <Box>
-                <Typography 
-                  sx={{ 
-                    color: 'rgba(255, 255, 255, 0.6)', 
-                    fontSize: '14px', 
-                    mb: 1,
-                    fontFamily: '"Outfit", sans-serif'
-                  }}
-                >
-                  Email Address *
-                </Typography>
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    backdropFilter: 'blur(8px)',
-                    borderRadius: '16px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    height: '56px',
-                    px: 2,
-                    overflow: 'hidden',
-                    '&:hover': {
-                      borderColor: 'rgba(0, 242, 234, 0.5)',
+              {/* Gender Selection */}
+              <Grid item xs={12} sm={6}>
+                <FormControl 
+                  fullWidth
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      backdropFilter: 'blur(8px)',
+                      borderRadius: '16px',
+                      color: '#ffffff',
+                      '& fieldset': {
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '16px',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(0, 242, 234, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#00f2ea',
+                        borderWidth: '2px',
+                      },
                     },
-                    '&:focus-within': {
-                      borderColor: '#00f2ea',
-                      borderWidth: '2px',
-                    }
+                    '& .MuiInputLabel-root': {
+                      color: 'rgba(255, 255, 255, 0.6)',
+                      fontFamily: '"Outfit", sans-serif',
+                      '&.Mui-focused': {
+                        color: '#00f2ea',
+                      },
+                    },
+                    '& .MuiSelect-icon': {
+                      color: 'rgba(255, 255, 255, 0.5)',
+                    },
                   }}
                 >
-                  <Email sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
-                  <input
-                    name="email"
-                    type="email"
-                    value={formData.email}
+                  <InputLabel>Gender *</InputLabel>
+                  <Select
+                    name="gender"
+                    value={formData.gender}
                     onChange={handleChange}
-                    required
-                    autoComplete="off"
-                    placeholder="Enter your email"
-                    style={{
-                      flex: 1,
-                      background: 'transparent',
-                      border: 'none',
-                      outline: 'none',
-                      color: '#fff',
-                      fontSize: '16px',
-                      fontFamily: '"Outfit", sans-serif',
-                      height: '100%',
-                      width: '100%',
-                      WebkitBoxShadow: '0 0 0 1000px rgba(30, 30, 35, 0.8) inset',
-                      WebkitTextFillColor: '#fff'
+                    label="Gender *"
+                    startAdornment={<Wc sx={{ color: '#00f2ea', mr: 1 }} />}
+                    MenuProps={{
+                      PaperProps: {
+                        sx: {
+                          background: '#1a1a1f',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          '& .MuiMenuItem-root': {
+                            fontFamily: '"Outfit", sans-serif',
+                            color: '#ffffff',
+                            '&:hover': {
+                              background: 'rgba(0, 242, 234, 0.1)',
+                            },
+                            '&.Mui-selected': {
+                              background: 'rgba(0, 242, 234, 0.2)',
+                              '&:hover': {
+                                background: 'rgba(0, 242, 234, 0.3)',
+                              },
+                            },
+                          },
+                        },
+                      },
                     }}
-                  />
-                </Box>
-              </Box>
-            </Grid>
+                  >
+                    <MenuItem value="male">Male</MenuItem>
+                    <MenuItem value="female">Female</MenuItem>
+                    <MenuItem value="non_binary">Non-Binary</MenuItem>
+                    <MenuItem value="prefer_not_to_say">Prefer not to say</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
 
-            <Grid item xs={12} sm={6}>
+              {/* Date of Birth */}
+              <Grid item xs={12} sm={6}>
+                <Box>
+                  <Typography 
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.6)', 
+                      fontSize: '14px', 
+                      mb: 1,
+                      fontFamily: '"Outfit", sans-serif'
+                    }}
+                  >
+                    Date of Birth * (Must be 18+)
+                  </Typography>
+                  <Box 
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      backdropFilter: 'blur(8px)',
+                      borderRadius: '16px',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      height: '56px',
+                      px: 2,
+                      overflow: 'hidden',
+                      '&:hover': {
+                        borderColor: 'rgba(0, 242, 234, 0.5)',
+                      },
+                      '&:focus-within': {
+                        borderColor: '#00f2ea',
+                        borderWidth: '2px',
+                      }
+                    }}
+                  >
+                    <Cake sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
+                    <input
+                      name="dateOfBirth"
+                      type="date"
+                      value={formData.dateOfBirth}
+                      onChange={handleChange}
+                      required
+                      max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
+                      style={{
+                        flex: 1,
+                        background: 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        color: '#fff',
+                        fontSize: '16px',
+                        fontFamily: '"Outfit", sans-serif',
+                        height: '100%',
+                        WebkitBoxShadow: '0 0 0 1000px transparent inset',
+                        WebkitTextFillColor: '#fff',
+                        colorScheme: 'dark'
+                      }}
+                    />
+                  </Box>
+                </Box>
+              </Grid>
+            </Grid>
+          </Box>
+
+          {/* Section 2: Contact Details */}
+          <Box sx={{ mb: 4 }}>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: '#00f2ea',
+                fontFamily: '"Outfit", sans-serif',
+                fontWeight: 700,
+                fontSize: '16px',
+                mb: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+              }}
+            >
+              <Email sx={{ fontSize: 20 }} />
+              Contact Details
+            </Typography>
+            <Grid container spacing={2}>
+              {/* Email Field */}
+              <Grid item xs={12} sm={6}>
+                <Box>
+                  <Typography 
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.6)', 
+                      fontSize: '14px', 
+                      mb: 1,
+                      fontFamily: '"Outfit", sans-serif'
+                    }}
+                  >
+                    Email Address *
+                  </Typography>
+                  <Box 
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      backdropFilter: 'blur(8px)',
+                      borderRadius: '16px',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      height: '56px',
+                      px: 2,
+                      overflow: 'hidden',
+                      '&:hover': {
+                        borderColor: 'rgba(0, 242, 234, 0.5)',
+                      },
+                      '&:focus-within': {
+                        borderColor: '#00f2ea',
+                        borderWidth: '2px',
+                      }
+                    }}
+                  >
+                    <Email sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
+                    <input
+                      name="email"
+                      type="email"
+                      value={formData.email}
+                      onChange={handleChange}
+                      required
+                      autoComplete="off"
+                      placeholder="Enter your email"
+                      style={{
+                        flex: 1,
+                        background: 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        color: '#fff',
+                        fontSize: '16px',
+                        fontFamily: '"Outfit", sans-serif',
+                        height: '100%',
+                        width: '100%',
+                        WebkitBoxShadow: '0 0 0 1000px rgba(30, 30, 35, 0.8) inset',
+                        WebkitTextFillColor: '#fff'
+                      }}
+                    />
+                  </Box>
+                </Box>
+              </Grid>
+
+              {/* Phone Number Field */}
+              <Grid item xs={12} sm={6}>
               <Box>
                 <Typography 
                   sx={{ 
@@ -454,138 +624,30 @@ const RegisterPage = () => {
               </Box>
             </Grid>
 
-            {/* Gender Selection */}
-            <Grid item xs={12} sm={6}>
-              <FormControl 
-                fullWidth
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    backdropFilter: 'blur(8px)',
-                    borderRadius: '16px',
-                    color: '#ffffff',
-                    '& fieldset': {
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '16px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(0, 242, 234, 0.5)',
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: '#00f2ea',
-                      borderWidth: '2px',
-                    },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    fontFamily: '"Outfit", sans-serif',
-                    '&.Mui-focused': {
-                      color: '#00f2ea',
-                    },
-                  },
-                  '& .MuiSelect-icon': {
-                    color: 'rgba(255, 255, 255, 0.5)',
-                  },
-                }}
-              >
-                <InputLabel>Gender *</InputLabel>
-                <Select
-                  name="gender"
-                  value={formData.gender}
-                  onChange={handleChange}
-                  label="Gender *"
-                  startAdornment={<Wc sx={{ color: '#00f2ea', mr: 1 }} />}
-                  MenuProps={{
-                    PaperProps: {
-                      sx: {
-                        background: '#1a1a1f',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        '& .MuiMenuItem-root': {
-                          fontFamily: '"Outfit", sans-serif',
-                          color: '#ffffff',
-                          '&:hover': {
-                            background: 'rgba(0, 242, 234, 0.1)',
-                          },
-                          '&.Mui-selected': {
-                            background: 'rgba(0, 242, 234, 0.2)',
-                            '&:hover': {
-                              background: 'rgba(0, 242, 234, 0.3)',
-                            },
-                          },
-                        },
-                      },
-                    },
-                  }}
-                >
-                  <MenuItem value="male">Male</MenuItem>
-                  <MenuItem value="female">Female</MenuItem>
-                  <MenuItem value="non_binary">Non-Binary</MenuItem>
-                  <MenuItem value="prefer_not_to_say">Prefer not to say</MenuItem>
-                </Select>
-              </FormControl>
             </Grid>
+          </Box>
 
-            {/* Date of Birth */}
-            <Grid item xs={12} sm={6}>
-              <Box>
-                <Typography 
-                  sx={{ 
-                    color: 'rgba(255, 255, 255, 0.6)', 
-                    fontSize: '14px', 
-                    mb: 1,
-                    fontFamily: '"Outfit", sans-serif'
-                  }}
-                >
-                  Date of Birth * (Must be 18+)
-                </Typography>
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    backdropFilter: 'blur(8px)',
-                    borderRadius: '16px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    height: '56px',
-                    px: 2,
-                    overflow: 'hidden',
-                    '&:hover': {
-                      borderColor: 'rgba(0, 242, 234, 0.5)',
-                    },
-                    '&:focus-within': {
-                      borderColor: '#00f2ea',
-                      borderWidth: '2px',
-                    }
-                  }}
-                >
-                  <Cake sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
-                  <input
-                    name="dateOfBirth"
-                    type="date"
-                    value={formData.dateOfBirth}
-                    onChange={handleChange}
-                    required
-                    max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
-                    style={{
-                      flex: 1,
-                      background: 'transparent',
-                      border: 'none',
-                      outline: 'none',
-                      color: '#fff',
-                      fontSize: '16px',
-                      fontFamily: '"Outfit", sans-serif',
-                      height: '100%',
-                      WebkitBoxShadow: '0 0 0 1000px transparent inset',
-                      WebkitTextFillColor: '#fff',
-                      colorScheme: 'dark'
-                    }}
-                  />
-                </Box>
-              </Box>
-            </Grid>
-
-            {/* Account Type */}
-            <Grid item xs={12}>
+          {/* Section 3: Account Setup */}
+          <Box sx={{ mb: 4 }}>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: '#00f2ea',
+                fontFamily: '"Outfit", sans-serif',
+                fontWeight: 700,
+                fontSize: '16px',
+                mb: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+              }}
+            >
+              <PersonAdd sx={{ fontSize: 20 }} />
+              Account Setup
+            </Typography>
+            <Grid container spacing={2}>
+              {/* Account Type */}
+              <Grid item xs={12}>
               <FormControl 
                 fullWidth
                 sx={{
@@ -686,94 +748,38 @@ const RegisterPage = () => {
               </FormControl>
             </Grid>
 
-            {/* Sugar Account Info Box */}
-            <Collapse in={formData.accountType === 'sugar_daddy' || formData.accountType === 'sugar_mommy'} sx={{ width: '100%' }}>
-              <Grid item xs={12} sx={{ mt: 1 }}>
-                <Alert 
-                  severity="info" 
-                  icon={<Diamond sx={{ color: '#FFD700' }} />}
-                  sx={{ 
-                    background: 'rgba(255, 215, 0, 0.1)', 
-                    border: '1px solid rgba(255, 215, 0, 0.3)',
-                    borderRadius: '12px',
-                    '& .MuiAlert-message': {
-                      color: 'rgba(255, 255, 255, 0.9)',
-                      fontFamily: '"Outfit", sans-serif'
-                    }
-                  }}
-                >
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#FFD700', mb: 0.5 }}>
-                    VVIP Account Benefits
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                    • Your profile is private by default (hidden from providers)<br/>
-                    • You can toggle visibility in settings anytime<br/>
-                    • Only verified providers with special access can view your profile<br/>
-                    • Automatic matching with young, verified providers<br/>
-                    • Provider connections are limited to 1 year for your protection
-                  </Typography>
-                </Alert>
-              </Grid>
-            </Collapse>
+              {/* Sugar Account Info Box */}
+              <Collapse in={formData.accountType === 'sugar_daddy' || formData.accountType === 'sugar_mommy'} sx={{ width: '100%' }}>
+                <Grid item xs={12} sx={{ mt: 1 }}>
+                  <Alert 
+                    severity="info" 
+                    icon={<Diamond sx={{ color: '#FFD700' }} />}
+                    sx={{ 
+                      background: 'rgba(255, 215, 0, 0.1)', 
+                      border: '1px solid rgba(255, 215, 0, 0.3)',
+                      borderRadius: '12px',
+                      '& .MuiAlert-message': {
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        fontFamily: '"Outfit", sans-serif'
+                      }
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#FFD700', mb: 0.5 }}>
+                      VVIP Account Benefits
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                      • Your profile is private by default (hidden from providers)<br/>
+                      • You can toggle visibility in settings anytime<br/>
+                      • Only verified providers with special access can view your profile<br/>
+                      • Automatic matching with young, verified providers<br/>
+                      • Provider connections are limited to 1 year for your protection
+                    </Typography>
+                  </Alert>
+                </Grid>
+              </Collapse>
 
-            {/* Face Verification Consent */}
-            <Grid item xs={12}>
-              <Box 
-                sx={{ 
-                  p: 2, 
-                  borderRadius: '12px', 
-                  background: 'rgba(0, 242, 234, 0.05)',
-                  border: '1px solid rgba(0, 242, 234, 0.2)'
-                }}
-              >
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      name="faceVerificationConsent"
-                      checked={formData.faceVerificationConsent}
-                      onChange={handleChange}
-                      sx={{ 
-                        color: 'rgba(255, 255, 255, 0.5)',
-                        '&.Mui-checked': {
-                          color: '#00f2ea',
-                        },
-                      }}
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography 
-                        sx={{ 
-                          color: '#ffffff',
-                          fontFamily: '"Outfit", sans-serif',
-                          fontSize: '14px',
-                          fontWeight: 600,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1
-                        }}
-                      >
-                        <VerifiedUser sx={{ color: '#00f2ea', fontSize: 18 }} />
-                        I consent to face verification
-                      </Typography>
-                      <Typography 
-                        sx={{ 
-                          color: 'rgba(255, 255, 255, 0.5)',
-                          fontFamily: '"Outfit", sans-serif',
-                          fontSize: '12px',
-                          mt: 0.5
-                        }}
-                      >
-                        Face verification helps build trust and unlocks premium features. Your data is securely stored.
-                      </Typography>
-                    </Box>
-                  }
-                />
-              </Box>
-            </Grid>
-
-            {/* Password Fields */}
-            <Grid item xs={12} sm={6}>
+              {/* Password Fields */}
+              <Grid item xs={12} sm={6}>
               <GlassInput
                 name="password"
                 label="Password"
@@ -799,80 +805,159 @@ const RegisterPage = () => {
               />
             </Grid>
 
-            {/* Terms Checkbox */}
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    name="agreeTerms"
-                    checked={formData.agreeTerms}
-                    onChange={handleChange}
-                    sx={{ 
-                      color: 'rgba(255, 255, 255, 0.5)',
-                      '&.Mui-checked': {
-                        color: '#00f2ea',
-                      },
-                    }}
-                  />
-                }
-                label={
-                  <Typography 
-                    sx={{ 
-                      color: 'rgba(255, 255, 255, 0.6)',
-                      fontFamily: '"Outfit", sans-serif',
-                      fontSize: '14px',
-                    }}
-                  >
-                    I agree to the{' '}
-                    <Link 
-                      to="/terms" 
-                      style={{ 
-                        color: '#00f2ea', 
-                        textDecoration: 'none',
-                        minHeight: '44px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '12px 4px',
-                      }}
-                    >
-                      Terms of Service
-                    </Link>{' '}
-                    and{' '}
-                    <Link 
-                      to="/privacy" 
-                      style={{ 
-                        color: '#00f2ea', 
-                        textDecoration: 'none',
-                        minHeight: '44px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '12px 4px',
-                      }}
-                    >
-                      Privacy Policy
-                    </Link>
-                  </Typography>
-                }
-              />
             </Grid>
+          </Box>
 
-            {/* Submit Button */}
-            <Grid item xs={12}>
-              <GlassButton
-                type="submit"
-                fullWidth
-                variant="primary"
-                loading={loading}
-                glowing
-                sx={{ 
-                  py: 2,
-                  fontSize: '16px',
-                }}
-              >
-                Create Account
-              </GlassButton>
+          {/* Section 4: Verification & Terms */}
+          <Box sx={{ mb: 3 }}>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: '#00f2ea',
+                fontFamily: '"Outfit", sans-serif',
+                fontWeight: 700,
+                fontSize: '16px',
+                mb: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+              }}
+            >
+              <VerifiedUser sx={{ fontSize: 20 }} />
+              Verification & Terms
+            </Typography>
+            <Grid container spacing={2}>
+              {/* Face Verification Consent */}
+              <Grid item xs={12}>
+                <Box 
+                  sx={{ 
+                    p: 2, 
+                    borderRadius: '12px', 
+                    background: 'rgba(0, 242, 234, 0.05)',
+                    border: '1px solid rgba(0, 242, 234, 0.2)'
+                  }}
+                >
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        name="faceVerificationConsent"
+                        checked={formData.faceVerificationConsent}
+                        onChange={handleChange}
+                        sx={{ 
+                          color: 'rgba(255, 255, 255, 0.5)',
+                          '&.Mui-checked': {
+                            color: '#00f2ea',
+                          },
+                        }}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography 
+                          sx={{ 
+                            color: '#ffffff',
+                            fontFamily: '"Outfit", sans-serif',
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1
+                          }}
+                        >
+                          <VerifiedUser sx={{ color: '#00f2ea', fontSize: 18 }} />
+                          I consent to face verification
+                        </Typography>
+                        <Typography 
+                          sx={{ 
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            fontFamily: '"Outfit", sans-serif',
+                            fontSize: '12px',
+                            mt: 0.5
+                          }}
+                        >
+                          Face verification helps build trust and unlocks premium features. Your data is securely stored.
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Box>
+              </Grid>
+
+              {/* Terms Checkbox */}
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      name="agreeTerms"
+                      checked={formData.agreeTerms}
+                      onChange={handleChange}
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        '&.Mui-checked': {
+                          color: '#00f2ea',
+                        },
+                      }}
+                    />
+                  }
+                  label={
+                    <Typography 
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.6)',
+                        fontFamily: '"Outfit", sans-serif',
+                        fontSize: '14px',
+                      }}
+                    >
+                      I agree to the{' '}
+                      <Link 
+                        to="/terms" 
+                        style={{ 
+                          color: '#00f2ea', 
+                          textDecoration: 'none',
+                          minHeight: '44px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '12px 4px',
+                        }}
+                      >
+                        Terms of Service
+                      </Link>{' '}
+                      and{' '}
+                      <Link 
+                        to="/privacy" 
+                        style={{ 
+                          color: '#00f2ea', 
+                          textDecoration: 'none',
+                          minHeight: '44px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '12px 4px',
+                        }}
+                      >
+                        Privacy Policy
+                      </Link>
+                    </Typography>
+                  }
+                />
+              </Grid>
+
+              {/* Submit Button */}
+              <Grid item xs={12}>
+                <GlassButton
+                  type="submit"
+                  fullWidth
+                  variant="primary"
+                  loading={loading}
+                  glowing
+                  sx={{ 
+                    py: 2,
+                    fontSize: '16px',
+                  }}
+                >
+                  Create Account
+                </GlassButton>
+              </Grid>
             </Grid>
-          </Grid>
+          </Box>
 
           <Divider sx={{ my: 3, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
             <Typography 

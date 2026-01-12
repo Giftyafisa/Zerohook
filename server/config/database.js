@@ -157,20 +157,21 @@ const fraudLogSchema = new mongoose.Schema({
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 const conversationSchema = new mongoose.Schema({
-  participant1_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  participant2_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  last_message: String,
-  last_message_time: Date
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+  participant1Id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  participant2Id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  lastMessage: String,
+  lastMessageTime: Date,
+  status: { type: String, default: 'active' }
+}, { timestamps: true });
 
 const messageSchema = new mongoose.Schema({
-  conversation_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
-  sender_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
+  senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   content: { type: String, required: true },
-  message_type: { type: String, default: 'text' },
+  messageType: { type: String, default: 'text' },
   metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
-  read_at: Date
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+  readAt: Date
+}, { timestamps: true });
 
 const fileUploadSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -249,31 +250,34 @@ const callSchema = new mongoose.Schema({
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 const userPresenceSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
   status: { type: String, enum: ['online', 'away', 'busy', 'offline'], default: 'offline' },
-  last_seen: { type: Date, default: Date.now }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+  lastSeen: { type: Date, default: Date.now },
+  isTyping: { type: Boolean, default: false },
+  currentPage: { type: String }
+}, { timestamps: true });
 
 const userSessionSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  session_token: { type: String, required: true, unique: true },
-  socket_id: String,
-  ip_address: String,
-  user_agent: String,
-  is_active: { type: Boolean, default: true },
-  expires_at: { type: Date, required: true },
-  last_activity: { type: Date, default: Date.now }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  sessionToken: { type: String, required: true, unique: true },
+  socketId: String,
+  ipAddress: String,
+  userAgent: String,
+  isActive: { type: Boolean, default: true },
+  expiresAt: { type: Date, required: true },
+  lastActivity: { type: Date, default: Date.now }
+}, { timestamps: true });
 
 const userActivityLogSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  action_type: { type: String, required: true },
-  action_data: { type: mongoose.Schema.Types.Mixed, default: {} },
-  ip_address: String,
-  user_agent: String,
-  response_time_ms: { type: Number, default: 0 },
-  success: { type: Boolean, default: true }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  actionType: { type: String, required: true },
+  actionData: { type: mongoose.Schema.Types.Mixed, default: {} },
+  ipAddress: String,
+  userAgent: String,
+  responseTimeMs: { type: Number, default: 0 },
+  success: { type: Boolean, default: true },
+  errorMessage: String
+}, { timestamps: true });
 
 const apiPerformanceLogSchema = new mongoose.Schema({
   endpoint: { type: String, required: true },
@@ -287,6 +291,39 @@ const apiPerformanceLogSchema = new mongoose.Schema({
   user_agent: String,
   error_message: String
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+// Sugar Access Payment Schema
+const sugarAccessPaymentSchema = new mongoose.Schema({
+  providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  accessType: { type: String, enum: ['sugar_daddy', 'sugar_mommy', 'both'], required: true },
+  paymentStatus: { type: String, enum: ['pending', 'completed', 'failed', 'refunded'], default: 'pending' },
+  paymentReference: String,
+  amount: { type: Number, required: true },
+  currency: { type: String, default: 'NGN' },
+  accessStartsAt: { type: Date },
+  accessExpiresAt: { type: Date },
+  paymentGateway: { type: String, default: 'paystack' }
+}, { timestamps: true });
+
+sugarAccessPaymentSchema.index({ providerId: 1, accessExpiresAt: -1 });
+
+// User Engagement Metrics Schema
+const userEngagementMetricSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  lastEngagementDate: { type: Date, default: Date.now },
+  totalLogins: { type: Number, default: 0 },
+  totalMessagesSet: { type: Number, default: 0 },
+  totalProfileViews: { type: Number, default: 0 }
+}, { timestamps: true });
+
+// User Engagement Events Schema
+const userEngagementEventSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  eventType: { type: String, required: true },
+  eventMetadata: { type: mongoose.Schema.Types.Mixed, default: {} }
+}, { timestamps: true });
+
+userEngagementEventSchema.index({ userId: 1, createdAt: -1 });
 
 // Create Models
 const User = mongoose.model('User', userSchema);
@@ -310,6 +347,9 @@ const UserPresence = mongoose.model('UserPresence', userPresenceSchema);
 const UserSession = mongoose.model('UserSession', userSessionSchema);
 const UserActivityLog = mongoose.model('UserActivityLog', userActivityLogSchema);
 const ApiPerformanceLog = mongoose.model('ApiPerformanceLog', apiPerformanceLogSchema);
+const SugarAccessPayment = mongoose.model('SugarAccessPayment', sugarAccessPaymentSchema);
+const UserEngagementMetric = mongoose.model('UserEngagementMetric', userEngagementMetricSchema);
+const UserEngagementEvent = mongoose.model('UserEngagementEvent', userEngagementEventSchema);
 
 const initializeCollections = async () => {
   try {
@@ -409,5 +449,8 @@ module.exports = {
   UserPresence,
   UserSession,
   UserActivityLog,
-  ApiPerformanceLog
+  ApiPerformanceLog,
+  SugarAccessPayment,
+  UserEngagementMetric,
+  UserEngagementEvent
 };

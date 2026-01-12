@@ -1,7 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('./auth');
-const { query, isDatabaseAvailable } = require('../config/database');
+const { User, BlockedUser, Conversation, SugarAccessPayment, isDatabaseAvailable } = require('../config/database');
 const RecommendationEngine = require('../services/RecommendationEngine');
 const router = express.Router();
 
@@ -59,24 +59,32 @@ router.get('/profile', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    const userResult = await query(`
-      SELECT 
-        id, username, email, verification_tier, 
-        reputation_score, profile_data, profile_visibility,
-        is_subscribed, subscription_tier, subscription_expires_at,
-        created_at, last_active
-      FROM users 
-      WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId).select(
+      'username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier subscriptionExpiresAt createdAt lastActive'
+    );
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const user = userResult.rows[0];
+    // Transform to match expected format
+    const userResponse = {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      verification_tier: user.verificationTier,
+      reputation_score: user.reputationScore,
+      profile_data: user.profileData,
+      profile_visibility: user.profileVisibility,
+      is_subscribed: user.isSubscribed,
+      subscription_tier: user.subscriptionTier,
+      subscription_expires_at: user.subscriptionExpiresAt,
+      created_at: user.createdAt,
+      last_active: user.lastActive
+    };
     
     res.json({
-      user: user
+      user: userResponse
     });
 
   } catch (error) {
@@ -97,25 +105,33 @@ router.get('/me', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    const userResult = await query(`
-      SELECT 
-        id, username, email, verification_tier, 
-        reputation_score, profile_data, profile_visibility,
-        is_subscribed, subscription_tier, subscription_expires_at,
-        created_at, last_active
-      FROM users 
-      WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId).select(
+      'username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier subscriptionExpiresAt createdAt lastActive'
+    );
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const user = userResult.rows[0];
+    // Transform to match expected format
+    const userResponse = {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      verification_tier: user.verificationTier,
+      reputation_score: user.reputationScore,
+      profile_data: user.profileData,
+      profile_visibility: user.profileVisibility,
+      is_subscribed: user.isSubscribed,
+      subscription_tier: user.subscriptionTier,
+      subscription_expires_at: user.subscriptionExpiresAt,
+      created_at: user.createdAt,
+      last_active: user.lastActive
+    };
     
     res.json({
       success: true,
-      user: user
+      user: userResponse
     });
 
   } catch (error) {
@@ -137,49 +153,53 @@ router.put('/me', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { profile_data, profile_visibility } = req.body;
 
-    // Build the update query dynamically
-    let updateFields = [];
-    let params = [];
-    let paramIndex = 1;
+    // Build the update object
+    const updateObj = { updatedAt: new Date() };
 
-    // Update profile_data if provided
+    // Update profile_data if provided (merge with existing)
     if (profile_data) {
-      updateFields.push(`profile_data = COALESCE(profile_data, '{}'::jsonb) || $${paramIndex}::jsonb`);
-      params.push(JSON.stringify(profile_data));
-      paramIndex++;
+      const existingUser = await User.findById(userId);
+      if (existingUser) {
+        updateObj.profileData = { ...existingUser.profileData, ...profile_data };
+      } else {
+        updateObj.profileData = profile_data;
+      }
     }
 
     // Update profile_visibility if provided
     if (profile_visibility && ['public', 'authenticated'].includes(profile_visibility)) {
-      updateFields.push(`profile_visibility = $${paramIndex}`);
-      params.push(profile_visibility);
-      paramIndex++;
+      updateObj.profileVisibility = profile_visibility;
     }
-
-    // Always update timestamp
-    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-
-    // Add userId
-    params.push(userId);
 
     // Update user profile
-    const updateResult = await query(`
-      UPDATE users 
-      SET ${updateFields.join(', ')}
-      WHERE id = $${paramIndex}
-      RETURNING id, username, email, verification_tier, 
-               reputation_score, profile_data, profile_visibility,
-               is_subscribed, subscription_tier, subscription_expires_at
-    `, params);
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateObj,
+      { new: true }
+    ).select('username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier subscriptionExpiresAt');
 
-    if (updateResult.rows.length === 0) {
+    if (!updatedUser) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    // Transform to match expected format
+    const userResponse = {
+      id: updatedUser._id,
+      username: updatedUser.username,
+      email: updatedUser.email,
+      verification_tier: updatedUser.verificationTier,
+      reputation_score: updatedUser.reputationScore,
+      profile_data: updatedUser.profileData,
+      profile_visibility: updatedUser.profileVisibility,
+      is_subscribed: updatedUser.isSubscribed,
+      subscription_tier: updatedUser.subscriptionTier,
+      subscription_expires_at: updatedUser.subscriptionExpiresAt
+    };
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      user: updateResult.rows[0]
+      user: userResponse
     });
 
   } catch (error) {
@@ -201,19 +221,41 @@ router.put('/profile', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { profile_data } = req.body;
 
+    // Get existing user to merge profile data
+    const existingUser = await User.findById(userId);
+    if (!existingUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Merge existing profile_data with new data
+    const mergedProfileData = { ...existingUser.profileData, ...(profile_data || {}) };
+
     // Update user profile
-    const updateResult = await query(`
-      UPDATE users 
-      SET profile_data = COALESCE(profile_data, '{}') || $1,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING id, username, email, verification_tier, 
-               reputation_score, profile_data, is_subscribed, subscription_tier, subscription_expires_at
-    `, [JSON.stringify(profile_data || {}), userId]);
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { 
+        profileData: mergedProfileData,
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).select('username email verificationTier reputationScore profileData isSubscribed subscriptionTier subscriptionExpiresAt');
+
+    // Transform to match expected format
+    const userResponse = {
+      id: updatedUser._id,
+      username: updatedUser.username,
+      email: updatedUser.email,
+      verification_tier: updatedUser.verificationTier,
+      reputation_score: updatedUser.reputationScore,
+      profile_data: updatedUser.profileData,
+      is_subscribed: updatedUser.isSubscribed,
+      subscription_tier: updatedUser.subscriptionTier,
+      subscription_expires_at: updatedUser.subscriptionExpiresAt
+    };
 
     res.json({
       message: 'Profile updated successfully',
-      user: updateResult.rows[0]
+      user: userResponse
     });
 
   } catch (error) {
@@ -262,13 +304,16 @@ router.get('/profiles', async (req, res) => {
         isAuthenticated = true;
         
         // Get user info
-        const userResult = await query(`
-          SELECT id, username, is_subscribed, subscription_tier, subscription_expires_at
-          FROM users WHERE id = $1
-        `, [currentUserId]);
+        const currentUserDoc = await User.findById(currentUserId).select('username isSubscribed subscriptionTier subscriptionExpiresAt');
         
-        if (userResult.rows.length > 0) {
-          currentUser = userResult.rows[0];
+        if (currentUserDoc) {
+          currentUser = {
+            id: currentUserDoc._id,
+            username: currentUserDoc.username,
+            is_subscribed: currentUserDoc.isSubscribed,
+            subscription_tier: currentUserDoc.subscriptionTier,
+            subscription_expires_at: currentUserDoc.subscriptionExpiresAt
+          };
           console.log('🔒 Authenticated user browsing profiles:', currentUser.username);
         }
       } catch (tokenError) {
@@ -313,9 +358,9 @@ router.get('/profiles', async (req, res) => {
     let currentUserProfile = null;
     if (currentUserId) {
       try {
-        const userResult = await query('SELECT profile_data FROM users WHERE id = $1', [currentUserId]);
-        if (userResult.rows.length > 0) {
-          currentUserProfile = userResult.rows[0].profile_data || {};
+        const userDoc = await User.findById(currentUserId).select('profileData');
+        if (userDoc) {
+          currentUserProfile = userDoc.profileData || {};
         }
       } catch (e) {
         console.log('Could not fetch user profile for location');
@@ -508,32 +553,33 @@ router.get('/:id', async (req, res) => {
     }
 
     // Get user profile with visibility check
-    const result = await query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.email,
-        u.profile_data,
-        u.verification_tier,
-        u.reputation_score,
-        u.is_subscribed,
-        u.subscription_tier,
-        u.profile_visibility,
-        u.created_at,
-        COALESCE(u.last_active, u.created_at) as last_active
-      FROM users u
-      WHERE u.id = $1 AND u.profile_data IS NOT NULL
-    `, [userId]);
+    const user = await User.findOne({
+      _id: userId,
+      profileData: { $exists: true, $ne: null }
+    }).select('username email profileData verificationTier reputationScore isSubscribed subscriptionTier profileVisibility createdAt lastActive');
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    const user = result.rows[0];
+    // Transform to expected format
+    const userResponse = {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      profile_data: user.profileData,
+      verification_tier: user.verificationTier,
+      reputation_score: user.reputationScore,
+      is_subscribed: user.isSubscribed,
+      subscription_tier: user.subscriptionTier,
+      profile_visibility: user.profileVisibility,
+      created_at: user.createdAt,
+      last_active: user.lastActive || user.createdAt
+    };
     
     // Check profile visibility
     // If profile is 'authenticated' only, require authentication
-    if (user.profile_visibility === 'authenticated' && !isAuthenticated) {
+    if (userResponse.profile_visibility === 'authenticated' && !isAuthenticated) {
       return res.status(403).json({ 
         error: 'This profile is only visible to authenticated users',
         requiresAuth: true
@@ -541,13 +587,13 @@ router.get('/:id', async (req, res) => {
     }
     
     // Validate profile data
-    if (!user.profile_data || !user.profile_data.firstName) {
+    if (!userResponse.profile_data || !userResponse.profile_data.firstName) {
       return res.status(404).json({ error: 'Profile data incomplete' });
     }
 
     res.json({
       success: true,
-      user: user
+      user: userResponse
     });
 
   } catch (error) {
@@ -574,28 +620,31 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
     }
     
     // Check if already blocked
-    const existingBlock = await query(`
-      SELECT id FROM blocked_users 
-      WHERE blocker_id = $1 AND blocked_id = $2
-    `, [blockerId, blockedId]);
+    const existingBlock = await BlockedUser.findOne({
+      blockerId,
+      blockedId
+    });
     
-    if (existingBlock.rows.length > 0) {
+    if (existingBlock) {
       return res.json({ message: 'User already blocked' });
     }
     
     // Insert block record
-    await query(`
-      INSERT INTO blocked_users (blocker_id, blocked_id, created_at)
-      VALUES ($1, $2, CURRENT_TIMESTAMP)
-    `, [blockerId, blockedId]);
+    await BlockedUser.create({
+      blockerId,
+      blockedId
+    });
     
     // Update any conversations to blocked status
-    await query(`
-      UPDATE conversations 
-      SET status = 'blocked', updated_at = CURRENT_TIMESTAMP
-      WHERE (participant1_id = $1 AND participant2_id = $2)
-         OR (participant1_id = $2 AND participant2_id = $1)
-    `, [blockerId, blockedId]);
+    await Conversation.updateMany(
+      {
+        $or: [
+          { participant1Id: blockerId, participant2Id: blockedId },
+          { participant1Id: blockedId, participant2Id: blockerId }
+        ]
+      },
+      { status: 'blocked', updatedAt: new Date() }
+    );
     
     res.json({ 
       success: true,
@@ -626,16 +675,13 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
     const { visible } = req.body;
 
     // Get user's account type
-    const userResult = await query(`
-      SELECT profile_data->>'accountType' as account_type, profile_data
-      FROM users WHERE id = $1
-    `, [userId]);
+    const userDoc = await User.findById(userId).select('profileData');
 
-    if (userResult.rows.length === 0) {
+    if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userResult.rows[0].account_type;
+    const accountType = userDoc.profileData?.accountType;
     
     // Only sugar accounts can toggle visibility
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
@@ -645,23 +691,27 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
     }
 
     // Update the sugarSettings.visibleToProviders field
-    const updateResult = await query(`
-      UPDATE users 
-      SET profile_data = jsonb_set(
-        profile_data, 
-        '{sugarSettings,visibleToProviders}', 
-        $1::jsonb
-      ),
-      updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING id, username, profile_data
-    `, [JSON.stringify(visible), userId]);
+    const currentSugarSettings = userDoc.profileData?.sugarSettings || {};
+    const updatedSugarSettings = { ...currentSugarSettings, visibleToProviders: visible };
+    
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { 
+        'profileData.sugarSettings': updatedSugarSettings,
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).select('username profileData');
 
     res.json({
       success: true,
       message: `Profile visibility ${visible ? 'enabled' : 'disabled'} for providers`,
       visibleToProviders: visible,
-      user: updateResult.rows[0]
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        profile_data: updatedUser.profileData
+      }
     });
 
   } catch (error) {
@@ -684,16 +734,13 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     const { preferredAgeRange, preferredGender } = req.body;
 
     // Get user's account type
-    const userResult = await query(`
-      SELECT profile_data->>'accountType' as account_type, profile_data
-      FROM users WHERE id = $1
-    `, [userId]);
+    const userDoc = await User.findById(userId).select('profileData');
 
-    if (userResult.rows.length === 0) {
+    if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userResult.rows[0].account_type;
+    const accountType = userDoc.profileData?.accountType;
     
     // Only sugar accounts can update these preferences
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
@@ -703,7 +750,7 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     }
 
     // Build the update object
-    const currentProfileData = userResult.rows[0].profile_data || {};
+    const currentProfileData = userDoc.profileData || {};
     const currentSugarSettings = currentProfileData.sugarSettings || {};
     
     const updatedSugarSettings = {
@@ -713,23 +760,24 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     };
 
     // Update the sugarSettings
-    const updateResult = await query(`
-      UPDATE users 
-      SET profile_data = jsonb_set(
-        profile_data, 
-        '{sugarSettings}', 
-        $1::jsonb
-      ),
-      updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING id, username, profile_data
-    `, [JSON.stringify(updatedSugarSettings), userId]);
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { 
+        'profileData.sugarSettings': updatedSugarSettings,
+        updatedAt: new Date()
+      },
+      { new: true }
+    ).select('username profileData');
 
     res.json({
       success: true,
       message: 'Sugar preferences updated successfully',
       sugarSettings: updatedSugarSettings,
-      user: updateResult.rows[0]
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        profile_data: updatedUser.profileData
+      }
     });
 
   } catch (error) {
@@ -751,16 +799,13 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     // Get user's account type
-    const userResult = await query(`
-      SELECT profile_data->>'accountType' as account_type
-      FROM users WHERE id = $1
-    `, [userId]);
+    const userDoc = await User.findById(userId).select('profileData');
 
-    if (userResult.rows.length === 0) {
+    if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userResult.rows[0].account_type;
+    const accountType = userDoc.profileData?.accountType;
     
     // Only providers need sugar access
     if (accountType !== 'provider') {
@@ -773,27 +818,20 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
     }
 
     // Check for active sugar access payments
-    const accessResult = await query(`
-      SELECT 
-        access_type,
-        access_starts_at,
-        access_expires_at,
-        payment_status
-      FROM sugar_access_payments
-      WHERE provider_id = $1 
-        AND payment_status = 'completed'
-        AND access_expires_at > CURRENT_TIMESTAMP
-      ORDER BY access_expires_at DESC
-    `, [userId]);
+    const accessRecords = await SugarAccessPayment.find({
+      providerId: userId,
+      paymentStatus: 'completed',
+      accessExpiresAt: { $gt: new Date() }
+    }).sort({ accessExpiresAt: -1 });
 
-    const hasAccess = accessResult.rows.reduce((acc, row) => {
-      if (row.access_type === 'sugar_daddy' || row.access_type === 'both') {
+    const hasAccess = accessRecords.reduce((acc, record) => {
+      if (record.accessType === 'sugar_daddy' || record.accessType === 'both') {
         acc.hasSugarDaddyAccess = true;
-        acc.sugarDaddyExpiresAt = row.access_expires_at;
+        acc.sugarDaddyExpiresAt = record.accessExpiresAt;
       }
-      if (row.access_type === 'sugar_mommy' || row.access_type === 'both') {
+      if (record.accessType === 'sugar_mommy' || record.accessType === 'both') {
         acc.hasSugarMommyAccess = true;
-        acc.sugarMommyExpiresAt = row.access_expires_at;
+        acc.sugarMommyExpiresAt = record.accessExpiresAt;
       }
       return acc;
     }, { hasSugarDaddyAccess: false, hasSugarMommyAccess: false });
@@ -801,7 +839,12 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       ...hasAccess,
-      accessRecords: accessResult.rows
+      accessRecords: accessRecords.map(r => ({
+        access_type: r.accessType,
+        access_starts_at: r.accessStartsAt,
+        access_expires_at: r.accessExpiresAt,
+        payment_status: r.paymentStatus
+      }))
     });
 
   } catch (error) {
@@ -825,16 +868,13 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Get user's account type
-    const userResult = await query(`
-      SELECT profile_data->>'accountType' as account_type
-      FROM users WHERE id = $1
-    `, [userId]);
+    const userDoc = await User.findById(userId).select('profileData');
 
-    if (userResult.rows.length === 0) {
+    if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userResult.rows[0].account_type;
+    const accountType = userDoc.profileData?.accountType;
     
     // Only providers can access this endpoint (they need to pay)
     if (accountType !== 'provider') {
@@ -844,14 +884,13 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     }
 
     // Check for active sugar access
-    const accessResult = await query(`
-      SELECT access_type FROM sugar_access_payments
-      WHERE provider_id = $1 
-        AND payment_status = 'completed'
-        AND access_expires_at > CURRENT_TIMESTAMP
-    `, [userId]);
+    const accessRecords = await SugarAccessPayment.find({
+      providerId: userId,
+      paymentStatus: 'completed',
+      accessExpiresAt: { $gt: new Date() }
+    });
 
-    if (accessResult.rows.length === 0) {
+    if (accessRecords.length === 0) {
       return res.status(403).json({
         error: 'Sugar access required',
         message: 'You need to purchase sugar access to view these profiles',
@@ -860,17 +899,17 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     }
 
     // Determine what access types the provider has
-    const accessTypes = accessResult.rows.map(r => r.access_type);
+    const accessTypes = accessRecords.map(r => r.accessType);
     const hasDaddyAccess = accessTypes.includes('sugar_daddy') || accessTypes.includes('both');
     const hasMommyAccess = accessTypes.includes('sugar_mommy') || accessTypes.includes('both');
 
     // Build query based on access and requested type
     let accountTypeFilter = [];
     if ((type === 'all' || type === 'sugar_daddy') && hasDaddyAccess) {
-      accountTypeFilter.push("'sugar_daddy'");
+      accountTypeFilter.push('sugar_daddy');
     }
     if ((type === 'all' || type === 'sugar_mommy') && hasMommyAccess) {
-      accountTypeFilter.push("'sugar_mommy'");
+      accountTypeFilter.push('sugar_mommy');
     }
 
     if (accountTypeFilter.length === 0) {
@@ -882,44 +921,39 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     }
 
     // Fetch sugar profiles that are visible to providers
-    const profilesResult = await query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.profile_data,
-        u.verification_tier,
-        u.reputation_score,
-        u.created_at,
-        u.last_active
-      FROM users u
-      WHERE u.profile_data->>'accountType' IN (${accountTypeFilter.join(',')})
-        AND u.verification_tier >= 2  -- Only well-verified users
-        AND (u.profile_data->'sugarSettings'->>'visibleToProviders')::boolean = true
-      ORDER BY u.last_active DESC
-      LIMIT $1 OFFSET $2
-    `, [limit, offset]);
+    const profiles = await User.find({
+      'profileData.accountType': { $in: accountTypeFilter },
+      verificationTier: { $gte: 2 },
+      'profileData.sugarSettings.visibleToProviders': true
+    })
+    .sort({ lastActive: -1 })
+    .skip(parseInt(offset))
+    .limit(parseInt(limit))
+    .select('username profileData verificationTier reputationScore createdAt lastActive');
 
     // Get total count
-    const countResult = await query(`
-      SELECT COUNT(*) as total
-      FROM users u
-      WHERE u.profile_data->>'accountType' IN (${accountTypeFilter.join(',')})
-        AND u.verification_tier >= 2
-        AND (u.profile_data->'sugarSettings'->>'visibleToProviders')::boolean = true
-    `);
+    const total = await User.countDocuments({
+      'profileData.accountType': { $in: accountTypeFilter },
+      verificationTier: { $gte: 2 },
+      'profileData.sugarSettings.visibleToProviders': true
+    });
 
     res.json({
       success: true,
-      profiles: profilesResult.rows.map(p => ({
-        ...p,
-        // Sanitize sensitive data
+      profiles: profiles.map(p => ({
+        id: p._id,
+        username: p.username,
         profile_data: {
-          ...p.profile_data,
+          ...p.profileData,
           registration_ip: undefined,
           registration_user_agent: undefined
-        }
+        },
+        verification_tier: p.verificationTier,
+        reputation_score: p.reputationScore,
+        created_at: p.createdAt,
+        last_active: p.lastActive
       })),
-      total: parseInt(countResult.rows[0].total),
+      total,
       page: parseInt(page),
       limit: parseInt(limit),
       hasSugarDaddyAccess: hasDaddyAccess,

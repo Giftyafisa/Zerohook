@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+const { UserSession, UserPresence, User, UserActivityLog, UserEngagementMetric, UserEngagementEvent, isDatabaseAvailable } = require('../config/database');
 const crypto = require('crypto');
 
 class UserActivityMonitor {
@@ -39,24 +39,34 @@ class UserActivityMonitor {
    */
   async createUserSession(userId, socketId, ipAddress, userAgent) {
     try {
+      if (!isDatabaseAvailable()) {
+        console.log('⚠️ Database not available for createUserSession');
+        const sessionToken = crypto.randomBytes(32).toString('hex');
+        this.activeSessions.set(sessionToken, {
+          userId, socketId, ipAddress, userAgent, expiresAt: new Date(Date.now() + this.sessionTimeout), lastActivity: new Date()
+        });
+        return sessionToken;
+      }
+
       const sessionToken = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + this.sessionTimeout);
       
-      const result = await query(`
-        INSERT INTO user_sessions (
-          user_id, session_token, socket_id, ip_address, user_agent, expires_at
-        ) VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, created_at
-      `, [userId, sessionToken, socketId, ipAddress, userAgent, expiresAt]);
-
-      const session = result.rows[0];
+      const session = await UserSession.create({
+        userId,
+        sessionToken,
+        socketId,
+        ipAddress,
+        userAgent,
+        expiresAt,
+        isActive: true
+      });
       
       // Update user presence to online
       await this.updateUserPresence(userId, 'online', socketId);
       
       // Track in memory for quick access
       this.activeSessions.set(sessionToken, {
-        id: session.id,
+        id: session._id,
         userId,
         socketId,
         ipAddress,
@@ -78,38 +88,38 @@ class UserActivityMonitor {
    */
   async updateUserPresence(userId, status, socketId = null) {
     try {
+      if (!isDatabaseAvailable()) {
+        console.log('⚠️ Database not available for updateUserPresence');
+        return null;
+      }
+
       const now = new Date();
       
-      // Update or create presence record
-      const result = await query(`
-        INSERT INTO user_presence (user_id, status, last_seen, updated_at)
-        VALUES ($1, $2, $3, $3)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET 
-          status = EXCLUDED.status,
-          last_seen = EXCLUDED.last_seen,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `, [userId, status, now]);
+      // Update or create presence record using upsert
+      await UserPresence.findOneAndUpdate(
+        { userId },
+        { 
+          userId,
+          status, 
+          lastSeen: now, 
+          updatedAt: now 
+        },
+        { upsert: true, new: true }
+      );
 
       // Update users table last_active
-      await query(`
-        UPDATE users 
-        SET last_active = $1 
-        WHERE id = $2
-      `, [now, userId]);
+      await User.findByIdAndUpdate(userId, { lastActive: now });
 
       // Update session if socketId provided
       if (socketId) {
-        await query(`
-          UPDATE user_sessions 
-          SET socket_id = $1, last_activity = $2
-          WHERE user_id = $3 AND is_active = true
-        `, [socketId, now, userId]);
+        await UserSession.updateMany(
+          { userId, isActive: true },
+          { socketId, lastActivity: now }
+        );
       }
 
       console.log(`✅ User ${userId} presence updated to: ${status}`);
-      return result.rows[0];
+      return { userId, status };
     } catch (error) {
       console.error('Error updating user presence:', error);
       throw error;
@@ -121,6 +131,11 @@ class UserActivityMonitor {
    */
   async logUserActivity(userId, actionData) {
     try {
+      if (!isDatabaseAvailable()) {
+        console.log('⚠️ Database not available for logUserActivity');
+        return;
+      }
+
       const {
         actionType,
         actionData: data,
@@ -131,19 +146,22 @@ class UserActivityMonitor {
         errorMessage = null
       } = actionData;
 
-      await query(`
-        INSERT INTO user_activity_logs (
-          user_id, action_type, action_data, ip_address, user_agent,
-          response_time_ms, success, error_message
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [userId, actionType, JSON.stringify(data), ipAddress, userAgent, responseTimeMs, success, errorMessage]);
+      await UserActivityLog.create({
+        userId,
+        actionType,
+        actionData: data,
+        ipAddress,
+        userAgent,
+        responseTimeMs,
+        success,
+        errorMessage
+      });
 
       // Update session last activity
-      await query(`
-        UPDATE user_sessions 
-        SET last_activity = CURRENT_TIMESTAMP
-        WHERE user_id = $1 AND is_active = true
-      `, [userId]);
+      await UserSession.updateMany(
+        { userId, isActive: true },
+        { lastActivity: new Date() }
+      );
 
       // Update user engagement metrics
       await this.updateEngagementMetrics(userId, actionType);
@@ -160,11 +178,15 @@ class UserActivityMonitor {
    */
   async updateTypingStatus(userId, isTyping, conversationId = null) {
     try {
-      await query(`
-        UPDATE user_presence 
-        SET is_typing = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $2
-      `, [isTyping, userId]);
+      if (!isDatabaseAvailable()) {
+        console.log('⚠️ Database not available for updateTypingStatus');
+        return;
+      }
+
+      await UserPresence.findOneAndUpdate(
+        { userId },
+        { isTyping, updatedAt: new Date() }
+      );
 
       console.log(`✅ User ${userId} typing status: ${isTyping}`);
     } catch (error) {
@@ -177,11 +199,15 @@ class UserActivityMonitor {
    */
   async updateUserPage(userId, page) {
     try {
-      await query(`
-        UPDATE user_presence 
-        SET current_page = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $2
-      `, [page, userId]);
+      if (!isDatabaseAvailable()) {
+        console.log('⚠️ Database not available for updateUserPage');
+        return;
+      }
+
+      await UserPresence.findOneAndUpdate(
+        { userId },
+        { currentPage: page, updatedAt: new Date() }
+      );
 
       console.log(`✅ User ${userId} page updated: ${page}`);
     } catch (error) {
@@ -194,22 +220,21 @@ class UserActivityMonitor {
    */
   async getUserPresence(userId) {
     try {
-      const result = await query(`
-        SELECT status, last_seen, is_typing, current_page
-        FROM user_presence 
-        WHERE user_id = $1
-      `, [userId]);
-
-      if (result.rows.length === 0) {
+      if (!isDatabaseAvailable()) {
         return { status: 'offline', lastSeen: null, isTyping: false, currentPage: null };
       }
 
-      const presence = result.rows[0];
+      const presence = await UserPresence.findOne({ userId });
+
+      if (!presence) {
+        return { status: 'offline', lastSeen: null, isTyping: false, currentPage: null };
+      }
+
       return {
         status: presence.status,
-        lastSeen: presence.last_seen,
-        isTyping: presence.is_typing,
-        currentPage: presence.current_page
+        lastSeen: presence.lastSeen,
+        isTyping: presence.isTyping,
+        currentPage: presence.currentPage
       };
     } catch (error) {
       console.error('Error getting user presence:', error);
@@ -222,13 +247,17 @@ class UserActivityMonitor {
    */
   async getOnlineUsersCount() {
     try {
-      const result = await query(`
-        SELECT COUNT(*) as count
-        FROM user_presence 
-        WHERE status = 'online' AND last_seen > NOW() - INTERVAL '5 minutes'
-      `);
+      if (!isDatabaseAvailable()) {
+        return 0;
+      }
 
-      return parseInt(result.rows[0].count);
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const count = await UserPresence.countDocuments({
+        status: 'online',
+        lastSeen: { $gt: fiveMinutesAgo }
+      });
+
+      return count;
     } catch (error) {
       console.error('Error getting online users count:', error);
       return 0;
@@ -240,15 +269,24 @@ class UserActivityMonitor {
    */
   async getUserSessions(userId) {
     try {
-      const result = await query(`
-        SELECT id, session_token, socket_id, ip_address, user_agent, 
-               last_activity, is_active, expires_at, created_at
-        FROM user_sessions 
-        WHERE user_id = $1 AND is_active = true
-        ORDER BY created_at DESC
-      `, [userId]);
+      if (!isDatabaseAvailable()) {
+        return [];
+      }
 
-      return result.rows;
+      const sessions = await UserSession.find({ userId, isActive: true })
+        .sort({ createdAt: -1 });
+
+      return sessions.map(s => ({
+        id: s._id,
+        sessionToken: s.sessionToken,
+        socketId: s.socketId,
+        ipAddress: s.ipAddress,
+        userAgent: s.userAgent,
+        lastActivity: s.lastActivity,
+        isActive: s.isActive,
+        expiresAt: s.expiresAt,
+        createdAt: s.createdAt
+      }));
     } catch (error) {
       console.error('Error getting user sessions:', error);
       return [];
@@ -260,32 +298,34 @@ class UserActivityMonitor {
    */
   async validateSession(sessionToken) {
     try {
-      const result = await query(`
-        SELECT us.*, u.username, u.email
-        FROM user_sessions us
-        JOIN users u ON us.user_id = u.id
-        WHERE us.session_token = $1 AND us.is_active = true AND us.expires_at > NOW()
-      `, [sessionToken]);
-
-      if (result.rows.length === 0) {
+      if (!isDatabaseAvailable()) {
         return null;
       }
 
-      const session = result.rows[0];
-      
+      const session = await UserSession.findOne({
+        sessionToken,
+        isActive: true,
+        expiresAt: { $gt: new Date() }
+      });
+
+      if (!session) {
+        return null;
+      }
+
+      const user = await User.findById(session.userId);
+      if (!user) {
+        return null;
+      }
+
       // Update last activity
-      await query(`
-        UPDATE user_sessions 
-        SET last_activity = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [session.id]);
+      await UserSession.findByIdAndUpdate(session._id, { lastActivity: new Date() });
 
       return {
-        userId: session.user_id,
-        username: session.username,
-        email: session.email,
-        sessionId: session.id,
-        socketId: session.socket_id
+        userId: session.userId,
+        username: user.username,
+        email: user.email,
+        sessionId: session._id,
+        socketId: session.socketId
       };
     } catch (error) {
       console.error('Error validating session:', error);
@@ -298,11 +338,15 @@ class UserActivityMonitor {
    */
   async invalidateSession(sessionToken) {
     try {
-      await query(`
-        UPDATE user_sessions 
-        SET is_active = false
-        WHERE session_token = $1
-      `, [sessionToken]);
+      if (!isDatabaseAvailable()) {
+        this.activeSessions.delete(sessionToken);
+        return;
+      }
+
+      await UserSession.findOneAndUpdate(
+        { sessionToken },
+        { isActive: false }
+      );
 
       // Remove from memory
       this.activeSessions.delete(sessionToken);
@@ -318,31 +362,26 @@ class UserActivityMonitor {
    */
   async updateEngagementMetrics(userId, actionType) {
     try {
-      // Get or create engagement metrics
-      let result = await query(`
-        SELECT id FROM user_engagement_metrics WHERE user_id = $1
-      `, [userId]);
-
-      if (result.rows.length === 0) {
-        // Create new engagement metrics
-        await query(`
-          INSERT INTO user_engagement_metrics (user_id, last_engagement_date)
-          VALUES ($1, CURRENT_DATE)
-        `, [userId]);
-      } else {
-        // Update last engagement date
-        await query(`
-          UPDATE user_engagement_metrics 
-          SET last_engagement_date = CURRENT_DATE
-          WHERE user_id = $1
-        `, [userId]);
+      if (!isDatabaseAvailable()) {
+        return;
       }
 
+      // Get or create engagement metrics using upsert
+      await UserEngagementMetric.findOneAndUpdate(
+        { userId },
+        { 
+          userId,
+          lastEngagementDate: new Date()
+        },
+        { upsert: true }
+      );
+
       // Log engagement event
-      await query(`
-        INSERT INTO user_engagement_events (user_id, event_type, event_metadata)
-        VALUES ($1, $2, $3)
-      `, [userId, actionType, JSON.stringify({ timestamp: new Date().toISOString() })]);
+      await UserEngagementEvent.create({
+        userId,
+        eventType: actionType,
+        eventMetadata: { timestamp: new Date().toISOString() }
+      });
 
     } catch (error) {
       console.error('Error updating engagement metrics:', error);
@@ -354,21 +393,31 @@ class UserActivityMonitor {
    */
   async cleanupExpiredSessions() {
     try {
-      const result = await query(`
-        UPDATE user_sessions 
-        SET is_active = false
-        WHERE expires_at < NOW() AND is_active = true
-        RETURNING id, user_id
-      `);
+      if (!isDatabaseAvailable()) {
+        console.log('⚠️ Database not available for cleanupExpiredSessions');
+        return;
+      }
 
-      if (result.rows.length > 0) {
-        console.log(`🧹 Cleaned up ${result.rows.length} expired sessions`);
+      // Find expired sessions before updating
+      const expiredSessions = await UserSession.find({
+        expiresAt: { $lt: new Date() },
+        isActive: true
+      });
+
+      // Mark them as inactive
+      const result = await UserSession.updateMany(
+        { expiresAt: { $lt: new Date() }, isActive: true },
+        { isActive: false }
+      );
+
+      if (result.modifiedCount > 0) {
+        console.log(`🧹 Cleaned up ${result.modifiedCount} expired sessions`);
         
         // Update user presence to offline for users with no active sessions
-        for (const row of result.rows) {
-          const activeSessions = await this.getUserSessions(row.user_id);
+        for (const session of expiredSessions) {
+          const activeSessions = await this.getUserSessions(session.userId);
           if (activeSessions.length === 0) {
-            await this.updateUserPresence(row.user_id, 'offline');
+            await this.updateUserPresence(session.userId, 'offline');
           }
         }
       }
@@ -382,19 +431,38 @@ class UserActivityMonitor {
    */
   async getUserActivitySummary(userId, days = 7) {
     try {
-      const result = await query(`
-        SELECT 
-          action_type,
-          COUNT(*) as action_count,
-          AVG(response_time_ms) as avg_response_time,
-          COUNT(CASE WHEN success = false THEN 1 END) as error_count
-        FROM user_activity_logs 
-        WHERE user_id = $1 AND created_at > NOW() - INTERVAL '${days} days'
-        GROUP BY action_type
-        ORDER BY action_count DESC
-      `, [userId]);
+      if (!isDatabaseAvailable()) {
+        return [];
+      }
 
-      return result.rows;
+      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      
+      const summary = await UserActivityLog.aggregate([
+        { 
+          $match: { 
+            userId: userId,
+            createdAt: { $gt: startDate } 
+          } 
+        },
+        {
+          $group: {
+            _id: '$actionType',
+            actionCount: { $sum: 1 },
+            avgResponseTime: { $avg: '$responseTimeMs' },
+            errorCount: { 
+              $sum: { $cond: [{ $eq: ['$success', false] }, 1, 0] } 
+            }
+          }
+        },
+        { $sort: { actionCount: -1 } }
+      ]);
+
+      return summary.map(s => ({
+        action_type: s._id,
+        action_count: s.actionCount,
+        avg_response_time: s.avgResponseTime,
+        error_count: s.errorCount
+      }));
     } catch (error) {
       console.error('Error getting user activity summary:', error);
       return [];
@@ -406,25 +474,18 @@ class UserActivityMonitor {
    */
   async getUserStatus(userId) {
     try {
-      const result = await query(`
-        SELECT 
-          up.status,
-          up.last_seen,
-          CASE 
-            WHEN us.user_id IS NOT NULL AND us.is_active = true THEN true
-            ELSE false
-          END as is_online
-        FROM user_presence up
-        LEFT JOIN user_sessions us ON up.user_id = us.user_id AND us.is_active = true
-        WHERE up.user_id = $1
-      `, [userId]);
+      if (!isDatabaseAvailable()) {
+        return { status: 'offline', lastSeen: null, isOnline: false };
+      }
 
-      if (result.rows.length > 0) {
-        const row = result.rows[0];
+      const presence = await UserPresence.findOne({ userId });
+      const activeSession = await UserSession.findOne({ userId, isActive: true });
+
+      if (presence) {
         return {
-          status: row.status || 'offline',
-          lastSeen: row.last_seen,
-          isOnline: row.is_online || false
+          status: presence.status || 'offline',
+          lastSeen: presence.lastSeen,
+          isOnline: !!activeSession
         };
       }
 
@@ -449,20 +510,27 @@ class UserActivityMonitor {
    */
   async getSystemActivityOverview() {
     try {
+      if (!isDatabaseAvailable()) {
+        return {
+          onlineUsers: 0,
+          totalSessions: 0,
+          recentActivity: 0,
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      
       const [onlineUsers, totalSessions, recentActivity] = await Promise.all([
         this.getOnlineUsersCount(),
-        query('SELECT COUNT(*) as count FROM user_sessions WHERE is_active = true'),
-        query(`
-          SELECT COUNT(*) as count 
-          FROM user_activity_logs 
-          WHERE created_at > NOW() - INTERVAL '1 hour'
-        `)
+        UserSession.countDocuments({ isActive: true }),
+        UserActivityLog.countDocuments({ createdAt: { $gt: oneHourAgo } })
       ]);
 
       return {
         onlineUsers,
-        totalSessions: parseInt(totalSessions.rows[0].count),
-        recentActivity: parseInt(recentActivity.rows[0].count),
+        totalSessions,
+        recentActivity,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -485,12 +553,16 @@ class UserActivityMonitor {
         clearInterval(this.cleanupInterval);
       }
       
+      if (!isDatabaseAvailable()) {
+        console.log('✅ UserActivityMonitor shutdown completed (no DB connection)');
+        return;
+      }
+
       // Mark all sessions as inactive
-      await query(`
-        UPDATE user_sessions 
-        SET is_active = false
-        WHERE is_active = true
-      `);
+      await UserSession.updateMany(
+        { isActive: true },
+        { isActive: false }
+      );
       
       console.log('✅ UserActivityMonitor shutdown completed');
     } catch (error) {

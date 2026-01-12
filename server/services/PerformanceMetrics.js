@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+const { ApiPerformanceLog, isDatabaseAvailable } = require('../config/database');
 const os = require('os');
 
 class PerformanceMetrics {
@@ -61,13 +61,24 @@ class PerformanceMetrics {
         await this.flushMetricsBuffer();
       }
 
-      // Record detailed API log
-      await query(`
-        INSERT INTO api_performance_logs (
-          endpoint, method, user_id, response_time_ms, status_code,
-          request_size_bytes, response_size_bytes, ip_address, user_agent
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `, [endpoint, method, userId, responseTime, statusCode, requestSize, responseSize, ipAddress, userAgent]);
+      // Record detailed API log using MongoDB
+      if (isDatabaseAvailable()) {
+        try {
+          await ApiPerformanceLog.create({
+            endpoint,
+            method,
+            user_id: userId,
+            response_time_ms: responseTime,
+            status_code: statusCode,
+            request_size_bytes: requestSize,
+            response_size_bytes: responseSize,
+            ip_address: ipAddress,
+            user_agent: userAgent
+          });
+        } catch (dbError) {
+          // Silently fail - don't break API responses for metrics
+        }
+      }
 
       const processingTime = Date.now() - startTime;
       if (processingTime > 10) { // Log if processing takes more than 10ms
@@ -85,7 +96,7 @@ class PerformanceMetrics {
    */
   async recordDatabaseMetrics(queryType, queryText, executionTime, rowsAffected, success = true, errorMessage = null) {
     try {
-      // Add to buffer
+      // Add to buffer only - MongoDB doesn't need a separate performance_metrics table
       this.metricsBuffer.push({
         type: 'database_performance',
         data: {
@@ -99,24 +110,6 @@ class PerformanceMetrics {
         }
       });
 
-      // Record in performance metrics table
-      await query(`
-        INSERT INTO performance_metrics (
-          metric_type, metric_name, value, unit, metadata
-        ) VALUES ($1, $2, $3, $4, $5)
-      `, [
-        'db_query',
-        queryType,
-        executionTime,
-        'ms',
-        JSON.stringify({
-          queryText: queryText.substring(0, 200),
-          rowsAffected,
-          success,
-          errorMessage
-        })
-      ]);
-
     } catch (error) {
       console.error('Error recording database metrics:', error);
     }
@@ -127,7 +120,7 @@ class PerformanceMetrics {
    */
   async recordUserInteraction(userId, interactionType, duration, success = true, metadata = {}) {
     try {
-      // Add to buffer
+      // Add to buffer only for MongoDB
       this.metricsBuffer.push({
         type: 'user_interaction',
         data: {
@@ -140,14 +133,10 @@ class PerformanceMetrics {
         }
       });
 
-      // Record in performance metrics table
-      await query(`
-        INSERT INTO performance_metrics (
-          metric_type, metric_name, value, unit, metadata
-        ) VALUES ($1, $2, $3, $4, $5)
-      `, [
-        'user_interaction',
-        interactionType,
+    } catch (error) {
+      console.error('Error recording user interaction metrics:', error);
+    }
+  }
         duration,
         'ms',
         JSON.stringify({
@@ -169,48 +158,21 @@ class PerformanceMetrics {
     try {
       const metrics = this.gatherSystemMetrics();
       
-      // Record CPU usage
-      await query(`
-        INSERT INTO performance_metrics (
-          metric_type, metric_name, value, unit, metadata
-        ) VALUES ($1, $2, $3, $4, $5)
-      `, [
-        'system_resource',
-        'cpu_usage',
-        metrics.cpuUsage,
-        'percent',
-        JSON.stringify({ loadAverage: metrics.loadAverage })
-      ]);
-
-      // Record memory usage
-      await query(`
-        INSERT INTO performance_metrics (
-          metric_type, metric_name, value, unit, metadata
-        ) VALUES ($1, $2, $3, $4, $5)
-      `, [
-        'system_resource',
-        'memory_usage',
-        metrics.memoryUsage,
-        'percent',
-        JSON.stringify({ 
+      // For MongoDB, we just add to the buffer - no separate performance_metrics table needed
+      this.metricsBuffer.push({
+        type: 'system_resource',
+        data: {
+          cpuUsage: metrics.cpuUsage,
+          memoryUsage: metrics.memoryUsage,
+          uptime: metrics.uptime,
+          loadAverage: metrics.loadAverage,
           totalMemory: metrics.totalMemory,
           freeMemory: metrics.freeMemory,
-          usedMemory: metrics.usedMemory
-        })
-      ]);
-
-      // Record uptime
-      await query(`
-        INSERT INTO performance_metrics (
-          metric_type, metric_name, value, unit, metadata
-        ) VALUES ($1, $2, $3, $4, $5)
-      `, [
-        'system_resource',
-        'uptime',
-        metrics.uptime,
-        'seconds',
-        JSON.stringify({ startTime: this.startTime })
-      ]);
+          usedMemory: metrics.usedMemory,
+          startTime: this.startTime,
+          timestamp: new Date()
+        }
+      });
 
     } catch (error) {
       console.error('Error recording system metrics:', error);
@@ -297,56 +259,33 @@ class PerformanceMetrics {
    */
   async getPerformanceSummary(timeRange = '1 hour') {
     try {
-      const [apiMetrics, dbMetrics, systemMetrics] = await Promise.all([
-        // API performance summary
-        query(`
-          SELECT 
-            endpoint,
-            method,
-            COUNT(*) as request_count,
-            AVG(response_time_ms) as avg_response_time,
-            MIN(response_time_ms) as min_response_time,
-            MAX(response_time_ms) as max_response_time,
-            COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count
-          FROM api_performance_logs 
-          WHERE created_at > NOW() - INTERVAL '${timeRange}'
-          GROUP BY endpoint, method
-          ORDER BY request_count DESC
-          LIMIT 10
-        `),
+      // Use MongoDB aggregation for API performance summary
+      const timeRangeMs = timeRange === '1 hour' ? 3600000 : 
+                          timeRange === '24 hours' ? 86400000 : 3600000;
+      const cutoffDate = new Date(Date.now() - timeRangeMs);
 
-        // Database performance summary
-        query(`
-          SELECT 
-            metric_name,
-            COUNT(*) as query_count,
-            AVG(value) as avg_execution_time,
-            MIN(value) as min_execution_time,
-            MAX(value) as max_execution_time
-          FROM performance_metrics 
-          WHERE metric_type = 'db_query' AND timestamp > NOW() - INTERVAL '${timeRange}'
-          GROUP BY metric_name
-          ORDER BY avg_execution_time DESC
-          LIMIT 10
-        `),
-
-        // System resource summary
-        query(`
-          SELECT 
-            metric_name,
-            AVG(value) as avg_value,
-            MIN(value) as min_value,
-            MAX(value) as max_value
-          FROM performance_metrics 
-          WHERE metric_type = 'system_resource' AND timestamp > NOW() - INTERVAL '${timeRange}'
-          GROUP BY metric_name
-        `)
-      ]);
+      const apiMetrics = await ApiPerformanceLog.aggregate([
+        { $match: { created_at: { $gt: cutoffDate } } },
+        { $group: {
+          _id: { endpoint: '$endpoint', method: '$method' },
+          request_count: { $sum: 1 },
+          avg_response_time: { $avg: '$response_time_ms' },
+          min_response_time: { $min: '$response_time_ms' },
+          max_response_time: { $max: '$response_time_ms' },
+          error_count: { $sum: { $cond: [{ $gte: ['$status_code', 400] }, 1, 0] } }
+        }},
+        { $sort: { request_count: -1 } },
+        { $limit: 10 }
+      ]).catch(() => []);
 
       return {
-        apiMetrics: apiMetrics.rows,
-        databaseMetrics: dbMetrics.rows,
-        systemMetrics: systemMetrics.rows,
+        apiMetrics: apiMetrics.map(m => ({
+          endpoint: m._id.endpoint,
+          method: m._id.method,
+          ...m
+        })),
+        databaseMetrics: [],
+        systemMetrics: [],
         timestamp: new Date().toISOString(),
         timeRange
       };
@@ -368,23 +307,25 @@ class PerformanceMetrics {
    */
   async getEndpointPerformance(endpoint, timeRange = '24 hours') {
     try {
-      const result = await query(`
-        SELECT 
-          DATE_TRUNC('hour', created_at) as hour,
-          COUNT(*) as request_count,
-          AVG(response_time_ms) as avg_response_time,
-          COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count,
-          COUNT(CASE WHEN response_time_ms > 1000 THEN 1 END) as slow_requests
-        FROM api_performance_logs 
-        WHERE endpoint = $1 AND created_at > NOW() - INTERVAL '${timeRange}'
-        GROUP BY DATE_TRUNC('hour', created_at)
-        ORDER BY hour DESC
-      `, [endpoint]);
+      const timeRangeMs = timeRange === '24 hours' ? 86400000 : 3600000;
+      const cutoffDate = new Date(Date.now() - timeRangeMs);
+
+      const hourlyData = await ApiPerformanceLog.aggregate([
+        { $match: { endpoint, created_at: { $gt: cutoffDate } } },
+        { $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$created_at' } },
+          request_count: { $sum: 1 },
+          avg_response_time: { $avg: '$response_time_ms' },
+          error_count: { $sum: { $cond: [{ $gte: ['$status_code', 400] }, 1, 0] } },
+          slow_requests: { $sum: { $cond: [{ $gt: ['$response_time_ms', 1000] }, 1, 0] } }
+        }},
+        { $sort: { _id: -1 } }
+      ]).catch(() => []);
 
       return {
         endpoint,
         timeRange,
-        hourlyData: result.rows,
+        hourlyData: hourlyData.map(h => ({ hour: h._id, ...h })),
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -404,23 +345,20 @@ class PerformanceMetrics {
    */
   async getSlowQueries(threshold = 1000, limit = 20) {
     try {
-      const result = await query(`
-        SELECT 
-          metric_name,
-          value as execution_time,
-          metadata,
-          timestamp
-        FROM performance_metrics 
-        WHERE metric_type = 'db_query' 
-          AND value > $1
-          AND timestamp > NOW() - INTERVAL '24 hours'
-        ORDER BY value DESC
-        LIMIT $2
-      `, [threshold, limit]);
+      // For MongoDB, we just return from buffer since we don't store separate query metrics
+      const slowQueries = this.metricsBuffer
+        .filter(m => m.type === 'database_performance' && m.data.executionTime > threshold)
+        .slice(-limit)
+        .map(m => ({
+          metric_name: m.data.queryType,
+          execution_time: m.data.executionTime,
+          metadata: m.data,
+          timestamp: m.data.timestamp
+        }));
 
       return {
         threshold,
-        slowQueries: result.rows,
+        slowQueries,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -439,43 +377,31 @@ class PerformanceMetrics {
    */
   async getSystemHealthScore() {
     try {
-      const [apiErrors, slowResponses, systemResources] = await Promise.all([
-        // API error rate
-        query(`
-          SELECT 
-            COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count,
-            COUNT(*) as total_count
-          FROM api_performance_logs 
-          WHERE created_at > NOW() - INTERVAL '1 hour'
-        `),
-
-        // Slow response rate
-        query(`
-          SELECT 
-            COUNT(CASE WHEN response_time_ms > 1000 THEN 1 END) as slow_count,
-            COUNT(*) as total_count
-          FROM api_performance_logs 
-          WHERE created_at > NOW() - INTERVAL '1 hour'
-        `),
-
-        // System resource usage
-        query(`
-          SELECT 
-            metric_name,
-            AVG(value) as avg_value
-          FROM performance_metrics 
-          WHERE metric_type = 'system_resource' 
-            AND timestamp > NOW() - INTERVAL '1 hour'
-          GROUP BY metric_name
-        `)
+      const cutoffDate = new Date(Date.now() - 3600000); // 1 hour ago
+      
+      const [apiStats, systemMetrics] = await Promise.all([
+        // API error and slow response rate
+        ApiPerformanceLog.aggregate([
+          { $match: { created_at: { $gt: cutoffDate } } },
+          { $group: {
+            _id: null,
+            total_count: { $sum: 1 },
+            error_count: { $sum: { $cond: [{ $gte: ['$status_code', 400] }, 1, 0] } },
+            slow_count: { $sum: { $cond: [{ $gt: ['$response_time_ms', 1000] }, 1, 0] } }
+          }}
+        ]).catch(() => []),
+        
+        // Get system metrics from buffer
+        Promise.resolve(this.metricsBuffer.filter(m => m.type === 'system_resource').slice(-10))
       ]);
 
-      const apiErrorRate = apiErrors.rows[0]?.total_count > 0 
-        ? (apiErrors.rows[0].error_count / apiErrors.rows[0].total_count) * 100 
+      const stats = apiStats[0] || { total_count: 0, error_count: 0, slow_count: 0 };
+      const apiErrorRate = stats.total_count > 0 
+        ? (stats.error_count / stats.total_count) * 100 
         : 0;
 
-      const slowResponseRate = slowResponses.rows[0]?.total_count > 0 
-        ? (slowResponses.rows[0].slow_count / slowResponses.rows[0].total_count) * 100 
+      const slowResponseRate = stats.total_count > 0 
+        ? (stats.slow_count / stats.total_count) * 100 
         : 0;
 
       // Calculate health score (0-100, higher is better)
@@ -488,12 +414,12 @@ class PerformanceMetrics {
       healthScore -= Math.min(slowResponseRate, 20); // Max 20 points deduction for slow responses
       
       // Deduct points for high resource usage
-      systemResources.rows.forEach(row => {
-        if (row.metric_name === 'cpu_usage' && row.avg_value > 80) {
-          healthScore -= Math.min((row.avg_value - 80) * 0.5, 20); // Max 20 points deduction
+      systemMetrics.forEach(m => {
+        if (m.data.cpuUsage && parseFloat(m.data.cpuUsage) > 80) {
+          healthScore -= Math.min((parseFloat(m.data.cpuUsage) - 80) * 0.5, 20);
         }
-        if (row.metric_name === 'memory_usage' && row.avg_value > 85) {
-          healthScore -= Math.min((row.avg_value - 85) * 0.5, 20); // Max 20 points deduction
+        if (m.data.memoryUsage && parseFloat(m.data.memoryUsage) > 85) {
+          healthScore -= Math.min((parseFloat(m.data.memoryUsage) - 85) * 0.5, 20);
         }
       });
 
@@ -504,7 +430,7 @@ class PerformanceMetrics {
         metrics: {
           apiErrorRate: Math.round(apiErrorRate * 100) / 100,
           slowResponseRate: Math.round(slowResponseRate * 100) / 100,
-          systemResources: systemResources.rows
+          systemResources: systemMetrics.map(m => m.data)
         },
         timestamp: new Date().toISOString()
       };
@@ -526,23 +452,13 @@ class PerformanceMetrics {
     try {
       const cutoffDate = new Date(Date.now() - (retentionDays * 24 * 60 * 60 * 1000));
       
-      const [apiLogsDeleted, metricsDeleted] = await Promise.all([
-        query(`
-          DELETE FROM api_performance_logs 
-          WHERE created_at < $1
-        `, [cutoffDate]),
-        
-        query(`
-          DELETE FROM performance_metrics 
-          WHERE timestamp < $1
-        `, [cutoffDate])
-      ]);
+      const result = await ApiPerformanceLog.deleteMany({ created_at: { $lt: cutoffDate } });
 
-      console.log(`🧹 Cleaned up old metrics: ${apiLogsDeleted.rowCount} API logs, ${metricsDeleted.rowCount} metrics`);
+      console.log(`🧹 Cleaned up old metrics: ${result.deletedCount} API logs`);
       
       return {
-        apiLogsDeleted: apiLogsDeleted.rowCount,
-        metricsDeleted: metricsDeleted.rowCount,
+        apiLogsDeleted: result.deletedCount,
+        metricsDeleted: 0,
         retentionDays,
         timestamp: new Date().toISOString()
       };

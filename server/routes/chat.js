@@ -1,9 +1,8 @@
 const express = require('express');
-const { query } = require('../config/database');
+const { Message, Conversation, User, isDatabaseAvailable } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
-const { getClient } = require('../config/database');
 const NotificationService = require('../services/NotificationService');
 
 /**
@@ -15,17 +14,26 @@ router.get('/unread-count', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
+    if (!isDatabaseAvailable()) {
+      return res.json({ unreadCount: 0, success: false });
+    }
+
+    // Get all conversations the user is part of
+    const conversations = await Conversation.find({
+      $or: [
+        { participant1Id: userId },
+        { participant2Id: userId }
+      ]
+    }).select('_id');
+
+    const conversationIds = conversations.map(c => c._id);
+
     // Count unread messages where user is recipient (not sender)
-    const result = await query(`
-      SELECT COUNT(*) as count
-      FROM messages m
-      JOIN conversations c ON m.conversation_id = c.id
-      WHERE (c.participant1_id = $1 OR c.participant2_id = $1)
-        AND m.sender_id != $1
-        AND m.read_at IS NULL
-    `, [userId]);
-    
-    const unreadCount = parseInt(result.rows[0]?.count || 0, 10);
+    const unreadCount = await Message.countDocuments({
+      conversationId: { $in: conversationIds },
+      senderId: { $ne: userId },
+      readAt: null
+    });
     
     res.json({ 
       unreadCount,
@@ -48,50 +56,46 @@ router.get('/conversations', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
+    if (!isDatabaseAvailable()) {
+      return res.json({ conversations: [] });
+    }
+
     // Try to get conversations, return empty array if user doesn't exist or query fails
     let conversations;
     try {
-      conversations = await query(`
-        SELECT DISTINCT 
-          c.id,
-          c.participant1_id,
-          c.participant2_id,
-          c.last_message,
-          c.last_message_time,
-          c.created_at,
-          'active' as status,
-          u1.username as participant1_name,
-          u2.username as participant2_name,
-          u1.verification_tier as participant1_tier,
-          u2.verification_tier as participant2_tier,
-          u1.profile_data->>'profile_picture' as participant1_picture,
-          u2.profile_data->>'profile_picture' as participant2_picture
-        FROM conversations c
-        JOIN users u1 ON c.participant1_id = u1.id
-        JOIN users u2 ON c.participant2_id = u2.id
-        WHERE c.participant1_id = $1 OR c.participant2_id = $1
-        ORDER BY c.last_message_time DESC NULLS LAST
-      `, [userId]);
+      conversations = await Conversation.find({
+        $or: [
+          { participant1Id: userId },
+          { participant2Id: userId }
+        ]
+      })
+      .populate('participant1Id', 'username verificationTier profileData')
+      .populate('participant2Id', 'username verificationTier profileData')
+      .sort({ lastMessageTime: -1 });
     } catch (dbError) {
       console.log('Conversations query failed:', dbError.message);
-      // Return empty conversations if query fails
       return res.json({ conversations: [] });
     }
 
     res.json({
-      conversations: conversations.rows.map(conv => ({
-        id: conv.id,
-        otherUser: {
-          id: conv.participant1_id === userId ? conv.participant2_id : conv.participant1_id,
-          username: conv.participant1_id === userId ? conv.participant2_name : conv.participant1_name,
-          verificationTier: conv.participant1_id === userId ? conv.participant2_tier : conv.participant1_tier,
-          profilePicture: conv.participant1_id === userId ? conv.participant2_picture : conv.participant1_picture
-        },
-        lastMessage: conv.last_message,
-        lastMessageTime: conv.last_message_time,
-        createdAt: conv.created_at,
-        status: conv.status
-      }))
+      conversations: conversations.map(conv => {
+        const isParticipant1 = conv.participant1Id?._id?.toString() === userId;
+        const otherParticipant = isParticipant1 ? conv.participant2Id : conv.participant1Id;
+        
+        return {
+          id: conv._id,
+          otherUser: {
+            id: otherParticipant?._id,
+            username: otherParticipant?.username,
+            verificationTier: otherParticipant?.verificationTier,
+            profilePicture: otherParticipant?.profileData?.profile_picture
+          },
+          lastMessage: conv.lastMessage,
+          lastMessageTime: conv.lastMessageTime,
+          createdAt: conv.createdAt,
+          status: conv.status || 'active'
+        };
+      })
     });
 
   } catch (error) {
@@ -112,6 +116,10 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     
     console.log(`📨 Fetching messages for conversation ${conversationId}, user ${userId}`);
     
+    if (!isDatabaseAvailable()) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
     // Verify user is part of this conversation
     let isMember = false;
     try {
@@ -119,22 +127,26 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
         isMember = await req.conversationService.isMember(conversationId, userId);
       } else {
         // Fallback: check directly in database
-        const memberCheck = await query(`
-          SELECT 1 FROM conversations 
-          WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
-          LIMIT 1
-        `, [conversationId, userId]);
-        isMember = memberCheck.rows.length > 0;
+        const memberCheck = await Conversation.findOne({
+          _id: conversationId,
+          $or: [
+            { participant1Id: userId },
+            { participant2Id: userId }
+          ]
+        });
+        isMember = !!memberCheck;
       }
     } catch (memberErr) {
       console.error('Member check error:', memberErr);
       // Fallback to direct DB check
-      const memberCheck = await query(`
-        SELECT 1 FROM conversations 
-        WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
-        LIMIT 1
-      `, [conversationId, userId]);
-      isMember = memberCheck.rows.length > 0;
+      const memberCheck = await Conversation.findOne({
+        _id: conversationId,
+        $or: [
+          { participant1Id: userId },
+          { participant2Id: userId }
+        ]
+      });
+      isMember = !!memberCheck;
     }
     
     if (!isMember) {
@@ -142,35 +154,22 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Access denied to this conversation' });
     }
     
-        const messages = await query(`
-          SELECT 
-            m.id,
-            m.sender_id,
-            m.content,
-            m.message_type,
-            m.created_at,
-            m.read_at,
-            m.metadata,
-            u.username as sender_name,
-            u.verification_tier as sender_tier
-          FROM messages m
-          JOIN users u ON m.sender_id = u.id
-          WHERE m.conversation_id = $1
-          ORDER BY m.created_at ASC
-        `, [conversationId]);
+    const messages = await Message.find({ conversationId })
+      .populate('senderId', 'username verificationTier')
+      .sort({ createdAt: 1 });
     
     res.json({
-      messages: messages.rows.map(msg => ({
-        id: msg.id,
-        senderId: msg.sender_id,
-        senderName: msg.sender_name,
-        senderTier: msg.sender_tier,
+      messages: messages.map(msg => ({
+        id: msg._id,
+        senderId: msg.senderId?._id,
+        senderName: msg.senderId?.username,
+        senderTier: msg.senderId?.verificationTier,
         content: msg.content,
-        messageType: msg.message_type,
-                metadata: msg.metadata || {},
-        createdAt: msg.created_at,
-        readAt: msg.read_at,
-        isOwn: msg.sender_id === userId
+        messageType: msg.messageType,
+        metadata: msg.metadata || {},
+        createdAt: msg.createdAt,
+        readAt: msg.readAt,
+        isOwn: msg.senderId?._id?.toString() === userId
       }))
     });
 
@@ -213,12 +212,14 @@ router.post('/send', authMiddleware, [
         isMember2 = await req.conversationService.isMember(conversationId, senderId);
       } else {
         // Fallback to direct DB check
-        const memberCheck = await query(`
-          SELECT 1 FROM conversations 
-          WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
-          LIMIT 1
-        `, [conversationId, senderId]);
-        isMember2 = memberCheck.rows.length > 0;
+        const memberCheck = await Conversation.findOne({
+          _id: conversationId,
+          $or: [
+            { participant1Id: senderId },
+            { participant2Id: senderId }
+          ]
+        });
+        isMember2 = !!memberCheck;
       }
     } catch (memberErr) {
       console.error('Member check error:', memberErr);
@@ -254,27 +255,31 @@ router.post('/send', authMiddleware, [
       if (req.conversationService && typeof req.conversationService.insertMessageTx === 'function') {
         message = await req.conversationService.insertMessageTx({ conversationId, senderId, content, messageType, metadata });
       } else {
-        // Fallback: direct insert
-        const insertRes = await query(`
-          INSERT INTO messages (conversation_id, sender_id, content, message_type, metadata)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING id, created_at, metadata
-        `, [conversationId, senderId, content, messageType, JSON.stringify(metadata || {})]);
-        message = insertRes.rows[0];
+        // Fallback: direct insert with MongoDB
+        const newMessage = await Message.create({
+          conversationId,
+          senderId,
+          content,
+          messageType,
+          metadata: metadata || {}
+        });
+        message = newMessage;
         
-        await query(`
-          UPDATE conversations SET last_message = $1, last_message_time = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3
-        `, [content, message.created_at, conversationId]);
+        await Conversation.findByIdAndUpdate(conversationId, {
+          lastMessage: content,
+          lastMessageTime: newMessage.createdAt,
+          updatedAt: new Date()
+        });
       }
 
       const payload = {
-        id: message.id,
+        id: message._id,
         conversationId,
         senderId,
         content,
         messageType,
         metadata: message.metadata || metadata || {},
-        createdAt: message.created_at
+        createdAt: message.createdAt
       };
 
       // Emit after successful commit
@@ -282,17 +287,14 @@ router.post('/send', authMiddleware, [
 
       // Get the recipient (other participant) and save notification
       try {
-        const convResult = await query(`
-          SELECT participant1_id, participant2_id FROM conversations WHERE id = $1
-        `, [conversationId]);
+        const conv = await Conversation.findById(conversationId).select('participant1Id participant2Id');
         
-        if (convResult.rows.length > 0) {
-          const { participant1_id, participant2_id } = convResult.rows[0];
-          const recipientId = participant1_id === senderId ? participant2_id : participant1_id;
+        if (conv) {
+          const recipientId = conv.participant1Id?.toString() === senderId ? conv.participant2Id : conv.participant1Id;
           
           // Get sender name for notification
-          const senderResult = await query(`SELECT username FROM users WHERE id = $1`, [senderId]);
-          const senderName = senderResult.rows[0]?.username || 'Someone';
+          const sender = await User.findById(senderId).select('username');
+          const senderName = sender?.username || 'Someone';
           
           // Truncate message for notification preview
           const preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
@@ -302,7 +304,7 @@ router.post('/send', authMiddleware, [
             type: 'message',
             title: `New message from ${senderName}`,
             message: preview,
-            data: { conversationId, senderId, messageId: message.id }
+            data: { conversationId, senderId, messageId: message._id }
           });
         }
       } catch (notifErr) {
@@ -347,28 +349,28 @@ router.post('/conversation', authMiddleware, [
     }
     
     // Check if conversation already exists
-    let conversationResult = await query(`
-      SELECT id, created_at FROM conversations 
-      WHERE (participant1_id = $1 AND participant2_id = $2) 
-         OR (participant1_id = $2 AND participant2_id = $1)
-    `, [userId, otherUserId]);
+    let existingConv = await Conversation.findOne({
+      $or: [
+        { participant1Id: userId, participant2Id: otherUserId },
+        { participant1Id: otherUserId, participant2Id: userId }
+      ]
+    });
     
     let conversationData;
-    if (conversationResult.rows.length === 0) {
+    if (!existingConv) {
       // Create new conversation via service or direct insert
       if (req.conversationService && typeof req.conversationService.createOrGetConversation === 'function') {
         conversationData = await req.conversationService.createOrGetConversation(userId, otherUserId);
       } else {
         // Fallback: direct insert
-        const insertRes = await query(`
-          INSERT INTO conversations (participant1_id, participant2_id, created_at, updated_at)
-          VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          RETURNING id, created_at
-        `, [userId, otherUserId]);
-        conversationData = insertRes.rows[0];
+        const newConv = await Conversation.create({
+          participant1Id: userId,
+          participant2Id: otherUserId
+        });
+        conversationData = { id: newConv._id, created_at: newConv.createdAt };
       }
     } else {
-      conversationData = conversationResult.rows[0];
+      conversationData = { id: existingConv._id, created_at: existingConv.createdAt };
     }
     
     res.json({
@@ -414,26 +416,25 @@ router.post('/start', authMiddleware, [
     }
     
     // Check if conversation already exists
-    let conversation = await query(`
-      SELECT id, created_at FROM conversations 
-      WHERE (participant1_id = $1 AND participant2_id = $2) 
-         OR (participant1_id = $2 AND participant2_id = $1)
-    `, [userId, otherUserId]);
+    let conversation = await Conversation.findOne({
+      $or: [
+        { participant1Id: userId, participant2Id: otherUserId },
+        { participant1Id: otherUserId, participant2Id: userId }
+      ]
+    });
     
-    if (conversation.rows.length === 0) {
+    if (!conversation) {
       // Create new conversation
-      const newConversation = await query(`
-        INSERT INTO conversations (participant1_id, participant2_id, created_at, updated_at)
-        VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING id, created_at
-      `, [userId, otherUserId]);
-      conversation = newConversation;
+      conversation = await Conversation.create({
+        participant1Id: userId,
+        participant2Id: otherUserId
+      });
     }
     
     res.json({
       success: true,
-      conversationId: conversation.rows[0].id,
-      createdAt: conversation.rows[0].created_at
+      conversationId: conversation._id,
+      createdAt: conversation.createdAt
     });
 
   } catch (error) {
@@ -453,13 +454,14 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     // Mark unread messages as read
-    await query(`
-      UPDATE messages 
-      SET read_at = CURRENT_TIMESTAMP
-      WHERE conversation_id = $1 
-        AND sender_id != $2 
-        AND read_at IS NULL
-    `, [conversationId, userId]);
+    await Message.updateMany(
+      {
+        conversationId,
+        senderId: { $ne: userId },
+        readAt: null
+      },
+      { readAt: new Date() }
+    );
     
     res.json({ message: 'Messages marked as read' });
 
@@ -492,12 +494,15 @@ router.post('/video-call', authMiddleware, [
     const userId = req.user.userId;
     
     // Verify user is part of this conversation
-    const conversation = await query(`
-      SELECT id FROM conversations 
-      WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
-    `, [conversationId, userId]);
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      $or: [
+        { participant1Id: userId },
+        { participant2Id: userId }
+      ]
+    });
     
-    if (conversation.rows.length === 0) {
+    if (!conversation) {
       return res.status(403).json({ error: 'Access denied to this conversation' });
     }
     
@@ -576,21 +581,23 @@ const deleteConversationHandler = async (req, res) => {
     const userId = req.user.userId;
     
     // Verify user is part of this conversation
-    const conversation = await query(`
-      SELECT id FROM conversations 
-      WHERE id = $1 AND (participant1_id = $2 OR participant2_id = $2)
-    `, [conversationId, userId]);
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      $or: [
+        { participant1Id: userId },
+        { participant2Id: userId }
+      ]
+    });
     
-    if (conversation.rows.length === 0) {
+    if (!conversation) {
       return res.status(403).json({ error: 'Access denied to this conversation' });
     }
     
     // Soft delete conversation
-    await query(`
-      UPDATE conversations 
-      SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-    `, [conversationId]);
+    await Conversation.findByIdAndUpdate(conversationId, {
+      status: 'deleted',
+      updatedAt: new Date()
+    });
     
     res.json({ message: 'Conversation deleted successfully' });
 

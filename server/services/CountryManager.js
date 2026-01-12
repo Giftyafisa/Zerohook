@@ -1,4 +1,5 @@
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { User, isDatabaseAvailable } = require('../config/database');
 const axios = require('axios');
 const IPGeolocation = require('./IPGeolocation');
 
@@ -417,72 +418,9 @@ class CountryManager {
    */
   async initializeCountryData() {
     try {
-      // Check if countries table exists, if not create it
-      const tableExists = await query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'countries'
-        );
-      `);
-
-      if (!tableExists.rows[0].exists) {
-        await query(`
-          CREATE TABLE countries (
-            id SERIAL PRIMARY KEY,
-            code VARCHAR(2) UNIQUE NOT NULL,
-            name VARCHAR(100) NOT NULL,
-            flag VARCHAR(10),
-            currency VARCHAR(3) NOT NULL,
-            currency_symbol VARCHAR(5),
-            timezone VARCHAR(50),
-            phone_code VARCHAR(10),
-            paystack_support BOOLEAN DEFAULT false,
-            crypto_platforms JSONB,
-            local_banks BOOLEAN DEFAULT false,
-            mobile_money BOOLEAN DEFAULT false,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          );
-        `);
-        console.log('✅ Countries table created');
-      }
-
-      // Insert or update country data
-      for (const country of this.supportedCountries) {
-        await query(`
-          INSERT INTO countries (
-            code, name, flag, currency, currency_symbol, timezone, 
-            phone_code, paystack_support, crypto_platforms, 
-            local_banks, mobile_money
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          ON CONFLICT (code) DO UPDATE SET
-            name = EXCLUDED.name,
-            flag = EXCLUDED.flag,
-            currency = EXCLUDED.currency,
-            currency_symbol = EXCLUDED.currency_symbol,
-            timezone = EXCLUDED.timezone,
-            phone_code = EXCLUDED.phone_code,
-            paystack_support = EXCLUDED.paystack_support,
-            crypto_platforms = EXCLUDED.crypto_platforms,
-            local_banks = EXCLUDED.local_banks,
-            mobile_money = EXCLUDED.mobile_money,
-            updated_at = CURRENT_TIMESTAMP
-        `, [
-          country.code,
-          country.name,
-          country.flag,
-          country.currency,
-          country.currencySymbol,
-          country.timezone,
-          country.phoneCode,
-          country.paystackSupport,
-          JSON.stringify(country.cryptoPlatforms),
-          country.localBanks,
-          country.mobileMoney
-        ]);
-      }
-      
-      console.log('✅ Country data initialized in database');
+      // For MongoDB, we use in-memory country data from getSupportedAfricanCountries()
+      // No need to create a separate collection - country data is static
+      console.log('✅ Country data initialized (using in-memory data)');
     } catch (error) {
       console.error('Failed to initialize country data:', error);
       throw error;
@@ -494,40 +432,22 @@ class CountryManager {
    */
   async getUserCountry(userId) {
     try {
-      // Use profile_data JSONB field for country info since dedicated columns don't exist
-      const result = await query(`
-        SELECT 
-          c.*,
-          COALESCE(u.profile_data->>'country', 'NG') as country_preference,
-          COALESCE(u.profile_data->>'detected_country', 'NG') as detected_country
-        FROM users u
-        LEFT JOIN countries c ON COALESCE(u.profile_data->>'country', 'NG') = c.code
-        WHERE u.id = $1
-      `, [userId]);
-
-      if (result.rows.length > 0) {
-        const userData = result.rows[0];
-        return {
-          success: true,
-          country: userData.country_preference ? {
-            code: userData.code,
-            name: userData.name,
-            flag: userData.flag,
-            currency: userData.currency,
-            currencySymbol: userData.currency_symbol,
-            timezone: userData.timezone,
-            phoneCode: userData.phone_code,
-            paystackSupport: userData.paystack_support,
-            cryptoPlatforms: userData.crypto_platforms,
-            localBanks: userData.local_banks,
-            mobileMoney: userData.mobile_money
-          } : null,
-          detectedCountry: userData.detected_country,
-          preference: userData.country_preference
-        };
+      const user = await User.findById(userId).select('profileData');
+      
+      if (!user) {
+        return { success: false, error: 'User not found' };
       }
 
-      return { success: false, error: 'User not found' };
+      const countryCode = user.profileData?.country || this.defaultCountry;
+      const detectedCountry = user.profileData?.detectedCountry || this.defaultCountry;
+      const country = this.getCountryByCode(countryCode);
+
+      return {
+        success: true,
+        country: country || null,
+        detectedCountry: detectedCountry,
+        preference: countryCode
+      };
     } catch (error) {
       console.error('Failed to get user country:', error);
       return { success: false, error: error.message };
@@ -544,11 +464,10 @@ class CountryManager {
         return { success: false, error: 'Country not supported' };
       }
 
-      await query(`
-        UPDATE users 
-        SET country_preference = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-      `, [countryCode, userId]);
+      await User.findByIdAndUpdate(userId, {
+        'profileData.country': countryCode,
+        updatedAt: new Date()
+      });
 
       return {
         success: true,
@@ -566,11 +485,10 @@ class CountryManager {
    */
   async setDetectedCountry(userId, countryCode) {
     try {
-      await query(`
-        UPDATE users 
-        SET detected_country = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-      `, [countryCode, userId]);
+      await User.findByIdAndUpdate(userId, {
+        'profileData.detectedCountry': countryCode,
+        updatedAt: new Date()
+      });
 
       return { success: true };
     } catch (error) {

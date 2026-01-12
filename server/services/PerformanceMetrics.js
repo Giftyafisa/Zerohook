@@ -137,19 +137,6 @@ class PerformanceMetrics {
       console.error('Error recording user interaction metrics:', error);
     }
   }
-        duration,
-        'ms',
-        JSON.stringify({
-          userId,
-          success,
-          ...metadata
-        })
-      ]);
-
-    } catch (error) {
-      console.error('Error recording user interaction metrics:', error);
-    }
-  }
 
   /**
    * Record system resource metrics

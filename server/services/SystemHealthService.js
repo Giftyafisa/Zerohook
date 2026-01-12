@@ -1,4 +1,5 @@
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { User, Service, Conversation, Message, isDatabaseAvailable } = require('../config/database');
 
 class SystemHealthService {
   constructor() {
@@ -12,9 +13,10 @@ class SystemHealthService {
 
   async checkDatabaseHealth() {
     try {
-      const result = await query('SELECT 1 as test');
-      this.healthStatus.database = result.rows.length > 0;
-      return this.healthStatus.database;
+      // Check MongoDB connection state
+      const isConnected = isDatabaseAvailable() && mongoose.connection.readyState === 1;
+      this.healthStatus.database = isConnected;
+      return isConnected;
     } catch (error) {
       console.error('Database health check failed:', error.message);
       this.healthStatus.database = false;
@@ -69,53 +71,43 @@ class SystemHealthService {
 
   async checkServiceHealth() {
     try {
-      // Check if all required tables exist
-      const requiredTables = [
-        'users', 'services', 'conversations', 'messages',
-        'user_connections', 'blocked_users', 'notifications',
-        'file_uploads', 'subscription_plans', 'subscriptions'
-      ];
+      // Check if MongoDB collections exist by counting documents
+      const collections = ['users', 'services', 'conversations', 'messages'];
       
-      const tableChecks = await Promise.all(
-        requiredTables.map(async (table) => {
+      const collectionChecks = await Promise.all(
+        collections.map(async (collection) => {
           try {
-            const result = await query(`
-              SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_name = $1
-              )
-            `, [table]);
-            return { table, exists: result.rows[0].exists };
+            const count = await mongoose.connection.db.collection(collection).countDocuments({});
+            return { collection, exists: true, count };
           } catch (error) {
-            return { table, exists: false, error: error.message };
+            return { collection, exists: false, error: error.message };
           }
         })
       );
       
-      const missingTables = tableChecks.filter(check => !check.exists);
-      this.healthStatus.services.tables = {
-        total: requiredTables.length,
-        existing: requiredTables.length - missingTables.length,
-        missing: missingTables.map(t => t.table)
+      const missingCollections = collectionChecks.filter(check => !check.exists);
+      this.healthStatus.services.collections = {
+        total: collections.length,
+        existing: collections.length - missingCollections.length,
+        missing: missingCollections.map(c => c.collection)
       };
       
-      // Check data counts
+      // Check data counts using Mongoose models
       try {
-        const userCount = await query('SELECT COUNT(*) FROM users');
-        const serviceCount = await query('SELECT COUNT(*) FROM services');
-        const connectionCount = await query('SELECT COUNT(*) FROM user_connections');
+        const userCount = await User.countDocuments();
+        const serviceCount = await Service.countDocuments();
+        const conversationCount = await Conversation.countDocuments();
         
         this.healthStatus.services.data = {
-          users: parseInt(userCount.rows[0].count),
-          services: parseInt(serviceCount.rows[0].count),
-          connections: parseInt(connectionCount.rows[0].count)
+          users: userCount,
+          services: serviceCount,
+          conversations: conversationCount
         };
       } catch (error) {
         this.healthStatus.services.data = { error: error.message };
       }
       
-      return missingTables.length === 0;
+      return missingCollections.length === 0;
     } catch (error) {
       console.error('Service health check failed:', error.message);
       this.healthStatus.services.error = error.message;
@@ -161,7 +153,8 @@ class SystemHealthService {
       components: {
         database: {
           status: this.healthStatus.database ? 'connected' : 'disconnected',
-          details: this.healthStatus.services.tables || {}
+          type: 'MongoDB',
+          details: this.healthStatus.services.collections || {}
         },
         fileSystem: {
           status: this.healthStatus.fileSystem ? 'accessible' : 'inaccessible'

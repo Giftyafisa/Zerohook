@@ -499,7 +499,7 @@ const handleBrowseProfiles = async (req, res) => {
         subscriptionStatus: isSubscribed ? 'subscribed' : 'free',
         isPremium: isSubscribed && (subscriptionTier === 'premium' || subscriptionTier === 'elite')
       };
-    }));
+    });
 
     console.log(`📊 Found ${enhancedProfiles.length} profiles (page ${pageNum}/${Math.ceil(total / limitNum)})`);
 

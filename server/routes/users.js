@@ -60,27 +60,33 @@ router.get('/profile', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     const user = await User.findById(userId).select(
-      'username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier subscriptionExpiresAt createdAt lastActive'
-    );
+      'username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt created_at createdAt last_active lastActive'
+    ).lean();
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Transform to match expected format
+    // Transform to match expected format - support both naming conventions
     const userResponse = {
       id: user._id,
       username: user.username,
       email: user.email,
-      verification_tier: user.verificationTier,
-      reputation_score: user.reputationScore,
-      profile_data: user.profileData,
-      profile_visibility: user.profileVisibility,
-      is_subscribed: user.isSubscribed,
-      subscription_tier: user.subscriptionTier,
-      subscription_expires_at: user.subscriptionExpiresAt,
-      created_at: user.createdAt,
-      last_active: user.lastActive
+      verification_tier: user.verification_tier || user.verificationTier || 0,
+      verificationTier: user.verification_tier || user.verificationTier || 0,
+      reputation_score: user.reputation_score || user.reputationScore || 0,
+      reputationScore: user.reputation_score || user.reputationScore || 0,
+      profile_data: user.profile_data || user.profileData || {},
+      profileData: user.profile_data || user.profileData || {},
+      profile_visibility: user.profile_visibility || user.profileVisibility || 'public',
+      profileVisibility: user.profile_visibility || user.profileVisibility || 'public',
+      is_subscribed: user.is_subscribed || user.isSubscribed || false,
+      isSubscribed: user.is_subscribed || user.isSubscribed || false,
+      subscription_tier: user.subscription_tier || user.subscriptionTier || 'free',
+      subscriptionTier: user.subscription_tier || user.subscriptionTier || 'free',
+      subscription_expires_at: user.subscription_expires_at || user.subscriptionExpiresAt,
+      created_at: user.created_at || user.createdAt,
+      last_active: user.last_active || user.lastActive
     };
     
     res.json({
@@ -106,27 +112,33 @@ router.get('/me', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     const user = await User.findById(userId).select(
-      'username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier subscriptionExpiresAt createdAt lastActive'
-    );
+      'username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt created_at createdAt last_active lastActive'
+    ).lean();
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Transform to match expected format
+    // Transform to match expected format - support both naming conventions
     const userResponse = {
       id: user._id,
       username: user.username,
       email: user.email,
-      verification_tier: user.verificationTier,
-      reputation_score: user.reputationScore,
-      profile_data: user.profileData,
-      profile_visibility: user.profileVisibility,
-      is_subscribed: user.isSubscribed,
-      subscription_tier: user.subscriptionTier,
-      subscription_expires_at: user.subscriptionExpiresAt,
-      created_at: user.createdAt,
-      last_active: user.lastActive
+      verification_tier: user.verification_tier || user.verificationTier || 0,
+      verificationTier: user.verification_tier || user.verificationTier || 0,
+      reputation_score: user.reputation_score || user.reputationScore || 0,
+      reputationScore: user.reputation_score || user.reputationScore || 0,
+      profile_data: user.profile_data || user.profileData || {},
+      profileData: user.profile_data || user.profileData || {},
+      profile_visibility: user.profile_visibility || user.profileVisibility || 'public',
+      profileVisibility: user.profile_visibility || user.profileVisibility || 'public',
+      is_subscribed: user.is_subscribed || user.isSubscribed || false,
+      isSubscribed: user.is_subscribed || user.isSubscribed || false,
+      subscription_tier: user.subscription_tier || user.subscriptionTier || 'free',
+      subscriptionTier: user.subscription_tier || user.subscriptionTier || 'free',
+      subscription_expires_at: user.subscription_expires_at || user.subscriptionExpiresAt,
+      created_at: user.created_at || user.createdAt,
+      last_active: user.last_active || user.lastActive
     };
     
     res.json({
@@ -151,24 +163,26 @@ router.get('/me', authMiddleware, async (req, res) => {
 router.put('/me', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { profile_data, profile_visibility } = req.body;
+    const { profile_data, profileData: frontendProfileData, profile_visibility } = req.body;
+    const incomingData = profile_data || frontendProfileData;
 
     // Build the update object
-    const updateObj = { updatedAt: new Date() };
+    const updateObj = { updated_at: new Date() };
 
     // Update profile_data if provided (merge with existing)
-    if (profile_data) {
-      const existingUser = await User.findById(userId);
+    if (incomingData) {
+      const existingUser = await User.findById(userId).lean();
       if (existingUser) {
-        updateObj.profileData = { ...existingUser.profileData, ...profile_data };
+        const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
+        updateObj.profile_data = { ...existingProfileData, ...incomingData };
       } else {
-        updateObj.profileData = profile_data;
+        updateObj.profile_data = incomingData;
       }
     }
 
     // Update profile_visibility if provided
     if (profile_visibility && ['public', 'authenticated'].includes(profile_visibility)) {
-      updateObj.profileVisibility = profile_visibility;
+      updateObj.profile_visibility = profile_visibility;
     }
 
     // Update user profile
@@ -176,24 +190,30 @@ router.put('/me', authMiddleware, async (req, res) => {
       userId,
       updateObj,
       { new: true }
-    ).select('username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier subscriptionExpiresAt');
+    ).select('username email verification_tier reputation_score profile_data profile_visibility is_subscribed subscription_tier subscription_expires_at').lean();
 
     if (!updatedUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Transform to match expected format
+    // Transform to match expected format - provide both naming conventions
     const userResponse = {
       id: updatedUser._id,
       username: updatedUser.username,
       email: updatedUser.email,
-      verification_tier: updatedUser.verificationTier,
-      reputation_score: updatedUser.reputationScore,
-      profile_data: updatedUser.profileData,
-      profile_visibility: updatedUser.profileVisibility,
-      is_subscribed: updatedUser.isSubscribed,
-      subscription_tier: updatedUser.subscriptionTier,
-      subscription_expires_at: updatedUser.subscriptionExpiresAt
+      verification_tier: updatedUser.verification_tier || 0,
+      verificationTier: updatedUser.verification_tier || 0,
+      reputation_score: updatedUser.reputation_score || 0,
+      reputationScore: updatedUser.reputation_score || 0,
+      profile_data: updatedUser.profile_data || {},
+      profileData: updatedUser.profile_data || {},
+      profile_visibility: updatedUser.profile_visibility || 'public',
+      profileVisibility: updatedUser.profile_visibility || 'public',
+      is_subscribed: updatedUser.is_subscribed || false,
+      isSubscribed: updatedUser.is_subscribed || false,
+      subscription_tier: updatedUser.subscription_tier || 'free',
+      subscriptionTier: updatedUser.subscription_tier || 'free',
+      subscription_expires_at: updatedUser.subscription_expires_at
     };
 
     res.json({
@@ -219,38 +239,47 @@ router.put('/me', authMiddleware, async (req, res) => {
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { profile_data } = req.body;
+    const { profile_data, profileData: frontendProfileData } = req.body;
+    const incomingData = profile_data || frontendProfileData || {};
 
     // Get existing user to merge profile data
-    const existingUser = await User.findById(userId);
+    const existingUser = await User.findById(userId).lean();
     if (!existingUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Merge existing profile_data with new data
-    const mergedProfileData = { ...existingUser.profileData, ...(profile_data || {}) };
+    // Merge existing profile_data with new data (support both naming conventions)
+    const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
+    const mergedProfileData = { ...existingProfileData, ...incomingData };
 
-    // Update user profile
+    console.log('📝 Profile update:', { userId, incoming: Object.keys(incomingData), merged: Object.keys(mergedProfileData) });
+
+    // Update user profile - use snake_case for MongoDB
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { 
-        profileData: mergedProfileData,
-        updatedAt: new Date()
+        profile_data: mergedProfileData,
+        updated_at: new Date()
       },
       { new: true }
-    ).select('username email verificationTier reputationScore profileData isSubscribed subscriptionTier subscriptionExpiresAt');
+    ).select('username email verification_tier reputation_score profile_data is_subscribed subscription_tier subscription_expires_at').lean();
 
-    // Transform to match expected format
+    // Transform to match expected format - provide both naming conventions
     const userResponse = {
       id: updatedUser._id,
       username: updatedUser.username,
       email: updatedUser.email,
-      verification_tier: updatedUser.verificationTier,
-      reputation_score: updatedUser.reputationScore,
-      profile_data: updatedUser.profileData,
-      is_subscribed: updatedUser.isSubscribed,
-      subscription_tier: updatedUser.subscriptionTier,
-      subscription_expires_at: updatedUser.subscriptionExpiresAt
+      verification_tier: updatedUser.verification_tier || 0,
+      verificationTier: updatedUser.verification_tier || 0,
+      reputation_score: updatedUser.reputation_score || 0,
+      reputationScore: updatedUser.reputation_score || 0,
+      profile_data: updatedUser.profile_data || {},
+      profileData: updatedUser.profile_data || {},
+      is_subscribed: updatedUser.is_subscribed || false,
+      isSubscribed: updatedUser.is_subscribed || false,
+      subscription_tier: updatedUser.subscription_tier || 'free',
+      subscriptionTier: updatedUser.subscription_tier || 'free',
+      subscription_expires_at: updatedUser.subscription_expires_at
     };
 
     res.json({

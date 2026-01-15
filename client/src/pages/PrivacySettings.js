@@ -34,6 +34,7 @@ import {
   InputAdornment,
   useTheme
 } from '@mui/material';
+import { API_BASE_URL } from '../config/constants';
 import {
   Security,
   Visibility,
@@ -192,8 +193,38 @@ const PrivacySettings = () => {
   ];
 
   useEffect(() => {
-    // In real app, this would load user's privacy settings from backend
-    console.log('Loading privacy settings...');
+    const loadSettings = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        const response = await fetch(`${API_BASE_URL}/users/profile`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const profileData = data.user?.profile_data || data.user?.profileData || {};
+          const savedSettings = profileData.privacySettings || {};
+          const commPrefs = profileData.communicationPreferences || {};
+          
+          setPrivacySettings(prev => ({
+            ...prev,
+            ...savedSettings,
+            basePrice: profileData.basePrice || '',
+            priceCurrency: profileData.priceCurrency || 'NGN',
+            allowDirectMessages: commPrefs.allowDirectMessages ?? prev.allowDirectMessages,
+            allowPhoneCalls: commPrefs.allowPhoneCalls ?? prev.allowPhoneCalls,
+            allowWhatsApp: commPrefs.allowWhatsApp ?? prev.allowWhatsApp,
+            allowTelegram: commPrefs.allowTelegram ?? prev.allowTelegram,
+            allowEmail: commPrefs.allowEmail ?? prev.allowEmail
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to load privacy settings:', error);
+      }
+    };
+    loadSettings();
   }, []);
 
   const handlePrivacyChange = (field, value) => {
@@ -207,8 +238,50 @@ const PrivacySettings = () => {
     setLoading(true);
     
     try {
-      // In real app, this would save to backend
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/users/me`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          profile_data: {
+            // Privacy visibility settings
+            privacySettings: {
+              privacyLevel: privacySettings.privacyLevel,
+              showPhotos: privacySettings.showPhotos,
+              showAge: privacySettings.showAge,
+              showLocation: privacySettings.showLocation,
+              showContactInfo: privacySettings.showContactInfo,
+              showVerificationStatus: privacySettings.showVerificationStatus,
+              showTrustScore: privacySettings.showTrustScore,
+              showBookingHistory: privacySettings.showBookingHistory,
+              showReviews: privacySettings.showReviews,
+              showPriceOnProfile: privacySettings.showPriceOnProfile,
+              locationPrecision: privacySettings.locationPrecision,
+              showFaceInPhotos: privacySettings.showFaceInPhotos,
+              allowPhotoDownload: privacySettings.allowPhotoDownload
+            },
+            // Price settings
+            basePrice: privacySettings.basePrice,
+            priceCurrency: privacySettings.priceCurrency,
+            // Communication preferences
+            communicationPreferences: {
+              allowDirectMessages: privacySettings.allowDirectMessages,
+              allowPhoneCalls: privacySettings.allowPhoneCalls,
+              allowWhatsApp: privacySettings.allowWhatsApp,
+              allowTelegram: privacySettings.allowTelegram,
+              allowEmail: privacySettings.allowEmail
+            }
+          },
+          profile_visibility: privacySettings.privacyLevel === 'minimal' ? 'private' : 'public'
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to save settings');
+      }
       
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);

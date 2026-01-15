@@ -192,72 +192,38 @@ router.post('/confirm', authMiddleware, [
  * @route   GET /api/payments/transactions
  * @desc    Get user's transaction history with country-specific filtering
  * @access  Private
+ * 
+ * NOTE: This route uses legacy SQL queries that need MongoDB migration.
+ * Currently returns empty data as fallback.
  */
 router.get('/transactions', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { page = 1, limit = 10, status, country } = req.query;
-    const offset = (page - 1) * limit;
-
-    let whereClause = 'WHERE (t.client_id = $1 OR t.provider_id = $1)';
-    let params = [userId];
-    let paramIndex = 2;
-
-    if (status) {
-      whereClause += ` AND t.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
-    }
-
-    if (country) {
-      whereClause += ` AND t.country_code = $${paramIndex}`;
-      params.push(country.toUpperCase());
-      paramIndex++;
-    }
-
-    const { query } = require('../config/database');
-    const result = await query(`
-      SELECT 
-        t.*,
-        s.title as service_title,
-        CASE 
-          WHEN t.client_id = $1 THEN 'expense'
-          WHEN t.provider_id = $1 THEN 'income'
-        END as type,
-        CASE 
-          WHEN t.client_id = $1 THEN provider.username
-          WHEN t.provider_id = $1 THEN client.username
-        END as other_party
-      FROM transactions t
-      LEFT JOIN adult_services s ON t.service_id = s.id
-      LEFT JOIN users client ON t.client_id = client.id
-      LEFT JOIN users provider ON t.provider_id = provider.id
-      ${whereClause}
-      ORDER BY t.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `, [...params, limit, offset]);
-
-    // Get total count
-    const countResult = await query(`
-      SELECT COUNT(*) as total
-      FROM transactions t
-      ${whereClause}
-    `, params);
-
+    
+    // TODO: Migrate to MongoDB Transaction model
+    // For now, return empty transactions with proper structure
+    console.log('⚠️ GET /transactions: SQL queries need MongoDB migration');
+    
     res.json({
       success: true,
-      transactions: result.rows,
+      transactions: [],
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: parseInt(countResult.rows[0].total),
-        pages: Math.ceil(countResult.rows[0].total / limit)
-      }
+        total: 0,
+        pages: 0
+      },
+      message: 'Transaction history temporarily unavailable - database migration in progress'
     });
 
   } catch (error) {
     console.error('Get transactions error:', error);
-    res.status(500).json({ error: 'Failed to fetch transactions' });
+    res.status(500).json({ 
+      error: 'Failed to fetch transactions',
+      transactions: [],
+      pagination: { page: 1, limit: 10, total: 0, pages: 0 }
+    });
   }
 });
 

@@ -259,14 +259,17 @@ const userPresenceSchema = new mongoose.Schema({
 
 const userSessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  sessionToken: { type: String, sparse: true },
-  socketId: String,
+  sessionToken: { type: String, sparse: true, index: false }, // Remove unique constraint, use sparse
+  socketId: { type: String, index: true },
   ipAddress: String,
   userAgent: String,
   isActive: { type: Boolean, default: true },
   expiresAt: { type: Date },
   lastActivity: { type: Date, default: Date.now }
 }, { timestamps: true });
+
+// Create compound index for userId + socketId to allow upsert operations
+userSessionSchema.index({ userId: 1, socketId: 1 }, { unique: true, sparse: true });
 
 const userActivityLogSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

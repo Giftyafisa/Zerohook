@@ -285,7 +285,9 @@ router.put('/profile', authMiddleware, async (req, res) => {
  * 6. Diversity injection to prevent filter bubbles
  * 7. Real-time online status priority
  */
-router.get('/profiles', async (req, res) => {
+
+// Shared handler for /profiles and /browse routes - MongoDB Native Implementation
+const handleBrowseProfiles = async (req, res) => {
   try {
     // ============================================
     // OPTIONAL AUTHENTICATION CHECK
@@ -334,156 +336,141 @@ router.get('/profiles', async (req, res) => {
       minAge,
       maxAge,
       verificationTier,
-      minTrustScore,
-      maxTrustScore,
-      category,
-      minPrice,
-      maxPrice,
-      availability,
       filter, // Frontend filter type (all, nearby, online, verified, trending)
       search, // Search query
-      // Location parameters for recommendation (support both naming conventions)
-      lat,
-      lng,
-      userLat,
-      userLng,
-      userCity,
-      userCountry
+      sort = 'recommendation'
     } = req.query;
 
-    // Use advanced location tracking service (injected from server)
-    const locationService = req.locationTrackingService;
-    
-    // Get current user's profile data for fallback location
-    let currentUserProfile = null;
-    if (currentUserId) {
-      try {
-        const userDoc = await User.findById(currentUserId).select('profileData');
-        if (userDoc) {
-          currentUserProfile = userDoc.profileData || {};
-        }
-      } catch (e) {
-        console.log('Could not fetch user profile for location');
-      }
-    }
-    
-    // Use userLat/userLng if provided, otherwise fall back to lat/lng
-    const latitude = userLat || lat;
-    const longitude = userLng || lng;
-    
-    // Get user's IP address
-    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-                      req.headers['x-real-ip'] ||
-                      req.ip ||
-                      req.connection?.remoteAddress;
+    const pageNum = parseInt(page);
+    const limitNum = Math.min(parseInt(limit), 50); // Max 50 per page
+    const skip = (pageNum - 1) * limitNum;
 
-    // Build user location using advanced tracking service with full fallback cascade
-    let userLocation = null;
-    try {
-      userLocation = await locationService.getUserLocation({
-        userId: currentUserId,
-        providedCoords: (latitude && longitude) ? {
-          lat: parseFloat(latitude),
-          lng: parseFloat(longitude),
-          city: userCity,
-          country: userCountry
-        } : null,
-        userProfile: currentUserProfile,
-        ipAddress: ipAddress,
-        sessionId: req.sessionID || null
-      });
-      
-      // Cache the location
-      if (userLocation && currentUserId) {
-        locationService.setCachedLocation(currentUserId, userLocation);
-      }
-    } catch (error) {
-      console.error('⚠️ Location tracking error:', error.message);
-      // Fallback to basic parsing
-      if (latitude && longitude) {
-        const parsedLat = parseFloat(latitude);
-        const parsedLng = parseFloat(longitude);
-        if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
-          userLocation = {
-            lat: parsedLat,
-            lng: parsedLng,
-            city: userCity || null,
-            country: userCountry || null
-          };
-        }
-      } else if (userCity || userCountry) {
-        userLocation = {
-          city: userCity,
-          country: userCountry
-        };
-      }
-    }
-
-    // Build filters
-    const filters = {
-      country: country || 'all',
-      city: city || null,
-      minAge: minAge ? parseInt(minAge) : 18,
-      maxAge: maxAge ? parseInt(maxAge) : 60,
-      verificationTier: verificationTier || null,
-      category: category || 'all',
-      minPrice: minPrice ? parseFloat(minPrice) : null,
-      maxPrice: maxPrice ? parseFloat(maxPrice) : null,
-      availability: availability || null,
-      // Frontend filter modes
-      filterMode: filter || 'all', // all, nearby, online, verified, trending
-      searchQuery: search || null
+    // Build MongoDB query - Only show providers with profiles
+    const mongoQuery = {
+      profileData: { $exists: true, $ne: null },
+      'profileData.accountType': 'provider'
     };
 
-    // Use ACCOUNT-TYPE-AWARE recommendation engine for advanced ranking
-    // This routes to the correct method based on user's accountType:
-    // - sugar_daddy/sugar_mommy → getSugarRecommendations (verified providers, opposite sex, young)
-    // - client → getRecommendedProfiles (all providers)
-    // - provider → getRecommendedProfiles (all clients/providers for networking)
-    const result = await recommendationEngine.getAccountTypeAwareRecommendations({
-      userId: currentUserId,
-      userLocation,
-      limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit),
-      filters
-    });
+    // Exclude current user from results
+    if (currentUserId) {
+      const mongoose = require('mongoose');
+      mongoQuery._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+    }
+
+    // If not authenticated, only show public profiles
+    if (!isAuthenticated) {
+      mongoQuery.$or = [
+        { profileVisibility: 'public' },
+        { profileVisibility: { $exists: false } }
+      ];
+    }
+
+    // Apply filters
+    if (country && country !== 'all') {
+      mongoQuery['profileData.location.country'] = new RegExp(country, 'i');
+    }
+
+    if (city) {
+      mongoQuery['profileData.location.city'] = new RegExp(city, 'i');
+    }
+
+    if (minAge || maxAge) {
+      mongoQuery['profileData.age'] = {};
+      if (minAge) mongoQuery['profileData.age'].$gte = parseInt(minAge);
+      if (maxAge) mongoQuery['profileData.age'].$lte = parseInt(maxAge);
+    }
+
+    if (verificationTier) {
+      mongoQuery.verificationTier = { $gte: parseInt(verificationTier) };
+    }
+
+    // Filter mode handling
+    if (filter === 'online') {
+      mongoQuery.isOnline = true;
+    } else if (filter === 'verified') {
+      mongoQuery.verificationTier = { $gte: 2 };
+    }
+
+    // Search by name/username
+    if (search) {
+      mongoQuery.$or = [
+        { username: new RegExp(search, 'i') },
+        { 'profileData.firstName': new RegExp(search, 'i') },
+        { 'profileData.lastName': new RegExp(search, 'i') }
+      ];
+    }
+
+    // Build sort options
+    let sortOptions = {};
+    switch (sort) {
+      case 'newest':
+        sortOptions = { createdAt: -1 };
+        break;
+      case 'rating':
+        sortOptions = { reputationScore: -1, verificationTier: -1 };
+        break;
+      case 'online':
+        sortOptions = { isOnline: -1, lastActive: -1 };
+        break;
+      case 'recommendation':
+      default:
+        // Recommendation sort: online first, then verified, then by activity
+        sortOptions = { isOnline: -1, verificationTier: -1, lastActive: -1 };
+        break;
+    }
+
+    // Execute query
+    const [profiles, total] = await Promise.all([
+      User.find(mongoQuery)
+        .select('username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier createdAt lastActive isOnline')
+        .sort(sortOptions)
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      User.countDocuments(mongoQuery)
+    ]);
 
     // Transform profiles for frontend
-    const enhancedProfiles = result.profiles.map(profile => ({
-      id: profile.id,
+    const enhancedProfiles = profiles.map(profile => ({
+      id: profile._id,
       username: profile.username,
       email: profile.email,
-      profile_data: profile.profile_data,
-      verification_tier: profile.verification_tier,
-      reputation_score: profile.reputation_score,
-      is_subscribed: profile.is_subscribed,
-      subscription_tier: profile.subscription_tier,
-      created_at: profile.created_at,
-      last_active: profile.last_active,
-      // Recommendation data
-      distance: profile.distance,
-      distanceEstimated: profile.distanceEstimated,
-      distanceSource: profile.distanceSource,
-      distanceConfidence: profile.distanceConfidence,
-      isOnline: profile.isOnline,
-      lastSeen: profile.lastSeen,
-      recommendationScore: profile.recommendationScore,
-      // Status indicators
-      subscriptionStatus: profile.is_subscribed ? 'subscribed' : 'free',
-      isPremium: profile.is_subscribed && (profile.subscription_tier === 'premium' || profile.subscription_tier === 'elite')
+      profile_data: profile.profileData || {},
+      profileData: profile.profileData || {},
+      verification_tier: profile.verificationTier || 0,
+      verificationTier: profile.verificationTier || 0,
+      reputation_score: profile.reputationScore || 0,
+      reputationScore: profile.reputationScore || 0,
+      trustScore: profile.reputationScore || 75,
+      is_subscribed: profile.isSubscribed || false,
+      isSubscribed: profile.isSubscribed || false,
+      subscription_tier: profile.subscriptionTier || 'free',
+      subscriptionTier: profile.subscriptionTier || 'free',
+      created_at: profile.createdAt,
+      last_active: profile.lastActive,
+      lastActive: profile.lastActive,
+      isOnline: profile.isOnline || false,
+      // Subscription status indicators
+      subscriptionStatus: profile.isSubscribed ? 'subscribed' : 'free',
+      isPremium: profile.isSubscribed && (profile.subscriptionTier === 'premium' || profile.subscriptionTier === 'elite')
     }));
+
+    console.log(`📊 Found ${enhancedProfiles.length} profiles (page ${pageNum}/${Math.ceil(total / limitNum)})`);
 
     res.json({
       success: true,
       users: enhancedProfiles,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: result.total,
-        pages: Math.ceil(result.total / parseInt(limit))
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
       },
-      metadata: result.metadata,
-      filters
+      metadata: {
+        authenticated: isAuthenticated,
+        filterMode: filter || 'all',
+        sortMode: sort
+      }
     });
   } catch (error) {
     console.error('Get profiles error:', error);
@@ -503,7 +490,11 @@ router.get('/profiles', async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-});
+};
+
+// Register both routes with the same handler
+router.get('/profiles', handleBrowseProfiles);
+router.get('/browse', handleBrowseProfiles);
 
 /**
  * @route   POST /api/users/track-activity
@@ -533,9 +524,18 @@ router.get('/:id', async (req, res) => {
   try {
     const userId = req.params.id;
     
-    // Validate user ID - allow UUID format
+    // Validate user ID - must be a valid MongoDB ObjectId (24 hex chars)
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    // Check if it's a valid ObjectId format (24 hex characters)
+    const objectIdRegex = /^[0-9a-fA-F]{24}$/;
+    if (!objectIdRegex.test(userId)) {
+      return res.status(400).json({ 
+        error: 'Invalid user ID format',
+        message: 'User ID must be a valid 24-character hex string'
+      });
     }
 
     // Check if requester is authenticated

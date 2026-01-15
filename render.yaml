@@ -28,6 +28,12 @@ services:
         value: sk_test_9c8ed29806799887814242571899edf82071ac09
       - key: PAYSTACK_PUBLIC_KEY
         value: pk_test_7f3cabce055cc9cb562103752d9348c39d7fde9b
+      - key: CLOUDINARY_CLOUD_NAME
+        value: devrpaqaj
+      - key: CLOUDINARY_API_KEY
+        value: "258444566811198"
+      - key: CLOUDINARY_API_SECRET
+        sync: false
       - key: ENCRYPTION_KEY
         value: zerohook-32-byte-encryption-2024
       - key: RATE_LIMIT_WINDOW_MS

@@ -345,11 +345,9 @@ const handleBrowseProfiles = async (req, res) => {
     const limitNum = Math.min(parseInt(limit), 50); // Max 50 per page
     const skip = (pageNum - 1) * limitNum;
 
-    // Build MongoDB query - Only show providers with profiles
-    const mongoQuery = {
-      profileData: { $exists: true, $ne: null },
-      'profileData.accountType': 'provider'
-    };
+    // Build MongoDB query - Show ALL users (browse/discovery page)
+    // We'll return all users and let the frontend display gracefully even for incomplete profiles
+    const mongoQuery = {};
 
     // Exclude current user from results
     if (currentUserId) {
@@ -361,68 +359,101 @@ const handleBrowseProfiles = async (req, res) => {
     if (!isAuthenticated) {
       mongoQuery.$or = [
         { profileVisibility: 'public' },
-        { profileVisibility: { $exists: false } }
+        { profileVisibility: { $exists: false } },
+        { profile_visibility: 'public' },
+        { profile_visibility: { $exists: false } }
       ];
     }
 
-    // Apply filters
+    // Build $and array for combined filters
+    const andConditions = [];
+
+    // Apply filters - support both snake_case and camelCase field names
     if (country && country !== 'all') {
-      mongoQuery['profileData.location.country'] = new RegExp(country, 'i');
+      andConditions.push({
+        $or: [
+          { 'profile_data.location.country': new RegExp(country, 'i') },
+          { 'profileData.location.country': new RegExp(country, 'i') }
+        ]
+      });
     }
 
     if (city) {
-      mongoQuery['profileData.location.city'] = new RegExp(city, 'i');
-    }
-
-    if (minAge || maxAge) {
-      mongoQuery['profileData.age'] = {};
-      if (minAge) mongoQuery['profileData.age'].$gte = parseInt(minAge);
-      if (maxAge) mongoQuery['profileData.age'].$lte = parseInt(maxAge);
+      andConditions.push({
+        $or: [
+          { 'profile_data.location.city': new RegExp(city, 'i') },
+          { 'profileData.location.city': new RegExp(city, 'i') }
+        ]
+      });
     }
 
     if (verificationTier) {
-      mongoQuery.verificationTier = { $gte: parseInt(verificationTier) };
+      andConditions.push({
+        $or: [
+          { verification_tier: { $gte: parseInt(verificationTier) } },
+          { verificationTier: { $gte: parseInt(verificationTier) } }
+        ]
+      });
     }
 
     // Filter mode handling
     if (filter === 'online') {
-      mongoQuery.isOnline = true;
+      andConditions.push({
+        $or: [
+          { is_online: true },
+          { isOnline: true }
+        ]
+      });
     } else if (filter === 'verified') {
-      mongoQuery.verificationTier = { $gte: 2 };
+      andConditions.push({
+        $or: [
+          { verification_tier: { $gte: 2 } },
+          { verificationTier: { $gte: 2 } }
+        ]
+      });
     }
 
     // Search by name/username
     if (search) {
-      mongoQuery.$or = [
-        { username: new RegExp(search, 'i') },
-        { 'profileData.firstName': new RegExp(search, 'i') },
-        { 'profileData.lastName': new RegExp(search, 'i') }
-      ];
+      andConditions.push({
+        $or: [
+          { username: new RegExp(search, 'i') },
+          { 'profile_data.firstName': new RegExp(search, 'i') },
+          { 'profile_data.lastName': new RegExp(search, 'i') },
+          { 'profileData.firstName': new RegExp(search, 'i') },
+          { 'profileData.lastName': new RegExp(search, 'i') }
+        ]
+      });
     }
 
-    // Build sort options
+    // Apply $and conditions if any
+    if (andConditions.length > 0) {
+      mongoQuery.$and = andConditions;
+    }
+
+    // Build sort options - support both naming conventions
     let sortOptions = {};
     switch (sort) {
       case 'newest':
-        sortOptions = { createdAt: -1 };
+        sortOptions = { created_at: -1, createdAt: -1 };
         break;
       case 'rating':
-        sortOptions = { reputationScore: -1, verificationTier: -1 };
+        sortOptions = { reputation_score: -1, reputationScore: -1, verification_tier: -1, verificationTier: -1 };
         break;
       case 'online':
-        sortOptions = { isOnline: -1, lastActive: -1 };
+        sortOptions = { is_online: -1, isOnline: -1, last_active: -1, lastActive: -1 };
         break;
       case 'recommendation':
       default:
         // Recommendation sort: online first, then verified, then by activity
-        sortOptions = { isOnline: -1, verificationTier: -1, lastActive: -1 };
+        sortOptions = { is_online: -1, isOnline: -1, verification_tier: -1, verificationTier: -1, last_active: -1, lastActive: -1 };
         break;
     }
 
-    // Execute query
+    // Execute query - select both naming conventions
     const [profiles, total] = await Promise.all([
       User.find(mongoQuery)
-        .select('username email verificationTier reputationScore profileData profileVisibility isSubscribed subscriptionTier createdAt lastActive isOnline')
+        .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive is_online isOnline trust_score trustScore')
         .sort(sortOptions)
         .skip(skip)
         .limit(limitNum)
@@ -430,29 +461,44 @@ const handleBrowseProfiles = async (req, res) => {
       User.countDocuments(mongoQuery)
     ]);
 
-    // Transform profiles for frontend
-    const enhancedProfiles = profiles.map(profile => ({
-      id: profile._id,
-      username: profile.username,
-      email: profile.email,
-      profile_data: profile.profileData || {},
-      profileData: profile.profileData || {},
-      verification_tier: profile.verificationTier || 0,
-      verificationTier: profile.verificationTier || 0,
-      reputation_score: profile.reputationScore || 0,
-      reputationScore: profile.reputationScore || 0,
-      trustScore: profile.reputationScore || 75,
-      is_subscribed: profile.isSubscribed || false,
-      isSubscribed: profile.isSubscribed || false,
-      subscription_tier: profile.subscriptionTier || 'free',
-      subscriptionTier: profile.subscriptionTier || 'free',
-      created_at: profile.createdAt,
-      last_active: profile.lastActive,
-      lastActive: profile.lastActive,
-      isOnline: profile.isOnline || false,
-      // Subscription status indicators
-      subscriptionStatus: profile.isSubscribed ? 'subscribed' : 'free',
-      isPremium: profile.isSubscribed && (profile.subscriptionTier === 'premium' || profile.subscriptionTier === 'elite')
+    // Transform profiles for frontend - normalize field names
+    const enhancedProfiles = profiles.map(profile => {
+      // Get profile data from either naming convention
+      const profileData = profile.profile_data || profile.profileData || {};
+      const verificationTier = profile.verification_tier || profile.verificationTier || 0;
+      const reputationScore = profile.reputation_score || profile.reputationScore || 0;
+      const isSubscribed = profile.is_subscribed || profile.isSubscribed || false;
+      const subscriptionTier = profile.subscription_tier || profile.subscriptionTier || 'free';
+      const createdAt = profile.created_at || profile.createdAt;
+      const lastActive = profile.last_active || profile.lastActive;
+      const isOnline = profile.is_online || profile.isOnline || false;
+      const trustScore = profile.trust_score || profile.trustScore || reputationScore || 75;
+
+      return {
+        id: profile._id,
+        username: profile.username,
+        email: profile.email,
+        profile_data: profileData,
+        profileData: profileData,
+        verification_tier: verificationTier,
+        verificationTier: verificationTier,
+        reputation_score: reputationScore,
+        reputationScore: reputationScore,
+        trustScore: trustScore,
+        is_subscribed: isSubscribed,
+        isSubscribed: isSubscribed,
+        subscription_tier: subscriptionTier,
+        subscriptionTier: subscriptionTier,
+        created_at: createdAt,
+        createdAt: createdAt,
+        last_active: lastActive,
+        lastActive: lastActive,
+        isOnline: isOnline,
+        is_online: isOnline,
+        // Subscription status indicators
+        subscriptionStatus: isSubscribed ? 'subscribed' : 'free',
+        isPremium: isSubscribed && (subscriptionTier === 'premium' || subscriptionTier === 'elite')
+      };
     }));
 
     console.log(`📊 Found ${enhancedProfiles.length} profiles (page ${pageNum}/${Math.ceil(total / limitNum)})`);

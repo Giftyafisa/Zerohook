@@ -259,8 +259,8 @@ const userPresenceSchema = new mongoose.Schema({
 
 const userSessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  sessionToken: { type: String, sparse: true, index: false }, // Remove unique constraint, use sparse
-  socketId: { type: String, index: true },
+  sessionToken: { type: String }, // No index on this field - compound index below handles uniqueness
+  socketId: { type: String },
   ipAddress: String,
   userAgent: String,
   isActive: { type: Boolean, default: true },

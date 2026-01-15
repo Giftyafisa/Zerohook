@@ -1,6 +1,6 @@
 import React from 'react';
 import { useSelector } from 'react-redux';
-import { Box, Container, Typography, Grid, Chip } from '@mui/material';
+import { Box, Container, Typography, Grid, Chip, useMediaQuery, useTheme } from '@mui/material';
 import { styled, keyframes } from '@mui/system';
 import {
   Shield,
@@ -17,6 +17,7 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { selectIsAuthenticated, selectIsSubscribed } from '../store/slices/authSlice';
 import { GlassCard, GlassButton } from '../components/ui';
+import MobileHomePage from '../components/MobileHomePage';
 
 const float = keyframes`
   0%, 100% { transform: translateY(0px); }
@@ -149,8 +150,15 @@ const StatBox = styled(Box)({
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const isSubscribed = useSelector(selectIsSubscribed);
+
+  // Mobile: Use TikTok-style immersive home page
+  if (isMobile) {
+    return <MobileHomePage />;
+  }
 
   const fadeInUp = {
     initial: { opacity: 0, y: 60 },

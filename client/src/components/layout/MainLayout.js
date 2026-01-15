@@ -1,52 +1,170 @@
 /**
  * MainLayout - Responsive layout wrapper
- * Desktop: Sidebar navigation + main content
- * Mobile/Tablet: Bottom navigation
+ * 
+ * Desktop (≥900px): Sidebar navigation + scrollable main content
+ * Mobile/Tablet (<900px): Fixed shell with header + content + bottom nav (TikTok style)
+ * 
+ * Key Architecture:
+ * - Mobile uses fixed positioning shell (MobileShell)
+ * - Desktop uses traditional flow layout with sidebar
+ * - Consistent spacing and navigation across breakpoints
+ * 
  * Zerohook Platform
  */
 
 import React from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
+import { useLocation } from 'react-router-dom';
 import { styled } from '@mui/system';
 import DesktopSidebar from './DesktopSidebar';
 import MobileBottomNav from './MobileBottomNav';
+import MobileShell from './MobileShell';
+import MobileHeader from './MobileHeader';
+import tokens from '../../theme/tokens';
+import { isChatRoute, isFullHeightRoute } from '../../utils/routeUtils';
 
-const LayoutContainer = styled(Box)(({ theme }) => ({
+// Desktop layout container
+const DesktopContainer = styled(Box)({
   minHeight: '100vh',
-  background: '#0f0f13',
+  background: tokens.colors.background.primary,
   position: 'relative',
-}));
+});
 
-const MainContent = styled(Box, {
+// Desktop content area with sidebar offset
+const DesktopContent = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'hasSidebar',
 })(({ hasSidebar }) => ({
-  marginLeft: hasSidebar ? '280px' : 0,
+  marginLeft: hasSidebar ? `${tokens.layout.sidebarWidth}px` : 0,
   minHeight: '100vh',
-  // Bottom nav is 56px (optimized), add safe-area for iOS
-  paddingBottom: hasSidebar ? 0 : 'calc(56px + env(safe-area-inset-bottom))',
   transition: 'margin-left 0.3s ease',
 }));
 
+/**
+ * Get header configuration based on current route
+ */
+const getHeaderConfig = (pathname) => {
+  // Home page - fullscreen immersive on mobile
+  if (pathname === '/' || pathname === '/home') {
+    return { showHeader: false, fullScreen: true };
+  }
+  
+  // Browse/feed routes on mobile - TikTok feed handles its own UI
+  // On mobile, we hide the shell header for immersive experience
+  if (pathname === '/profiles' || pathname === '/browse') {
+    return { showHeader: false, fullScreen: true };
+  }
+  
+  // Adult services - TikTok-style full screen on mobile
+  if (pathname === '/adult-services') {
+    return { showHeader: false, fullScreen: true };
+  }
+  
+  // Chat routes - no header (chat has its own)
+  if (isChatRoute(pathname)) {
+    return { showHeader: false };
+  }
+  
+  // Detail pages - back button
+  if (pathname.includes('/profile/') || pathname.includes('/adult-services/')) {
+    return { variant: 'back', showMore: true };
+  }
+  
+  // Profile/settings pages
+  if (pathname === '/profile' || pathname === '/dashboard') {
+    return { variant: 'title', title: 'Profile', showNotifications: true };
+  }
+  
+  if (pathname === '/wallet') {
+    return { variant: 'title', title: 'Wallet' };
+  }
+  
+  if (pathname === '/bookings') {
+    return { variant: 'title', title: 'Bookings' };
+  }
+  
+  // Default - title with back
+  return { variant: 'back', title: 'Zerohook' };
+};
+
 const MainLayout = ({ children, showNavigation = true }) => {
   const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up('lg')); // >= 1200px
-  // Show bottom nav for both mobile (<900px) AND tablet (900-1199px)
-  const showBottomNav = useMediaQuery(theme.breakpoints.down('lg')); // < 1200px
+  const location = useLocation();
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md')); // >= 900px
+  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 900px
   
+  // Get header configuration for current route
+  const headerConfig = getHeaderConfig(location.pathname);
+  const showHeader = headerConfig.showHeader !== false;
+  const isFullScreen = headerConfig.fullScreen === true; // TikTok-style full screen
+  
+  // Check if this is a full-height route (chat, etc.)
+  const isFullHeight = isFullHeightRoute(location.pathname);
+  
+  // Desktop Layout
+  if (isDesktop) {
+    return (
+      <DesktopContainer>
+        {/* Desktop Sidebar */}
+        {showNavigation && <DesktopSidebar />}
+        
+        {/* Main Content Area */}
+        <DesktopContent hasSidebar={showNavigation}>
+          {children}
+        </DesktopContent>
+      </DesktopContainer>
+    );
+  }
+  
+  // Full-screen mode (TikTok feed) - no header, bottom nav overlaid
+  if (isFullScreen) {
+    return (
+      <Box
+        sx={{
+          position: 'fixed',
+          inset: 0,
+          bgcolor: '#000',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Full screen content */}
+        <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          {children}
+        </Box>
+        
+        {/* Bottom nav overlaid on content */}
+        {showNavigation && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              zIndex: 100,
+              background: 'linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 60%, transparent 100%)',
+              pt: 3,
+            }}
+          >
+            <MobileBottomNav />
+          </Box>
+        )}
+      </Box>
+    );
+  }
+  
+  // Mobile/Tablet Layout - Fixed Shell (TikTok/Telegram style)
   return (
-    <LayoutContainer>
-      {/* Desktop Sidebar */}
-      {showNavigation && isDesktop && <DesktopSidebar />}
-      
-      {/* Main Content Area */}
-      <MainContent hasSidebar={showNavigation && isDesktop}>
-        {children}
-      </MainContent>
-      
-      {/* Mobile/Tablet Bottom Navigation - Show for all non-desktop sizes */}
-      {showNavigation && showBottomNav && <MobileBottomNav />}
-    </LayoutContainer>
+    <MobileShell
+      header={showHeader ? <MobileHeader {...headerConfig} /> : null}
+      bottomNav={showNavigation ? <MobileBottomNav /> : null}
+      showHeader={showHeader}
+      showBottomNav={showNavigation && !isChatRoute(location.pathname)}
+      noPadding={isFullHeight || isChatRoute(location.pathname)}
+    >
+      {children}
+    </MobileShell>
   );
 };
 
 export default MainLayout;
+

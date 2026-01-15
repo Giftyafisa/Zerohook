@@ -716,6 +716,7 @@ const AdultServiceCreate = () => {
             <Grid item xs={12}>
               <input
                 accept="image/*"
+                capture="environment"
                 style={{ display: 'none' }}
                 id="photo-upload"
                 multiple

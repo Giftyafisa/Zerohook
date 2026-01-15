@@ -32,6 +32,7 @@ import { API_BASE_URL } from '../config/constants';
 import { getDefaultImage } from '../config/images';
 import { useAuth } from '../contexts/AuthContext';
 import useCurrency from '../hooks/useCurrency';
+import TikTokServiceFeed from '../components/TikTokServiceFeed';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -165,6 +166,8 @@ const AdultServiceBrowse = () => {
               height={isMobile ? 260 : 320}
               image={image}
               alt={service.title}
+              loading="lazy"
+              decoding="async"
               sx={{ objectFit: 'cover' }}
             />
             <Box sx={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 1 }}>
@@ -253,6 +256,12 @@ const AdultServiceBrowse = () => {
     </Box>
   );
 
+  // Mobile: Use TikTok-style full-screen swipeable feed
+  if (isMobile) {
+    return <TikTokServiceFeed />;
+  }
+
+  // Desktop: Traditional grid view
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#0b0c10', pb: 2 }}>
       <Box
@@ -277,11 +286,15 @@ const AdultServiceBrowse = () => {
               onChange={(e, v) => setCategoryFilter(v)}
               variant="scrollable"
               scrollButtons="auto"
+              allowScrollButtonsMobile
               textColor="primary"
               indicatorColor="primary"
               sx={{
                 minHeight: 0,
                 '& .MuiTabs-indicator': { height: 2 },
+                '& .MuiTabs-scrollButtons': {
+                  color: 'primary.main'
+                },
                 '& .MuiTab-root': {
                   textTransform: 'none',
                   fontWeight: 700,

@@ -16,14 +16,27 @@ export const spacing = {
   '5xl': 64, // Added for larger spacing needs
 };
 
-// Layout-specific spacing
+// Layout-specific spacing - TikTok/Telegram style fixed dimensions
 export const layout = {
+  // Mobile Shell dimensions (fixed, never change)
+  mobileHeaderHeight: 56, // Fixed header height for mobile
   bottomNavHeight: 64, // Fixed height for bottom navigation
-  topNavHeight: 56, // Fixed height for top navigation (mobile)
+  topNavHeight: 56, // Fixed height for top navigation (mobile) - deprecated, use mobileHeaderHeight
   topNavHeightDesktop: 64, // Top navigation height on desktop
   sidebarWidth: 280, // Desktop sidebar width
+  
+  // Content spacing
   contentPadding: 16, // Default content padding
   contentPaddingDesktop: 24, // Desktop content padding
+  
+  // Card dimensions (consistent across app)
+  cardBorderRadius: 16, // Unified card border radius
+  cardPadding: 16, // Unified card internal padding
+  cardGap: 12, // Gap between cards in lists
+  
+  // Grid system (8px base)
+  gridBase: 8, // All spacing should be multiples of this
+  gridGutter: 16, // Default gutter (2x base)
 };
 
 // Typography Scale (in px)
@@ -104,14 +117,28 @@ export const opacity = {
   high: 0.9,
 };
 
-// Z-Index Scale
+// Z-Index Scale (strict layering for mobile shell)
 export const zIndex = {
   base: 1,
+  content: 10, // Main content
+  cards: 50, // Cards/elevated content
   dropdown: 1000,
   sticky: 1100,
+  appBar: 1100, // Mobile header
+  bottomNav: 1100, // Bottom navigation
   modal: 1200,
   popover: 1300,
   tooltip: 1400,
+  toast: 1500, // Toast notifications
+};
+
+// Breakpoints (mobile-first approach)
+export const breakpoints = {
+  xs: 375,  // Small phones
+  sm: 600,  // Large phones
+  md: 900,  // Tablets
+  lg: 1200, // Small laptops
+  xl: 1536, // Large screens
 };
 
 // Touch Target Sizes (minimum for accessibility)
@@ -159,12 +186,14 @@ export const gradients = {
 
 const tokens = {
   spacing,
+  layout,
   fontSize,
   fontWeight,
   borderRadius,
   colors,
   opacity,
   zIndex,
+  breakpoints,
   touchTarget,
   transition,
   shadows,

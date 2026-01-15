@@ -43,7 +43,10 @@ import {
   MyLocation,
   EditLocation,
   CheckCircle,
-  AccessTime
+  AccessTime,
+  Person,
+  Login,
+  Menu as MenuIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -55,6 +58,7 @@ import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { LOCATIONS } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
 import { VERIFICATION_TIERS, getVerificationTierConfig, VerificationBadge, TrustScoreBreakdown } from '../components/ui/StatusBadge';
+import TikTokProfileFeed from '../components/TikTokProfileFeed';
 
 // Get all locations from user's country (or default to Ghana/Nigeria)
 const getAllLocations = (countryCode) => {
@@ -1614,11 +1618,10 @@ const ProfileFeed = () => {
     activityTracker.trackFilter('category', filterId);
   }, []);
 
-  // Grid columns based on screen size
-  const getGridColumns = () => {
-    if (isMobile) return 1;
-    return 4;
-  };
+  // Handle search input change
+  const handleSearchChange = useCallback((value) => {
+    setSearchQuery(value);
+  }, []);
 
   // ============================================
   // RENDER PROFILE FEED (Public Access Allowed)
@@ -1626,158 +1629,145 @@ const ProfileFeed = () => {
   // Public profiles are visible to everyone
   // Contact/Message features require authentication
 
-  // Show profile feed (accessible to everyone)
+  // Mobile: Use TikTok-style full-screen swipeable feed
+  if (isMobile) {
+    return <TikTokProfileFeed />;
+  }
+
+  // Desktop: Show traditional grid feed (accessible to everyone)
   return (
     <Box
       sx={{
-        minHeight: '100vh',
-        background: 'linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
-        pt: { xs: 0.5, sm: 1, md: 2 },
-        pb: { xs: 2, sm: 4, md: 8 },
+        minHeight: '100%', // Fill MobileShell content area
+        background: 'linear-gradient(180deg, #0f0f13 0%, #1a1a2e 100%)',
+        // Mobile: no extra padding at bottom (handled by shell)
+        // Desktop: add padding for footer
+        pb: { xs: 0, md: 4 },
       }}
     >
-      <Container maxWidth="xl">
-        {/* Header */}
-        <Box sx={{ mb: { xs: 1.5, sm: 2, md: 3 } }}>
+      {/* Content Area - Filter Section */}
+      <Box
+        sx={{
+          // Desktop only: sticky filter bar
+          position: { xs: 'relative', md: 'sticky' },
+          top: { md: 0 },
+          zIndex: 50,
+          background: { md: 'rgba(15,15,19,0.95)' },
+          backdropFilter: { md: 'blur(20px)' },
+          borderBottom: { md: '1px solid rgba(0,242,234,0.1)' },
+          px: 2,
+          py: 1.5,
+        }}
+      >
+        {/* Location & Filter Row */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
           <Typography
-            variant={isMobile ? 'h5' : 'h4'}
+            variant="h6"
             sx={{
-              fontWeight: 800,
-              background: 'linear-gradient(135deg, #fff 0%, #00f2ea 100%)',
-              backgroundClip: 'text',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              mb: 0.5,
+              fontWeight: 700,
+              fontSize: '1.1rem',
+              color: '#fff',
             }}
           >
             Discover
           </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-              Find verified profiles
-            </Typography>
-            {userLocation && (
-              <Tooltip title="Click to change location">
-                <Chip
-                  size="small"
-                  icon={<NearMe sx={{ fontSize: 14, color: '#00f2ea !important' }} />}
-                  label={locationLabel || 'Location enabled'}
-                  onClick={() => setShowLocationPicker(true)}
-                  deleteIcon={<EditLocation sx={{ fontSize: 14 }} />}
-                  onDelete={() => setShowLocationPicker(true)}
-                  sx={{
-                    bgcolor: 'rgba(0,242,234,0.1)',
-                    color: '#00f2ea',
-                    border: '1px solid rgba(0,242,234,0.2)',
-                    fontSize: '0.75rem',
-                    height: 24,
-                    cursor: 'pointer',
-                    '&:hover': {
-                      bgcolor: 'rgba(0,242,234,0.2)',
-                    },
-                    '& .MuiChip-icon': { color: '#00f2ea' },
-                    '& .MuiChip-deleteIcon': { color: '#00f2ea', fontSize: 14 },
-                  }}
-                />
-              </Tooltip>
-            )}
-            {!userLocation && !locationLoading && (
-              <Chip
-                size="small"
-                icon={<EditLocation sx={{ fontSize: 14 }} />}
-                label="Set Location"
-                onClick={() => setShowLocationPicker(true)}
-                sx={{
-                  bgcolor: 'rgba(255,165,0,0.15)',
-                  color: '#ffa500',
-                  border: '1px solid rgba(255,165,0,0.3)',
-                  fontSize: '0.75rem',
-                  height: 24,
-                  cursor: 'pointer',
-                  '&:hover': {
-                    bgcolor: 'rgba(255,165,0,0.25)',
-                  },
-                }}
-              />
-            )}
-            {locationLoading && (
-              <Chip
-                size="small"
-                icon={<CircularProgress size={12} sx={{ color: '#00f2ea' }} />}
-                label="Detecting location..."
-                sx={{
-                  bgcolor: 'rgba(255,255,255,0.05)',
-                  color: 'rgba(255,255,255,0.5)',
-                  fontSize: '0.75rem',
-                  height: 24,
-                }}
-              />
-            )}
-          </Box>
+          
+          {/* Compact Location Chip */}
+          {userLocation ? (
+            <Chip
+              size="small"
+              icon={<NearMe sx={{ fontSize: 12, color: '#00f2ea !important' }} />}
+              label={locationLabel ? (locationLabel.length > 20 ? locationLabel.substring(0, 20) + '...' : locationLabel) : 'Near you'}
+              onClick={() => setShowLocationPicker(true)}
+              sx={{
+                bgcolor: 'rgba(0,242,234,0.12)',
+                color: '#00f2ea',
+                border: '1px solid rgba(0,242,234,0.25)',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                height: 28,
+                cursor: 'pointer',
+                '&:hover': { bgcolor: 'rgba(0,242,234,0.2)' },
+                '& .MuiChip-icon': { color: '#00f2ea', ml: 0.5 },
+                '& .MuiChip-label': { px: 1 },
+              }}
+            />
+          ) : (
+            <Chip
+              size="small"
+              icon={locationLoading ? <CircularProgress size={12} sx={{ color: '#00f2ea' }} /> : <MyLocation sx={{ fontSize: 12 }} />}
+              label={locationLoading ? 'Detecting...' : 'Set location'}
+              onClick={() => !locationLoading && setShowLocationPicker(true)}
+              disabled={locationLoading}
+              sx={{
+                bgcolor: 'rgba(255,255,255,0.08)',
+                color: 'rgba(255,255,255,0.6)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                height: 28,
+                cursor: locationLoading ? 'default' : 'pointer',
+                '&:hover': { bgcolor: locationLoading ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.12)' },
+              }}
+            />
+          )}
         </Box>
 
-        {/* Search Bar */}
-        <Box sx={{ mb: { xs: 1, sm: 1.5, md: 2 } }}>
-          <TextField
-            fullWidth
-            placeholder="Search by name, location, or interests..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search sx={{ color: 'rgba(255,255,255,0.5)' }} />
-                </InputAdornment>
-              ),
-              endAdornment: searchQuery && (
-                <InputAdornment position="end">
-                  <IconButton 
-                    size="small" 
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear search"
-                  >
-                    <Close sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 18 }} />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: '16px',
-                color: '#fff',
-                '& fieldset': {
-                  borderColor: 'rgba(255,255,255,0.1)',
-                },
-                '&:hover fieldset': {
-                  borderColor: 'rgba(0,242,234,0.3)',
-                },
-                '&.Mui-focused fieldset': {
-                  borderColor: '#00f2ea',
-                },
-              },
-              '& .MuiInputBase-input::placeholder': {
-                color: 'rgba(255,255,255,0.4)',
-              },
-            }}
-          />
-        </Box>
+        {/* Search Bar - Compact */}
+        <TextField
+          fullWidth
+          size="small"
+          placeholder="Search profiles..."
+          value={searchQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search sx={{ fontSize: 18, color: 'rgba(255,255,255,0.4)' }} />
+              </InputAdornment>
+            ),
+            endAdornment: searchQuery && (
+              <InputAdornment position="end">
+                <IconButton size="small" onClick={() => handleSearchChange('')}>
+                  <Close sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+          sx={{
+            mb: 1.5,
+            '& .MuiOutlinedInput-root': {
+              bgcolor: 'rgba(255,255,255,0.05)',
+              borderRadius: '12px',
+              height: 40,
+              color: '#fff',
+              '& fieldset': { borderColor: 'rgba(255,255,255,0.1)' },
+              '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+              '&.Mui-focused fieldset': { borderColor: 'rgba(0,242,234,0.5)' },
+            },
+            '& .MuiInputBase-input': {
+              fontSize: '0.875rem',
+              '&::placeholder': { color: 'rgba(255,255,255,0.4)' },
+            },
+          }}
+        />
 
-        {/* Filter Chips */}
+        {/* Filter Chips - Scrollable horizontally */}
         <FilterChips
           activeFilter={activeFilter}
           onFilterChange={handleFilterChange}
           filters={filterOptions}
         />
+      </Box>
 
+      {/* Main Content Area */}
+      <Box sx={{ px: 2, pt: 1 }}>
         {/* Loading State */}
         {loading && (
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: `repeat(${getGridColumns()}, 1fr)`,
-              gap: 2,
-              mt: 3,
+              gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(4, 1fr)' },
+              gap: { xs: 1.5, sm: 2 },
             }}
           >
             {[...Array(8)].map((_, i) => (
@@ -1843,9 +1833,8 @@ const ProfileFeed = () => {
             <Box
               sx={{
                 display: 'grid',
-                gridTemplateColumns: `repeat(${getGridColumns()}, 1fr)`,
-                gap: isMobile ? 2 : 3,
-                mt: 3,
+                gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(4, 1fr)' },
+                gap: { xs: 1.5, sm: 2 },
               }}
             >
               {displayedProfiles.map((profile, index) => (
@@ -1927,7 +1916,7 @@ const ProfileFeed = () => {
             )}
           </>
         )}
-      </Container>
+      </Box>
 
       {/* Location Picker Dialog */}
       <LocationPicker

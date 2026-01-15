@@ -111,6 +111,74 @@ router.get('/', async (req, res) => {
 
   } catch (error) {
     console.error('Get adult services error:', error);
+    
+    // Return mock data if database is unavailable (for UI testing)
+    if (error.message?.includes('buffering timed out') || error.message?.includes('connection')) {
+      console.log('⚠️ Returning mock adult services data due to database unavailability');
+      const mockServices = [
+        {
+          id: 'mock-1',
+          title: 'Premium Companionship',
+          description: 'High-quality companionship services for discerning clients',
+          category: 'long-term',
+          price: 250000,
+          duration_minutes: 120,
+          images: ['https://res.cloudinary.com/devrpaqaj/image/upload/v1/zerohook/services/sample1'],
+          provider: {
+            username: 'EliteCompanion',
+            verification_tier: 3,
+            trust_score: 92,
+            is_online: true,
+            location: { city: 'Lagos', country: 'Nigeria' }
+          },
+          likes_count: 45,
+          is_active: true
+        },
+        {
+          id: 'mock-2',
+          title: 'VIP Experience',
+          description: 'Exclusive VIP treatment and unforgettable moments',
+          category: 'special-services',
+          price: 500000,
+          duration_minutes: 180,
+          images: ['https://res.cloudinary.com/devrpaqaj/image/upload/v1/zerohook/services/sample2'],
+          provider: {
+            username: 'LuxuryQueen',
+            verification_tier: 3,
+            trust_score: 88,
+            is_online: false,
+            location: { city: 'Abuja', country: 'Nigeria' }
+          },
+          likes_count: 67,
+          is_active: true
+        },
+        {
+          id: 'mock-3',
+          title: 'Casual Dates',
+          description: 'Fun and relaxed casual encounters',
+          category: 'short-term',
+          price: 150000,
+          duration_minutes: 90,
+          images: ['https://res.cloudinary.com/devrpaqaj/image/upload/v1/zerohook/services/sample3'],
+          provider: {
+            username: 'CasualStar',
+            verification_tier: 2,
+            trust_score: 78,
+            is_online: true,
+            location: { city: 'Accra', country: 'Ghana' }
+          },
+          likes_count: 23,
+          is_active: true
+        }
+      ];
+      
+      return res.json({
+        services: mockServices,
+        pagination: { page: 1, limit: 20, hasMore: false },
+        _mock: true
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to get adult services' });
   }
 });

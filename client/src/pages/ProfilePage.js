@@ -65,6 +65,7 @@ const ProfilePage = () => {
     lastName: '',
     bio: '',
     city: '',
+    region: '',
     country: '',
     countryCode: '',
     age: 25,
@@ -138,6 +139,7 @@ const ProfilePage = () => {
         lastName: user.profile_data?.lastName || '',
         bio: user.profile_data?.bio || '',
         city: user.profile_data?.location?.city || '',
+        region: user.profile_data?.location?.region || '',
         country: user.profile_data?.location?.country || '',
         countryCode: user.profile_data?.location?.countryCode || '',
         age: user.profile_data?.age || 25,
@@ -220,6 +222,7 @@ const ProfilePage = () => {
             priceCurrency: editData.priceCurrency,
             location: {
               city: editData.city,
+              region: editData.region,
               country: editData.country,
               countryCode: editData.countryCode,
               coordinates: resolvedLocation ? { lat: resolvedLocation.lat, lng: resolvedLocation.lng } : undefined,
@@ -298,8 +301,8 @@ const ProfilePage = () => {
   }
 
   const fullName = `${profileData.firstName} ${profileData.lastName}`.trim() || user?.username || 'User';
-  const location = profileData.city && profileData.country 
-    ? `${profileData.city}, ${profileData.country}` 
+  const location = profileData.country
+    ? [profileData.country, profileData.region, profileData.city].filter(Boolean).join(', ')
     : 'Location not set';
 
   return (
@@ -414,6 +417,8 @@ const ProfilePage = () => {
                 fullWidth
               />
             </Box>
+            
+            {/* Country Row */}
             <Box sx={styles.formRow}>
               {/* Country Dropdown */}
               <FormControl fullWidth sx={styles.selectField}>
@@ -448,8 +453,22 @@ const ProfilePage = () => {
                   ))}
                 </Select>
               </FormControl>
+            </Box>
+            
+            {/* Region/State and City Row */}
+            <Box sx={styles.formRow}>
+              {/* Region/State Input */}
+              <TextField
+                label="Region/State"
+                value={editData.region || ''}
+                onChange={(e) => setEditData({ ...editData, region: e.target.value })}
+                sx={styles.textField}
+                fullWidth
+                placeholder="e.g. Greater Accra, Lagos State"
+                disabled={!editData.countryCode}
+              />
               
-              {/* City Autocomplete */}
+              {/* City/Town/Village Autocomplete */}
               <Autocomplete
                 fullWidth
                 freeSolo
@@ -481,8 +500,8 @@ const ProfilePage = () => {
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="City"
-                    placeholder={editData.countryCode ? "Start typing your city..." : "Select country first"}
+                    label="City/Town/Village"
+                    placeholder={editData.countryCode ? "Start typing your city, town, or village..." : "Select country first"}
                     sx={styles.textField}
                     InputProps={{
                       ...params.InputProps,

@@ -33,22 +33,19 @@ import {
 import { API_BASE_URL } from '../../config/constants';
 import tokens from '../../theme/tokens';
 
+// TikTok/Telegram style bottom nav - fixed position, proper touch targets
 const BottomNavContainer = styled(Box)({
-  position: 'fixed',
-  bottom: 0,
-  left: 0,
-  right: 0,
-  height: '56px',
-  background: `${tokens.colors.background.primary}f2`,
-  backdropFilter: tokens.backdropBlur.md,
-  borderTop: `1px solid ${tokens.colors.border.primary}`,
+  // Position handled by MobileShell, but keep for standalone use
   display: 'flex',
   justifyContent: 'space-around',
   alignItems: 'center',
-  paddingBottom: 'env(safe-area-inset-bottom)',
-  zIndex: tokens.zIndex.modal,
+  height: '100%',
+  width: '100%',
+  padding: `0 ${tokens.spacing.sm}px`,
+  background: 'transparent', // Background handled by shell
 });
 
+// Nav item with proper touch target (48px minimum, WCAG 2.5.5)
 const NavItem = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'active',
 })(({ active }) => ({
@@ -56,48 +53,82 @@ const NavItem = styled(Box, {
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: `${tokens.spacing.sm}px ${tokens.spacing.lg}px`,
+  // Proper touch target sizing
+  minWidth: `${tokens.touchTarget.recommended}px`,
+  minHeight: `${tokens.touchTarget.recommended}px`,
+  width: '64px', // Fixed width for consistent layout
+  padding: `${tokens.spacing.xs}px`,
   borderRadius: `${tokens.borderRadius.md}px`,
   cursor: 'pointer',
-  transition: tokens.transition.slow,
-  minWidth: '60px',
-  minHeight: `${tokens.touchTarget.min}px`,
+  transition: tokens.transition.fast,
   position: 'relative',
+  // Haptic feedback styling
+  WebkitTapHighlightColor: 'transparent',
+  userSelect: 'none',
+  
+  // Active state indicator
+  '&::before': {
+    content: '""',
+    position: 'absolute',
+    top: '4px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: active ? '20px' : 0,
+    height: '3px',
+    borderRadius: '2px',
+    background: tokens.colors.primary.main,
+    transition: tokens.transition.fast,
+  },
   
   '& .nav-icon': {
     color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
     fontSize: '24px',
-    transition: tokens.transition.slow,
+    transition: tokens.transition.fast,
   },
   
   '& .nav-label': {
     color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
-    fontSize: `${tokens.fontSize.xs}px`,
+    fontSize: '11px', // Smaller for cleaner look
     fontWeight: active ? tokens.fontWeight.semibold : tokens.fontWeight.medium,
-    marginTop: `${tokens.spacing.xs}px`,
+    marginTop: '2px',
     fontFamily: '"Outfit", sans-serif',
-    transition: tokens.transition.slow,
+    transition: tokens.transition.fast,
+    lineHeight: 1,
   },
   
+  // Touch feedback
   '&:active': {
-    transform: 'scale(0.95)',
+    transform: 'scale(0.92)',
+    background: `${tokens.colors.primary.main}10`,
     
     '& .nav-icon, & .nav-label': {
       color: tokens.colors.primary.main,
     },
   },
+  
+  // Hover for desktop/tablets
+  '@media (hover: hover)': {
+    '&:hover': {
+      background: `${tokens.colors.primary.main}08`,
+      
+      '& .nav-icon, & .nav-label': {
+        color: active ? tokens.colors.primary.main : tokens.colors.text.secondary,
+      },
+    },
+  },
 }));
 
+// Badge with better positioning
 const NavBadge = styled(Box)({
   position: 'absolute',
-  top: '2px',
-  right: `${tokens.spacing.sm}px`,
+  top: '0px',
+  right: '6px',
   minWidth: '18px',
   height: '18px',
-  padding: `0 ${tokens.spacing.xs}px`,
+  padding: '0 5px',
   background: tokens.colors.secondary.main,
   borderRadius: tokens.borderRadius.full,
-  fontSize: `${tokens.fontSize.xs}px`,
+  fontSize: '10px',
   fontWeight: tokens.fontWeight.bold,
   color: tokens.colors.text.primary,
   display: 'flex',

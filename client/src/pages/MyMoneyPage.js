@@ -665,7 +665,11 @@ const styles = {
     fontSize: '36px',
     fontWeight: 700,
     color: '#fff',
-    marginBottom: '20px'
+    marginBottom: '20px',
+    wordBreak: 'break-word',
+    '@media (max-width: 375px)': {
+      fontSize: '24px'
+    }
   },
   quickActions: {
     display: 'flex',

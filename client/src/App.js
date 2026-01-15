@@ -219,252 +219,156 @@ function AppContent() {
   
   return (
     <MainLayout showNavigation={true}>
-      <Box className="App" sx={{ position: 'relative', minHeight: '100vh' }}>
-        {/* Animated Background - Disabled on performance-sensitive routes, mobile, and reduced-motion */}
-        {showAnimatedBackground && <AnimatedBackground />}
+      {/* Animated Background - Only on desktop, disabled on performance-sensitive routes and reduced-motion */}
+      {showAnimatedBackground && isDesktop && <AnimatedBackground />}
+      
+      {/* Main Content - Layout is fully handled by MainLayout (MobileShell or DesktopContainer) */}
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
+        <Route path="/login" element={<ErrorBoundary><LoginPage /></ErrorBoundary>} />
+        <Route path="/register" element={<ErrorBoundary><RegisterPage /></ErrorBoundary>} />
+        <Route path="/subscription" element={<ErrorBoundary><SubscriptionPage /></ErrorBoundary>} />
+        <Route path="/subscription/success" element={<ErrorBoundary><SubscriptionSuccessPage /></ErrorBoundary>} />
+        <Route path="/subscription/error" element={<ErrorBoundary><SubscriptionErrorPage /></ErrorBoundary>} />
         
-        {/* Navigation is handled by MainLayout (Sidebar on desktop, BottomNav on mobile) */}
-        {/* Removed duplicate Navbar here - MainLayout is the single navigation authority */}
+        {/* Browse Routes - Available to All */}
+        <Route path="/adult-services" element={<ErrorBoundary><AdultServiceBrowse /></ErrorBoundary>} />
+        <Route path="/adult-services/:id" element={<ErrorBoundary><AdultServiceDetail /></ErrorBoundary>} />
+        <Route path="/profiles" element={<ErrorBoundary><ProfileFeed /></ErrorBoundary>} />
+        <Route path="/profile/:profileId" element={<ErrorBoundary><ProfileDetailPage /></ErrorBoundary>} />
         
-        {/* Main Content */}
-        <main 
-          className="main-content" 
-          style={{ 
-            position: 'relative', 
-            zIndex: 1,
-            // Apply full-height layout for chat/messaging routes
-            ...(fullHeightLayout && {
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: '100vh',
-              height: '100vh',
-              overflow: 'hidden'
-            })
-          }}
-        >
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={
-              <ErrorBoundary>
-                <HomePage />
-              </ErrorBoundary>
-            } />
-            <Route path="/login" element={
-              <ErrorBoundary>
-                <LoginPage />
-              </ErrorBoundary>
-            } />
-            <Route path="/register" element={
-              <ErrorBoundary>
-                <RegisterPage />
-              </ErrorBoundary>
-            } />
-            <Route path="/subscription" element={
-              <ErrorBoundary>
-                <SubscriptionPage />
-              </ErrorBoundary>
-            } />
-            <Route path="/subscription/success" element={
-              <ErrorBoundary>
-                <SubscriptionSuccessPage />
-              </ErrorBoundary>
-            } />
-            <Route path="/subscription/error" element={
-              <ErrorBoundary>
-                <SubscriptionErrorPage />
-              </ErrorBoundary>
-            } />
-                    
-                    {/* Browse Routes - Available to All */}
-                    <Route path="/adult-services" element={
-                      <ErrorBoundary>
-                        <AdultServiceBrowse />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/adult-services/:id" element={
-                      <ErrorBoundary>
-                        <AdultServiceDetail />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/profiles" element={
-                      <ErrorBoundary>
-                        <ProfileFeed />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/profile/:profileId" element={
-                      <ErrorBoundary>
-                        <ProfileDetailPage />
-                      </ErrorBoundary>
-                    } />
-                    
-                    {/* Protected Routes */}
-                    <Route path="/dashboard" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <DashboardPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/profile" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <ProfilePage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/verification" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <VerificationPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    
-                    {/* Subscription Required Routes */}
-                    <Route path="/create-service" element={
-                      <ProtectedRoute requireSubscription={true}>
-                        <ErrorBoundary>
-                          <CreateServicePage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/adult-services/create" element={
-                      <ProtectedRoute requireSubscription={true}>
-                        <ErrorBoundary>
-                          <AdultServiceCreate />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/transactions" element={<Navigate to="/wallet?tab=transactions" replace />} />
-                    <Route path="/trust-score" element={
-                      <ProtectedRoute requireSubscription={true}>
-                        <ErrorBoundary>
-                          <TrustScorePage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    
-                    {/* Chat/Messages Routes */}
-                    <Route path="/chat" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <MessagesPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/messages" element={<Navigate to="/chat" replace />} />
-                    
-                    {/* Notifications Route */}
-                    <Route path="/notifications" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <NotificationsPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    
-                    {/* Settings Routes - /settings is canonical, /privacy-settings redirects */}
-                    <Route path="/settings" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <PrivacySettings />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/privacy-settings" element={<Navigate to="/settings" replace />} />
-                    
-                    {/* Bookings Route */}
-                    <Route path="/bookings" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <BookingsPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/bookings/:id" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <BookingDetails />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    
-                    {/* Wallet / My Money Route - Unified payment page */}
-                    <Route path="/wallet" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <MyMoneyPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    
-                    {/* Sugar Profiles Route - For providers to view VVIP members */}
-                    <Route path="/sugar-profiles" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <SugarProfilesPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/sugar-access/callback" element={
-                      <ProtectedRoute requireSubscription={false}>
-                        <ErrorBoundary>
-                          <SugarProfilesPage />
-                        </ErrorBoundary>
-                      </ProtectedRoute>
-                    } />
-                    
-                    {/* Help & Support Route - /help is canonical */}
-                    <Route path="/help" element={
-                      <ErrorBoundary>
-                        <HelpSupportPage />
-                      </ErrorBoundary>
-                    } />
-                    <Route path="/support" element={<Navigate to="/help" replace />} />
-                    
-                    {/* Info Pages - Public routes */}
-                    <Route path="/about" element={<ErrorBoundary><AboutPage /></ErrorBoundary>} />
-                    <Route path="/privacy" element={<ErrorBoundary><PrivacyPage /></ErrorBoundary>} />
-                    <Route path="/terms" element={<ErrorBoundary><TermsPage /></ErrorBoundary>} />
-                    <Route path="/trust-safety" element={<ErrorBoundary><TrustSafetyPage /></ErrorBoundary>} />
-                    <Route path="/how-it-works" element={<ErrorBoundary><HowItWorksPage /></ErrorBoundary>} />
-                    <Route path="/contact" element={<ErrorBoundary><ContactPage /></ErrorBoundary>} />
-                    
-                    {/* Redirects for Legacy Routes */}
-                    <Route path="/services" element={<Navigate to="/adult-services" replace />} />
-                    <Route path="/services/:id" element={<LegacyServiceRedirect />} />
-                    
-                    {/* Catch All - Redirect to Home */}
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-                </main>
-                
-                {/* Footer - Hide on chat routes to give chat full height */}
-                {showFooter && <Footer />}
-                
-                {/* Global Call System - Only mounted on call-eligible routes to reduce socket overhead */}
-                {mountCallSystem && (
-                  <Suspense fallback={null}>
-                    <CallSystem />
-                  </Suspense>
-                )}
-                
-                {/* Toast Notifications - Position and duration adjust for mobile */}
-                <ToastContainer
-                  position={toastPosition}
-                  autoClose={toastDuration}
-                  hideProgressBar={false}
-                  newestOnTop={false}
-                  closeOnClick
-                  rtl={false}
-                  pauseOnFocusLoss
-                  draggable
-                  pauseOnHover
-                  theme="colored"
-                />
-              </Box>
-            </MainLayout>
-          );
-        }
+        {/* Protected Routes */}
+        <Route path="/dashboard" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><DashboardPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/profile" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><ProfilePage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/verification" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><VerificationPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        
+        {/* Subscription Required Routes */}
+        <Route path="/create-service" element={
+          <ProtectedRoute requireSubscription={true}>
+            <ErrorBoundary><CreateServicePage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/adult-services/create" element={
+          <ProtectedRoute requireSubscription={true}>
+            <ErrorBoundary><AdultServiceCreate /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/transactions" element={<Navigate to="/wallet?tab=transactions" replace />} />
+        <Route path="/trust-score" element={
+          <ProtectedRoute requireSubscription={true}>
+            <ErrorBoundary><TrustScorePage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        
+        {/* Chat/Messages Routes */}
+        <Route path="/chat" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><MessagesPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/messages" element={<Navigate to="/chat" replace />} />
+        
+        {/* Notifications Route */}
+        <Route path="/notifications" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><NotificationsPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        
+        {/* Settings Routes - /settings is canonical, /privacy-settings redirects */}
+        <Route path="/settings" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><PrivacySettings /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/privacy-settings" element={<Navigate to="/settings" replace />} />
+        
+        {/* Bookings Route */}
+        <Route path="/bookings" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><BookingsPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/bookings/:id" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><BookingDetails /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        
+        {/* Wallet / My Money Route - Unified payment page */}
+        <Route path="/wallet" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><MyMoneyPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        
+        {/* Sugar Profiles Route - For providers to view VVIP members */}
+        <Route path="/sugar-profiles" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><SugarProfilesPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        <Route path="/sugar-access/callback" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><SugarProfilesPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        
+        {/* Help & Support Route - /help is canonical */}
+        <Route path="/help" element={<ErrorBoundary><HelpSupportPage /></ErrorBoundary>} />
+        <Route path="/support" element={<Navigate to="/help" replace />} />
+        
+        {/* Info Pages - Public routes */}
+        <Route path="/about" element={<ErrorBoundary><AboutPage /></ErrorBoundary>} />
+        <Route path="/privacy" element={<ErrorBoundary><PrivacyPage /></ErrorBoundary>} />
+        <Route path="/terms" element={<ErrorBoundary><TermsPage /></ErrorBoundary>} />
+        <Route path="/trust-safety" element={<ErrorBoundary><TrustSafetyPage /></ErrorBoundary>} />
+        <Route path="/how-it-works" element={<ErrorBoundary><HowItWorksPage /></ErrorBoundary>} />
+        <Route path="/contact" element={<ErrorBoundary><ContactPage /></ErrorBoundary>} />
+        
+        {/* Redirects for Legacy Routes */}
+        <Route path="/services" element={<Navigate to="/adult-services" replace />} />
+        <Route path="/services/:id" element={<LegacyServiceRedirect />} />
+        
+        {/* Catch All - Redirect to Home */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      
+      {/* Global Call System - Only mounted on call-eligible routes to reduce socket overhead */}
+      {mountCallSystem && (
+        <Suspense fallback={null}>
+          <CallSystem />
+        </Suspense>
+      )}
+      
+      {/* Toast Notifications - Position and duration adjust for mobile */}
+      <ToastContainer
+        position={toastPosition}
+        autoClose={toastDuration}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="colored"
+      />
+    </MainLayout>
+  );
+}
 
 export default App;

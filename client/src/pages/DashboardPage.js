@@ -332,7 +332,11 @@ const styles = {
     background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
     WebkitBackgroundClip: 'text',
     WebkitTextFillColor: 'transparent',
-    marginBottom: '20px'
+    marginBottom: '20px',
+    wordBreak: 'break-word',
+    '@media (max-width: 375px)': {
+      fontSize: '28px'
+    }
   },
   escrowRow: {
     display: 'flex',
@@ -370,6 +374,9 @@ const styles = {
     marginBottom: '24px',
     '@media (max-width: 600px)': {
       gridTemplateColumns: 'repeat(2, 1fr)'
+    },
+    '@media (max-width: 360px)': {
+      gridTemplateColumns: '1fr'
     }
   },
   quickActionCard: {

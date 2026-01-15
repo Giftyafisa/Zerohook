@@ -9,28 +9,23 @@ const MessagesPage = () => {
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg')); // >= 1200px
   const { recipientId, recipientName, recipientAvatar, conversationId } = location.state || {};
 
-  // Desktop: No nav bars (sidebar layout), use full viewport
-  // Mobile/Tablet: Account for top nav (56px) + bottom nav (56px) - matching global.css
-  // Use fixed positioning to prevent page scroll
+  // Mobile: MobileShell handles header/nav, this fills the content area
+  // Desktop: Uses sidebar layout, full viewport height
   return (
     <Box sx={{
-      position: isDesktop ? 'relative' : 'fixed',
-      top: isDesktop ? 0 : '56px', // Below header
-      left: 0,
-      right: 0,
-      bottom: isDesktop ? 0 : '56px', // Above bottom nav
-      height: isDesktop ? '100vh' : 'auto',
-      // Modern browsers with dvh support
+      // On mobile, fill the shell's content region (flex:1 handles height)
+      // On desktop, take full viewport
+      height: isDesktop ? '100vh' : '100%',
       '@supports (height: 100dvh)': {
-        height: isDesktop ? '100dvh' : 'auto',
+        height: isDesktop ? '100dvh' : '100%',
       },
-      minHeight: 0,
       display: 'flex',
+      flexDirection: 'column',
       overflow: 'hidden',
-      marginTop: 0,
-      paddingTop: 0,
-      background: '#0f0f13', // Ensure solid background
-      zIndex: 1, // Above main content scroll
+      background: '#0f0f13',
+      // Fill the parent container
+      flex: 1,
+      minHeight: 0,
     }}>
       <ChatSystem
         recipientId={recipientId}

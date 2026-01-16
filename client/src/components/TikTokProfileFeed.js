@@ -1,77 +1,353 @@
 /**
- * TikTok-Style Full-Screen Profile Feed
+ * TikTok-Style Profile Feed - Redesigned
  * 
- * Features:
- * - Full-screen profile cards (image fills viewport)
- * - Vertical swipe/scroll navigation with snap
- * - Essential info overlaid with gradient protection
- * - Minimal UI - profile image is hero
- * - Touch-optimized for mobile
+ * Based on actual TikTok design:
+ * - Top: Horizontal tabs (For You, Following, Nearby) + Search icon
+ * - Full-screen profile images
+ * - Right-side: Chat, Share, More (not Like - that's for content)
+ * - Bottom: Clean name/location/bio overlay
+ * - Stats integrated into profile info, not separate chips
+ * - NO profile counter (removed per user request)
  */
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
   IconButton,
   CircularProgress,
-  Chip,
   Avatar,
+  TextField,
+  InputAdornment,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Divider,
 } from '@mui/material';
 import {
   LocationOn,
-  Favorite,
-  FavoriteBorder,
   Message,
+  Share,
   MoreVert,
   Verified,
   Star,
   Circle,
-  KeyboardArrowUp,
-  KeyboardArrowDown,
+  Search,
   Close,
-  FilterList,
+  ArrowBack,
+  History,
+  TrendingUp,
+  Person,
+  AccessTime,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
-import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
-import { selectUserCountry, selectDetectedCountry } from '../store/slices/countrySlice';
+import { selectUser } from '../store/slices/authSlice';
 import { API_BASE_URL } from '../config/constants';
 import { resolveProfileImage } from '../utils/imageUtils';
 import { VerificationBadge } from './ui/StatusBadge';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================
-// FULL-SCREEN PROFILE CARD
+// TIKTOK-STYLE TOP NAVIGATION
+// ============================================
+const TopNavigation = ({ activeTab, onTabChange, onSearchOpen }) => {
+  const tabs = [
+    { id: 'foryou', label: 'For You' },
+    { id: 'following', label: 'Following' },
+    { id: 'nearby', label: 'Nearby' },
+  ];
+
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        pt: 'env(safe-area-inset-top, 12px)',
+        pb: 1,
+        background: 'linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%)',
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          px: 2,
+          position: 'relative',
+        }}
+      >
+        {/* Tabs */}
+        <Box sx={{ display: 'flex', gap: 3 }}>
+          {tabs.map((tab) => (
+            <Box
+              key={tab.id}
+              onClick={() => onTabChange(tab.id)}
+              sx={{
+                cursor: 'pointer',
+                py: 1,
+                position: 'relative',
+              }}
+            >
+              <Typography
+                sx={{
+                  color: activeTab === tab.id ? '#fff' : 'rgba(255,255,255,0.6)',
+                  fontWeight: activeTab === tab.id ? 700 : 500,
+                  fontSize: '1rem',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {tab.label}
+              </Typography>
+              {/* Active indicator */}
+              {activeTab === tab.id && (
+                <motion.div
+                  layoutId="activeTab"
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: 24,
+                    height: 3,
+                    backgroundColor: '#fff',
+                    borderRadius: 2,
+                  }}
+                />
+              )}
+            </Box>
+          ))}
+        </Box>
+
+        {/* Search Icon */}
+        <IconButton
+          onClick={onSearchOpen}
+          sx={{
+            position: 'absolute',
+            right: 8,
+            color: '#fff',
+          }}
+        >
+          <Search />
+        </IconButton>
+      </Box>
+    </Box>
+  );
+};
+
+// ============================================
+// TIKTOK-STYLE SEARCH OVERLAY
+// ============================================
+const SearchOverlay = ({ open, onClose }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [recentSearches] = useState([
+    'night club girl',
+    'nana_hemaaa24',
+    'sophiaanane',
+    'lagos hookup',
+  ]);
+  const [suggestions] = useState([
+    { text: 'massage therapist', trending: true },
+    { text: 'escort services', trending: true },
+    { text: 'sugar mommy', trending: false },
+    { text: 'accra girls', trending: false },
+  ]);
+  const navigate = useNavigate();
+
+  const handleSearch = (query) => {
+    if (query.trim()) {
+      navigate(`/profiles?search=${encodeURIComponent(query)}`);
+      onClose();
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: '100%' }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: '100%' }}
+      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        backgroundColor: '#0a0a0f',
+      }}
+    >
+      {/* Search Header */}
+      <Box
+        sx={{
+          pt: 'env(safe-area-inset-top, 12px)',
+          px: 2,
+          pb: 1,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+        }}
+      >
+        <IconButton onClick={onClose} sx={{ color: '#fff', p: 0.5 }}>
+          <ArrowBack />
+        </IconButton>
+        
+        <TextField
+          autoFocus
+          fullWidth
+          placeholder="Search profiles..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && handleSearch(searchQuery)}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              bgcolor: 'rgba(255,255,255,0.1)',
+              borderRadius: '20px',
+              '& fieldset': { border: 'none' },
+              '& input': { 
+                color: '#fff', 
+                py: 1,
+                '&::placeholder': { color: 'rgba(255,255,255,0.5)' }
+              },
+            },
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search sx={{ color: 'rgba(255,255,255,0.5)' }} />
+              </InputAdornment>
+            ),
+          }}
+        />
+        
+        <Typography
+          onClick={() => handleSearch(searchQuery)}
+          sx={{
+            color: '#fe2c55',
+            fontWeight: 600,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Search
+        </Typography>
+      </Box>
+
+      {/* Search Content */}
+      <Box sx={{ overflow: 'auto', height: 'calc(100% - 60px)' }}>
+        {/* Recent Searches */}
+        {recentSearches.length > 0 && (
+          <List sx={{ py: 0 }}>
+            {recentSearches.map((search, index) => (
+              <ListItem
+                key={index}
+                onClick={() => handleSearch(search)}
+                sx={{
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  <History sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={search}
+                  sx={{ '& .MuiTypography-root': { color: '#fff' } }}
+                />
+                <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.3)' }}>
+                  <Close sx={{ fontSize: 18 }} />
+                </IconButton>
+              </ListItem>
+            ))}
+          </List>
+        )}
+
+        <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', my: 1 }} />
+
+        {/* Suggestions */}
+        <Box sx={{ px: 2, py: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>
+              You may like
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', cursor: 'pointer' }}>
+              ↻ Refresh
+            </Typography>
+          </Box>
+          
+          <List sx={{ py: 0 }}>
+            {suggestions.map((item, index) => (
+              <ListItem
+                key={index}
+                onClick={() => handleSearch(item.text)}
+                sx={{
+                  cursor: 'pointer',
+                  px: 0,
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 30 }}>
+                  <Circle sx={{ fontSize: 8, color: item.trending ? '#fe2c55' : 'rgba(255,255,255,0.3)' }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={item.text}
+                  sx={{
+                    '& .MuiTypography-root': {
+                      color: item.trending ? '#fe2c55' : '#fff',
+                      fontWeight: item.trending ? 500 : 400,
+                    }
+                  }}
+                />
+                {/* Placeholder for thumbnail */}
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 50,
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                    borderRadius: 1,
+                  }}
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      </Box>
+    </motion.div>
+  );
+};
+
+// ============================================
+// FULL-SCREEN PROFILE CARD - REDESIGNED
 // ============================================
 const FullScreenProfileCard = ({
   profile,
-  isActive,
-  onLike,
+  onShare,
   onMessage,
   onViewProfile,
-  isLiked,
   index,
 }) => {
   const profileData = profile.profileData || {};
   const displayName = profileData.firstName || profile.username || 'User';
   const age = profileData.age;
-  const city = profileData.location?.city || 'Unknown';
+  const city = profileData.location?.city || '';
   const country = profileData.location?.country || '';
   const bio = profileData.bio || '';
   const verificationTier = profile.verificationTier || 1;
   const isOnline = profile.isOnline;
   const trustScore = Math.round(parseFloat(profile.trustScore) || 75);
-  const price = profile.displayPrice?.amount ?? profileData.basePrice ?? 0;
+  const price = profile.displayPrice?.amount ?? profileData.basePrice;
   const priceSymbol = profile.displayPrice?.symbol || '₦';
   
-  // Get profile image
   const profileImage = resolveProfileImage(profileData);
-  
-  // Available status
   const isAvailable = profileData.availability?.includes?.(
     new Date().toLocaleDateString('en-US', { weekday: 'long' })
   ) ?? true;
+
+  const location = [city, country].filter(Boolean).join(', ');
 
   return (
     <Box
@@ -123,114 +399,33 @@ const FullScreenProfileCard = ({
         </Box>
       )}
 
-      {/* Top Gradient Overlay */}
-      <Box
-        sx={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '120px',
-          background: 'linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%)',
-          pointerEvents: 'none',
-        }}
-      />
-
-      {/* Bottom Gradient Overlay - Contains all info */}
+      {/* Bottom Gradient Overlay */}
       <Box
         sx={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          height: '45%',
-          background: 'linear-gradient(0deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.7) 40%, transparent 100%)',
+          height: '50%',
+          background: 'linear-gradient(0deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 50%, transparent 100%)',
           pointerEvents: 'none',
         }}
       />
 
-      {/* Top Left - Verification Badge */}
-      <Box
-        sx={{
-          position: 'absolute',
-          top: 16,
-          left: 16,
-          zIndex: 10,
-        }}
-      >
-        <VerificationBadge
-          tier={verificationTier}
-          variant="chip"
-          size="small"
-          showUnverified={false}
-        />
-      </Box>
-
-      {/* Top Right - Online Status */}
-      {isOnline && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 16,
-            right: 16,
-            zIndex: 10,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.5,
-            bgcolor: 'rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(8px)',
-            borderRadius: '12px',
-            px: 1,
-            py: 0.5,
-          }}
-        >
-          <Circle sx={{ fontSize: 8, color: '#4ade80' }} />
-          <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.7rem' }}>
-            Online
-          </Typography>
-        </Box>
-      )}
-
-      {/* Right Side Actions - TikTok Style */}
+      {/* Right Side Actions - TikTok Style (Chat, Share, More) */}
       <Box
         sx={{
           position: 'absolute',
           right: 12,
-          bottom: '25%',
+          bottom: 120,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 2,
+          gap: 2.5,
           zIndex: 10,
         }}
       >
-        {/* Like Button */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <IconButton
-            onClick={(e) => {
-              e.stopPropagation();
-              onLike(profile.id);
-            }}
-            sx={{
-              bgcolor: 'rgba(0,0,0,0.4)',
-              backdropFilter: 'blur(8px)',
-              width: 48,
-              height: 48,
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.6)' },
-            }}
-          >
-            {isLiked ? (
-              <Favorite sx={{ color: '#ff4757', fontSize: 28 }} />
-            ) : (
-              <FavoriteBorder sx={{ color: '#fff', fontSize: 28 }} />
-            )}
-          </IconButton>
-          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 600, mt: 0.5 }}>
-            Like
-          </Typography>
-        </Box>
-
-        {/* Message Button */}
+        {/* Chat Button */}
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <IconButton
             onClick={(e) => {
@@ -238,21 +433,43 @@ const FullScreenProfileCard = ({
               onMessage(profile);
             }}
             sx={{
-              bgcolor: 'rgba(0,0,0,0.4)',
+              bgcolor: 'rgba(255,255,255,0.1)',
               backdropFilter: 'blur(8px)',
               width: 48,
               height: 48,
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.6)' },
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
             }}
           >
-            <Message sx={{ color: '#00f2ea', fontSize: 28 }} />
+            <Message sx={{ color: '#fff', fontSize: 26 }} />
           </IconButton>
-          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 600, mt: 0.5 }}>
+          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 500, mt: 0.5, fontSize: '0.7rem' }}>
             Chat
           </Typography>
         </Box>
 
-        {/* View Profile Button */}
+        {/* Share Button */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <IconButton
+            onClick={(e) => {
+              e.stopPropagation();
+              onShare(profile);
+            }}
+            sx={{
+              bgcolor: 'rgba(255,255,255,0.1)',
+              backdropFilter: 'blur(8px)',
+              width: 48,
+              height: 48,
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
+            }}
+          >
+            <Share sx={{ color: '#fff', fontSize: 26 }} />
+          </IconButton>
+          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 500, mt: 0.5, fontSize: '0.7rem' }}>
+            Share
+          </Typography>
+        </Box>
+
+        {/* More/View Profile Button */}
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <IconButton
             onClick={(e) => {
@@ -260,41 +477,40 @@ const FullScreenProfileCard = ({
               onViewProfile(profile);
             }}
             sx={{
-              bgcolor: 'rgba(0,0,0,0.4)',
+              bgcolor: 'rgba(255,255,255,0.1)',
               backdropFilter: 'blur(8px)',
               width: 48,
               height: 48,
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.6)' },
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
             }}
           >
-            <MoreVert sx={{ color: '#fff', fontSize: 28 }} />
+            <MoreVert sx={{ color: '#fff', fontSize: 26 }} />
           </IconButton>
-          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 600, mt: 0.5 }}>
+          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 500, mt: 0.5, fontSize: '0.7rem' }}>
             More
           </Typography>
         </Box>
       </Box>
 
-      {/* Bottom Info Overlay */}
+      {/* Bottom Info Overlay - Cleaner Design */}
       <Box
         sx={{
           position: 'absolute',
           bottom: 0,
           left: 0,
-          right: 70, // Leave space for action buttons
+          right: 70,
           p: 2,
-          pb: 3,
+          pb: 4,
           zIndex: 10,
         }}
       >
-        {/* Name & Age */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        {/* Name, Age & Verification */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
           <Typography
-            variant="h5"
             sx={{
               color: '#fff',
-              fontWeight: 800,
-              fontSize: '1.5rem',
+              fontWeight: 700,
+              fontSize: '1.4rem',
               textShadow: '0 2px 8px rgba(0,0,0,0.5)',
               fontFamily: '"Outfit", sans-serif',
             }}
@@ -302,161 +518,98 @@ const FullScreenProfileCard = ({
             {displayName}{age ? `, ${age}` : ''}
           </Typography>
           {verificationTier >= 2 && (
-            <Verified sx={{ color: '#00f2ea', fontSize: 20 }} />
+            <Verified sx={{ color: '#20d5ec', fontSize: 20 }} />
           )}
         </Box>
 
         {/* Location */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-          <LocationOn sx={{ color: 'rgba(255,255,255,0.8)', fontSize: 16 }} />
-          <Typography
-            variant="body2"
-            sx={{
-              color: 'rgba(255,255,255,0.9)',
-              fontWeight: 500,
-              textShadow: '0 1px 4px rgba(0,0,0,0.5)',
-            }}
-          >
-            {city}{country ? `, ${country}` : ''}
-          </Typography>
-        </Box>
+        {location && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+            <LocationOn sx={{ color: 'rgba(255,255,255,0.8)', fontSize: 16 }} />
+            <Typography
+              sx={{
+                color: 'rgba(255,255,255,0.9)',
+                fontWeight: 500,
+                fontSize: '0.9rem',
+              }}
+            >
+              {location}
+            </Typography>
+          </Box>
+        )}
 
-        {/* Tags Row */}
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+        {/* Stats Row - Clean inline design */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
           {/* Trust Score */}
-          <Chip
-            icon={<Star sx={{ color: '#FFD700 !important', fontSize: 14 }} />}
-            label={`${trustScore}%`}
-            size="small"
-            sx={{
-              bgcolor: 'rgba(255,215,0,0.15)',
-              color: '#FFD700',
-              border: '1px solid rgba(255,215,0,0.3)',
-              fontWeight: 700,
-              fontSize: '0.75rem',
-              height: 26,
-              '& .MuiChip-icon': { ml: 0.5 },
-            }}
-          />
-          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Star sx={{ color: '#ffd700', fontSize: 16 }} />
+            <Typography sx={{ color: '#ffd700', fontWeight: 700, fontSize: '0.9rem' }}>
+              {trustScore}%
+            </Typography>
+          </Box>
+
           {/* Availability */}
           {isAvailable && (
-            <Chip
-              icon={<Circle sx={{ color: '#4ade80 !important', fontSize: 8 }} />}
-              label="Available"
-              size="small"
-              sx={{
-                bgcolor: 'rgba(74,222,128,0.15)',
-                color: '#4ade80',
-                border: '1px solid rgba(74,222,128,0.3)',
-                fontWeight: 600,
-                fontSize: '0.75rem',
-                height: 26,
-              }}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Circle sx={{ color: '#4ade80', fontSize: 8 }} />
+              <Typography sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.85rem' }}>
+                Available
+              </Typography>
+            </Box>
           )}
 
           {/* Price */}
           {price > 0 && (
-            <Chip
-              label={`${priceSymbol}${Number(price).toLocaleString()}`}
-              size="small"
-              sx={{
-                bgcolor: 'rgba(0,242,234,0.15)',
-                color: '#00f2ea',
-                border: '1px solid rgba(0,242,234,0.3)',
-                fontWeight: 700,
-                fontSize: '0.75rem',
-                height: 26,
-              }}
-            />
+            <Typography sx={{ color: '#00f2ea', fontWeight: 700, fontSize: '0.9rem' }}>
+              {priceSymbol}{Number(price).toLocaleString()}
+            </Typography>
           )}
         </Box>
 
-        {/* Bio - 2 lines max */}
+        {/* Bio */}
         {bio && (
           <Typography
-            variant="body2"
             sx={{
               color: 'rgba(255,255,255,0.85)',
-              fontSize: '0.875rem',
+              fontSize: '0.9rem',
               lineHeight: 1.4,
               display: '-webkit-box',
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              textShadow: '0 1px 4px rgba(0,0,0,0.5)',
             }}
           >
             {bio}
           </Typography>
         )}
       </Box>
-
-      {/* Swipe Hint - Only on first card */}
-      {index === 0 && (
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: '50%',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            opacity: 0.6,
-            animation: 'bounce 2s infinite',
-            '@keyframes bounce': {
-              '0%, 100%': { transform: 'translateX(-50%) translateY(0)' },
-              '50%': { transform: 'translateX(-50%) translateY(-10px)' },
-            },
-          }}
-        >
-          <KeyboardArrowUp sx={{ color: '#fff', fontSize: 32 }} />
-          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 600 }}>
-            Swipe up for more
-          </Typography>
-        </Box>
-      )}
     </Box>
   );
 };
 
 // ============================================
-// MAIN TIKTOK FEED COMPONENT
+// MAIN TIKTOK FEED COMPONENT - REDESIGNED
 // ============================================
 const TikTokProfileFeed = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const currentUser = useSelector(selectUser);
-  const isSubscribed = useSelector(selectIsSubscribed);
-  const userCountry = useSelector(selectUserCountry);
-  const detectedCountry = useSelector(selectDetectedCountry);
 
   // State
   const [profiles, setProfiles] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [likedProfiles, setLikedProfiles] = useState(new Set());
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [showFilters, setShowFilters] = useState(false);
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('foryou');
+  const [showSearch, setShowSearch] = useState(false);
 
   // Refs
   const containerRef = useRef(null);
   const touchStartY = useRef(0);
   const touchEndY = useRef(0);
-
-  // Filter options
-  const filters = [
-    { id: 'all', label: 'All' },
-    { id: 'nearby', label: 'Nearby' },
-    { id: 'online', label: 'Online' },
-    { id: 'verified', label: 'Verified' },
-    { id: 'new', label: 'New' },
-  ];
+  const isScrolling = useRef(false);
 
   // Fetch profiles
   const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
@@ -466,20 +619,21 @@ const TikTokProfileFeed = () => {
       const params = new URLSearchParams({
         page: pageNum.toString(),
         limit: '10',
-        sort: 'recommendation',
-        filter: activeFilter,
+        sort: activeTab === 'nearby' ? 'distance' : 'recommendation',
       });
 
-      // Add user location if available
-      const savedLocation = localStorage.getItem('userManualLocation');
-      if (savedLocation) {
-        try {
-          const loc = JSON.parse(savedLocation);
-          if (loc.lat && loc.lng) {
-            params.append('lat', loc.lat);
-            params.append('lng', loc.lng);
-          }
-        } catch (e) {}
+      // Add location for nearby tab
+      if (activeTab === 'nearby') {
+        const savedLocation = localStorage.getItem('userManualLocation');
+        if (savedLocation) {
+          try {
+            const loc = JSON.parse(savedLocation);
+            if (loc.lat && loc.lng) {
+              params.append('lat', loc.lat);
+              params.append('lng', loc.lng);
+            }
+          } catch (e) {}
+        }
       }
 
       const token = localStorage.getItem('token');
@@ -514,7 +668,7 @@ const TikTokProfileFeed = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeFilter, currentUser?.id]);
+  }, [activeTab, currentUser?.id]);
 
   // Initial load
   useEffect(() => {
@@ -528,13 +682,30 @@ const TikTokProfileFeed = () => {
     }
   }, [currentIndex, profiles.length, hasMore, loading, page, fetchProfiles]);
 
+  // Handle tab change
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setProfiles([]);
+    setCurrentIndex(0);
+    fetchProfiles(1);
+  };
+
   // Handle swipe navigation
   const handleSwipe = useCallback((direction) => {
+    if (isScrolling.current) return;
+    
+    isScrolling.current = true;
+    
     if (direction === 'up' && currentIndex < profiles.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else if (direction === 'down' && currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
     }
+    
+    // Debounce scrolling
+    setTimeout(() => {
+      isScrolling.current = false;
+    }, 300);
   }, [currentIndex, profiles.length]);
 
   // Touch handlers
@@ -549,13 +720,12 @@ const TikTokProfileFeed = () => {
   const handleTouchEnd = () => {
     const diff = touchStartY.current - touchEndY.current;
     const threshold = 50;
-
     if (Math.abs(diff) > threshold) {
       handleSwipe(diff > 0 ? 'up' : 'down');
     }
   };
 
-  // Wheel handler for desktop
+  // Wheel handler
   const handleWheel = useCallback((e) => {
     if (Math.abs(e.deltaY) > 30) {
       handleSwipe(e.deltaY > 0 ? 'up' : 'down');
@@ -565,28 +735,32 @@ const TikTokProfileFeed = () => {
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'ArrowUp' || e.key === 'k') {
-        handleSwipe('down');
-      } else if (e.key === 'ArrowDown' || e.key === 'j') {
-        handleSwipe('up');
-      }
+      if (e.key === 'ArrowUp') handleSwipe('down');
+      if (e.key === 'ArrowDown') handleSwipe('up');
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSwipe]);
 
-  // Handle like
-  const handleLike = useCallback((profileId) => {
-    setLikedProfiles(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(profileId)) {
-        newSet.delete(profileId);
+  // Handle share
+  const handleShare = useCallback(async (profile) => {
+    const profileUrl = `${window.location.origin}/profile/${profile.id}`;
+    const shareData = {
+      title: `Check out ${profile.profileData?.firstName || profile.username} on Zerohook`,
+      text: profile.profileData?.bio || 'View this profile on Zerohook',
+      url: profileUrl,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
       } else {
-        newSet.add(profileId);
+        await navigator.clipboard.writeText(profileUrl);
+        // Could show a toast here
       }
-      return newSet;
-    });
+    } catch (err) {
+      console.log('Share failed:', err);
+    }
   }, []);
 
   // Handle message
@@ -610,13 +784,6 @@ const TikTokProfileFeed = () => {
     navigate(`/profile/${profile.id}`);
   }, [navigate]);
 
-  // Handle filter change
-  const handleFilterChange = (filterId) => {
-    setActiveFilter(filterId);
-    setShowFilters(false);
-    fetchProfiles(1);
-  };
-
   // Loading state
   if (loading && profiles.length === 0) {
     return (
@@ -626,7 +793,7 @@ const TikTokProfileFeed = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          bgcolor: '#0f0f13',
+          bgcolor: '#0a0a0f',
         }}
       >
         <CircularProgress sx={{ color: '#00f2ea' }} />
@@ -634,35 +801,8 @@ const TikTokProfileFeed = () => {
     );
   }
 
-  // Error state
-  if (error && profiles.length === 0) {
-    return (
-      <Box
-        sx={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: '#0f0f13',
-          color: '#fff',
-          gap: 2,
-          p: 3,
-        }}
-      >
-        <Typography color="error">{error}</Typography>
-        <IconButton
-          onClick={() => fetchProfiles(1)}
-          sx={{ color: '#00f2ea' }}
-        >
-          Try Again
-        </IconButton>
-      </Box>
-    );
-  }
-
   // Empty state
-  if (profiles.length === 0) {
+  if (!loading && profiles.length === 0) {
     return (
       <Box
         sx={{
@@ -671,15 +811,20 @@ const TikTokProfileFeed = () => {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          bgcolor: '#0f0f13',
+          bgcolor: '#0a0a0f',
           color: '#fff',
           gap: 2,
           p: 3,
         }}
       >
-        <Typography>No profiles found</Typography>
+        <TopNavigation
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          onSearchOpen={() => setShowSearch(true)}
+        />
+        <Typography variant="h6">No profiles found</Typography>
         <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-          Try adjusting your filters
+          Try a different filter or come back later
         </Typography>
       </Box>
     );
@@ -698,141 +843,39 @@ const TikTokProfileFeed = () => {
         overflow: 'hidden',
         bgcolor: '#000',
         position: 'relative',
-        // Prevent pull-to-refresh on mobile
         overscrollBehavior: 'none',
         touchAction: 'pan-y',
       }}
     >
-      {/* Filter Toggle Button - Top Left */}
-      <IconButton
-        onClick={() => setShowFilters(!showFilters)}
-        sx={{
-          position: 'absolute',
-          top: 16,
-          left: 60, // After verification badge
-          zIndex: 100,
-          bgcolor: 'rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(8px)',
-          '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
-        }}
-      >
-        <FilterList sx={{ color: '#fff', fontSize: 20 }} />
-      </IconButton>
+      {/* Top Navigation - TikTok Style */}
+      <TopNavigation
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        onSearchOpen={() => setShowSearch(true)}
+      />
 
-      {/* Filter Dropdown */}
+      {/* Search Overlay */}
       <AnimatePresence>
-        {showFilters && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            style={{
-              position: 'absolute',
-              top: 60,
-              left: 16,
-              right: 16,
-              zIndex: 100,
-            }}
-          >
-            <Box
-              sx={{
-                bgcolor: 'rgba(20,20,25,0.95)',
-                backdropFilter: 'blur(20px)',
-                borderRadius: 2,
-                p: 2,
-                border: '1px solid rgba(255,255,255,0.1)',
-              }}
-            >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography sx={{ color: '#fff', fontWeight: 600 }}>Filters</Typography>
-                <IconButton size="small" onClick={() => setShowFilters(false)}>
-                  <Close sx={{ color: '#fff', fontSize: 18 }} />
-                </IconButton>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {filters.map(filter => (
-                  <Chip
-                    key={filter.id}
-                    label={filter.label}
-                    onClick={() => handleFilterChange(filter.id)}
-                    sx={{
-                      bgcolor: activeFilter === filter.id ? '#00f2ea' : 'rgba(255,255,255,0.1)',
-                      color: activeFilter === filter.id ? '#000' : '#fff',
-                      fontWeight: 600,
-                      '&:hover': {
-                        bgcolor: activeFilter === filter.id ? '#00f2ea' : 'rgba(255,255,255,0.2)',
-                      },
-                    }}
-                  />
-                ))}
-              </Box>
-            </Box>
-          </motion.div>
+        {showSearch && (
+          <SearchOverlay open={showSearch} onClose={() => setShowSearch(false)} />
         )}
       </AnimatePresence>
 
-      {/* Profile Counter - Top Right */}
-      <Box
-        sx={{
-          position: 'absolute',
-          top: 56,
-          right: 16,
-          zIndex: 100,
-          bgcolor: 'rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(8px)',
-          borderRadius: '8px',
-          px: 1.5,
-          py: 0.5,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 600 }}>
-          {currentIndex + 1} / {profiles.length}
-        </Typography>
-      </Box>
-
-      {/* Scroll Progress Indicator */}
-      <Box
-        sx={{
-          position: 'absolute',
-          right: 4,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          height: '40%',
-          width: 3,
-          bgcolor: 'rgba(255,255,255,0.2)',
-          borderRadius: 2,
-          zIndex: 100,
-          overflow: 'hidden',
-        }}
-      >
-        <Box
-          sx={{
-            width: '100%',
-            height: `${((currentIndex + 1) / profiles.length) * 100}%`,
-            bgcolor: '#00f2ea',
-            borderRadius: 2,
-            transition: 'height 0.3s ease',
-          }}
-        />
-      </Box>
-
-      {/* Profile Cards - Vertical Stack with Animation */}
+      {/* Profile Cards */}
       <AnimatePresence mode="wait">
         <motion.div
           key={currentIndex}
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -50 }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
+          transition={{ duration: 0.25, ease: 'easeOut' }}
           style={{ height: '100%', width: '100%' }}
         >
           {profiles[currentIndex] && (
             <FullScreenProfileCard
               profile={profiles[currentIndex]}
-              isActive={true}
               index={currentIndex}
-              isLiked={likedProfiles.has(profiles[currentIndex].id)}
-              onLike={handleLike}
+              onShare={handleShare}
               onMessage={handleMessage}
               onViewProfile={handleViewProfile}
             />
@@ -840,16 +883,17 @@ const TikTokProfileFeed = () => {
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation Hints - Bottom */}
+      {/* Scroll Progress - Minimal dots (NO counter) */}
       <Box
         sx={{
           position: 'absolute',
-          bottom: 8,
-          left: '50%',
-          transform: 'translateX(-50%)',
+          right: 6,
+          top: '50%',
+          transform: 'translateY(-50%)',
           display: 'flex',
+          flexDirection: 'column',
           gap: 0.5,
-          zIndex: 100,
+          zIndex: 50,
         }}
       >
         {profiles.slice(
@@ -861,10 +905,10 @@ const TikTokProfileFeed = () => {
             <Box
               key={actualIndex}
               sx={{
-                width: actualIndex === currentIndex ? 16 : 6,
-                height: 6,
-                borderRadius: 3,
-                bgcolor: actualIndex === currentIndex ? '#00f2ea' : 'rgba(255,255,255,0.4)',
+                width: 4,
+                height: actualIndex === currentIndex ? 16 : 4,
+                borderRadius: 2,
+                bgcolor: actualIndex === currentIndex ? '#fff' : 'rgba(255,255,255,0.3)',
                 transition: 'all 0.3s ease',
               }}
             />

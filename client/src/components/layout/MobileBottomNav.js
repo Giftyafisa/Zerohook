@@ -45,7 +45,7 @@ const BottomNavContainer = styled(Box)({
   background: 'transparent', // Background handled by shell
 });
 
-// Nav item with proper touch target (48px minimum, WCAG 2.5.5)
+// Nav item with proper touch target - TikTok style compact layout
 const NavItem = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'active',
 })(({ active }) => ({
@@ -53,11 +53,12 @@ const NavItem = styled(Box, {
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  // Proper touch target sizing
-  minWidth: `${tokens.touchTarget.recommended}px`,
-  minHeight: `${tokens.touchTarget.recommended}px`,
-  width: '64px', // Fixed width for consistent layout
-  padding: `${tokens.spacing.xs}px`,
+  // Compact sizing like TikTok
+  minWidth: '48px',
+  minHeight: '44px',
+  width: '60px',
+  padding: '4px 0',
+  gap: '2px', // Tight gap between icon and label
   borderRadius: `${tokens.borderRadius.md}px`,
   cursor: 'pointer',
   transition: tokens.transition.fast,
@@ -66,31 +67,32 @@ const NavItem = styled(Box, {
   WebkitTapHighlightColor: 'transparent',
   userSelect: 'none',
   
-  // Active state indicator
+  // Active state indicator - subtle dot above icon
   '&::before': {
     content: '""',
     position: 'absolute',
-    top: '4px',
+    top: '0px',
     left: '50%',
     transform: 'translateX(-50%)',
-    width: active ? '20px' : 0,
-    height: '3px',
-    borderRadius: '2px',
+    width: active ? '4px' : 0,
+    height: '4px',
+    borderRadius: '50%',
     background: tokens.colors.primary.main,
     transition: tokens.transition.fast,
   },
   
   '& .nav-icon': {
     color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
-    fontSize: '24px',
+    fontSize: '22px', // Slightly smaller icon
     transition: tokens.transition.fast,
+    lineHeight: 1,
   },
   
   '& .nav-label': {
     color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
-    fontSize: '11px', // Smaller for cleaner look
+    fontSize: '10px', // Smaller text
     fontWeight: active ? tokens.fontWeight.semibold : tokens.fontWeight.medium,
-    marginTop: '2px',
+    marginTop: '0', // No margin, use gap instead
     fontFamily: '"Outfit", sans-serif',
     transition: tokens.transition.fast,
     lineHeight: 1,

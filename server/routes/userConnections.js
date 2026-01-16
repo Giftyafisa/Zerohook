@@ -18,8 +18,11 @@ router.get('/check-status/:otherUserId', authMiddleware, async (req, res) => {
     const { otherUserId } = req.params;
     const currentUserId = req.user.userId;
 
-    // Validate UUID format
-    if (!otherUserId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)) {
+    // Validate ID format - accept both UUID and MongoDB ObjectId (24 hex chars)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const objectIdRegex = /^[0-9a-fA-F]{24}$/;
+    
+    if (!uuidRegex.test(otherUserId) && !objectIdRegex.test(otherUserId)) {
       return res.status(400).json({
         error: 'Invalid user ID format'
       });

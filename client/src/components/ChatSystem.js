@@ -1500,30 +1500,24 @@ const ChatSystem = ({
         )}
       </Box>
 
-      {/* Conversations List - right; always visible on desktop */}
+      {/* Conversations List - TikTok Inbox Style */}
       <Box sx={{ ...styles.conversationsList, display: showMobileChat ? { xs: 'none', md: 'flex' } : 'flex' }}>
+        {/* TikTok-style header */}
         <Box sx={styles.listHeader}>
-          <Typography sx={styles.listTitle}>Messages</Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={styles.connectionStatus}>
-              <Box sx={{ ...styles.statusDot, background: isConnected ? '#00ff88' : '#ff3333' }} />
-              <Typography sx={styles.statusText}>
-                {isConnected ? 'Connected' : 'Offline'}
-              </Typography>
-            </Box>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => navigate('/profiles')}
-              sx={styles.newChatBtn}
-            >
-              New
-            </Button>
+            <AddIcon sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 24 }} />
           </Box>
+          <Typography sx={styles.listTitle}>Inbox</Typography>
+          <IconButton 
+            onClick={() => {/* Could open search overlay */}}
+            sx={{ color: '#fff', p: 0.5 }}
+          >
+            <SearchIcon sx={{ fontSize: 24 }} />
+          </IconButton>
         </Box>
 
-        {/* Search */}
-        <Box sx={styles.searchContainer}>
+        {/* Search - Hidden by default, TikTok uses overlay */}
+        <Box sx={{ ...styles.searchContainer, display: searchQuery ? 'block' : 'none' }}>
           <TextField
             fullWidth
             placeholder="Search conversations..."
@@ -2061,19 +2055,18 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
-    background: 'rgba(15, 15, 19, 0.7)',
-    backdropFilter: 'blur(18px)'
+    background: '#0f0f13',
+    // No border - cleaner TikTok look
   },
   listTitle: {
-    fontSize: { xs: '18px', sm: '20px' },
-    fontWeight: 700,
-    color: '#fff'
+    fontSize: '18px',
+    fontWeight: 600,
+    color: '#fff',
+    textAlign: 'center',
+    flex: 1,
   },
   connectionStatus: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
+    display: 'none', // Hidden - TikTok doesn't show this
   },
   statusDot: {
     width: 8,

@@ -20,7 +20,7 @@ export const spacing = {
 export const layout = {
   // Mobile Shell dimensions (fixed, never change)
   mobileHeaderHeight: 56, // Fixed header height for mobile
-  bottomNavHeight: 64, // Fixed height for bottom navigation
+  bottomNavHeight: 52, // Compact bottom nav like TikTok (was 64)
   topNavHeight: 56, // Fixed height for top navigation (mobile) - deprecated, use mobileHeaderHeight
   topNavHeightDesktop: 64, // Top navigation height on desktop
   sidebarWidth: 280, // Desktop sidebar width

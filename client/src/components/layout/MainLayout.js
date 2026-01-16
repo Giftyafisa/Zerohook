@@ -127,8 +127,20 @@ const MainLayout = ({ children, showNavigation = true }) => {
           flexDirection: 'column',
         }}
       >
-        {/* Full screen content */}
-        <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* Full screen content - scrollable */}
+        <Box 
+          sx={{ 
+            flex: 1, 
+            position: 'relative', 
+            overflow: 'auto',
+            overflowX: 'hidden',
+            WebkitOverflowScrolling: 'touch',
+            // Hide scrollbar but keep scrolling
+            '&::-webkit-scrollbar': { display: 'none' },
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}
+        >
           {children}
         </Box>
         

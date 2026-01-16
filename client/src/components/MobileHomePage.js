@@ -7,10 +7,9 @@
  * - Minimal UI, maximum impact
  * - Clear CTAs at bottom
  */
-import React, { useState, useEffect, useRef } from 'react';
-import { Box, Typography, IconButton, Chip, Avatar, Button } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Box, Typography, Chip, Avatar, Button } from '@mui/material';
 import {
-  PlayArrow,
   Verified,
   Shield,
   Lock,
@@ -23,6 +22,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { selectIsAuthenticated } from '../store/slices/authSlice';
+import VideoShowcase from './VideoShowcase';
 
 // Animated gradient background
 const AnimatedBackground = () => (
@@ -221,15 +221,25 @@ const MobileHomePage = () => {
     <Box
       sx={{
         position: 'relative',
-        height: '100%',
         width: '100%',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
+        minHeight: '100vh',
+        // Ensure content can be scrolled
+        overflow: 'visible',
+        pb: '80px', // Space for bottom nav
       }}
     >
-      <AnimatedBackground />
-      <FloatingAvatars />
+      {/* Video Showcase - At the Very Top */}
+      <VideoShowcase />
+      
+      {/* Content Section with Background */}
+      <Box
+        sx={{
+          position: 'relative',
+          minHeight: '100vh',
+        }}
+      >
+        <AnimatedBackground />
+        <FloatingAvatars />
       
       {/* Main Content */}
       <Box
@@ -241,6 +251,7 @@ const MobileHomePage = () => {
           justifyContent: 'center',
           px: 3,
           zIndex: 10,
+          pt: 4,
         }}
       >
         {/* Live Badge */}
@@ -469,6 +480,9 @@ const MobileHomePage = () => {
           </motion.div>
         </Box>
       </Box>
+      {/* End of Bottom CTA Section */}
+      </Box>
+      {/* End of Content Section with Background */}
     </Box>
   );
 };

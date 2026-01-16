@@ -28,6 +28,7 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { colors, gradients } from '../theme/colors';
 import { selectIsAuthenticated, selectIsSubscribed } from '../store/slices/authSlice';
+import VideoShowcase from '../components/VideoShowcase';
 
 const HomePage = () => {
   const navigate = useNavigate();
@@ -370,6 +371,47 @@ const HomePage = () => {
               </motion.div>
             </Grid>
           </Grid>
+        </Container>
+      </Box>
+
+      {/* Video Showcase Section */}
+      <Box
+        sx={{
+          py: { xs: 4, md: 8 },
+          background: 'linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)'
+        }}
+      >
+        <Container maxWidth="md">
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+          >
+            <Typography
+              variant="h3"
+              sx={{
+                textAlign: 'center',
+                fontWeight: 800,
+                color: 'white',
+                mb: 1,
+                fontSize: { xs: '1.8rem', sm: '2.5rem' }
+              }}
+            >
+              🔥 Trending Now
+            </Typography>
+            <Typography
+              variant="body1"
+              sx={{
+                textAlign: 'center',
+                color: 'rgba(255,255,255,0.6)',
+                mb: 4
+              }}
+            >
+              Discover what's hot on Zerohook
+            </Typography>
+            <VideoShowcase />
+          </motion.div>
         </Container>
       </Box>
 

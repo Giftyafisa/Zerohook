@@ -18,6 +18,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { selectIsAuthenticated, selectIsSubscribed } from '../store/slices/authSlice';
 import { GlassCard, GlassButton } from '../components/ui';
 import MobileHomePage from '../components/MobileHomePage';
+import VideoShowcase from '../components/VideoShowcase';
 
 const float = keyframes`
   0%, 100% { transform: translateY(0px); }
@@ -269,6 +270,9 @@ const HomePage = () => {
           </Container>
         </Box>
       )}
+
+      {/* Video Showcase - Top of Page */}
+      <VideoShowcase />
 
       {/* Hero Section */}
       <HeroSection>

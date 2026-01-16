@@ -46,6 +46,7 @@ import { API_BASE_URL } from '../config/constants';
 import { getDefaultImage } from '../config/images';
 import useCurrency from '../hooks/useCurrency';
 import ContentCreator from './ContentCreator';
+import { toast } from 'react-toastify';
 
 // ============================================
 // FULL-SCREEN CONTENT CARD
@@ -768,11 +769,14 @@ const TikTokServiceFeed = () => {
 
   // Handle create - Opens content creator modal for TikTok-style posting
   const handleCreate = () => {
+    console.log('📸 Create Post clicked, isAuthenticated:', isAuthenticated);
     if (!isAuthenticated) {
+      toast.info('Please login to create a post');
       navigate('/login', { state: { from: '/adult-services' } });
       return;
     }
     // Open the content creator modal instead of navigating
+    console.log('📸 Opening ContentCreator modal');
     setShowContentCreator(true);
   };
 

@@ -34,7 +34,11 @@ import {
   Cancel as CancelIcon,
   Star as StarIcon,
   Shield as ShieldIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Logout as LogoutIcon,
+  Help as HelpIcon,
+  Security as SecurityIcon,
+  AccountBalanceWallet as WalletIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -43,7 +47,7 @@ import authAPI from '../services/authAPI';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -660,6 +664,53 @@ const ProfilePage = () => {
           </Button>
         )}
       </Box>
+
+      {/* Quick Links Section */}
+      <Typography sx={{ ...styles.sectionTitle, mt: 3 }}>Quick Links</Typography>
+      <Box sx={styles.linksGrid}>
+        <Box sx={styles.linkCard} onClick={() => navigate('/wallet')}>
+          <WalletIcon sx={{ color: '#00f2ea' }} />
+          <Typography>Wallet</Typography>
+        </Box>
+        <Box sx={styles.linkCard} onClick={() => navigate('/settings')}>
+          <SettingsIcon sx={{ color: '#00f2ea' }} />
+          <Typography>Settings</Typography>
+        </Box>
+        <Box sx={styles.linkCard} onClick={() => navigate('/help')}>
+          <HelpIcon sx={{ color: '#00f2ea' }} />
+          <Typography>Help</Typography>
+        </Box>
+        <Box sx={styles.linkCard} onClick={() => navigate('/privacy-settings')}>
+          <SecurityIcon sx={{ color: '#00f2ea' }} />
+          <Typography>Privacy</Typography>
+        </Box>
+      </Box>
+
+      {/* Logout Button */}
+      <Button
+        variant="outlined"
+        startIcon={<LogoutIcon />}
+        onClick={() => {
+          logout();
+          navigate('/login');
+        }}
+        fullWidth
+        sx={{
+          mt: 2,
+          mb: 4,
+          py: 1.5,
+          borderColor: '#ff4757',
+          color: '#ff4757',
+          borderRadius: '14px',
+          fontWeight: 600,
+          '&:hover': {
+            borderColor: '#ff6b7a',
+            bgcolor: 'rgba(255,71,87,0.1)'
+          }
+        }}
+      >
+        Logout
+      </Button>
 
       {/* Photo Upload Dialog */}
       <Dialog open={photoDialog} onClose={() => setPhotoDialog(false)} PaperProps={{ sx: styles.dialog }}>

@@ -133,6 +133,25 @@ const ProfileDetailPage = () => {
       return;
     }
     
+    // Navigate directly to chat with this user
+    const avatar = resolveProfileImage(profile?.profile_data || profile?.profileData);
+    navigate('/chat', {
+      state: {
+        recipientId: profile.id,
+        recipientName: profile?.profile_data?.firstName || profile?.profileData?.firstName || profile?.username || 'User',
+        recipientAvatar: avatar,
+        from: location.pathname
+      }
+    });
+  };
+
+  // Keep the dialog for contact requests if needed
+  const handleContactRequest = () => {
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: location.pathname } });
+      return;
+    }
+    
     setContactMessage('');
     setContactType('contact_request');
     setContactDialog(true);

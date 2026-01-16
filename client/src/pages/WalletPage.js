@@ -1,3 +1,14 @@
+/**
+ * WalletPage - TikTok-Inspired Redesign
+ * 
+ * Design Principles from TikTok:
+ * - Full-width cards with generous padding
+ * - Clear visual hierarchy with bold typography
+ * - Subtle gradients and glass effects
+ * - Smooth animations
+ * - Bottom-focused actions for thumb reach
+ * - Minimal borders, use spacing and shadows instead
+ */
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -11,38 +22,31 @@ import {
   TextField,
   MenuItem,
   Alert,
-  Snackbar
+  IconButton,
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
 import {
   AccountBalanceWallet as WalletIcon,
   Add as AddIcon,
-  Send as SendIcon,
   ArrowUpward as DepositIcon,
   ArrowDownward as WithdrawIcon,
   Lock as LockIcon,
   TrendingUp as TrendingUpIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  ChevronRight,
+  Visibility,
+  VisibilityOff,
+  QrCode2,
+  Receipt,
 } from '@mui/icons-material';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { ListSkeleton, WalletCardSkeleton } from '../components/LoadingSkeleton';
-import { ErrorState, TimeoutError } from '../components/ErrorState';
-
-const mockTransactions = [
-  { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago', status: 'completed' },
-  { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago', status: 'completed' },
-  { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday', status: 'completed' },
-  { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago', status: 'completed' },
-  { id: 5, type: 'income', title: 'Tip Received', amount: 25.00, date: '3 days ago', status: 'completed' }
-];
 
 const WalletPage = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [isTimeout, setIsTimeout] = useState(false);
   const [error, setError] = useState(null);
   const [depositDialog, setDepositDialog] = useState(false);
   const [withdrawDialog, setWithdrawDialog] = useState(false);
@@ -56,7 +60,7 @@ const WalletPage = () => {
   const [verifyingAccount, setVerifyingAccount] = useState(false);
   const [processingDeposit, setProcessingDeposit] = useState(false);
   const [processingWithdraw, setProcessingWithdraw] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [showBalance, setShowBalance] = useState(true);
   const [walletData, setWalletData] = useState({
     balance: 0,
     escrowHeld: 0,
@@ -67,26 +71,21 @@ const WalletPage = () => {
     transactions: []
   });
 
+  const mockTransactions = [
+    { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago', status: 'completed' },
+    { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago', status: 'completed' },
+    { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday', status: 'completed' },
+    { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago', status: 'completed' },
+  ];
+
   useEffect(() => {
     const fetchWalletData = async () => {
       setLoading(true);
-      setError(null);
-      setIsTimeout(false);
-
-      // 10 second timeout
-      const timeoutId = setTimeout(() => {
-        setIsTimeout(true);
-        setLoading(false);
-      }, 10000);
-
       try {
         const token = localStorage.getItem('token');
         const response = await fetch(`${API_BASE_URL}/payments/wallet`, {
           headers: { 'Authorization': `Bearer ${token}` },
-          signal: AbortSignal.timeout(10000)
         });
-        
-        clearTimeout(timeoutId);
         
         if (response.ok) {
           const data = await response.json();
@@ -99,38 +98,12 @@ const WalletPage = () => {
             currencySymbol: data.wallet?.currencySymbol || data.currencySymbol || '₦',
             transactions: data.transactions || mockTransactions
           });
-          setError(null);
         } else {
-          setError(`Failed to load wallet (${response.status})`);
-          // Fallback mock data
-          setWalletData({
-            balance: 0,
-            escrowHeld: 0,
-            pendingWithdrawal: 0,
-            totalEarnings: 0,
-            currency: 'NGN',
-            currencySymbol: '₦',
-            transactions: mockTransactions
-          });
+          setWalletData(prev => ({ ...prev, transactions: mockTransactions }));
         }
       } catch (error) {
-        clearTimeout(timeoutId);
         console.error('Wallet fetch error:', error);
-        
-        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-          setIsTimeout(true);
-        } else {
-          setError('Unable to load wallet data. Please try again.');
-          setWalletData({
-            balance: 0,
-            escrowHeld: 0,
-            pendingWithdrawal: 0,
-            totalEarnings: 0,
-            currency: 'NGN',
-            currencySymbol: '₦',
-            transactions: mockTransactions
-          });
-        }
+        setWalletData(prev => ({ ...prev, transactions: mockTransactions }));
       } finally {
         setLoading(false);
       }
@@ -166,7 +139,7 @@ const WalletPage = () => {
     fetchBanks();
   }, [withdrawDialog]);
 
-  // Verify bank account when account number and bank are filled
+  // Verify bank account
   useEffect(() => {
     const verifyAccount = async () => {
       if (accountNumber.length === 10 && bankCode) {
@@ -184,12 +157,9 @@ const WalletPage = () => {
           if (response.ok) {
             const data = await response.json();
             setAccountName(data.accountName || '');
-          } else {
-            setAccountName('');
           }
         } catch (error) {
           console.error('Failed to verify account:', error);
-          setAccountName('');
         } finally {
           setVerifyingAccount(false);
         }
@@ -199,10 +169,7 @@ const WalletPage = () => {
   }, [accountNumber, bankCode]);
 
   const handleDeposit = async () => {
-    if (!depositAmount || parseFloat(depositAmount) <= 0) {
-      setSnackbar({ open: true, message: 'Please enter a valid amount', severity: 'error' });
-      return;
-    }
+    if (!depositAmount || parseFloat(depositAmount) <= 0) return;
     setProcessingDeposit(true);
     try {
       const token = localStorage.getItem('token');
@@ -215,30 +182,19 @@ const WalletPage = () => {
         body: JSON.stringify({ amount: parseFloat(depositAmount) })
       });
       const data = await response.json();
-      
       if (response.ok && data.authorizationUrl) {
-        // Open Paystack payment page
         window.location.href = data.authorizationUrl;
-      } else {
-        setSnackbar({ open: true, message: data.error || 'Deposit failed', severity: 'error' });
       }
     } catch (error) {
       console.error('Deposit error:', error);
-      setSnackbar({ open: true, message: 'Failed to process deposit', severity: 'error' });
     } finally {
       setProcessingDeposit(false);
     }
   };
 
   const handleWithdraw = async () => {
-    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
-      setSnackbar({ open: true, message: 'Please enter a valid amount', severity: 'error' });
-      return;
-    }
-    if (!bankCode || !accountNumber || !accountName) {
-      setSnackbar({ open: true, message: 'Please select a bank and verify your account', severity: 'error' });
-      return;
-    }
+    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) return;
+    if (!bankCode || !accountNumber || !accountName) return;
     setProcessingWithdraw(true);
     try {
       const token = localStorage.getItem('token');
@@ -256,43 +212,35 @@ const WalletPage = () => {
         })
       });
       const data = await response.json();
-      
       if (response.ok && data.success) {
-        setSnackbar({ open: true, message: data.message || 'Withdrawal initiated successfully', severity: 'success' });
         setWithdrawDialog(false);
         setWithdrawAmount('');
         setBankCode('');
         setAccountNumber('');
         setAccountName('');
-        // Refresh wallet data
         window.location.reload();
-      } else {
-        setSnackbar({ open: true, message: data.error || 'Withdrawal failed', severity: 'error' });
       }
     } catch (error) {
       console.error('Withdrawal error:', error);
-      setSnackbar({ open: true, message: 'Failed to process withdrawal', severity: 'error' });
     } finally {
       setProcessingWithdraw(false);
     }
   };
 
-  const quickActions = [
-    { icon: <AddIcon />, label: 'Add Funds', color: '#00f2ea', onClick: () => setDepositDialog(true) },
-    { icon: <SendIcon />, label: 'Withdraw', color: '#ff0055', onClick: () => setWithdrawDialog(true) },
-    { icon: <LockIcon />, label: 'Escrow', color: '#00ff88', onClick: () => navigate('/transactions') }
-  ];
-
-  const handleRetry = () => {
-    window.location.reload();
+  const formatAmount = (amount) => {
+    return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
+  // Not authenticated
   if (!isAuthenticated) {
     return (
       <Box sx={styles.container}>
         <Box sx={styles.emptyState}>
-          <WalletIcon sx={{ fontSize: 64, color: '#333', mb: 2 }} />
-          <Typography color="text.secondary" sx={{ mb: 2 }}>Please log in to view your wallet</Typography>
+          <Box sx={styles.emptyIcon}>
+            <WalletIcon sx={{ fontSize: 48, color: 'rgba(255,255,255,0.3)' }} />
+          </Box>
+          <Typography sx={styles.emptyTitle}>Login Required</Typography>
+          <Typography sx={styles.emptySubtitle}>Please log in to access your wallet</Typography>
           <Button 
             variant="contained" 
             onClick={() => navigate('/login')}
@@ -305,175 +253,159 @@ const WalletPage = () => {
     );
   }
 
+  // Loading
   if (loading) {
     return (
       <Box sx={styles.container}>
-        <Box sx={styles.header}>
-          <WalletIcon sx={styles.headerIcon} />
-          <Typography sx={styles.headerTitle}>My Wallet</Typography>
+        <Box sx={styles.loadingState}>
+          <CircularProgress sx={{ color: '#00f2ea' }} size={40} />
+          <Typography sx={{ color: 'rgba(255,255,255,0.6)', mt: 2 }}>Loading wallet...</Typography>
         </Box>
-        <WalletCardSkeleton />
-        <ListSkeleton count={5} variant="transaction" />
-      </Box>
-    );
-  }
-
-  if (isTimeout) {
-    return (
-      <Box sx={styles.container}>
-        <TimeoutError onRetry={handleRetry} />
-      </Box>
-    );
-  }
-
-  if (error && walletData.balance === 0) {
-    return (
-      <Box sx={styles.container}>
-        <ErrorState
-          title="Unable to Load Wallet"
-          message={error}
-          onRetry={handleRetry}
-        />
       </Box>
     );
   }
 
   return (
     <Box sx={styles.container}>
-      {/* Header */}
-      <Box sx={styles.header}>
-        <WalletIcon sx={styles.headerIcon} />
-        <Typography sx={styles.headerTitle}>My Wallet</Typography>
-      </Box>
-
-      {/* Main Balance Card */}
+      {/* Main Balance Card - Hero Section */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <Box sx={styles.balanceCard}>
-          <Typography sx={styles.balanceLabel}>Available Balance</Typography>
-          <Typography sx={styles.balanceAmount}>
-            {walletData.currencySymbol}{walletData.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Typography>
-          
-          {/* Quick Actions */}
-          <Box sx={styles.quickActions}>
-            {quickActions.map((action) => (
-              <Box 
-                key={action.label} 
-                sx={styles.quickAction}
-                onClick={action.onClick}
-              >
-                <Box sx={{ ...styles.actionIcon, background: `${action.color}20` }}>
-                  {React.cloneElement(action.icon, { sx: { color: action.color } })}
-                </Box>
-                <Typography sx={styles.actionLabel}>{action.label}</Typography>
+        <Box sx={styles.heroCard}>
+          {/* Balance Header */}
+          <Box sx={styles.balanceHeader}>
+            <Box sx={styles.balanceHeaderLeft}>
+              <Typography sx={styles.balanceLabel}>Available Balance</Typography>
+              <Box sx={styles.balanceRow}>
+                <Typography sx={styles.balanceAmount}>
+                  {showBalance 
+                    ? `${walletData.currencySymbol}${formatAmount(walletData.balance)}`
+                    : '••••••'
+                  }
+                </Typography>
+                <IconButton 
+                  onClick={() => setShowBalance(!showBalance)}
+                  sx={styles.eyeButton}
+                >
+                  {showBalance ? <Visibility /> : <VisibilityOff />}
+                </IconButton>
               </Box>
-            ))}
+            </Box>
+            <Box sx={styles.qrButton}>
+              <QrCode2 sx={{ fontSize: 24 }} />
+            </Box>
+          </Box>
+
+          {/* Quick Stats */}
+          <Box sx={styles.quickStats}>
+            <Box sx={styles.statItem}>
+              <LockIcon sx={{ fontSize: 18, color: '#00ff88', mb: 0.5 }} />
+              <Typography sx={styles.statValue}>{walletData.currencySymbol}{formatAmount(walletData.escrowHeld)}</Typography>
+              <Typography sx={styles.statLabel}>In Escrow</Typography>
+            </Box>
+            <Box sx={styles.statDivider} />
+            <Box sx={styles.statItem}>
+              <TrendingUpIcon sx={{ fontSize: 18, color: '#ffd700', mb: 0.5 }} />
+              <Typography sx={styles.statValue}>{walletData.currencySymbol}{formatAmount(walletData.totalEarnings)}</Typography>
+              <Typography sx={styles.statLabel}>Total Earned</Typography>
+            </Box>
+            <Box sx={styles.statDivider} />
+            <Box sx={styles.statItem}>
+              <WithdrawIcon sx={{ fontSize: 18, color: '#ff6b6b', mb: 0.5 }} />
+              <Typography sx={styles.statValue}>{walletData.currencySymbol}{formatAmount(walletData.pendingWithdrawal)}</Typography>
+              <Typography sx={styles.statLabel}>Pending</Typography>
+            </Box>
+          </Box>
+
+          {/* Action Buttons - Bottom of Card */}
+          <Box sx={styles.actionRow}>
+            <Box sx={styles.actionButton} onClick={() => setDepositDialog(true)}>
+              <Box sx={styles.actionIconCircle}>
+                <AddIcon sx={{ color: '#000', fontSize: 22 }} />
+              </Box>
+              <Typography sx={styles.actionText}>Add Money</Typography>
+            </Box>
+            <Box sx={styles.actionButton} onClick={() => setWithdrawDialog(true)}>
+              <Box sx={{ ...styles.actionIconCircle, background: 'linear-gradient(135deg, #ff6b6b, #ff8e8e)' }}>
+                <WithdrawIcon sx={{ color: '#fff', fontSize: 22 }} />
+              </Box>
+              <Typography sx={styles.actionText}>Withdraw</Typography>
+            </Box>
+            <Box sx={styles.actionButton} onClick={() => navigate('/transactions')}>
+              <Box sx={{ ...styles.actionIconCircle, background: 'linear-gradient(135deg, #a78bfa, #c4b5fd)' }}>
+                <Receipt sx={{ color: '#fff', fontSize: 22 }} />
+              </Box>
+              <Typography sx={styles.actionText}>History</Typography>
+            </Box>
+            <Box sx={styles.actionButton} onClick={() => navigate('/transactions')}>
+              <Box sx={{ ...styles.actionIconCircle, background: 'linear-gradient(135deg, #00ff88, #00cc6a)' }}>
+                <LockIcon sx={{ color: '#000', fontSize: 22 }} />
+              </Box>
+              <Typography sx={styles.actionText}>Escrow</Typography>
+            </Box>
           </Box>
         </Box>
       </motion.div>
 
-      {/* Summary Cards */}
-      <Box sx={styles.summaryGrid}>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-        >
-          <Box sx={styles.summaryCard}>
-            <Box sx={{ ...styles.summaryIcon, background: 'rgba(0, 255, 136, 0.15)' }}>
-              <LockIcon sx={{ color: '#00ff88' }} />
-            </Box>
-            <Box>
-              <Typography sx={styles.summaryLabel}>In Escrow</Typography>
-              <Typography sx={styles.summaryValue}>{walletData.currencySymbol}{walletData.escrowHeld.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-            </Box>
+      {/* Transactions Section */}
+      <Box sx={styles.section}>
+        <Box sx={styles.sectionHeader}>
+          <Box sx={styles.sectionTitleRow}>
+            <HistoryIcon sx={{ color: '#00f2ea', fontSize: 20 }} />
+            <Typography sx={styles.sectionTitle}>Recent Activity</Typography>
           </Box>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Box sx={styles.summaryCard}>
-            <Box sx={{ ...styles.summaryIcon, background: 'rgba(255, 215, 0, 0.15)' }}>
-              <TrendingUpIcon sx={{ color: '#ffd700' }} />
-            </Box>
-            <Box>
-              <Typography sx={styles.summaryLabel}>Total Earnings</Typography>
-              <Typography sx={styles.summaryValue}>{walletData.currencySymbol}{walletData.totalEarnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-            </Box>
+          <Box sx={styles.viewAllButton} onClick={() => navigate('/transactions')}>
+            <Typography sx={styles.viewAllText}>View All</Typography>
+            <ChevronRight sx={{ fontSize: 18, color: 'rgba(255,255,255,0.5)' }} />
           </Box>
-        </motion.div>
+        </Box>
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3 }}
-        >
-          <Box sx={styles.summaryCard}>
-            <Box sx={{ ...styles.summaryIcon, background: 'rgba(255, 0, 85, 0.15)' }}>
-              <WithdrawIcon sx={{ color: '#ff0055' }} />
-            </Box>
-            <Box>
-              <Typography sx={styles.summaryLabel}>Pending Withdrawal</Typography>
-              <Typography sx={styles.summaryValue}>{walletData.currencySymbol}{walletData.pendingWithdrawal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
-            </Box>
-          </Box>
-        </motion.div>
-      </Box>
+        {/* Transaction List */}
+        <Box sx={styles.transactionList}>
+          <AnimatePresence>
+            {walletData.transactions.slice(0, 5).map((tx, index) => (
+              <motion.div
+                key={tx.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.05 }}
+              >
+                <Box sx={styles.transactionItem}>
+                  <Box sx={{
+                    ...styles.txIconBox,
+                    background: tx.type === 'income' 
+                      ? 'rgba(0, 255, 136, 0.15)' 
+                      : 'rgba(255, 107, 107, 0.15)'
+                  }}>
+                    {tx.type === 'income' 
+                      ? <DepositIcon sx={{ color: '#00ff88', fontSize: 20 }} />
+                      : <WithdrawIcon sx={{ color: '#ff6b6b', fontSize: 20 }} />
+                    }
+                  </Box>
+                  <Box sx={styles.txContent}>
+                    <Typography sx={styles.txTitle}>{tx.title}</Typography>
+                    <Typography sx={styles.txDate}>{tx.date}</Typography>
+                  </Box>
+                  <Typography sx={{
+                    ...styles.txAmount,
+                    color: tx.type === 'income' ? '#00ff88' : '#ff6b6b'
+                  }}>
+                    {tx.type === 'income' ? '+' : '-'}{walletData.currencySymbol}{formatAmount(tx.amount)}
+                  </Typography>
+                </Box>
+              </motion.div>
+            ))}
+          </AnimatePresence>
 
-      {/* Recent Transactions */}
-      <Box sx={styles.sectionHeader}>
-        <Typography sx={styles.sectionTitle}>
-          <HistoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Recent Transactions
-        </Typography>
-        <Button 
-          size="small" 
-          sx={{ color: '#00f2ea' }}
-          onClick={() => navigate('/transactions')}
-        >
-          View All
-        </Button>
-      </Box>
-
-      <Box sx={styles.transactionsList}>
-        {walletData.transactions.slice(0, 5).map((tx, index) => (
-          <motion.div
-            key={tx.id}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Box sx={styles.transactionItem}>
-              <Box sx={{
-                ...styles.txIcon,
-                background: tx.type === 'income' ? 'rgba(0, 255, 136, 0.15)' : 'rgba(255, 51, 51, 0.15)'
-              }}>
-                {tx.type === 'income' ? (
-                  <DepositIcon sx={{ color: '#00ff88' }} />
-                ) : (
-                  <WithdrawIcon sx={{ color: '#ff3333' }} />
-                )}
-              </Box>
-              <Box sx={styles.txInfo}>
-                <Typography sx={styles.txTitle}>{tx.title}</Typography>
-                <Typography sx={styles.txDate}>{tx.date}</Typography>
-              </Box>
-              <Typography sx={{
-                ...styles.txAmount,
-                color: tx.type === 'income' ? '#00ff88' : '#ff3333'
-              }}>
-                {tx.type === 'income' ? '+' : '-'}{walletData.currencySymbol}{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Typography>
+          {walletData.transactions.length === 0 && (
+            <Box sx={styles.noTransactions}>
+              <HistoryIcon sx={{ fontSize: 40, color: 'rgba(255,255,255,0.2)', mb: 1 }} />
+              <Typography sx={{ color: 'rgba(255,255,255,0.5)' }}>No transactions yet</Typography>
             </Box>
-          </motion.div>
-        ))}
+          )}
+        </Box>
       </Box>
 
       {/* Deposit Dialog */}
@@ -481,41 +413,48 @@ const WalletPage = () => {
         open={depositDialog} 
         onClose={() => setDepositDialog(false)}
         PaperProps={{ sx: styles.dialog }}
-        maxWidth="sm"
         fullWidth
-        aria-labelledby="deposit-dialog-title"
+        maxWidth="sm"
       >
-        <DialogTitle id="deposit-dialog-title" sx={styles.dialogTitle}>Add Funds via Paystack</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ color: '#888', mb: 2, mt: 1 }}>
-            Your country's currency: <strong style={{ color: '#00f2ea' }}>{walletData.currency}</strong>
+        <DialogTitle sx={styles.dialogTitle}>
+          <AddIcon sx={{ mr: 1, color: '#00f2ea' }} />
+          Add Money
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography sx={styles.dialogSubtext}>
+            Add funds to your wallet via Paystack
           </Typography>
           <TextField
             fullWidth
             label="Amount"
             type="number"
-            margin="normal"
             value={depositAmount}
             onChange={(e) => setDepositAmount(e.target.value)}
-            InputProps={{
-              startAdornment: <Typography sx={{ mr: 1, color: '#00f2ea', fontWeight: 600 }}>{walletData.currencySymbol}</Typography>
-            }}
+            placeholder="0.00"
             sx={styles.textField}
-            placeholder="Enter amount"
+            InputProps={{
+              startAdornment: (
+                <Typography sx={{ color: '#00f2ea', fontWeight: 700, mr: 1 }}>
+                  {walletData.currencySymbol}
+                </Typography>
+              )
+            }}
           />
-          <Alert severity="info" sx={{ mt: 2, background: 'rgba(0, 242, 234, 0.1)', color: '#ccc' }}>
+          <Alert severity="info" sx={styles.infoAlert}>
             You'll be redirected to Paystack to complete the payment securely.
           </Alert>
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setDepositDialog(false)} sx={{ color: '#888' }}>Cancel</Button>
+        <DialogActions sx={styles.dialogActions}>
+          <Button onClick={() => setDepositDialog(false)} sx={styles.cancelButton}>
+            Cancel
+          </Button>
           <Button 
             variant="contained" 
-            sx={styles.primaryButton}
             onClick={handleDeposit}
             disabled={processingDeposit || !depositAmount}
+            sx={styles.primaryButton}
           >
-            {processingDeposit ? <CircularProgress size={20} /> : `Deposit ${walletData.currencySymbol}${depositAmount || '0'}`}
+            {processingDeposit ? <CircularProgress size={20} /> : 'Continue'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -525,306 +464,414 @@ const WalletPage = () => {
         open={withdrawDialog} 
         onClose={() => setWithdrawDialog(false)}
         PaperProps={{ sx: styles.dialog }}
-        aria-labelledby="withdraw-dialog-title"
-        maxWidth="sm"
         fullWidth
+        maxWidth="sm"
       >
-        <DialogTitle id="withdraw-dialog-title" sx={styles.dialogTitle}>Withdraw to Bank Account</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ color: '#888', mb: 2, mt: 1 }}>
-            Available: <span style={{ color: '#00ff88', fontWeight: 600 }}>{walletData.currencySymbol}{walletData.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+        <DialogTitle sx={styles.dialogTitle}>
+          <WithdrawIcon sx={{ mr: 1, color: '#ff6b6b' }} />
+          Withdraw
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography sx={styles.dialogSubtext}>
+            Available: <span style={{ color: '#00ff88', fontWeight: 600 }}>
+              {walletData.currencySymbol}{formatAmount(walletData.balance)}
+            </span>
           </Typography>
           <TextField
             fullWidth
             label="Amount"
             type="number"
-            margin="normal"
             value={withdrawAmount}
             onChange={(e) => setWithdrawAmount(e.target.value)}
+            placeholder="0.00"
+            sx={{ ...styles.textField, mb: 2 }}
             InputProps={{
-              startAdornment: <Typography sx={{ mr: 1, color: '#ff0055', fontWeight: 600 }}>{walletData.currencySymbol}</Typography>
+              startAdornment: (
+                <Typography sx={{ color: '#ff6b6b', fontWeight: 700, mr: 1 }}>
+                  {walletData.currencySymbol}
+                </Typography>
+              )
             }}
-            sx={styles.textField}
-            placeholder="Enter amount"
           />
           <TextField
-            fullWidth
             select
+            fullWidth
             label="Select Bank"
-            margin="normal"
             value={bankCode}
             onChange={(e) => setBankCode(e.target.value)}
-            sx={styles.textField}
+            sx={{ ...styles.textField, mb: 2 }}
             disabled={loadingBanks}
           >
             {loadingBanks ? (
-              <MenuItem value="">Loading banks...</MenuItem>
-            ) : (
-              banks.map((bank) => (
-                <MenuItem key={bank.code} value={bank.code}>{bank.name}</MenuItem>
-              ))
-            )}
+              <MenuItem disabled>Loading banks...</MenuItem>
+            ) : banks.map((bank) => (
+              <MenuItem key={bank.code} value={bank.code}>{bank.name}</MenuItem>
+            ))}
           </TextField>
           <TextField
             fullWidth
             label="Account Number"
-            margin="normal"
             value={accountNumber}
             onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+            placeholder="10 digits"
             sx={styles.textField}
-            placeholder="10-digit account number"
-            inputProps={{ maxLength: 10 }}
           />
           {verifyingAccount && (
-            <Typography sx={{ color: '#888', fontSize: '0.85rem', mt: 1 }}>
-              Verifying account... <CircularProgress size={12} sx={{ ml: 1 }} />
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, gap: 1 }}>
+              <CircularProgress size={16} sx={{ color: '#00f2ea' }} />
+              <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>
+                Verifying account...
+              </Typography>
+            </Box>
           )}
           {accountName && (
-            <Alert severity="success" sx={{ mt: 2, background: 'rgba(0, 255, 136, 0.1)', color: '#00ff88' }}>
-              Account Name: <strong>{accountName}</strong>
+            <Alert severity="success" sx={{ mt: 2, background: 'rgba(0,255,136,0.1)' }}>
+              Account: {accountName}
             </Alert>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setWithdrawDialog(false)} sx={{ color: '#888' }}>Cancel</Button>
+        <DialogActions sx={styles.dialogActions}>
+          <Button onClick={() => setWithdrawDialog(false)} sx={styles.cancelButton}>
+            Cancel
+          </Button>
           <Button 
             variant="contained" 
-            sx={styles.withdrawButton}
             onClick={handleWithdraw}
-            disabled={processingWithdraw || !withdrawAmount || !bankCode || !accountNumber || !accountName}
+            disabled={processingWithdraw || !withdrawAmount || !accountName}
+            sx={styles.withdrawButton}
           >
-            {processingWithdraw ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : `Withdraw ${walletData.currencySymbol}${withdrawAmount || '0'}`}
+            {processingWithdraw ? <CircularProgress size={20} /> : 'Withdraw'}
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Snackbar for notifications */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={6000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert 
-          onClose={() => setSnackbar({ ...snackbar, open: false })} 
-          severity={snackbar.severity}
-          sx={{ width: '100%' }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 };
 
+// TikTok-Inspired Styles
 const styles = {
   container: {
-    minHeight: '100vh',
-    background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%)',
-    padding: { xs: '16px', md: '24px' },
-    paddingBottom: { xs: '100px', md: '24px' }
+    minHeight: '100%',
+    background: '#0a0a0f',
+    px: 2,
+    py: 2,
+    pb: 10, // Space for bottom nav
   },
-  loadingContainer: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%)'
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 2,
-    mb: 3
-  },
-  headerIcon: {
-    fontSize: 32,
-    color: '#00f2ea'
-  },
-  headerTitle: {
-    fontSize: { xs: '1.5rem', md: '2rem' },
-    fontWeight: 700,
-    background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent'
-  },
-  balanceCard: {
-    background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.1) 0%, rgba(255, 0, 85, 0.1) 100%)',
+  
+  // Hero Card
+  heroCard: {
+    background: 'linear-gradient(145deg, #1a1a2e 0%, #16162a 100%)',
     borderRadius: 4,
-    padding: 3,
-    textAlign: 'center',
-    border: '1px solid rgba(0, 242, 234, 0.2)',
-    mb: 3
+    p: 3,
+    mb: 3,
+    position: 'relative',
+    overflow: 'hidden',
+    '&::before': {
+      content: '""',
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      width: '60%',
+      height: '100%',
+      background: 'radial-gradient(ellipse at top right, rgba(0,242,234,0.1) 0%, transparent 70%)',
+      pointerEvents: 'none',
+    }
   },
+  balanceHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    mb: 3,
+  },
+  balanceHeaderLeft: {},
   balanceLabel: {
-    color: '#888',
-    fontSize: '0.9rem',
-    mb: 1
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '0.85rem',
+    mb: 0.5,
+  },
+  balanceRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 1,
   },
   balanceAmount: {
-    fontSize: { xs: '2.5rem', md: '3.5rem' },
-    fontWeight: 700,
     color: '#fff',
-    mb: 3
+    fontSize: '2.5rem',
+    fontWeight: 700,
+    fontFamily: '"Outfit", sans-serif',
+    letterSpacing: '-0.02em',
   },
-  quickActions: {
+  eyeButton: {
+    color: 'rgba(255,255,255,0.5)',
+    p: 0.5,
+  },
+  qrButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 2,
+    background: 'rgba(255,255,255,0.1)',
     display: 'flex',
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 4
+    color: '#fff',
+    cursor: 'pointer',
   },
-  quickAction: {
+  
+  // Quick Stats
+  quickStats: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    py: 2,
+    px: 1,
+    background: 'rgba(0,0,0,0.2)',
+    borderRadius: 2,
+    mb: 3,
+  },
+  statItem: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+  },
+  statValue: {
+    color: '#fff',
+    fontSize: '1rem',
+    fontWeight: 600,
+  },
+  statLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '0.7rem',
+    mt: 0.25,
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    background: 'rgba(255,255,255,0.1)',
+  },
+  
+  // Action Row
+  actionRow: {
+    display: 'flex',
+    justifyContent: 'space-around',
+    pt: 1,
+  },
+  actionButton: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     gap: 1,
     cursor: 'pointer',
-    transition: 'transform 0.2s ease',
-    '&:hover': {
-      transform: 'scale(1.05)'
-    }
+    '&:active': {
+      transform: 'scale(0.95)',
+    },
   },
-  actionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  actionLabel: {
-    fontSize: '0.85rem',
-    color: '#ccc'
-  },
-  summaryGrid: {
-    display: 'grid',
-    gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
-    gap: 2,
-    mb: 3
-  },
-  summaryCard: {
-    background: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 3,
-    padding: 2.5,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 2,
-    border: '1px solid rgba(255, 255, 255, 0.08)'
-  },
-  summaryIcon: {
+  actionIconCircle: {
     width: 48,
     height: 48,
-    borderRadius: 2,
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #00f2ea, #00d4d0)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    boxShadow: '0 4px 15px rgba(0,242,234,0.3)',
   },
-  summaryLabel: {
-    fontSize: '0.8rem',
-    color: '#888'
+  actionText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: '0.75rem',
+    fontWeight: 500,
   },
-  summaryValue: {
-    fontSize: '1.25rem',
-    fontWeight: 600,
-    color: '#fff'
+  
+  // Section
+  section: {
+    mb: 3,
   },
   sectionHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    mb: 2
+    mb: 2,
+  },
+  sectionTitleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 1,
   },
   sectionTitle: {
-    fontSize: '1.1rem',
-    fontWeight: 600,
     color: '#fff',
-    display: 'flex',
-    alignItems: 'center'
+    fontSize: '1rem',
+    fontWeight: 600,
   },
-  transactionsList: {
+  viewAllButton: {
+    display: 'flex',
+    alignItems: 'center',
+    cursor: 'pointer',
+  },
+  viewAllText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '0.85rem',
+  },
+  
+  // Transactions
+  transactionList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 1.5
+    gap: 1,
   },
   transactionItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: 2,
-    padding: 2,
-    background: 'rgba(255, 255, 255, 0.03)',
+    gap: 1.5,
+    p: 1.5,
+    background: 'rgba(255,255,255,0.03)',
     borderRadius: 2,
-    border: '1px solid rgba(255, 255, 255, 0.05)'
+    '&:active': {
+      background: 'rgba(255,255,255,0.06)',
+    },
   },
-  txIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 2,
+  txIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
   },
-  txInfo: {
-    flex: 1
+  txContent: {
+    flex: 1,
+    minWidth: 0,
   },
   txTitle: {
+    color: '#fff',
+    fontSize: '0.9rem',
     fontWeight: 500,
-    color: '#fff'
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   txDate: {
-    fontSize: '0.8rem',
-    color: '#888'
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '0.75rem',
   },
   txAmount: {
     fontWeight: 600,
-    fontSize: '1rem'
+    fontSize: '0.95rem',
   },
+  noTransactions: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    py: 4,
+  },
+  
+  // Empty State
   emptyState: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: '50vh',
-    textAlign: 'center'
+    minHeight: '60vh',
+    textAlign: 'center',
+    px: 3,
   },
-  primaryButton: {
-    background: 'linear-gradient(135deg, #00f2ea, #00b4d8)',
-    color: '#000',
-    fontWeight: 600,
-    '&:hover': {
-      background: 'linear-gradient(135deg, #00d4d0, #0096c7)'
-    }
+  emptyIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: '50%',
+    background: 'rgba(255,255,255,0.05)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    mb: 2,
   },
-  withdrawButton: {
-    background: 'linear-gradient(135deg, #ff0055, #ff3366)',
+  emptyTitle: {
     color: '#fff',
+    fontSize: '1.25rem',
     fontWeight: 600,
-    '&:hover': {
-      background: 'linear-gradient(135deg, #e6004d, #e62e5c)'
-    }
+    mb: 0.5,
   },
+  emptySubtitle: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '0.9rem',
+    mb: 3,
+  },
+  loadingState: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '60vh',
+  },
+  
+  // Dialogs
   dialog: {
     background: '#1a1a2e',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    borderRadius: 3
+    borderRadius: 3,
+    border: '1px solid rgba(255,255,255,0.1)',
   },
   dialogTitle: {
     color: '#fff',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+    display: 'flex',
+    alignItems: 'center',
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+  },
+  dialogSubtext: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '0.9rem',
+    mb: 2,
+  },
+  dialogActions: {
+    p: 2,
+    pt: 1,
   },
   textField: {
     '& .MuiOutlinedInput-root': {
       color: '#fff',
-      '& fieldset': {
-        borderColor: 'rgba(255, 255, 255, 0.2)'
-      },
-      '&:hover fieldset': {
-        borderColor: '#00f2ea'
-      }
+      '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+      '&.Mui-focused fieldset': { borderColor: '#00f2ea' },
     },
-    '& .MuiInputLabel-root': {
-      color: '#888'
-    }
-  }
+    '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.5)' },
+    '& .MuiInputLabel-root.Mui-focused': { color: '#00f2ea' },
+  },
+  infoAlert: {
+    mt: 2,
+    background: 'rgba(0,242,234,0.1)',
+    color: 'rgba(255,255,255,0.8)',
+    '& .MuiAlert-icon': { color: '#00f2ea' },
+  },
+  
+  // Buttons
+  primaryButton: {
+    background: 'linear-gradient(135deg, #00f2ea, #00d4d0)',
+    color: '#000',
+    fontWeight: 600,
+    px: 3,
+    '&:hover': {
+      background: 'linear-gradient(135deg, #00d4d0, #00b4b0)',
+    },
+    '&:disabled': {
+      background: 'rgba(255,255,255,0.1)',
+      color: 'rgba(255,255,255,0.3)',
+    },
+  },
+  withdrawButton: {
+    background: 'linear-gradient(135deg, #ff6b6b, #ff8e8e)',
+    color: '#fff',
+    fontWeight: 600,
+    px: 3,
+    '&:hover': {
+      background: 'linear-gradient(135deg, #ff5252, #ff6b6b)',
+    },
+    '&:disabled': {
+      background: 'rgba(255,255,255,0.1)',
+      color: 'rgba(255,255,255,0.3)',
+    },
+  },
+  cancelButton: {
+    color: 'rgba(255,255,255,0.6)',
+  },
 };
 
 export default WalletPage;

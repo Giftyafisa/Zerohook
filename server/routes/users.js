@@ -627,42 +627,62 @@ router.get('/:id', async (req, res) => {
       }
     }
 
-    // Get user profile with visibility check
-    const user = await User.findOne({
-      _id: userId,
-      profileData: { $exists: true, $ne: null }
-    }).select('username email profileData verificationTier reputationScore isSubscribed subscriptionTier profileVisibility createdAt lastActive');
+    // Get user profile - don't require profileData to exist
+    const user = await User.findById(userId)
+      .select('username email profileData profile_data verificationTier verification_tier reputationScore reputation_score isSubscribed is_subscribed subscriptionTier subscription_tier profileVisibility profile_visibility createdAt lastActive accountType');
 
     if (!user) {
+      console.log(`[GET /:id] User not found for ID: ${userId}`);
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    // Transform to expected format
+    console.log(`[GET /:id] Found user: ${user.username}, accountType: ${user.accountType}`);
+
+    // Handle both camelCase and snake_case field names
+    const profileData = user.profileData || user.profile_data || {};
+    const verificationTier = user.verificationTier ?? user.verification_tier ?? 1;
+    const reputationScore = user.reputationScore ?? user.reputation_score ?? 50;
+    const isSubscribed = user.isSubscribed ?? user.is_subscribed ?? false;
+    const subscriptionTier = user.subscriptionTier ?? user.subscription_tier ?? 'free';
+    const profileVisibility = user.profileVisibility ?? user.profile_visibility ?? 'public';
+
+    // Transform to expected format (send BOTH formats for compatibility)
     const userResponse = {
       id: user._id,
       username: user.username,
       email: user.email,
-      profile_data: user.profileData,
-      verification_tier: user.verificationTier,
-      reputation_score: user.reputationScore,
-      is_subscribed: user.isSubscribed,
-      subscription_tier: user.subscriptionTier,
-      profile_visibility: user.profileVisibility,
+      accountType: user.accountType,
+      // Snake case (for backward compat)
+      profile_data: profileData,
+      verification_tier: verificationTier,
+      reputation_score: reputationScore,
+      is_subscribed: isSubscribed,
+      subscription_tier: subscriptionTier,
+      profile_visibility: profileVisibility,
       created_at: user.createdAt,
-      last_active: user.lastActive || user.createdAt
+      last_active: user.lastActive || user.createdAt,
+      // CamelCase (for frontend)
+      profileData: profileData,
+      verificationTier: verificationTier,
+      reputationScore: reputationScore,
+      isSubscribed: isSubscribed,
+      subscriptionTier: subscriptionTier,
+      profileVisibility: profileVisibility,
+      createdAt: user.createdAt,
+      lastActive: user.lastActive || user.createdAt
     };
     
     // Check profile visibility
     // If profile is 'authenticated' only, require authentication
-    if (userResponse.profile_visibility === 'authenticated' && !isAuthenticated) {
+    if (profileVisibility === 'authenticated' && !isAuthenticated) {
       return res.status(403).json({ 
         error: 'This profile is only visible to authenticated users',
         requiresAuth: true
       });
     }
     
-    // Validate profile data
-    if (!userResponse.profile_data || !userResponse.profile_data.firstName) {
+    // Don't require firstName - use username as fallback
+    if (!profileData.firstName && !user.username) {
       return res.status(404).json({ error: 'Profile data incomplete' });
     }
 

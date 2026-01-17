@@ -3,10 +3,27 @@
 ## Project Overview
 Zerohook is a secure adult service marketplace with advanced fraud detection, multi-tier trust scoring, and blockchain-based escrow. Built with React/Redux frontend and Node.js/Express backend, targeting African markets with Paystack integration.
 
+## ⚠️ CRITICAL: Database Migration Status
+**The database has been migrated from PostgreSQL to MongoDB.** Many route files still contain PostgreSQL-style queries using `query($1, $2)` syntax which **WILL NOT WORK**. The `query()` function in `database.js` returns empty results as a placeholder.
+
+### Routes Requiring MongoDB Migration (HIGH PRIORITY)
+- `/server/routes/subscriptions.js` - Uses PostgreSQL queries, returns empty data
+- Any route using `query()` from `database.js` needs migration to Mongoose models
+
+### Correct MongoDB Pattern
+```js
+// ❌ OLD PostgreSQL pattern (BROKEN)
+const result = await query('SELECT * FROM users WHERE id = $1', [userId]);
+
+// ✅ NEW MongoDB pattern (CORRECT)
+const { User } = require('../config/database');
+const user = await User.findById(userId);
+```
+
 ## Architecture Patterns
 
 ### Service-Oriented Backend
-- **Core Services**: `TrustEngine`, `EscrowManager`, `FraudDetection`, `PaystackManager` injected into `req` object
+- **Core Services**: `TrustEngine`, `EscrowManager`, `FraudDetection`, `PaystackManager`, `LocationTrackingService`, `CountryManager` injected into `req` object
 - **Service Pattern**: All business logic in `/server/services/`, routes are thin wrappers
 - **Middleware Chain**: Rate limiting → Auth → Service injection → Route handlers
 
@@ -15,18 +32,15 @@ Zerohook is a secure adult service marketplace with advanced fraud detection, mu
 req.trustEngine.recordTrustEvent(userId, 'login', metadata, trustImpact);
 req.escrowManager.createEscrow(transactionData);
 req.fraudDetection.assessRisk(userAction);
-# Zerohook Platform – AI Coding Agent Instructions
-   - Authentication: Login → Verify subscription status in navbar → Check user exclusion from browse
-   - Navigation: Test all navigation links → Verify protected routes → Check error boundaries
-   - Communication: Contact button → Connection request → Chat system → Real-time messaging
-   - Subscription: Subscription badges visible → User differentiation clear → Premium features restricted
-   - Responsive: Mobile breakpoints → Touch interactions → All screen sizes functional
-// Critical testing checkpoints for each component
-// AuthContext.js - Test authentication initialization
+req.countryManager.getCountryByIP(ipAddress);
+req.locationTrackingService.getUserLocation(options);
+```
 
-// ProtectedRoute.js - Check route protection logic
 ### API Response Pattern
 ```js
+res.json({
+  success: true,
+  data: result,
   message: 'Operation completed'
 });
 ```
@@ -46,6 +60,10 @@ profile_data: {
 
 // Service location_data and requirements
 location_data: { type: 'flexible|fixed', coordinates, address }
+```
+
+### Frontend State Management (Redux)
+- **Auth State**: `authSlice.js` manages user, token, isAuthenticated, isSubscribed
 - **Subscription Updates**: Use `setSubscriptionStatus()` action after user data changes
 ```js
 // CORRECT: AuthContext reads from Redux, never maintains separate state

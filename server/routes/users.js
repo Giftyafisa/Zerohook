@@ -334,16 +334,17 @@ const handleBrowseProfiles = async (req, res) => {
         currentUserId = decoded.userId;
         isAuthenticated = true;
         
-        // Get user info
-        const currentUserDoc = await User.findById(currentUserId).select('username isSubscribed subscriptionTier subscriptionExpiresAt');
+        // Get user info - use correct snake_case field names from MongoDB
+        const currentUserDoc = await User.findById(currentUserId).select('username is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt profile_data profileData');
         
         if (currentUserDoc) {
           currentUser = {
             id: currentUserDoc._id,
             username: currentUserDoc.username,
-            is_subscribed: currentUserDoc.isSubscribed,
-            subscription_tier: currentUserDoc.subscriptionTier,
-            subscription_expires_at: currentUserDoc.subscriptionExpiresAt
+            is_subscribed: currentUserDoc.is_subscribed || currentUserDoc.isSubscribed || false,
+            subscription_tier: currentUserDoc.subscription_tier || currentUserDoc.subscriptionTier || 'free',
+            subscription_expires_at: currentUserDoc.subscription_expires_at || currentUserDoc.subscriptionExpiresAt,
+            accountType: (currentUserDoc.profile_data || currentUserDoc.profileData || {}).accountType || 'client'
           };
           console.log('🔒 Authenticated user browsing profiles:', currentUser.username);
         }
@@ -396,6 +397,50 @@ const handleBrowseProfiles = async (req, res) => {
 
     // Build $and array for combined filters
     const andConditions = [];
+
+    // ============================================
+    // CRITICAL: Filter by account type (provider vs client)
+    // Clients see only providers, Providers see only clients
+    // Sugar accounts have special visibility rules
+    // ============================================
+    const viewerAccountType = currentUser?.accountType || 'client';
+    console.log(`👤 Viewer account type: ${viewerAccountType}`);
+    
+    if (viewerAccountType === 'client' || !isAuthenticated) {
+      // Clients (and unauthenticated users) see only providers
+      andConditions.push({
+        $or: [
+          { 'profile_data.accountType': 'provider' },
+          { 'profileData.accountType': 'provider' }
+        ]
+      });
+      console.log('🔍 Filtering to show only PROVIDERS');
+    } else if (viewerAccountType === 'provider') {
+      // Providers see only clients (excluding sugar profiles unless premium)
+      andConditions.push({
+        $or: [
+          { 'profile_data.accountType': 'client' },
+          { 'profileData.accountType': 'client' }
+        ]
+      });
+      console.log('🔍 Filtering to show only CLIENTS');
+    } else if (viewerAccountType === 'sugar_daddy' || viewerAccountType === 'sugar_mommy') {
+      // Sugar accounts see verified young providers of preferred gender
+      const preferredGender = viewerAccountType === 'sugar_daddy' ? 'female' : 'male';
+      andConditions.push({
+        $and: [
+          { $or: [
+            { 'profile_data.accountType': 'provider' },
+            { 'profileData.accountType': 'provider' }
+          ]},
+          { $or: [
+            { verification_tier: { $gte: 2 } },
+            { verificationTier: { $gte: 2 } }
+          ]}
+        ]
+      });
+      console.log(`🔍 Sugar account filtering to show verified PROVIDERS (preferred gender: ${preferredGender})`);
+    }
 
     // Apply filters - support both snake_case and camelCase field names
     if (country && country !== 'all') {

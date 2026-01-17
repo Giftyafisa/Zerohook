@@ -28,18 +28,34 @@ router.get('/status', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
+    // Check subscription with expiration validation
     const subscriptionResult = await query(`
-      SELECT * FROM subscriptions 
-      WHERE user_id = $1 AND status = 'active'
-      ORDER BY created_at DESC LIMIT 1
+      SELECT s.*, u.subscription_tier, u.subscription_expires_at 
+      FROM subscriptions s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.user_id = $1 AND s.status = 'active'
+      AND (u.subscription_expires_at IS NULL OR u.subscription_expires_at > CURRENT_TIMESTAMP)
+      ORDER BY s.created_at DESC LIMIT 1
     `, [userId]);
 
     const isSubscribed = subscriptionResult.rows.length > 0;
+    const subscription = isSubscribed ? subscriptionResult.rows[0] : null;
+    
+    // If subscription expired, update user status
+    if (!isSubscribed) {
+      await query(`
+        UPDATE users 
+        SET is_subscribed = false, subscription_tier = 'free', updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND is_subscribed = true AND subscription_expires_at < CURRENT_TIMESTAMP
+      `, [userId]);
+    }
     
     res.json({
       success: true,
       isSubscribed,
-      subscription: isSubscribed ? subscriptionResult.rows[0] : null
+      subscription_tier: subscription?.subscription_tier || 'free',
+      subscription_expires_at: subscription?.subscription_expires_at || null,
+      subscription: subscription
     });
   } catch (error) {
     console.error('Check subscription status error:', error);
@@ -213,14 +229,17 @@ router.post('/verify-payment', authMiddleware, [
       });
     }
 
-    // Update user subscription status
+    // Update user subscription status with tier and expiration
     try {
       await query(`
         UPDATE users 
-        SET is_subscribed = true, updated_at = CURRENT_TIMESTAMP
+        SET is_subscribed = true, 
+            subscription_tier = 'premium',
+            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
       `, [userId]);
-      console.log(`✅ User subscription status updated for: ${userId}`);
+      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 1 year)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
       console.log(`   Subscription activated but user status not updated`);
@@ -281,14 +300,17 @@ router.post('/verify-payment-manual', async (req, res) => {
       });
     }
 
-    // Update user subscription status
+    // Update user subscription status with tier and expiration
     try {
       await query(`
         UPDATE users 
-        SET is_subscribed = true, updated_at = CURRENT_TIMESTAMP
+        SET is_subscribed = true, 
+            subscription_tier = 'premium',
+            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
       `, [userId]);
-      console.log(`✅ User subscription status updated for: ${userId}`);
+      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 1 year)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
       console.log(`   Subscription activated but user status not updated`);
@@ -355,14 +377,17 @@ router.post('/activate-all-pending', authMiddleware, async (req, res) => {
       console.log(`✅ Activated subscription ${sub.id} (${sub.paystack_reference})`);
     }
 
-    // Update user subscription status
+    // Update user subscription status with tier and expiration
     try {
       await query(`
         UPDATE users 
-        SET is_subscribed = true, updated_at = CURRENT_TIMESTAMP
+        SET is_subscribed = true, 
+            subscription_tier = 'premium',
+            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
       `, [userId]);
-      console.log(`✅ User subscription status updated for: ${userId}`);
+      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 1 year)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
     }
@@ -434,14 +459,17 @@ router.post('/verify-payment-by-reference', async (req, res) => {
             WHERE id = $1
           `, [payment.id]);
 
-          // Update user subscription status
+          // Update user subscription status with tier and expiration
           await query(`
             UPDATE users 
-            SET is_subscribed = true, updated_at = CURRENT_TIMESTAMP
+            SET is_subscribed = true, 
+                subscription_tier = 'premium',
+                subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
           `, [payment.user_id]);
 
-          console.log(`✅ Payment verified and activated for user: ${payment.user_id}`);
+          console.log(`✅ Payment verified and activated for user: ${payment.user_id} (tier: premium, expires: 1 year)`);
           
           res.json({
             success: true,

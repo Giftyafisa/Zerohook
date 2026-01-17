@@ -629,14 +629,17 @@ router.post('/paystack-webhook', async (req, res) => {
       if (subscriptionResult.rows.length > 0) {
         const userId = subscriptionResult.rows[0].user_id;
         
-        // Update user subscription status
+        // Update user subscription status with tier and expiration
         try {
           await query(`
             UPDATE users 
-            SET is_subscribed = true, updated_at = CURRENT_TIMESTAMP
+            SET is_subscribed = true, 
+                subscription_tier = 'premium',
+                subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
           `, [userId]);
-          console.log(`✅ User subscription status updated for user: ${userId}`);
+          console.log(`✅ User subscription status updated for user: ${userId} (tier: premium, expires: 1 year)`);
         } catch (userUpdateError) {
           console.log(`⚠️  User update failed: ${userUpdateError.message}`);
           console.log(`   Subscription activated but user status not updated`);

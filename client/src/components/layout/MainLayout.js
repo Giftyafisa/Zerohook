@@ -43,9 +43,9 @@ const DesktopContent = styled(Box, {
  * Get header configuration based on current route
  */
 const getHeaderConfig = (pathname) => {
-  // Home page - fullscreen immersive on mobile
+  // Home page - needs scrollable content on mobile
   if (pathname === '/' || pathname === '/home') {
-    return { showHeader: false, fullScreen: true };
+    return { showHeader: false, fullScreen: false };
   }
   
   // Browse/feed routes on mobile - TikTok feed handles its own UI

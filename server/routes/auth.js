@@ -152,12 +152,54 @@ router.post('/register', rateLimitMiddleware, [
     // Determine if this is a sugar account (VVIP)
     const isSugarAccount = accountType === 'sugar_daddy' || accountType === 'sugar_mommy';
     
+    // ============================================
+    // CRITICAL: Detect country/currency from phone number
+    // ============================================
+    let detectedCountry = null;
+    let detectedCurrency = 'NGN'; // Default to Nigeria
+    let detectedCountryCode = 'NG';
+    
+    if (phone) {
+      // Phone code to country mapping
+      const phoneCodeMap = {
+        '+234': { code: 'NG', currency: 'NGN', name: 'Nigeria' },
+        '+233': { code: 'GH', currency: 'GHS', name: 'Ghana' },
+        '+254': { code: 'KE', currency: 'KES', name: 'Kenya' },
+        '+27': { code: 'ZA', currency: 'ZAR', name: 'South Africa' },
+        '+256': { code: 'UG', currency: 'UGX', name: 'Uganda' },
+        '+255': { code: 'TZ', currency: 'TZS', name: 'Tanzania' },
+        '+250': { code: 'RW', currency: 'RWF', name: 'Rwanda' },
+        '+267': { code: 'BW', currency: 'BWP', name: 'Botswana' },
+        '+260': { code: 'ZM', currency: 'ZMW', name: 'Zambia' },
+        '+265': { code: 'MW', currency: 'MWK', name: 'Malawi' },
+      };
+      
+      const cleanPhone = phone.replace(/\s+/g, '').replace(/-/g, '');
+      for (const [code, countryInfo] of Object.entries(phoneCodeMap)) {
+        if (cleanPhone.startsWith(code)) {
+          detectedCountry = countryInfo.name;
+          detectedCurrency = countryInfo.currency;
+          detectedCountryCode = countryInfo.code;
+          console.log(`🌍 Country detected from phone ${cleanPhone}: ${countryInfo.name} (${countryInfo.currency})`);
+          break;
+        }
+      }
+    }
+    
     const profileData = {
       firstName: firstName || '',
       lastName: lastName || '',
       accountType: accountType || 'client',
       gender: gender || null,
       dateOfBirth: dateOfBirth || null,
+      // Country and currency detected from phone number
+      country: detectedCountry,
+      countryCode: detectedCountryCode,
+      currency: detectedCurrency,
+      location: {
+        country: detectedCountry,
+        countryCode: detectedCountryCode
+      },
       faceVerification: {
         verified: false,
         verifiedAt: null,

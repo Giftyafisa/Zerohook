@@ -77,6 +77,44 @@ const getAllLocations = (countryCode) => {
   }
   return [];
 };
+
+// ============================================
+// HELPER: Find nearest city from GPS coordinates
+// ============================================
+const findNearestCity = (latitude, longitude, countryCode) => {
+  const availableLocations = getAllLocations(countryCode);
+  
+  // Haversine formula for accurate distance calculation
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Earth's radius in km
+    const toRad = (deg) => deg * (Math.PI / 180);
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in km
+  };
+  
+  let nearestLocation = null;
+  let minDistance = Infinity;
+  
+  availableLocations.forEach(loc => {
+    const locLat = loc.coordinates?.lat || loc.lat;
+    const locLng = loc.coordinates?.lng || loc.lng;
+    if (locLat && locLng) {
+      const dist = calculateDistance(latitude, longitude, locLat, locLng);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearestLocation = loc;
+      }
+    }
+  });
+  
+  return { location: nearestLocation, distance: minDistance };
+};
 // ============================================
 // LOCATION PICKER COMPONENT
 // ============================================
@@ -1270,19 +1308,28 @@ const ProfileFeed = () => {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             clearTimeout(locationTimeout);
-            // GPS success - use precise location
+            const { latitude, longitude, accuracy } = position.coords;
+            
+            // Find nearest city from GPS coordinates
+            const countryForLookup = userCountry || detectedCountry || 'ghana';
+            const { location: nearestCity, distance } = findNearestCity(latitude, longitude, countryForLookup);
+            
+            // GPS success - use precise location with resolved city name
             const gpsLocation = {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-              city: 'Current Location',
+              lat: latitude,
+              lng: longitude,
+              accuracy: accuracy,
+              city: nearestCity?.name || 'Current Location',
+              region: nearestCity?.region || nearestCity?.state || null,
               country: userCountry || detectedCountry || 'Unknown',
               source: 'gps',
-              confidence: 1.0
+              confidence: 1.0,
+              distanceToCity: distance ? `${distance.toFixed(1)} km from ${nearestCity?.name}` : null
             };
             setUserLocation(gpsLocation);
             setLocationLoading(false);
-            console.log('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, '(accuracy:', gpsLocation.accuracy, 'm)');
+            console.log('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, 
+              `(accuracy: ${gpsLocation.accuracy}m, nearest city: ${gpsLocation.city}, ${gpsLocation.distanceToCity})`);
           },
           async (error) => {
             clearTimeout(locationTimeout);

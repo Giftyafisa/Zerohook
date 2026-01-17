@@ -2,22 +2,23 @@
  * MobileShell - Fixed layout shell for mobile views (TikTok/Telegram style)
  * 
  * Architecture:
- * ┌─────────────────────────────┐ ← Fixed Header (56px)
- * │         HEADER              │
+ * ┌─────────────────────────────┐ ← Safe Area Top
+ * │         HEADER              │ ← Fixed Header (56px)
  * ├─────────────────────────────┤
  * │                             │
  * │      SCROLLABLE CONTENT     │ ← Only this region scrolls
  * │         (flex: 1)           │
  * │                             │
  * ├─────────────────────────────┤
- * │       BOTTOM NAV            │ ← Fixed Bottom Nav (64px)
- * └─────────────────────────────┘
+ * │       BOTTOM NAV            │ ← Fixed Bottom Nav (52px)
+ * └─────────────────────────────┘ ← Safe Area Bottom
  * 
  * Key principles:
- * - Shell is FIXED, never moves
+ * - Shell is FIXED, never moves (TikTok-style)
  * - Content area is the ONLY scrollable region
- * - Header/Footer have absolute positions
- * - Uses dvh (dynamic viewport height) for mobile browsers
+ * - Pure black background for immersive experience
+ * - Safe areas respected for notches/home indicator
+ * - Pixel-perfect spacing with 8px grid
  * 
  * @module components/layout/MobileShell
  */
@@ -27,7 +28,8 @@ import { Box } from '@mui/material';
 import { styled } from '@mui/system';
 import tokens from '../../theme/tokens';
 
-// The outer shell - takes full viewport, never scrolls
+// The outer shell - takes full viewport, NEVER scrolls
+// Uses pure black (#000) for TikTok-style immersive experience
 const ShellContainer = styled(Box)({
   position: 'fixed',
   top: 0,
@@ -36,73 +38,91 @@ const ShellContainer = styled(Box)({
   bottom: 0,
   display: 'flex',
   flexDirection: 'column',
-  background: tokens.colors.background.primary,
-  overflow: 'hidden', // Shell never scrolls
-  // Use dvh for accurate mobile viewport
+  background: '#000', // Pure black for immersive TikTok feel
+  overflow: 'hidden',
+  // Use dvh for accurate mobile viewport (handles address bar)
   height: '100vh',
   '@supports (height: 100dvh)': {
     height: '100dvh',
   },
+  // Prevent any overscroll behavior
+  overscrollBehavior: 'none',
+  touchAction: 'manipulation',
 });
 
-// Fixed header region
+// Fixed header region - locked at top with safe area
 const HeaderRegion = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'hasHeader',
 })(({ hasHeader }) => ({
   flexShrink: 0,
   height: hasHeader ? `${tokens.layout.mobileHeaderHeight}px` : 0,
   minHeight: hasHeader ? `${tokens.layout.mobileHeaderHeight}px` : 0,
-  // Add safe area padding for notched devices
+  // Safe area for notched devices (iPhone X+)
   paddingTop: 'env(safe-area-inset-top, 0px)',
-  background: `${tokens.colors.background.primary}f0`,
-  backdropFilter: tokens.backdropBlur.md,
-  borderBottom: hasHeader ? `1px solid ${tokens.colors.border.primary}` : 'none',
+  background: hasHeader ? 'rgba(0, 0, 0, 0.95)' : 'transparent',
+  backdropFilter: hasHeader ? 'blur(20px) saturate(180%)' : 'none',
+  WebkitBackdropFilter: hasHeader ? 'blur(20px) saturate(180%)' : 'none',
+  borderBottom: hasHeader ? '1px solid rgba(255, 255, 255, 0.06)' : 'none',
   zIndex: tokens.zIndex.appBar,
   position: 'relative',
+  // Subtle shadow for depth
+  boxShadow: hasHeader ? '0 1px 0 rgba(255, 255, 255, 0.05)' : 'none',
 }));
 
 // Scrollable content region - THIS IS THE ONLY PART THAT SCROLLS
 const ContentRegion = styled(Box, {
-  shouldForwardProp: (prop) => prop !== 'hasBottomNav' && prop !== 'noPadding',
-})(({ noPadding }) => ({
+  shouldForwardProp: (prop) => prop !== 'noPadding' && prop !== 'isFullBleed',
+})(({ noPadding, isFullBleed }) => ({
   flex: 1,
   minHeight: 0, // Critical for flex scroll behavior
   overflow: 'auto',
   overflowX: 'hidden',
-  WebkitOverflowScrolling: 'touch', // Smooth iOS scrolling
+  WebkitOverflowScrolling: 'touch', // Smooth iOS momentum scrolling
   scrollBehavior: 'smooth',
-  // Default padding, can be overridden per-page
-  padding: noPadding ? 0 : `${tokens.spacing.md}px`,
-  // Ensure content doesn't get stuck behind nav
-  paddingBottom: noPadding ? 0 : `${tokens.spacing.xl}px`,
+  // Full bleed for immersive content (TikTok feed, etc.)
+  padding: isFullBleed || noPadding ? 0 : `${tokens.spacing.md}px`,
+  paddingBottom: isFullBleed || noPadding ? 0 : `${tokens.spacing.lg}px`,
+  // Hide scrollbar for cleaner look (TikTok style)
+  '&::-webkit-scrollbar': {
+    display: 'none',
+  },
+  scrollbarWidth: 'none',
+  msOverflowStyle: 'none',
+  // Prevent rubber-banding on iOS
+  overscrollBehavior: 'contain',
 }));
 
-// Fixed bottom nav region
+// Fixed bottom nav region - locked at bottom with safe area
 const NavRegion = styled(Box, {
-  shouldForwardProp: (prop) => prop !== 'hasBottomNav',
-})(({ hasBottomNav }) => ({
+  shouldForwardProp: (prop) => prop !== 'hasBottomNav' && prop !== 'isOverlay',
+})(({ hasBottomNav, isOverlay }) => ({
   flexShrink: 0,
   height: hasBottomNav ? `${tokens.layout.bottomNavHeight}px` : 0,
   minHeight: hasBottomNav ? `${tokens.layout.bottomNavHeight}px` : 0,
-  // Add safe area padding for home indicator on iPhone
+  // Safe area for home indicator (iPhone)
   paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-  background: `${tokens.colors.background.primary}f2`,
-  backdropFilter: tokens.backdropBlur.md,
-  borderTop: hasBottomNav ? `1px solid ${tokens.colors.border.primary}` : 'none',
-  zIndex: tokens.zIndex.sticky,
+  background: isOverlay 
+    ? 'linear-gradient(0deg, rgba(0,0,0,0.98) 0%, rgba(0,0,0,0.85) 60%, rgba(0,0,0,0.6) 80%, transparent 100%)'
+    : 'rgba(0, 0, 0, 0.95)',
+  backdropFilter: hasBottomNav ? 'blur(20px) saturate(180%)' : 'none',
+  WebkitBackdropFilter: hasBottomNav ? 'blur(20px) saturate(180%)' : 'none',
+  borderTop: hasBottomNav && !isOverlay ? '1px solid rgba(255, 255, 255, 0.06)' : 'none',
+  zIndex: tokens.zIndex.bottomNav,
   position: 'relative',
 }));
 
 /**
- * MobileShell - Creates a fixed-position shell layout for mobile
+ * MobileShell - Creates a fixed-position shell layout for mobile (TikTok/Telegram style)
  * 
  * @param {Object} props
- * @param {React.ReactNode} props.header - Header content (TopHeader or custom)
+ * @param {React.ReactNode} props.header - Header content
  * @param {React.ReactNode} props.children - Main content (scrollable)
  * @param {React.ReactNode} props.bottomNav - Bottom navigation
  * @param {boolean} props.showHeader - Whether to show header region (default: true)
  * @param {boolean} props.showBottomNav - Whether to show bottom nav (default: true)
  * @param {boolean} props.noPadding - Remove content padding (for full-bleed layouts)
+ * @param {boolean} props.isFullBleed - Full immersive content (TikTok feed style)
+ * @param {boolean} props.overlayNav - Bottom nav overlays content (gradient fade)
  * @param {Object} props.contentStyle - Additional styles for content region
  */
 const MobileShell = ({
@@ -112,6 +132,8 @@ const MobileShell = ({
   showHeader = true,
   showBottomNav = true,
   noPadding = false,
+  isFullBleed = false,
+  overlayNav = false,
   contentStyle = {},
 }) => {
   return (
@@ -122,12 +144,19 @@ const MobileShell = ({
       </HeaderRegion>
       
       {/* Scrollable Content */}
-      <ContentRegion noPadding={noPadding} sx={contentStyle}>
+      <ContentRegion 
+        noPadding={noPadding} 
+        isFullBleed={isFullBleed}
+        sx={contentStyle}
+      >
         {children}
       </ContentRegion>
       
       {/* Fixed Bottom Nav */}
-      <NavRegion hasBottomNav={showBottomNav && bottomNav}>
+      <NavRegion 
+        hasBottomNav={showBottomNav && bottomNav}
+        isOverlay={overlayNav}
+      >
         {showBottomNav && bottomNav}
       </NavRegion>
     </ShellContainer>

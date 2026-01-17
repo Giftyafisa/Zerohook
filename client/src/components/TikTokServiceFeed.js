@@ -133,7 +133,9 @@ const ContentCard = ({
   return (
     <Box
       sx={{
-        position: 'relative',
+        // Full viewport card - TikTok style
+        position: 'absolute',
+        inset: 0,
         width: '100%',
         height: '100%',
         overflow: 'hidden',
@@ -285,16 +287,17 @@ const ContentCard = ({
         )}
       </Box>
 
-      {/* Right Side Actions - TikTok Style */}
+      {/* Right Side Actions - TikTok Style (pixel-perfect spacing) */}
       <Box
         sx={{
           position: 'absolute',
-          right: 12,
-          bottom: '28%',
+          right: 8,
+          // Position from bottom to account for bottom nav overlay
+          bottom: 140, // Above bottom nav gradient
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 2.5,
+          gap: 2,
           zIndex: 10,
         }}
       >
@@ -425,15 +428,14 @@ const ContentCard = ({
         </Box>
       </Box>
 
-      {/* Bottom Info Overlay */}
+      {/* Bottom Info Overlay - Above nav gradient */}
       <Box
         sx={{
           position: 'absolute',
-          bottom: 0,
+          bottom: 80, // Space for bottom nav
           left: 0,
-          right: 70,
+          right: 70, // Space for action buttons
           p: 2,
-          pb: 3,
           zIndex: 10,
         }}
       >
@@ -906,13 +908,20 @@ const TikTokServiceFeed = () => {
       onTouchEnd={handleTouchEnd}
       onWheel={handleWheel}
       sx={{
+        // Fixed dimensions - TikTok-style full viewport
         height: '100%',
         width: '100%',
-        overflow: 'hidden',
+        position: 'absolute',
+        inset: 0,
+        // Pure black background for immersive experience
         bgcolor: '#000',
-        position: 'relative',
+        // Prevent any overflow/scroll on container
+        overflow: 'hidden',
         overscrollBehavior: 'none',
         touchAction: 'pan-y',
+        // Ensure crisp rendering
+        WebkitFontSmoothing: 'antialiased',
+        MozOsxFontSmoothing: 'grayscale',
       }}
     >
       {/* Category Pills - Top */}
@@ -1023,11 +1032,11 @@ const TikTokServiceFeed = () => {
         </motion.div>
       </AnimatePresence>
 
-      {/* Swipe Dots */}
+      {/* Swipe Dots - Above bottom nav */}
       <Box
         sx={{
           position: 'absolute',
-          bottom: 12,
+          bottom: 72, // Above bottom nav
           left: '50%',
           transform: 'translateX(-50%)',
           display: 'flex',
@@ -1055,35 +1064,31 @@ const TikTokServiceFeed = () => {
         })}
       </Box>
 
-      {/* Floating Create Button - TikTok Style */}
+      {/* Floating Create Button - TikTok Style (above nav) */}
       <Fab
         onClick={handleCreate}
         sx={{
           position: 'absolute',
-          bottom: 80,
-          right: 16,
+          bottom: 140, // Above bottom nav gradient
+          right: 12,
           zIndex: 100,
           bgcolor: '#00f2ea',
           color: '#000',
-          width: 56,
-          height: 56,
+          width: 48,
+          height: 48,
           '&:hover': {
             bgcolor: '#00d4d4',
           },
           boxShadow: '0 4px 20px rgba(0,242,234,0.4)',
         }}
       >
-        <Add sx={{ fontSize: 32 }} />
+        <Add sx={{ fontSize: 28 }} />
       </Fab>
 
-      {/* Content Creator Modal - Always rendered, visibility controlled by 'open' prop */}
-      {console.log('📸 Rendering ContentCreator, showContentCreator:', showContentCreator)}
+      {/* Content Creator Modal */}
       <ContentCreator
         open={showContentCreator}
-        onClose={() => {
-          console.log('📸 ContentCreator onClose called');
-          setShowContentCreator(false);
-        }}
+        onClose={() => setShowContentCreator(false)}
         onSuccess={handleContentCreated}
       />
     </Box>

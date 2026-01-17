@@ -115,7 +115,7 @@ const MainLayout = ({ children, showNavigation = true }) => {
     );
   }
   
-  // Full-screen mode (TikTok feed) - no header, bottom nav overlaid
+  // Full-screen mode (TikTok feed) - completely immersive, no chrome
   if (isFullScreen) {
     return (
       <Box
@@ -125,26 +125,23 @@ const MainLayout = ({ children, showNavigation = true }) => {
           bgcolor: '#000',
           display: 'flex',
           flexDirection: 'column',
+          // Prevent any overscroll
+          overscrollBehavior: 'none',
+          touchAction: 'manipulation',
         }}
       >
-        {/* Full screen content - scrollable */}
+        {/* Full screen content - takes all space */}
         <Box 
           sx={{ 
             flex: 1, 
             position: 'relative', 
-            overflow: 'auto',
-            overflowX: 'hidden',
-            WebkitOverflowScrolling: 'touch',
-            // Hide scrollbar but keep scrolling
-            '&::-webkit-scrollbar': { display: 'none' },
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
+            overflow: 'hidden', // Content handles its own scrolling
           }}
         >
           {children}
         </Box>
         
-        {/* Bottom nav overlaid on content */}
+        {/* Bottom nav overlaid on content with gradient fade */}
         {showNavigation && (
           <Box
             sx={{
@@ -153,8 +150,10 @@ const MainLayout = ({ children, showNavigation = true }) => {
               left: 0,
               right: 0,
               zIndex: 100,
-              background: 'linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 60%, transparent 100%)',
-              pt: 3,
+              // TikTok-style gradient fade
+              background: 'linear-gradient(0deg, rgba(0,0,0,0.98) 0%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.5) 75%, transparent 100%)',
+              pt: 4,
+              pb: 'env(safe-area-inset-bottom, 0px)',
             }}
           >
             <MobileBottomNav />

@@ -5,6 +5,16 @@ const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const NotificationService = require('../services/NotificationService');
 
+// Custom validator for MongoDB ObjectId or UUID
+const isMongoIdOrUUID = (value) => {
+  if (!value) return true; // Let optional() handle this
+  // MongoDB ObjectId: 24 hex characters
+  const isMongoId = /^[0-9a-fA-F]{24}$/.test(value);
+  // UUID: 8-4-4-4-12 hex format
+  const isUUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(value);
+  return isMongoId || isUUID;
+};
+
 /**
  * @route   GET /api/chat/unread-count
  * @desc    Get total unread message count across all conversations
@@ -330,7 +340,7 @@ router.post('/send', authMiddleware, [
  * @access  Private
  */
 router.post('/conversation', authMiddleware, [
-  body('otherUserId').isUUID()
+  body('otherUserId').custom(isMongoIdOrUUID).withMessage('Invalid user ID format')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -390,9 +400,9 @@ router.post('/conversation', authMiddleware, [
  * @access  Private
  */
 router.post('/start', authMiddleware, [
-  body('otherUserId').optional().isUUID(),
-  body('recipientId').optional().isUUID(),
-  body('userId').optional().isUUID()
+  body('otherUserId').optional().custom(isMongoIdOrUUID).withMessage('Invalid user ID format'),
+  body('recipientId').optional().custom(isMongoIdOrUUID).withMessage('Invalid recipient ID format'),
+  body('userId').optional().custom(isMongoIdOrUUID).withMessage('Invalid user ID format')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

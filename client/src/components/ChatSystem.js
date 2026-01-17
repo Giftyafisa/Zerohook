@@ -411,11 +411,14 @@ const ChatSystem = ({
 
   // Bootstrap target recipient or conversation from props / navigation state
   useEffect(() => {
+    console.log('💬 Bootstrap effect:', { user: !!user, loading, hasBootstrapped: hasBootstrappedRef.current, targetRecipientId, initialConversationId });
+    
     if (!user || loading || hasBootstrappedRef.current) return;
 
     const tryBootstrap = async () => {
       try {
         if (targetRecipientId) {
+          console.log('💬 Bootstrapping with targetRecipientId:', targetRecipientId);
           hasBootstrappedRef.current = true;
           await startConversationWithRecipient(targetRecipientId);
         } else if (initialConversationId) {
@@ -507,9 +510,16 @@ const ChatSystem = ({
   };
 
   const startConversationWithRecipient = async (recipientId) => {
-    if (!recipientId || startingConversation) return null;
-    const existing = conversations.find(c => c.participantId === recipientId);
+    console.log('💬 startConversationWithRecipient called with:', recipientId, typeof recipientId);
+    
+    if (!recipientId || startingConversation) {
+      console.log('💬 Skipping - no recipientId or already starting:', { recipientId, startingConversation });
+      return null;
+    }
+    
+    const existing = conversations.find(c => c.participantId === recipientId || String(c.participantId) === String(recipientId));
     if (existing) {
+      console.log('💬 Found existing conversation:', existing.id);
       selectConversation(existing);
       return existing;
     }
@@ -517,26 +527,40 @@ const ChatSystem = ({
     try {
       setStartingConversation(true);
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/chat/start`, {
+      
+      // Ensure recipientId is sent correctly
+      const payload = { otherUserId: recipientId };
+      const apiUrl = `${API_BASE_URL}/chat/start`;
+      console.log('💬 Sending chat/start with payload:', payload);
+      console.log('💬 API URL:', apiUrl, '| API_BASE_URL:', API_BASE_URL);
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ otherUserId: recipientId })
+        body: JSON.stringify(payload)
       });
 
-      if (!response.ok) throw new Error('Failed to start conversation');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('💬 Chat start failed:', response.status, errorData);
+        throw new Error(errorData.message || 'Failed to start conversation');
+      }
+      
       const data = await response.json();
+      console.log('💬 Chat start success:', data);
+      
       const convList = await loadConversations({ silent: true });
-      const created = convList?.find(c => c.participantId === recipientId || c.id === data.conversationId);
+      const created = convList?.find(c => c.participantId === recipientId || String(c.participantId) === String(recipientId) || c.id === data.conversationId);
       if (created) {
         selectConversation(created);
       }
       return created || null;
     } catch (error) {
       console.error('Failed to start conversation:', error);
-      toast.error('Unable to start conversation right now.');
+      toast.error(error.message || 'Unable to start conversation right now.');
       return null;
     } finally {
       setStartingConversation(false);

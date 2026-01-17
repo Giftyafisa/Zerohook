@@ -58,6 +58,10 @@ const CONTENT_CATEGORIES = [
 const ContentCreator = ({ open, onClose, onSuccess }) => {
   const { user, isAuthenticated } = useAuth();
   const fileInputRef = useRef(null);
+  
+  // Debug logging - ALWAYS executes when component is rendered
+  console.log('📝 ContentCreator component mounted/rendered');
+  console.log('📝 ContentCreator props:', { open, hasOnClose: !!onClose, hasOnSuccess: !!onSuccess });
   const videoRef = useRef(null);
   
   // State
@@ -194,6 +198,9 @@ const ContentCreator = ({ open, onClose, onSuccess }) => {
       onClose={handleClose}
       TransitionComponent={SlideTransition}
       fullScreen
+      sx={{
+        zIndex: 9999, // Ensure it's above everything including MobileShell
+      }}
       PaperProps={{
         sx: {
           bgcolor: '#0f0f13',

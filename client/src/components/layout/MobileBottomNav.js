@@ -53,12 +53,12 @@ const NavItem = styled(Box, {
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  // Compact sizing like TikTok
-  minWidth: '48px',
-  minHeight: '44px',
-  width: '60px',
-  padding: '4px 0',
-  gap: '2px', // Tight gap between icon and label
+  // Ultra-compact sizing like TikTok - icons tight with labels
+  minWidth: '44px',
+  minHeight: '40px',
+  width: '56px',
+  padding: '2px 0',
+  gap: '1px', // Minimal gap between icon and label
   borderRadius: `${tokens.borderRadius.md}px`,
   cursor: 'pointer',
   transition: tokens.transition.fast,
@@ -83,19 +83,20 @@ const NavItem = styled(Box, {
   
   '& .nav-icon': {
     color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
-    fontSize: '22px', // Slightly smaller icon
+    fontSize: '20px', // Compact icon size
     transition: tokens.transition.fast,
     lineHeight: 1,
   },
   
   '& .nav-label': {
     color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
-    fontSize: '10px', // Smaller text
+    fontSize: '9px', // Ultra-compact text
     fontWeight: active ? tokens.fontWeight.semibold : tokens.fontWeight.medium,
     marginTop: '0', // No margin, use gap instead
     fontFamily: '"Outfit", sans-serif',
     transition: tokens.transition.fast,
     lineHeight: 1,
+    letterSpacing: '0.2px',
   },
   
   // Touch feedback

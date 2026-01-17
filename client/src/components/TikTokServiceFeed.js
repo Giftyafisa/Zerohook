@@ -857,32 +857,44 @@ const TikTokServiceFeed = () => {
     );
   }
 
-  // Empty state
+  // Empty state - but still render ContentCreator so modal can open
   if (services.length === 0) {
     return (
-      <Box
-        sx={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: '#000',
-          color: '#fff',
-          gap: 2,
-          p: 3,
-        }}
-      >
-        <Typography variant="h6">No content yet</Typography>
-        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
-          Be the first to share something!
-        </Typography>
-        <Chip
-          label="Create Post"
-          onClick={handleCreate}
-          sx={{ bgcolor: '#00f2ea', color: '#000', fontWeight: 700, mt: 2 }}
+      <>
+        <Box
+          sx={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: '#000',
+            color: '#fff',
+            gap: 2,
+            p: 3,
+          }}
+        >
+          <Typography variant="h6">No content yet</Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
+            Be the first to share something!
+          </Typography>
+          <Chip
+            label="Create Post"
+            onClick={handleCreate}
+            sx={{ bgcolor: '#00f2ea', color: '#000', fontWeight: 700, mt: 2 }}
+          />
+        </Box>
+        
+        {/* Content Creator Modal - Must be outside Box to render when empty */}
+        <ContentCreator
+          open={showContentCreator}
+          onClose={() => {
+            console.log('📸 ContentCreator onClose called');
+            setShowContentCreator(false);
+          }}
+          onSuccess={handleContentCreated}
         />
-      </Box>
+      </>
     );
   }
 
@@ -1064,10 +1076,14 @@ const TikTokServiceFeed = () => {
         <Add sx={{ fontSize: 32 }} />
       </Fab>
 
-      {/* Content Creator Modal */}
+      {/* Content Creator Modal - Always rendered, visibility controlled by 'open' prop */}
+      {console.log('📸 Rendering ContentCreator, showContentCreator:', showContentCreator)}
       <ContentCreator
         open={showContentCreator}
-        onClose={() => setShowContentCreator(false)}
+        onClose={() => {
+          console.log('📸 ContentCreator onClose called');
+          setShowContentCreator(false);
+        }}
         onSuccess={handleContentCreated}
       />
     </Box>

@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction } from '../store/slices/authSlice';
+import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction, logout as logoutAction } from '../store/slices/authSlice';
 import { detectUserCountry, getSupportedCountries } from '../store/slices/countrySlice';
 
 const AuthContext = createContext({});
@@ -59,11 +59,20 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Logout function - clears auth state and localStorage
+  const logout = useCallback(() => {
+    console.log('🚪 Logging out user...');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    dispatch(logoutAction());
+  }, [dispatch]);
+
   return (
     <AuthContext.Provider value={{ 
       isAuthenticated, 
       user, 
-      updateUser 
+      updateUser,
+      logout
     }}>
       {children}
     </AuthContext.Provider>

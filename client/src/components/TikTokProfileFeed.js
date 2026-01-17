@@ -763,18 +763,19 @@ const TikTokProfileFeed = () => {
     }
   }, []);
 
-  // Handle message
+  // Handle message - Navigate to chat with this user
   const handleMessage = useCallback((profile) => {
     if (!isAuthenticated) {
       navigate('/login', { state: { from: '/profiles' } });
       return;
     }
     const avatar = resolveProfileImage(profile.profileData);
-    navigate('/messages', {
+    navigate('/chat', {
       state: {
         recipientId: profile.id,
         recipientName: profile.profileData?.firstName || profile.username,
         recipientAvatar: avatar,
+        from: '/profiles'
       }
     });
   }, [isAuthenticated, navigate]);

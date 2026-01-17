@@ -1139,21 +1139,23 @@ const ChatSystem = ({
                 </Box>
               </Box>
               <Box sx={styles.chatHeaderActions}>
+                {/* Video Call - WhatsApp shows this on mobile */}
                 <IconButton 
-                  sx={{ ...styles.headerActionBtn, display: { xs: 'none', sm: 'inline-flex' } }}
-                  onClick={handleVoiceCall}
-                  title="Voice Call"
-                  aria-label="Start voice call"
-                >
-                  <PhoneIcon />
-                </IconButton>
-                <IconButton 
-                  sx={{ ...styles.headerActionBtn, display: { xs: 'none', sm: 'inline-flex' } }}
+                  sx={styles.headerActionBtn}
                   onClick={handleVideoCall}
                   title="Video Call"
                   aria-label="Start video call"
                 >
                   <VideoIcon />
+                </IconButton>
+                {/* Voice Call - WhatsApp shows this on mobile */}
+                <IconButton 
+                  sx={styles.headerActionBtn}
+                  onClick={handleVoiceCall}
+                  title="Voice Call"
+                  aria-label="Start voice call"
+                >
+                  <PhoneIcon />
                 </IconButton>
                 <IconButton 
                   sx={styles.headerActionBtn}
@@ -1172,30 +1174,20 @@ const ChatSystem = ({
                 onClose={handleMenuClose}
                 PaperProps={{
                   sx: {
-                    bgcolor: '#1a1a2e',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    bgcolor: '#1f2c34', // WhatsApp dark
+                    border: 'none',
+                    borderRadius: '8px',
                     '& .MuiMenuItem-root': {
                       color: '#fff',
                       gap: 1.5,
-                      minHeight: 48,
-                      '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' }
+                      minHeight: 44,
+                      fontSize: '15px',
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' }
                     }
                   }
                 }}
               >
-                {/* Mobile-only: Voice and Video Call options */}
-                <MenuItem 
-                  onClick={() => { handleMenuClose(); handleVoiceCall(); }}
-                  sx={{ display: { xs: 'flex', sm: 'none' } }}
-                >
-                  <PhoneIcon fontSize="small" sx={{ color: '#00f2ea' }} /> Voice Call
-                </MenuItem>
-                <MenuItem 
-                  onClick={() => { handleMenuClose(); handleVideoCall(); }}
-                  sx={{ display: { xs: 'flex', sm: 'none' } }}
-                >
-                  <VideoIcon fontSize="small" sx={{ color: '#00f2ea' }} /> Video Call
-                </MenuItem>
+                {/* Call options removed from menu - now in header */}
                 <MenuItem onClick={handleViewProfile}>
                   <PersonIcon fontSize="small" /> View Profile
                 </MenuItem>
@@ -1430,6 +1422,7 @@ const ChatSystem = ({
                 </IconButton>
                 <TextField
                   fullWidth
+                  variant="outlined"
                   placeholder="Type a message..."
                   value={newMessage}
                   onChange={handleTyping}
@@ -1444,6 +1437,11 @@ const ChatSystem = ({
                   maxRows={4}
                   inputProps={{
                     'aria-label': 'Type a message'
+                  }}
+                  InputProps={{
+                    sx: {
+                      '& fieldset': { border: 'none !important' }
+                    }
                   }}
                 />
                 <IconButton
@@ -2055,42 +2053,52 @@ const ChatSystem = ({
 };
 
 const styles = {
+  // ===== TELEGRAM/WHATSAPP-STYLE MAIN CONTAINER =====
   container: {
     display: 'flex',
     flex: 1,
     height: '100%',
     minHeight: 0,
-    background: 'var(--bg-primary, #0f0f13)',
-    overflow: 'hidden'
+    background: '#000', // Pure black like Telegram dark mode
+    overflow: 'hidden',
+    // Use dvh for mobile browsers with dynamic address bars
+    '@supports (height: 100dvh)': {
+      maxHeight: '100dvh',
+    },
   },
+  // ===== CONVERSATION LIST (INBOX) - WHATSAPP STYLE =====
   conversationsList: {
     width: { xs: '100%', md: '30vw' },
-    minWidth: { md: 260 },
-    maxWidth: { md: 340 },
-    borderLeft: '1px solid rgba(255,255,255,0.08)',
+    minWidth: { md: 280 },
+    maxWidth: { md: 360 },
+    borderLeft: { md: '1px solid rgba(255,255,255,0.06)' },
     display: 'flex',
     flexDirection: 'column',
-    background: 'var(--bg-secondary, #1a1a22)',
-    order: 2,
-    minHeight: 0
+    background: '#0b141a', // WhatsApp dark bg
+    order: { xs: 1, md: 2 },
+    minHeight: 0,
+    paddingTop: 'env(safe-area-inset-top, 0px)',
   },
+  // ===== HEADER - WHATSAPP STYLE =====
   listHeader: {
-    padding: { xs: '10px 12px', sm: '16px 16px' },
+    padding: '10px 16px',
+    paddingTop: 'calc(10px + env(safe-area-inset-top, 0px))',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    background: '#0f0f13',
-    // No border - cleaner TikTok look
+    background: '#1f2c34', // WhatsApp dark header
+    minHeight: '56px',
   },
   listTitle: {
-    fontSize: '18px',
-    fontWeight: 600,
+    fontSize: '20px',
+    fontWeight: 700,
     color: '#fff',
     textAlign: 'center',
     flex: 1,
+    letterSpacing: '-0.3px',
   },
   connectionStatus: {
-    display: 'none', // Hidden - TikTok doesn't show this
+    display: 'none',
   },
   statusDot: {
     width: 8,
@@ -2102,21 +2110,35 @@ const styles = {
     color: 'rgba(255,255,255,0.5)'
   },
   searchContainer: {
-    padding: { xs: '8px 10px', sm: '12px 16px' }
+    padding: '8px 12px',
+    background: '#0b141a',
   },
   searchInput: {
     '& .MuiOutlinedInput-root': {
-      background: 'rgba(255,255,255,0.05)',
-      borderRadius: '14px',
+      background: '#1f2c34',
+      borderRadius: '8px',
+      height: '36px',
       '& fieldset': { border: 'none' },
-      '& input': { color: '#fff', padding: '12px 14px' }
+      '& input': { 
+        color: '#fff', 
+        padding: '8px 12px',
+        fontSize: '14px',
+        '&::placeholder': { color: 'rgba(255,255,255,0.4)' }
+      }
     }
   },
+  // ===== SCROLLABLE CONVERSATION LIST =====
   conversationsScroll: {
     flex: 1,
     overflow: 'auto',
-    padding: '8px 10px',
-    minHeight: 0
+    overflowX: 'hidden',
+    padding: '0',
+    minHeight: 0,
+    background: '#0b141a',
+    WebkitOverflowScrolling: 'touch',
+    '&::-webkit-scrollbar': { display: 'none' },
+    scrollbarWidth: 'none',
+    paddingBottom: { xs: '72px', md: '8px' }, // Space for bottom nav on mobile
   },
   loadingContainer: {
     display: 'flex',
@@ -2125,73 +2147,83 @@ const styles = {
   },
   emptyState: {
     textAlign: 'center',
-    padding: '40px 20px',
+    padding: '48px 24px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: 12
+    gap: 12,
+    background: '#0b141a',
   },
   emptyText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontWeight: 700
+    color: '#aebac1', // WhatsApp muted
+    fontWeight: 600,
+    fontSize: '16px',
   },
   emptySubtext: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: '14px',
-    maxWidth: 320
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '13px',
+    maxWidth: 280,
+    lineHeight: 1.5,
   },
+  // ===== CONVERSATION ITEM - WHATSAPP STYLE =====
   conversationItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
-    padding: { xs: '10px 12px', sm: '16px 14px' },
-    borderRadius: '12px',
+    gap: '14px',
+    padding: '10px 16px',
     cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    marginBottom: '4px',
-    minHeight: { xs: '64px', sm: '84px' },
+    transition: 'background 0.1s ease',
+    minHeight: '72px',
     userSelect: 'none',
     WebkitTapHighlightColor: 'transparent',
+    background: 'transparent',
+    borderBottom: 'none',
     '&:hover': {
       background: 'rgba(255,255,255,0.05)'
     },
     '&:active': {
-      transform: 'scale(0.98)',
-      background: 'rgba(0, 242, 234, 0.15)'
+      background: 'rgba(0, 168, 132, 0.15)'
     },
-    '&:focus-visible': {
-      outline: '2px solid #00f2ea',
-      outlineOffset: '2px'
-    }
   },
+  // ===== AVATAR =====
   avatar: {
-    width: { xs: 44, sm: 56 },
-    height: { xs: 44, sm: 56 }
+    width: 50,
+    height: 50,
+    flexShrink: 0,
+    fontSize: '20px',
+    fontWeight: 500,
+    bgcolor: '#2a3942', // WhatsApp avatar bg
+    color: 'rgba(255,255,255,0.6)',
   },
   onlineBadge: {
-    width: 14,
-    height: 14,
-    background: '#00ff88',
-    border: '2px solid var(--bg-secondary, #1a1a22)',
+    width: 12,
+    height: 12,
+    background: '#00a884', // WhatsApp green
+    border: '2px solid #0b141a',
     borderRadius: '50%'
   },
   conversationInfo: {
     flex: 1,
-    minWidth: 0
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
   },
   conversationHeader: {
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: '8px',
-    marginBottom: '4px'
   },
   conversationName: {
     fontWeight: 600,
-    fontSize: '15px',
+    fontSize: '16px',
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
-    gap: '4px'
+    gap: '6px',
+    flex: 1,
+    minWidth: 0,
   },
   verifiedIcon: {
     display: 'inline-flex',
@@ -2200,21 +2232,25 @@ const styles = {
     width: 16,
     height: 16,
     borderRadius: '50%',
-    background: '#00f2ea',
-    color: '#000',
+    background: '#00a884', // WhatsApp green
+    color: '#fff',
     fontSize: '10px',
-    fontWeight: 700
+    fontWeight: 700,
+    flexShrink: 0,
   },
   conversationTime: {
-    fontSize: '12px',
-    color: 'rgba(255,255,255,0.90)',
-    marginLeft: 'auto',
-    textAlign: 'right',
-    fontWeight: 500
+    fontSize: '13px',
+    color: 'rgba(255,255,255,0.5)',
+    flexShrink: 0,
+    fontWeight: 400,
   },
   conversationPreview: {
     fontSize: '14px',
-    color: 'rgba(255,255,255,0.85)'
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 1.35,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   typingIndicator: {
     display: 'flex',
@@ -2226,43 +2262,47 @@ const styles = {
     width: 6,
     height: 6,
     borderRadius: '50%',
-    background: 'rgba(255,255,255,0.7)',
+    background: '#00a884', // WhatsApp green
     animation: `${typingBlink} 1s ease-in-out infinite`,
     '&:nth-of-type(2)': { animationDelay: '0.15s' },
     '&:nth-of-type(3)': { animationDelay: '0.3s' }
   },
   unreadBadge: {
-    minWidth: 22,
-    height: 22,
-    padding: '0 7px',
-    background: 'linear-gradient(135deg, #ff1744, #d50000)',
-    borderRadius: 11,
-    fontSize: '12px',
-    fontWeight: 700,
+    minWidth: 20,
+    height: 20,
+    padding: '0 6px',
+    background: '#00a884', // WhatsApp green
+    borderRadius: 10,
+    fontSize: '11px',
+    fontWeight: 600,
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 2px 6px rgba(255,23,68,0.4)'
   },
   escrowIndicator: {
-    color: '#00ff88',
-    marginLeft: '8px'
+    color: '#00a884', // WhatsApp green
+    marginLeft: '8px',
+    fontSize: '16px',
   },
+  // ===== CHAT AREA - WHATSAPP STYLE =====
   chatArea: {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    background: 'var(--bg-primary, #0f0f13)',
-    minHeight: 0
+    background: '#0b141a', // WhatsApp dark chat bg
+    minHeight: 0,
+    order: { xs: 2, md: 1 },
   },
+  // ===== CHAT HEADER - WHATSAPP STYLE =====
   chatHeader: {
     display: 'flex',
     alignItems: 'center',
-    padding: '14px 14px',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
-    background: 'rgba(15, 15, 19, 0.9)',
-    backdropFilter: 'blur(20px)'
+    padding: '8px 8px',
+    paddingTop: { xs: 'calc(8px + env(safe-area-inset-top, 0px))', md: '8px' },
+    minHeight: '56px',
+    background: '#1f2c34', // WhatsApp dark header color
+    borderBottom: 'none',
   },
   backBtn: {
     color: '#fff',
@@ -2285,82 +2325,104 @@ const styles = {
   },
   chatUserStatus: {
     fontSize: '12px',
-    color: '#00ff88',
+    color: 'rgba(255,255,255,0.6)', // Muted color like WhatsApp
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    maxWidth: { xs: '120px', sm: '150px' }
+    maxWidth: '180px',
   },
   chatHeaderActions: {
     display: 'flex',
     gap: '4px'
   },
   headerActionBtn: {
-    color: '#fff',
-    minWidth: '44px',
-    minHeight: '44px',
+    color: 'rgba(255,255,255,0.9)',
+    width: '40px',
+    height: '40px',
+    minWidth: '40px',
+    minHeight: '40px',
     '&:hover': {
       background: 'rgba(255,255,255,0.1)'
     },
-    '&:focus-visible': {
-      outline: '2px solid #00f2ea',
-      outlineOffset: '2px'
-    }
+    '& .MuiSvgIcon-root': {
+      fontSize: '22px',
+    },
   },
+  // ===== ESCROW BAR - PROMINENT STYLE =====
   escrowBar: {
     display: 'flex',
-    alignItems: { xs: 'flex-start', sm: 'center' },
-    flexDirection: { xs: 'column', sm: 'row' },
-    gap: { xs: '10px', sm: '8px' },
-    padding: { xs: '12px 16px', sm: '10px 16px' },
-    background: 'rgba(0, 255, 136, 0.1)',
-    borderBottom: '1px solid rgba(0, 255, 136, 0.15)',
-    color: '#00ff88',
-    fontSize: '13px'
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '12px',
+    padding: '12px 16px',
+    background: 'linear-gradient(90deg, rgba(0, 168, 132, 0.15) 0%, rgba(0, 168, 132, 0.08) 100%)',
+    borderBottom: '1px solid rgba(0, 168, 132, 0.25)',
+    color: '#00a884', // WhatsApp green
+    fontSize: '14px',
+    fontWeight: 500,
   },
   escrowAmount: {
-    fontWeight: 700
+    fontWeight: 700,
+    fontSize: '15px',
   },
   escrowBtn: {
-    padding: '4px 10px',
-    background: 'rgba(0, 255, 136, 0.2)',
-    borderRadius: '12px',
-    fontSize: '12px',
-    fontWeight: 500,
-    cursor: 'pointer'
+    padding: '6px 14px',
+    background: 'rgba(0, 168, 132, 0.2)',
+    borderRadius: '16px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    border: '1px solid rgba(0, 168, 132, 0.3)',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      background: 'rgba(0, 168, 132, 0.3)',
+    }
   },
+  // ===== MESSAGES CONTAINER - WHATSAPP STYLE =====
   messagesContainer: {
     flex: 1,
     overflow: 'auto',
-    padding: { xs: '8px 10px', sm: '20px 24px' },
+    overflowX: 'hidden',
+    padding: '8px 12px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: '2px',
     minHeight: 0,
-    position: 'relative'
+    position: 'relative',
+    WebkitOverflowScrolling: 'touch',
+    // WhatsApp-style background pattern could be added via backgroundImage
+    background: '#0b141a',
+    '&::-webkit-scrollbar': { width: '6px' },
+    '&::-webkit-scrollbar-thumb': { 
+      background: 'rgba(255,255,255,0.15)', 
+      borderRadius: '3px' 
+    },
   },
+  // ===== MESSAGE BUBBLES - WHATSAPP STYLE =====
   messageRow: {
-    display: 'flex'
+    display: 'flex',
+    marginBottom: '2px',
   },
   messageBubble: {
-    maxWidth: { xs: '75%', sm: '70%', md: '65%' },
-    padding: { xs: '10px 14px', sm: '12px 16px' },
-    borderRadius: { xs: '16px', sm: '18px' },
-    wordBreak: 'break-word'
+    maxWidth: '80%',
+    padding: '8px 12px',
+    borderRadius: '18px',
+    wordBreak: 'break-word',
   },
   sentBubble: {
-    background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
-    color: '#000',
-    borderBottomRightRadius: '6px'
+    background: '#005c4b', // WhatsApp sent message green
+    color: '#fff',
+    borderBottomRightRadius: '4px',
+    marginLeft: 'auto',
   },
   receivedBubble: {
-    background: 'rgba(255,255,255,0.08)',
+    background: '#1f2c34', // WhatsApp received message dark
     color: '#fff',
-    borderBottomLeftRadius: '6px'
+    borderBottomLeftRadius: '4px',
   },
   messageText: {
-    fontSize: { xs: '16px', sm: '16px' },
-    lineHeight: 1.5
+    fontSize: '15px',
+    lineHeight: 1.45,
   },
   imageAttachment: {
     maxWidth: 280,
@@ -2379,117 +2441,131 @@ const styles = {
     marginTop: '4px'
   },
   messageTime: {
-    fontSize: '12px',
-    opacity: 0.85
+    fontSize: '11px',
+    opacity: 0.7
   },
+  // ===== INPUT AREA - WHATSAPP STYLE =====
   inputArea: {
     display: 'flex',
-    alignItems: 'flex-end',
-    gap: { xs: '4px', sm: '8px' },
-    padding: { xs: '4px 6px', sm: '10px 14px' },
-    paddingBottom: { xs: '4px', sm: '10px' },
-    borderTop: '1px solid rgba(255,255,255,0.12)',
-    background: 'rgba(20, 20, 30, 0.98)',
-    backdropFilter: 'blur(24px)',
-    boxShadow: '0 -2px 12px rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 10px',
+    paddingBottom: { xs: 'calc(8px + env(safe-area-inset-bottom, 0px))', md: '8px' },
+    background: '#0b141a', // WhatsApp dark input bg
     flexShrink: 0,
-    minHeight: { xs: 44, sm: 56 }
+    minHeight: '56px',
   },
   inputActionBtn: {
-    width: { xs: 40, sm: 48 },
-    height: { xs: 40, sm: 48 },
-    minWidth: { xs: 40, sm: 48 },
-    minHeight: { xs: 40, sm: 48 },
-    color: 'rgba(255,255,255,0.75)',
+    width: 42,
+    height: 42,
+    minWidth: 42,
+    minHeight: 42,
+    color: 'rgba(255,255,255,0.55)',
     flexShrink: 0,
+    borderRadius: '50%',
     '&:hover': {
       color: '#fff',
       background: 'rgba(255,255,255,0.08)'
     },
-    '&:focus-visible': {
-      outline: '2px solid #00f2ea',
-      outlineOffset: '2px'
-    }
+    '& .MuiSvgIcon-root': {
+      fontSize: '24px',
+    },
   },
   messageInput: {
     flex: 1,
     minWidth: 0,
     '& .MuiOutlinedInput-root': {
-      background: 'rgba(255,255,255,0.06)',
-      borderRadius: { xs: '18px', sm: '22px' },
-      '& fieldset': { border: '1px solid rgba(255,255,255,0.12)' },
-      '&:hover fieldset': { border: '1px solid rgba(255,255,255,0.20)' },
-      '&.Mui-focused fieldset': { border: '2px solid #00f2ea' },
+      background: '#1f2c34', // WhatsApp input field bg
+      borderRadius: '24px',
+      minHeight: '44px',
+      padding: '0',
+      border: 'none',
+      '& fieldset': { 
+        border: 'none !important',
+        borderWidth: '0 !important',
+      },
+      '&:hover fieldset': { 
+        border: 'none !important',
+        borderWidth: '0 !important',
+      },
+      '&.Mui-focused fieldset': { 
+        border: 'none !important',
+        borderWidth: '0 !important',
+      },
       '& input, & textarea': { 
         color: '#fff', 
-        padding: { xs: '8px 12px', sm: '10px 14px' },
-        fontSize: { xs: '15px', sm: '16px' }
-      }
-    }
+        padding: '10px 18px',
+        fontSize: '16px',
+        lineHeight: '24px',
+        border: 'none',
+      },
+      '& input::placeholder, & textarea::placeholder': {
+        color: 'rgba(255,255,255,0.4)',
+        opacity: 1,
+      },
+    },
+    // Remove any underlines from standard/filled variants
+    '& .MuiInput-underline:before': { display: 'none' },
+    '& .MuiInput-underline:after': { display: 'none' },
+    '& .MuiFilledInput-underline:before': { display: 'none' },
+    '& .MuiFilledInput-underline:after': { display: 'none' },
   },
   sendBtn: {
-    width: { xs: 40, sm: 48 },
-    height: { xs: 40, sm: 48 },
-    minWidth: { xs: 40, sm: 48 },
-    minHeight: { xs: 40, sm: 48 },
-    background: 'linear-gradient(135deg, #00f2ea, #00c9c2)',
-    color: '#000',
-    flexShrink: 0,
-    boxShadow: '0 2px 8px rgba(0,242,234,0.3)',
-    '&:hover': {
-      background: 'linear-gradient(135deg, #00d4ce, #00b0a9)',
-      boxShadow: '0 4px 12px rgba(0,242,234,0.4)'
-    },
-    '&:disabled': {
-      background: 'rgba(255,255,255,0.1)',
-      boxShadow: 'none'
-    },
-    '&:focus-visible': {
-      outline: '2px solid #00f2ea',
-      outlineOffset: '2px'
-    }
-  },
-  payNowBtn: {
-    borderRadius: '12px',
     width: 48,
     height: 48,
     minWidth: 48,
     minHeight: 48,
+    background: '#00a884', // WhatsApp green
+    color: '#fff',
     flexShrink: 0,
-    boxShadow: '0 2px 8px rgba(0,255,136,0.25)',
+    borderRadius: '50%',
+    boxShadow: 'none',
     '&:hover': {
-      background: 'linear-gradient(135deg, #00cc6a, #00aa55) !important',
-      boxShadow: '0 4px 12px rgba(0,255,136,0.35)'
+      background: '#008f6f',
     },
-    '&:focus-visible': {
-      outline: '2px solid #00ff88',
-      outlineOffset: '2px'
+    '&:disabled': {
+      background: '#1f2c34',
+      color: 'rgba(255,255,255,0.3)',
+    },
+    '& .MuiSvgIcon-root': {
+      fontSize: '22px',
+    },
+  },
+  payNowBtn: {
+    borderRadius: '10px',
+    width: 44,
+    height: 44,
+    minWidth: 44,
+    minHeight: 44,
+    flexShrink: 0,
+    background: '#00cc6a',
+    boxShadow: 'none',
+    '&:hover': {
+      background: '#00aa55 !important',
+      boxShadow: 'none'
     }
   },
   requestBtn: {
-    borderRadius: '12px',
-    width: 48,
-    height: 48,
-    minWidth: 48,
-    minHeight: 48,
+    borderRadius: '10px',
+    width: 44,
+    height: 44,
+    minWidth: 44,
+    minHeight: 44,
     flexShrink: 0,
-    boxShadow: '0 2px 8px rgba(255,170,0,0.25)',
+    background: '#ffaa00',
+    boxShadow: 'none',
     '&:hover': {
-      background: 'linear-gradient(135deg, #ffaa00, #ff8800) !important',
-      boxShadow: '0 4px 12px rgba(255,170,0,0.35)'
-    },
-    '&:focus-visible': {
-      outline: '2px solid #ffaa00',
-      outlineOffset: '2px'
+      background: '#ff9500 !important',
+      boxShadow: 'none'
     }
   },
   milestoneRequestsArea: {
-    padding: '12px 16px',
-    borderTop: '1px solid rgba(255,255,255,0.08)',
-    background: 'rgba(255, 215, 0, 0.05)',
+    padding: '10px 14px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+    background: 'rgba(255, 215, 0, 0.03)',
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px'
+    gap: '10px'
   },
   noChatSelected: {
     flex: 1,
@@ -2509,26 +2585,30 @@ const styles = {
     color: '#fff'
   },
   noChatSubtitle: {
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.45)',
     textAlign: 'center',
-    maxWidth: 300
+    maxWidth: 280,
+    lineHeight: 1.5,
   },
   primaryCta: {
     background: '#00f2ea',
     color: '#000',
-    mt: 1,
-    '&:hover': { background: '#00d4ce' }
+    fontWeight: 600,
+    borderRadius: '12px',
+    padding: '10px 24px',
+    mt: 2,
+    '&:hover': { background: '#00d4d4' }
   },
   newChatBtn: {
-    borderColor: 'rgba(0,242,234,0.35)',
+    borderColor: 'rgba(0,242,234,0.3)',
     color: '#00f2ea',
-    fontWeight: 700,
-    borderRadius: '12px',
+    fontWeight: 600,
+    borderRadius: '10px',
     textTransform: 'none',
     px: 1.5,
     minWidth: 0,
     '&:hover': {
-      borderColor: 'rgba(0,242,234,0.55)',
+      borderColor: 'rgba(0,242,234,0.5)',
       background: 'rgba(0,242,234,0.08)'
     }
   }

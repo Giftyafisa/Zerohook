@@ -607,6 +607,49 @@ io.on('connection', async (socket) => {
       }
     });
 
+    // ===== WebRTC SIGNALING EVENTS (for video/audio calls) =====
+    
+    // Handle WebRTC offer from caller
+    socket.on('webrtc_offer', async (data) => {
+      try {
+        console.log(`📡 WebRTC offer from ${socket.username} to user ${data.targetUserId}`);
+        socket.to(`user_${data.targetUserId}`).emit('webrtc_offer', {
+          offer: data.offer,
+          callerId: socket.userId,
+          callerName: socket.username,
+          callType: data.callType || 'video'
+        });
+      } catch (error) {
+        console.error('Error handling WebRTC offer:', error);
+      }
+    });
+
+    // Handle WebRTC answer from callee
+    socket.on('webrtc_answer', async (data) => {
+      try {
+        console.log(`📡 WebRTC answer from ${socket.username} to user ${data.targetUserId}`);
+        socket.to(`user_${data.targetUserId}`).emit('webrtc_answer', {
+          answer: data.answer,
+          answererId: socket.userId
+        });
+      } catch (error) {
+        console.error('Error handling WebRTC answer:', error);
+      }
+    });
+
+    // Handle ICE candidate exchange
+    socket.on('ice_candidate', async (data) => {
+      try {
+        console.log(`🧊 ICE candidate from ${socket.username} to user ${data.targetUserId}`);
+        socket.to(`user_${data.targetUserId}`).emit('ice_candidate', {
+          candidate: data.candidate,
+          senderId: socket.userId
+        });
+      } catch (error) {
+        console.error('Error handling ICE candidate:', error);
+      }
+    });
+
     // ===== CHAT SYSTEM EVENTS =====
     
     // Handle joining conversation room

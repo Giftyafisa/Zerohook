@@ -133,30 +133,22 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     // Verify user is part of this conversation
     let isMember = false;
     try {
-      if (req.conversationService && typeof req.conversationService.isMember === 'function') {
-        isMember = await req.conversationService.isMember(conversationId, userId);
-      } else {
-        // Fallback: check directly in database
-        const memberCheck = await Conversation.findOne({
-          _id: conversationId,
-          $or: [
-            { participant1Id: userId },
-            { participant2Id: userId }
-          ]
-        });
-        isMember = !!memberCheck;
+      // Normalize userId for comparison (handle both string and ObjectId)
+      const userIdStr = userId?.toString();
+      
+      // Get the conversation first
+      const conv = await Conversation.findById(conversationId);
+      if (conv) {
+        // Check if user is participant (compare as strings to handle ObjectId vs string)
+        const p1 = conv.participant1Id?.toString();
+        const p2 = conv.participant2Id?.toString();
+        isMember = (p1 === userIdStr || p2 === userIdStr);
+        console.log(`🔍 Member check: user=${userIdStr}, p1=${p1}, p2=${p2}, isMember=${isMember}`);
       }
     } catch (memberErr) {
       console.error('Member check error:', memberErr);
-      // Fallback to direct DB check
-      const memberCheck = await Conversation.findOne({
-        _id: conversationId,
-        $or: [
-          { participant1Id: userId },
-          { participant2Id: userId }
-        ]
-      });
-      isMember = !!memberCheck;
+      // Return error instead of silently failing
+      return res.status(500).json({ error: 'Failed to verify conversation access' });
     }
     
     if (!isMember) {
@@ -199,7 +191,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
  * @access  Private
  */
 router.post('/send', authMiddleware, [
-  body('conversationId').isUUID(),
+  body('conversationId').custom(isMongoIdOrUUID).withMessage('Invalid conversation ID format'),
   body('content').isLength({ min: 1, max: 2000 }),
   body('messageType').optional().isIn(['text', 'image', 'video', 'file', 'location', 'contact'])
 ], async (req, res) => {
@@ -217,19 +209,17 @@ router.post('/send', authMiddleware, [
     
     // Verify user is part of this conversation
     let isMember2 = false;
+    let recipientId = null;
     try {
-      if (req.conversationService && typeof req.conversationService.isMember === 'function') {
-        isMember2 = await req.conversationService.isMember(conversationId, senderId);
-      } else {
-        // Fallback to direct DB check
-        const memberCheck = await Conversation.findOne({
-          _id: conversationId,
-          $or: [
-            { participant1Id: senderId },
-            { participant2Id: senderId }
-          ]
-        });
-        isMember2 = !!memberCheck;
+      const senderIdStr = senderId?.toString();
+      const conv = await Conversation.findById(conversationId);
+      if (conv) {
+        const p1 = conv.participant1Id?.toString();
+        const p2 = conv.participant2Id?.toString();
+        isMember2 = (p1 === senderIdStr || p2 === senderIdStr);
+        // Also get recipient ID for later use
+        recipientId = (p1 === senderIdStr) ? p2 : p1;
+        console.log(`📤 Send member check: sender=${senderIdStr}, p1=${p1}, p2=${p2}, isMember=${isMember2}`);
       }
     } catch (memberErr) {
       console.error('Member check error:', memberErr);
@@ -487,7 +477,7 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
  * @access  Private
  */
 router.post('/video-call', authMiddleware, [
-  body('conversationId').isUUID(),
+  body('conversationId').custom(isMongoIdOrUUID).withMessage('Invalid conversation ID format'),
   body('action').isIn(['initiate', 'join', 'leave']),
   body('roomId').optional().isString()
 ], async (req, res) => {
@@ -547,7 +537,7 @@ router.post('/video-call', authMiddleware, [
  * @access  Private
  */
 router.post('/block-user', authMiddleware, [
-  body('userId').isUUID()
+  body('userId').custom(isMongoIdOrUUID).withMessage('Invalid user ID format')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

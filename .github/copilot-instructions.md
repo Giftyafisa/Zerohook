@@ -20,6 +20,44 @@ const { User } = require('../config/database');
 const user = await User.findById(userId);
 ```
 
+## 🚗 UBER/BOLT-STYLE RECOMMENDATION ALGORITHM
+
+### ProfileFeed Algorithm Implementation
+The profile marketplace uses an **Uber/Bolt-style recommendation algorithm** implemented in `/server/services/MongoRecommendationEngine.js`:
+
+**Algorithm Steps (in priority order):**
+1. **Step 1: Account Type Filter** - Clients see ONLY providers, Providers see ONLY clients
+2. **Step 2: Country First** - Show providers in user's CURRENT COUNTRY first (like Uber only shows drivers in your country)
+3. **Step 3: Distance Proximity** - Within country, prioritize by PROXIMITY (closest first, like Uber shows closest drivers)
+4. **Step 4: Quality Factors** - Apply verification, ratings, success rate, response rate
+5. **Step 5: Expand Radius** - When nearby providers are exhausted, expand to further distances
+6. **Step 6: No Location Limits for Search** - If searching a specific profile, location filters don't apply
+
+**User Type Routing:**
+- `client` → sees ONLY `provider` accounts
+- `provider` → sees ONLY `client` accounts  
+- `sugar_daddy/sugar_mommy` → sees verified `provider` accounts
+- `unauthenticated` → sees public `provider` accounts only
+
+**Weights Configuration:**
+```js
+this.weights = {
+  countryMatch: 0.30,    // Same country = TOP priority
+  distance: 0.25,        // Closest first (Uber-style)
+  quality: 0.15,         // Verification + reputation
+  freshness: 0.10,       // Online/recently active
+  engagement: 0.10,      // Response rate, success rate
+  beauty: 0.05,          // Profile completeness
+  popularity: 0.05       // Reviews, bookings
+};
+```
+
+**Key Files:**
+- `/server/services/MongoRecommendationEngine.js` - MongoDB-native implementation (USE THIS)
+- `/server/services/RecommendationEngine.js` - Legacy PostgreSQL version (DEPRECATED - uses broken query() calls)
+- `/server/routes/users.js` - Profile browse routes using MongoRecommendationEngine
+- `/server/scripts/create-accra-test-providers.js` - Create test provider data
+
 ## Architecture Patterns
 
 ### Service-Oriented Backend

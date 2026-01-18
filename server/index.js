@@ -68,6 +68,7 @@ const io = new Server(server, {
       'https://zerohook.onrender.com',
       'https://zerohook-web.onrender.com',
       'http://localhost:3000',
+      'http://localhost:3001',
       'http://localhost:19006',
       'http://localhost:8081'
     ].filter(Boolean),

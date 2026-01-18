@@ -3,10 +3,14 @@ const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('./auth');
 const { User, BlockedUser, Conversation, SugarAccessPayment, isDatabaseAvailable } = require('../config/database');
 const RecommendationEngine = require('../services/RecommendationEngine');
+const MongoRecommendationEngine = require('../services/MongoRecommendationEngine');
 const router = express.Router();
 
-// Initialize recommendation engine
+// Initialize recommendation engines
+// Legacy engine (PostgreSQL-based, for backward compat)
 const recommendationEngine = new RecommendationEngine();
+// New MongoDB-native engine with Uber/Bolt-style algorithm
+const mongoRecommendationEngine = new MongoRecommendationEngine();
 
 // Mock profiles for when database is unavailable
 const mockProfiles = [
@@ -298,35 +302,39 @@ router.put('/profile', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/users/profiles
- * @desc    Get recommended user profiles with advanced TikTok-style algorithm
+ * @desc    Get recommended user profiles with UBER/BOLT-STYLE algorithm
  * @access  Public (public profiles) / Private (all profiles for authenticated users)
  * 
- * VISIBILITY RULES:
- * - Unauthenticated users: See only 'public' profiles
- * - Authenticated users: See all profiles (public + authenticated-only)
+ * UBER/BOLT-STYLE ALGORITHM:
+ * ===========================
+ * Step 1: Filter to ONLY providers (accountType = 'provider') for clients
+ * Step 2: Show providers in user's CURRENT COUNTRY first
+ * Step 3: Within country, prioritize by PROXIMITY (closest first like Uber)
+ * Step 4: Apply quality factors (ratings, verification, activity)
+ * Step 5: When nearby providers are exhausted, expand to further ones
+ * Step 6: If searching specific profile, NO location limits
  * 
- * ALGORITHM FEATURES:
- * 1. Geolocation-based proximity ranking (closest first)
- * 2. Quality scoring (verification, reviews, success rate)
- * 3. User preference learning from browsing history
- * 4. Engagement scoring (response rate, booking completion)
- * 5. Freshness boost for new/recently active profiles
- * 6. Diversity injection to prevent filter bubbles
- * 7. Real-time online status priority
+ * USER TYPE ROUTING:
+ * - client → sees ONLY providers
+ * - provider → sees ONLY clients
+ * - sugar_daddy/mommy → sees verified providers
+ * - unauthenticated → sees public providers only
  */
 
 // Shared handler for /profiles and /browse routes - MongoDB Native Implementation
 const handleBrowseProfiles = async (req, res) => {
   try {
+    console.log('🚀 ProfileFeed API called - Using UBER/BOLT-STYLE Algorithm');
+    
     // ============================================
-    // OPTIONAL AUTHENTICATION CHECK
+    // STEP 1: AUTHENTICATION CHECK
     // ============================================
     const authHeader = req.headers.authorization;
     let currentUserId = null;
     let currentUser = null;
+    let currentUserDoc = null;
     let isAuthenticated = false;
     
-    // Try to authenticate if token provided (but don't require it)
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
         const token = authHeader.substring(7);
@@ -334,22 +342,22 @@ const handleBrowseProfiles = async (req, res) => {
         currentUserId = decoded.userId;
         isAuthenticated = true;
         
-        // Get user info - use correct snake_case field names from MongoDB
-        const currentUserDoc = await User.findById(currentUserId).select('username is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt profile_data profileData');
+        currentUserDoc = await User.findById(currentUserId).select('username is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt profile_data profileData');
         
         if (currentUserDoc) {
+          const profileData = currentUserDoc.profile_data || currentUserDoc.profileData || {};
           currentUser = {
             id: currentUserDoc._id,
             username: currentUserDoc.username,
             is_subscribed: currentUserDoc.is_subscribed || currentUserDoc.isSubscribed || false,
             subscription_tier: currentUserDoc.subscription_tier || currentUserDoc.subscriptionTier || 'free',
             subscription_expires_at: currentUserDoc.subscription_expires_at || currentUserDoc.subscriptionExpiresAt,
-            accountType: (currentUserDoc.profile_data || currentUserDoc.profileData || {}).accountType || 'client'
+            accountType: profileData.accountType || 'client',
+            location: profileData.location || null
           };
-          console.log('🔒 Authenticated user browsing profiles:', currentUser.username);
+          console.log(`🔒 Authenticated: ${currentUser.username} (${currentUser.accountType})`);
         }
       } catch (tokenError) {
-        // Token invalid, treat as unauthenticated (don't fail)
         console.log('⚠️ Invalid token, showing public profiles only');
         isAuthenticated = false;
         currentUserId = null;
@@ -358,6 +366,9 @@ const handleBrowseProfiles = async (req, res) => {
       console.log('👁️ Unauthenticated user browsing public profiles');
     }
 
+    // ============================================
+    // STEP 2: PARSE REQUEST PARAMETERS
+    // ============================================
     const {
       page = 1,
       limit = 20,
@@ -366,190 +377,153 @@ const handleBrowseProfiles = async (req, res) => {
       minAge,
       maxAge,
       verificationTier,
-      filter, // Frontend filter type (all, nearby, online, verified, trending)
-      search, // Search query
-      sort = 'recommendation'
+      filter,
+      search,
+      sort = 'recommendation',
+      lat,
+      lng
     } = req.query;
 
     const pageNum = parseInt(page);
-    const limitNum = Math.min(parseInt(limit), 50); // Max 50 per page
-    const skip = (pageNum - 1) * limitNum;
-
-    // Build MongoDB query - Show ALL users (browse/discovery page)
-    // We'll return all users and let the frontend display gracefully even for incomplete profiles
-    const mongoQuery = {};
-
-    // Exclude current user from results
-    if (currentUserId) {
-      const mongoose = require('mongoose');
-      mongoQuery._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
-    }
-
-    // If not authenticated, only show public profiles
-    if (!isAuthenticated) {
-      mongoQuery.$or = [
-        { profileVisibility: 'public' },
-        { profileVisibility: { $exists: false } },
-        { profile_visibility: 'public' },
-        { profile_visibility: { $exists: false } }
-      ];
-    }
-
-    // Build $and array for combined filters
-    const andConditions = [];
+    const limitNum = Math.min(parseInt(limit), 50);
+    const offset = (pageNum - 1) * limitNum;
 
     // ============================================
-    // CRITICAL: Filter by account type (provider vs client)
-    // Clients see only providers, Providers see only clients
-    // Sugar accounts have special visibility rules
+    // STEP 3: DETECT USER LOCATION (UBER/BOLT-STYLE)
+    // ============================================
+    let userLocation = null;
+    
+    // Priority 1: Client-provided coordinates (GPS)
+    const providedLat = lat ? parseFloat(lat) : null;
+    const providedLng = lng ? parseFloat(lng) : null;
+    
+    if (providedLat != null && providedLng != null && !isNaN(providedLat) && !isNaN(providedLng)) {
+      userLocation = {
+        lat: providedLat,
+        lng: providedLng,
+        source: 'gps'
+      };
+      console.log(`📍 Location from GPS: ${providedLat}, ${providedLng}`);
+    }
+    
+    // Priority 2: Use LocationTrackingService if available
+    if (!userLocation && req.locationTrackingService) {
+      try {
+        const userProfileData = currentUserDoc ? (currentUserDoc.profile_data || currentUserDoc.profileData || {}) : null;
+        const rawIp = req.headers['x-forwarded-for'] || req.ip || '';
+        const ipAddress = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : req.ip;
+        
+        userLocation = await req.locationTrackingService.getUserLocation({
+          userId: currentUserId,
+          providedCoords: null,
+          userProfile: userProfileData,
+          ipAddress,
+          sessionId: req.headers['x-session-id']
+        });
+        
+        if (userLocation) {
+          console.log(`📍 Location from service: ${userLocation.city || 'Unknown'}, ${userLocation.country || 'Unknown'} (${userLocation.source || 'unknown'})`);
+        }
+      } catch (locError) {
+        console.log('⚠️ Location detection failed:', locError.message);
+      }
+    }
+    
+    // Priority 3: Use user's profile location
+    if (!userLocation && currentUser?.location) {
+      userLocation = {
+        city: currentUser.location.city,
+        country: currentUser.location.country,
+        lat: currentUser.location.coordinates?.lat,
+        lng: currentUser.location.coordinates?.lng,
+        source: 'profile'
+      };
+      console.log(`📍 Location from profile: ${userLocation.city || 'Unknown'}, ${userLocation.country || 'Unknown'}`);
+    }
+    
+    // Priority 4: Use country filter if provided
+    if (!userLocation && country && country !== 'all') {
+      userLocation = { country, source: 'filter' };
+      console.log(`📍 Location from filter: ${country}`);
+    }
+
+    // ============================================
+    // STEP 4: DETERMINE ACCOUNT TYPE FILTER
     // ============================================
     const viewerAccountType = currentUser?.accountType || 'client';
-    console.log(`👤 Viewer account type: ${viewerAccountType}`);
+    let accountTypeFilter = 'provider'; // Default: show providers
     
-    if (viewerAccountType === 'client' || !isAuthenticated) {
-      // Clients (and unauthenticated users) see only providers
-      andConditions.push({
-        $or: [
-          { 'profile_data.accountType': 'provider' },
-          { 'profileData.accountType': 'provider' }
-        ]
-      });
-      console.log('🔍 Filtering to show only PROVIDERS');
-    } else if (viewerAccountType === 'provider') {
-      // Providers see only clients (excluding sugar profiles unless premium)
-      andConditions.push({
-        $or: [
-          { 'profile_data.accountType': 'client' },
-          { 'profileData.accountType': 'client' }
-        ]
-      });
-      console.log('🔍 Filtering to show only CLIENTS');
+    if (viewerAccountType === 'provider') {
+      accountTypeFilter = 'client'; // Providers see clients
+      console.log('🔍 Provider viewing: showing CLIENTS');
     } else if (viewerAccountType === 'sugar_daddy' || viewerAccountType === 'sugar_mommy') {
-      // Sugar accounts see verified young providers of preferred gender
-      const preferredGender = viewerAccountType === 'sugar_daddy' ? 'female' : 'male';
-      andConditions.push({
-        $and: [
-          { $or: [
-            { 'profile_data.accountType': 'provider' },
-            { 'profileData.accountType': 'provider' }
-          ]},
-          { $or: [
-            { verification_tier: { $gte: 2 } },
-            { verificationTier: { $gte: 2 } }
-          ]}
-        ]
-      });
-      console.log(`🔍 Sugar account filtering to show verified PROVIDERS (preferred gender: ${preferredGender})`);
+      accountTypeFilter = 'provider'; // Sugar accounts see providers
+      console.log(`🔍 Sugar ${viewerAccountType} viewing: showing verified PROVIDERS`);
+    } else {
+      console.log('🔍 Client/Anonymous viewing: showing PROVIDERS');
     }
 
-    // Apply filters - support both snake_case and camelCase field names
-    if (country && country !== 'all') {
-      andConditions.push({
-        $or: [
-          { 'profile_data.location.country': new RegExp(country, 'i') },
-          { 'profileData.location.country': new RegExp(country, 'i') }
-        ]
-      });
-    }
+    // ============================================
+    // STEP 5: BUILD FILTERS FOR RECOMMENDATION ENGINE
+    // ============================================
+    const filters = {
+      country: country && country !== 'all' ? country : null,
+      city: city || null,
+      minAge: minAge ? parseInt(minAge) : null,
+      maxAge: maxAge ? parseInt(maxAge) : null,
+      filterMode: filter, // 'all', 'nearby', 'online', 'verified', 'trending'
+      searchQuery: search || null
+    };
 
-    if (city) {
-      andConditions.push({
-        $or: [
-          { 'profile_data.location.city': new RegExp(city, 'i') },
-          { 'profileData.location.city': new RegExp(city, 'i') }
-        ]
+    // ============================================
+    // STEP 6: USE MONGO RECOMMENDATION ENGINE (UBER/BOLT-STYLE)
+    // ============================================
+    let result;
+    
+    if (sort === 'recommendation' || sort === 'forYou' || !sort) {
+      // Use the Uber/Bolt-style algorithm
+      console.log('🎯 Using UBER/BOLT-STYLE recommendation algorithm');
+      
+      result = await mongoRecommendationEngine.getAccountTypeAwareRecommendations({
+        userId: currentUserId,
+        viewerAccountType,
+        userLocation,
+        limit: 200, // Fetch more for proper sorting
+        offset: 0,
+        filters,
+        accountTypeFilter
       });
-    }
-
-    if (verificationTier) {
-      andConditions.push({
-        $or: [
-          { verification_tier: { $gte: parseInt(verificationTier) } },
-          { verificationTier: { $gte: parseInt(verificationTier) } }
-        ]
-      });
-    }
-
-    // Filter mode handling
-    if (filter === 'online') {
-      andConditions.push({
-        $or: [
-          { is_online: true },
-          { isOnline: true }
-        ]
-      });
-    } else if (filter === 'verified') {
-      andConditions.push({
-        $or: [
-          { verification_tier: { $gte: 2 } },
-          { verificationTier: { $gte: 2 } }
-        ]
+      
+      // Apply pagination after sorting
+      const allProfiles = result.profiles || [];
+      result.profiles = allProfiles.slice(offset, offset + limitNum);
+      result.total = allProfiles.length;
+      
+    } else {
+      // Use simple MongoDB sort for non-recommendation sorts
+      result = await getSimpleSortedProfiles({
+        currentUserId,
+        isAuthenticated,
+        accountTypeFilter,
+        filters,
+        sort,
+        limitNum,
+        offset
       });
     }
 
-    // Search by name/username
-    if (search) {
-      andConditions.push({
-        $or: [
-          { username: new RegExp(search, 'i') },
-          { 'profile_data.firstName': new RegExp(search, 'i') },
-          { 'profile_data.lastName': new RegExp(search, 'i') },
-          { 'profileData.firstName': new RegExp(search, 'i') },
-          { 'profileData.lastName': new RegExp(search, 'i') }
-        ]
-      });
-    }
-
-    // Apply $and conditions if any
-    if (andConditions.length > 0) {
-      mongoQuery.$and = andConditions;
-    }
-
-    // Build sort options - support both naming conventions
-    let sortOptions = {};
-    switch (sort) {
-      case 'newest':
-        sortOptions = { created_at: -1, createdAt: -1 };
-        break;
-      case 'rating':
-        sortOptions = { reputation_score: -1, reputationScore: -1, verification_tier: -1, verificationTier: -1 };
-        break;
-      case 'online':
-        sortOptions = { is_online: -1, isOnline: -1, last_active: -1, lastActive: -1 };
-        break;
-      case 'recommendation':
-      default:
-        // Recommendation sort: online first, then verified, then by activity
-        sortOptions = { is_online: -1, isOnline: -1, verification_tier: -1, verificationTier: -1, last_active: -1, lastActive: -1 };
-        break;
-    }
-
-    // Execute query - select both naming conventions
-    const [profiles, total] = await Promise.all([
-      User.find(mongoQuery)
-        .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive is_online isOnline trust_score trustScore')
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(limitNum)
-        .lean(),
-      User.countDocuments(mongoQuery)
-    ]);
-
-    // Transform profiles for frontend - normalize field names
-    const enhancedProfiles = profiles.map(profile => {
-      // Get profile data from either naming convention
+    // ============================================
+    // STEP 7: FORMAT RESPONSE
+    // ============================================
+    const enhancedProfiles = (result.profiles || []).map(profile => {
       const profileData = profile.profile_data || profile.profileData || {};
       const verificationTier = profile.verification_tier || profile.verificationTier || 0;
       const reputationScore = profile.reputation_score || profile.reputationScore || 0;
       const isSubscribed = profile.is_subscribed || profile.isSubscribed || false;
       const subscriptionTier = profile.subscription_tier || profile.subscriptionTier || 'free';
-      const createdAt = profile.created_at || profile.createdAt;
-      const lastActive = profile.last_active || profile.lastActive;
-      const isOnline = profile.is_online || profile.isOnline || false;
-      const trustScore = profile.trust_score || profile.trustScore || reputationScore || 75;
 
       return {
-        id: profile._id,
+        id: profile._id || profile.id,
         username: profile.username,
         email: profile.email,
         profile_data: profileData,
@@ -558,24 +532,35 @@ const handleBrowseProfiles = async (req, res) => {
         verificationTier: verificationTier,
         reputation_score: reputationScore,
         reputationScore: reputationScore,
-        trustScore: trustScore,
+        trustScore: profile.trustScore || reputationScore || 75,
         is_subscribed: isSubscribed,
         isSubscribed: isSubscribed,
         subscription_tier: subscriptionTier,
         subscriptionTier: subscriptionTier,
-        created_at: createdAt,
-        createdAt: createdAt,
-        last_active: lastActive,
-        lastActive: lastActive,
-        isOnline: isOnline,
-        is_online: isOnline,
-        // Subscription status indicators
+        created_at: profile.created_at || profile.createdAt,
+        createdAt: profile.created_at || profile.createdAt,
+        last_active: profile.last_active || profile.lastActive,
+        lastActive: profile.last_active || profile.lastActive,
+        isOnline: profile.isOnline || profile.is_online || false,
+        is_online: profile.isOnline || profile.is_online || false,
         subscriptionStatus: isSubscribed ? 'subscribed' : 'free',
-        isPremium: isSubscribed && (subscriptionTier === 'premium' || subscriptionTier === 'elite')
+        isPremium: isSubscribed && (subscriptionTier === 'premium' || subscriptionTier === 'elite'),
+        // Uber/Bolt-style distance info
+        distance: profile.distance,
+        distanceEstimated: profile.distanceEstimated,
+        sameCountry: profile.sameCountry,
+        recommendationScore: profile.recommendationScore,
+        lastSeen: profile.lastSeen,
+        successRate: profile.successRate
       };
     });
 
-    console.log(`📊 Found ${enhancedProfiles.length} profiles (page ${pageNum}/${Math.ceil(total / limitNum)})`);
+    const totalPages = Math.ceil((result.total || 0) / limitNum);
+    
+    console.log(`📊 Returning ${enhancedProfiles.length} profiles (page ${pageNum}/${totalPages})`);
+    if (enhancedProfiles.length > 0 && enhancedProfiles[0].distance !== undefined) {
+      console.log(`   Top result: ${enhancedProfiles[0].username} - ${enhancedProfiles[0].distance?.toFixed(1) || '?'}km - Score: ${enhancedProfiles[0].recommendationScore || 'N/A'}`);
+    }
 
     res.json({
       success: true,
@@ -583,17 +568,22 @@ const handleBrowseProfiles = async (req, res) => {
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
+        total: result.total || enhancedProfiles.length,
+        pages: totalPages || 1
       },
       metadata: {
         authenticated: isAuthenticated,
         filterMode: filter || 'all',
-        sortMode: sort
+        sortMode: sort,
+        algorithm: 'uber_bolt_style_v1',
+        userLocationDetected: !!userLocation,
+        userCountry: userLocation?.country || null,
+        ...(result.metadata || {})
       }
     });
+    
   } catch (error) {
-    console.error('Get profiles error:', error);
+    console.error('❌ Get profiles error:', error);
     
     // Return mock data on database error
     if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
@@ -612,6 +602,87 @@ const handleBrowseProfiles = async (req, res) => {
   }
 };
 
+/**
+ * Helper function for simple sorted queries (non-recommendation)
+ */
+async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, accountTypeFilter, filters, sort, limitNum, offset }) {
+  const mongoose = require('mongoose');
+  
+  // Build MongoDB query
+  const mongoQuery = {
+    $or: [
+      { 'profile_data.accountType': accountTypeFilter },
+      { 'profileData.accountType': accountTypeFilter }
+    ]
+  };
+  
+  if (currentUserId) {
+    mongoQuery._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+  }
+  
+  if (!isAuthenticated) {
+    mongoQuery.$and = mongoQuery.$and || [];
+    mongoQuery.$and.push({
+      $or: [
+        { profileVisibility: 'public' },
+        { profileVisibility: { $exists: false } },
+        { profile_visibility: 'public' },
+        { profile_visibility: { $exists: false } }
+      ]
+    });
+  }
+  
+  // Apply filters
+  if (filters.country) {
+    mongoQuery.$and = mongoQuery.$and || [];
+    mongoQuery.$and.push({
+      $or: [
+        { 'profile_data.location.country': new RegExp(filters.country, 'i') },
+        { 'profileData.location.country': new RegExp(filters.country, 'i') }
+      ]
+    });
+  }
+  
+  if (filters.searchQuery) {
+    mongoQuery.$and = mongoQuery.$and || [];
+    mongoQuery.$and.push({
+      $or: [
+        { username: new RegExp(filters.searchQuery, 'i') },
+        { 'profile_data.firstName': new RegExp(filters.searchQuery, 'i') },
+        { 'profileData.firstName': new RegExp(filters.searchQuery, 'i') }
+      ]
+    });
+  }
+  
+  // Build sort
+  let sortOptions = {};
+  switch (sort) {
+    case 'newest':
+      sortOptions = { created_at: -1, createdAt: -1 };
+      break;
+    case 'rating':
+      sortOptions = { reputation_score: -1, reputationScore: -1 };
+      break;
+    case 'online':
+      sortOptions = { last_active: -1, lastActive: -1 };
+      break;
+    default:
+      sortOptions = { last_active: -1, lastActive: -1 };
+  }
+  
+  const [profiles, total] = await Promise.all([
+    User.find(mongoQuery)
+      .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
+      .sort(sortOptions)
+      .skip(offset)
+      .limit(limitNum)
+      .lean(),
+    User.countDocuments(mongoQuery)
+  ]);
+  
+  return { profiles, total };
+}
+
 // Register both routes with the same handler
 router.get('/profiles', handleBrowseProfiles);
 router.get('/browse', handleBrowseProfiles);
@@ -626,6 +697,8 @@ router.post('/track-activity', authMiddleware, async (req, res) => {
     const { actionType, actionData } = req.body;
     const userId = req.user.userId;
 
+    // Track with both engines
+    await mongoRecommendationEngine.trackActivity(userId, actionType, actionData);
     await recommendationEngine.trackActivity(userId, actionType, actionData);
 
     res.json({ success: true });

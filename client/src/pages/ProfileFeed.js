@@ -553,7 +553,8 @@ const ProfileCard = ({
   const priceSymbol = profile.displayPrice?.symbol || profile.displayPrice?.currency || '$';
   const isPriceConverted = Boolean(profile.displayPrice && profile.displayPrice.currency && profile.displayPrice.currency !== 'USD');
   const isOnline = profile.isOnline; // From backend
-  const lastActive = profile.lastActive; // From backend
+  const lastActive = profile.lastActive; // ISO date from backend
+  const lastSeenLabel = profile.lastSeenLabel; // Pre-formatted "2 days ago" etc.
   const verificationTier = profile.verificationTier || 1;
   const distance = profile.distance; // From backend recommendation engine
   const successRate = profile.successRate; // From backend
@@ -566,14 +567,24 @@ const ProfileCard = ({
 
   // Helper function to format last active time
   const formatLastActive = (lastActiveDate) => {
+    // If we have a pre-formatted label, use it (but not "Online now" since we show online indicator separately)
+    if (lastSeenLabel && lastSeenLabel !== 'Online now') {
+      return lastSeenLabel;
+    }
+    
     if (!lastActiveDate) return null;
     const date = new Date(lastActiveDate);
+    
+    // Check for invalid date
+    if (isNaN(date.getTime())) return null;
+    
     const now = new Date();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     
+    if (diffMins < 0) return null; // Future date, invalid
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
@@ -1496,13 +1507,13 @@ const ProfileFeed = () => {
           if (user.profile_visibility === 'hidden') return false;
           if (user.profile_data?.profileVisibility === 'hidden') return false;
           
-          // CRITICAL: ProfileFeed should only show providers (sex workers)
-          // Backend should filter this, but double-check as safety net
-          // This prevents clients, sugar_daddy, sugar_mommy from appearing in feed
-          if (!isProvider(user)) {
-            console.warn(`Filtering out non-provider from feed: ${user.username} (${user.profile_data?.accountType || 'unknown'})`);
-            return false;
-          }
+          // UBER/BOLT STYLE: Backend already applies account-type-aware filtering
+          // - Clients/Anonymous see PROVIDERS (sex workers)
+          // - Providers see CLIENTS (sex seekers)
+          // - Sugar accounts see verified PROVIDERS
+          // The backend's MongoRecommendationEngine handles this logic.
+          // We trust the backend's filtering - no need to double-check here.
+          // This allows providers to see clients in their feed.
           
           return true;
         })
@@ -1517,8 +1528,10 @@ const ProfileFeed = () => {
             verificationTier: parseInt(user.verification_tier) || 1,
             trustScore: parseFloat(user.reputation_score) || 75,
             isPremium: user.is_subscribed,
-            isOnline: user.isOnline || false, // From recommendation engine
-            lastActive: user.lastSeen || user.last_active || user.created_at,
+            isOnline: user.isOnline || user.is_online || false, // From recommendation engine
+            // Use last_active date for formatting, lastSeen is pre-formatted string for display
+            lastActive: user.last_active || user.lastActive || user.created_at,
+            lastSeenLabel: user.lastSeen, // Pre-formatted: "Online now", "2 days ago", etc.
             createdAt: user.created_at,
             // Recommendation engine data - ensure numbers
             distance: user.distance != null ? parseFloat(user.distance) : null,

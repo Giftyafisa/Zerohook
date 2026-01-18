@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction, logout as logoutAction } from '../store/slices/authSlice';
-import { detectUserCountry, getSupportedCountries } from '../store/slices/countrySlice';
+import { detectUserCountry, getSupportedCountries, fetchExchangeRates } from '../store/slices/countrySlice';
 
 const AuthContext = createContext({});
 
@@ -25,6 +25,21 @@ export const AuthProvider = ({ children }) => {
     };
     
     initializeAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
+  // Fetch exchange rates on app load (for all users, even unauthenticated)
+  useEffect(() => {
+    const initializeExchangeRates = async () => {
+      try {
+        console.log('💱 Initializing exchange rates...');
+        await dispatch(fetchExchangeRates()).unwrap();
+        console.log('✅ Exchange rates loaded');
+      } catch (error) {
+        console.log('⚠️ Exchange rates fetch failed, using defaults');
+      }
+    };
+    initializeExchangeRates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 

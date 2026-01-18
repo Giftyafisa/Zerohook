@@ -3,18 +3,21 @@
  * Centralized currency formatting that uses Redux country detection
  */
 
-// Default exchange rates and symbols matching countrySlice
+// Default exchange rates and symbols matching countrySlice (Updated January 2026)
 const DEFAULT_EXCHANGE_RATES = {
-  NG: { currency: 'NGN', rate: 1550, symbol: '₦' },
-  GH: { currency: 'GHS', rate: 14.5, symbol: '₵' },
-  KE: { currency: 'KES', rate: 153, symbol: 'KSh ' },
-  ZA: { currency: 'ZAR', rate: 18.5, symbol: 'R' },
+  NG: { currency: 'NGN', rate: 1580, symbol: '₦' },
+  GH: { currency: 'GHS', rate: 15.2, symbol: '₵' },
+  KE: { currency: 'KES', rate: 154, symbol: 'KSh' },
+  ZA: { currency: 'ZAR', rate: 18.8, symbol: 'R' },
   EG: { currency: 'EGP', rate: 48, symbol: 'E£' },
-  TZ: { currency: 'TZS', rate: 2550, symbol: 'TSh ' },
-  UG: { currency: 'UGX', rate: 3750, symbol: 'USh ' },
-  RW: { currency: 'RWF', rate: 1280, symbol: 'RF ' },
-  ET: { currency: 'ETB', rate: 56, symbol: 'Br ' },
-  MA: { currency: 'MAD', rate: 10, symbol: 'DH ' },
+  TZ: { currency: 'TZS', rate: 2580, symbol: 'TSh' },
+  UG: { currency: 'UGX', rate: 3780, symbol: 'USh' },
+  RW: { currency: 'RWF', rate: 1320, symbol: 'FRw' },
+  BW: { currency: 'BWP', rate: 13.8, symbol: 'P' },
+  ZM: { currency: 'ZMW', rate: 27.5, symbol: 'ZK' },
+  MW: { currency: 'MWK', rate: 1750, symbol: 'MK' },
+  ET: { currency: 'ETB', rate: 56, symbol: 'Br' },
+  MA: { currency: 'MAD', rate: 10, symbol: 'DH' },
   US: { currency: 'USD', rate: 1, symbol: '$' },
   GB: { currency: 'GBP', rate: 0.79, symbol: '£' },
   EU: { currency: 'EUR', rate: 0.92, symbol: '€' },

@@ -175,14 +175,35 @@ const messageSchema = new mongoose.Schema({
 
 const fileUploadSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  username: { type: String }, // For content posts - cache username for feed display
   service_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
   file_name: { type: String, required: true },
   file_path: { type: String, required: true },
   file_size: { type: Number, required: true },
   mime_type: { type: String, required: true },
   upload_type: { type: String, required: true },
-  status: { type: String, default: 'active' }
+  status: { type: String, default: 'active' },
+  // NEW: Cloudinary/storage tracking fields
+  storage_type: { type: String, enum: ['local', 'cloudinary'], default: 'local' },
+  cloudinary_public_id: { type: String },
+  // NEW: Content post metadata (for TikTok-style posts)
+  metadata: {
+    caption: { type: String },
+    category: { type: String, default: 'showcase' },
+    price: { type: Number, default: 0 },
+    location: { type: String },
+    contentType: { type: String, enum: ['image', 'video'], default: 'image' },
+    views: { type: Number, default: 0 },
+    likes: { type: Number, default: 0 },
+    shares: { type: Number, default: 0 },
+    likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+// Indexes for efficient content feed queries
+fileUploadSchema.index({ upload_type: 1, status: 1, created_at: -1 });
+fileUploadSchema.index({ 'metadata.category': 1 });
+fileUploadSchema.index({ user_id: 1, upload_type: 1 });
 
 const escrowTransactionSchema = new mongoose.Schema({
   transaction_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', required: true },

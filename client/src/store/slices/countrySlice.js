@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import countryAPI from '../../services/countryAPI';
+import { getExchangeRatesForStore } from '../../services/exchangeRateAPI';
 
 // Async thunks
 export const detectUserCountry = createAsyncThunk(
@@ -38,24 +39,44 @@ export const getSupportedCountries = createAsyncThunk(
   }
 );
 
-// Initial state
+// NEW: Fetch live exchange rates
+export const fetchExchangeRates = createAsyncThunk(
+  'country/fetchExchangeRates',
+  async (_, { rejectWithValue }) => {
+    try {
+      console.log('💱 Fetching live exchange rates...');
+      const rates = await getExchangeRatesForStore();
+      return rates;
+    } catch (error) {
+      console.error('Failed to fetch exchange rates:', error);
+      return rejectWithValue({ error: 'Failed to fetch exchange rates' });
+    }
+  }
+);
+
+// Initial state with updated realistic exchange rates (January 2026)
 const initialState = {
   userCountry: null,
   detectedCountry: null,
   supportedCountries: [],
   loading: false,
+  ratesLoading: false,
+  ratesLastUpdated: null,
   error: null,
   exchangeRates: {
-    'NG': { rate: 1500, currency: 'NGN', symbol: '₦' },
-    'GH': { rate: 25, currency: 'GHS', symbol: '₵' },
-    'KE': { rate: 3200, currency: 'KES', symbol: 'KSh' },
-    'ZA': { rate: 380, currency: 'ZAR', symbol: 'R' },
-    'UG': { rate: 75000, currency: 'UGX', symbol: 'USh' },
-    'TZ': { rate: 50000, currency: 'TZS', symbol: 'TSh' },
-    'RW': { rate: 25000, currency: 'RWF', symbol: 'FRw' },
-    'BW': { rate: 270, currency: 'BWP', symbol: 'P' },
-    'ZM': { rate: 500, currency: 'ZMW', symbol: 'ZK' },
-    'MW': { rate: 35000, currency: 'MWK', symbol: 'MK' }
+    'NG': { rate: 1580, currency: 'NGN', symbol: '₦' },
+    'GH': { rate: 15.2, currency: 'GHS', symbol: '₵' },
+    'KE': { rate: 154, currency: 'KES', symbol: 'KSh' },
+    'ZA': { rate: 18.8, currency: 'ZAR', symbol: 'R' },
+    'UG': { rate: 3780, currency: 'UGX', symbol: 'USh' },
+    'TZ': { rate: 2580, currency: 'TZS', symbol: 'TSh' },
+    'RW': { rate: 1320, currency: 'RWF', symbol: 'FRw' },
+    'BW': { rate: 13.8, currency: 'BWP', symbol: 'P' },
+    'ZM': { rate: 27.5, currency: 'ZMW', symbol: 'ZK' },
+    'MW': { rate: 1750, currency: 'MWK', symbol: 'MK' },
+    'US': { rate: 1, currency: 'USD', symbol: '$' },
+    'GB': { rate: 0.79, currency: 'GBP', symbol: '£' },
+    'EU': { rate: 0.92, currency: 'EUR', symbol: '€' }
   }
 };
 
@@ -129,6 +150,21 @@ const countrySlice = createSlice({
       .addCase(getSupportedCountries.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload?.error || 'Failed to get supported countries';
+      })
+      
+      // Fetch exchange rates cases
+      .addCase(fetchExchangeRates.pending, (state) => {
+        state.ratesLoading = true;
+      })
+      .addCase(fetchExchangeRates.fulfilled, (state, action) => {
+        state.ratesLoading = false;
+        state.exchangeRates = { ...state.exchangeRates, ...action.payload };
+        state.ratesLastUpdated = new Date().toISOString();
+        console.log('💱 Exchange rates updated in Redux');
+      })
+      .addCase(fetchExchangeRates.rejected, (state, action) => {
+        state.ratesLoading = false;
+        console.warn('⚠️ Exchange rates fetch failed, using cached rates');
       });
   }
 });
@@ -149,6 +185,8 @@ export const selectSupportedCountries = (state) => state.country.supportedCountr
 export const selectCountryLoading = (state) => state.country.loading;
 export const selectCountryError = (state) => state.country.error;
 export const selectExchangeRates = (state) => state.country.exchangeRates;
+export const selectRatesLoading = (state) => state.country.ratesLoading;
+export const selectRatesLastUpdated = (state) => state.country.ratesLastUpdated;
 
 // Helper selector to get localized price
 export const selectLocalizedPrice = (state) => {

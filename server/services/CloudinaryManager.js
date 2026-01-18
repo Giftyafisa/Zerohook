@@ -110,6 +110,42 @@ class CloudinaryManager {
   }
 
   /**
+   * Get multer storage for content/post uploads (TikTok-style posts)
+   * Stores in a separate folder from profile images
+   */
+  getContentStorage() {
+    if (!this.isConfigured) {
+      return multer.diskStorage({
+        destination: (req, file, cb) => {
+          const uploadDir = 'uploads/content/';
+          const fs = require('fs');
+          if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+          }
+          cb(null, uploadDir);
+        },
+        filename: (req, file, cb) => {
+          const uniqueName = `content-${req.user?.userId || 'unknown'}-${Date.now()}${this.getExtension(file.originalname)}`;
+          cb(null, uniqueName);
+        }
+      });
+    }
+
+    return new CloudinaryStorage({
+      cloudinary: this.cloudinary,
+      params: {
+        folder: 'zerohook/content', // Separate folder for content posts
+        allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'avi', 'webm'],
+        resource_type: 'auto', // Allow both images and videos
+        transformation: [
+          { width: 1080, height: 1920, crop: 'limit', quality: 'auto:good' } // 9:16 aspect ratio for mobile
+        ],
+        public_id: (req, file) => `content-${req.user?.userId || 'unknown'}-${Date.now()}-${Math.random().toString(36).substring(7)}`
+      }
+    });
+  }
+
+  /**
    * Get multer storage for verification documents
    */
   getVerificationStorage() {
@@ -198,6 +234,60 @@ class CloudinaryManager {
       sources.map(source => this.uploadImage(source, options))
     );
     return results;
+  }
+
+  /**
+   * Upload a video to Cloudinary
+   * @param {string|Buffer} source - Video path, URL, or buffer
+   * @param {Object} options - Upload options
+   */
+  async uploadVideo(source, options = {}) {
+    if (!this.isConfigured) {
+      return { success: false, error: 'Cloudinary not configured' };
+    }
+
+    try {
+      const uploadOptions = {
+        folder: options.folder || 'zerohook/content',
+        resource_type: 'video',
+        ...options
+      };
+
+      let result;
+      
+      // Handle different source types
+      if (Buffer.isBuffer(source)) {
+        // Upload from buffer using stream
+        result = await new Promise((resolve, reject) => {
+          const stream = this.cloudinary.uploader.upload_stream(
+            uploadOptions,
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          stream.end(source);
+        });
+      } else {
+        // Upload from file path or URL
+        result = await this.cloudinary.uploader.upload(source, uploadOptions);
+      }
+
+      return {
+        success: true,
+        url: result.secure_url,
+        publicId: result.public_id,
+        width: result.width,
+        height: result.height,
+        format: result.format,
+        bytes: result.bytes,
+        duration: result.duration,
+        resourceType: 'video'
+      };
+    } catch (error) {
+      console.error('Cloudinary video upload error:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   /**

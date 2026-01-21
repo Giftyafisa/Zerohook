@@ -44,6 +44,7 @@ import {
   Person,
   AccessTime,
   MyLocation,
+  NearMe,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -62,10 +63,12 @@ import useProfileEngagement from '../hooks/useProfileEngagement';
 // TIKTOK-STYLE TOP NAVIGATION
 // ============================================
 const TopNavigation = ({ activeTab, onTabChange, onSearchOpen }) => {
+  // Updated tabs based on user feedback - more relevant filters that work with recommendation engine
   const tabs = [
     { id: 'foryou', label: 'For You' },
-    { id: 'following', label: 'Following' },
-    { id: 'nearby', label: 'Nearby' },
+    { id: 'online', label: 'Online' },
+    { id: 'verified', label: 'Verified' },
+    { id: 'toprated', label: 'Top Rated' },
   ];
 
   return (
@@ -149,27 +152,198 @@ const TopNavigation = ({ activeTab, onTabChange, onSearchOpen }) => {
 };
 
 // ============================================
-// TIKTOK-STYLE SEARCH OVERLAY
+// TIKTOK-STYLE SEARCH OVERLAY (Redesigned)
+// - Autocomplete suggestions as you type
+// - Full search results view with tabs
+// - Grid and list view options like TikTok
 // ============================================
 const SearchOverlay = ({ open, onClose }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [recentSearches] = useState([
-    'night club girl',
-    'nana_hemaaa24',
-    'sophiaanane',
-    'lagos hookup',
-  ]);
-  const [suggestions] = useState([
-    { text: 'massage therapist', trending: true },
-    { text: 'escort services', trending: true },
-    { text: 'sugar mommy', trending: false },
-    { text: 'accra girls', trending: false },
-  ]);
+  const [recentSearches, setRecentSearches] = useState([]);
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState([]);
+  const [searchResults, setSearchResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [activeTab, setActiveTab] = useState('users');
+  const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
   const navigate = useNavigate();
+  const searchTimeoutRef = useRef(null);
+  const { convertFromUSD } = useCurrency();
 
-  const handleSearch = (query) => {
-    if (query.trim()) {
-      navigate(`/profiles?search=${encodeURIComponent(query)}`);
+  // Trending suggestions (like TikTok's suggestions)
+  const trendingSuggestions = [
+    'massage services',
+    'escort in accra',
+    'sugar mommy',
+    'hookup lagos',
+    'companion services',
+    'nightlife kumasi',
+  ];
+
+  // Search result tabs like TikTok
+  const searchTabs = [
+    { id: 'users', label: 'Users' },
+    { id: 'verified', label: 'Verified' },
+    { id: 'online', label: 'Online' },
+    { id: 'nearby', label: 'Nearby' },
+  ];
+
+  // Load recent searches on mount
+  useEffect(() => {
+    if (open) {
+      const saved = localStorage.getItem('zerohook_recent_searches');
+      if (saved) {
+        try {
+          setRecentSearches(JSON.parse(saved).slice(0, 6));
+        } catch (e) {
+          setRecentSearches([]);
+        }
+      }
+      // Reset state when opening
+      setHasSearched(false);
+      setSearchResults([]);
+      setSearchQuery('');
+    }
+  }, [open]);
+
+  // Generate autocomplete suggestions as user types
+  useEffect(() => {
+    if (searchQuery.trim().length >= 1 && !hasSearched) {
+      // Generate suggestions based on query
+      const query = searchQuery.toLowerCase();
+      const suggestions = [];
+      
+      // Add matching recent searches first
+      recentSearches.forEach(s => {
+        if (s.toLowerCase().includes(query) && suggestions.length < 3) {
+          suggestions.push({ text: s, type: 'recent' });
+        }
+      });
+      
+      // Add trending suggestions that match
+      trendingSuggestions.forEach(s => {
+        if (s.toLowerCase().includes(query) && suggestions.length < 6) {
+          suggestions.push({ text: s, type: 'trending' });
+        }
+      });
+      
+      // Add the raw query as a suggestion
+      if (!suggestions.find(s => s.text.toLowerCase() === query)) {
+        suggestions.unshift({ text: searchQuery, type: 'query' });
+      }
+      
+      // Add variations
+      if (suggestions.length < 8) {
+        const variations = [
+          `${searchQuery} in ghana`,
+          `${searchQuery} services`,
+          `${searchQuery} near me`,
+        ];
+        variations.forEach(v => {
+          if (suggestions.length < 8 && !suggestions.find(s => s.text === v)) {
+            suggestions.push({ text: v, type: 'suggestion' });
+          }
+        });
+      }
+      
+      setAutocompleteSuggestions(suggestions.slice(0, 8));
+    } else if (!searchQuery.trim()) {
+      setAutocompleteSuggestions([]);
+    }
+  }, [searchQuery, recentSearches, hasSearched]);
+
+  // Execute search and show results
+  const executeSearch = async (query, tab = 'users') => {
+    if (!query.trim()) return;
+    
+    setLoading(true);
+    setHasSearched(true);
+    
+    // Save to recent searches
+    const updated = [query, ...recentSearches.filter(s => s !== query)].slice(0, 8);
+    setRecentSearches(updated);
+    localStorage.setItem('zerohook_recent_searches', JSON.stringify(updated));
+    
+    try {
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      
+      const params = new URLSearchParams({
+        search: query,
+        limit: '20',
+      });
+      
+      // Add filter based on tab
+      if (tab === 'verified') params.set('filter', 'verified');
+      if (tab === 'online') params.set('filter', 'online');
+      if (tab === 'nearby') params.set('filter', 'nearby');
+
+      const response = await fetch(
+        `${API_BASE_URL}/users/browse?${params}`,
+        { headers }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        const profiles = (data.data || data.users || []).map(profile => {
+          const profileData = profile.profile_data || profile.profileData || {};
+          const basePrice = profileData.basePrice != null ? parseFloat(profileData.basePrice) : null;
+          const converted = basePrice != null ? convertFromUSD(basePrice) : null;
+          return {
+            ...profile,
+            profileData,
+            displayPrice: converted,
+          };
+        });
+        setSearchResults(profiles);
+      }
+    } catch (e) {
+      console.log('Search failed:', e);
+      setSearchResults([]);
+    }
+    setLoading(false);
+  };
+
+  // Handle suggestion click
+  const handleSuggestionClick = (suggestion) => {
+    setSearchQuery(suggestion);
+    executeSearch(suggestion, activeTab);
+  };
+
+  // Handle tab change
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (hasSearched && searchQuery.trim()) {
+      executeSearch(searchQuery, tab);
+    }
+  };
+
+  // Navigate to profile
+  const goToProfile = (profile) => {
+    navigate(`/profile/${profile.id || profile._id}`);
+    onClose();
+  };
+
+  // Remove from history
+  const removeFromHistory = (searchText, e) => {
+    e.stopPropagation();
+    const updated = recentSearches.filter(s => s !== searchText);
+    setRecentSearches(updated);
+    localStorage.setItem('zerohook_recent_searches', JSON.stringify(updated));
+  };
+
+  // Clear all history
+  const clearHistory = () => {
+    setRecentSearches([]);
+    localStorage.removeItem('zerohook_recent_searches');
+  };
+
+  // Go back to suggestions from results
+  const goBack = () => {
+    if (hasSearched) {
+      setHasSearched(false);
+      setSearchResults([]);
+    } else {
       onClose();
     }
   };
@@ -187,6 +361,8 @@ const SearchOverlay = ({ open, onClose }) => {
         inset: 0,
         zIndex: 1000,
         backgroundColor: '#0a0a0f',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
       {/* Search Header */}
@@ -197,11 +373,12 @@ const SearchOverlay = ({ open, onClose }) => {
           pb: 1,
           display: 'flex',
           alignItems: 'center',
-          gap: 2,
+          gap: 1.5,
           borderBottom: '1px solid rgba(255,255,255,0.1)',
+          flexShrink: 0,
         }}
       >
-        <IconButton onClick={onClose} sx={{ color: '#fff', p: 0.5 }}>
+        <IconButton onClick={goBack} sx={{ color: '#fff', p: 0.5 }}>
           <ArrowBack />
         </IconButton>
         
@@ -210,16 +387,24 @@ const SearchOverlay = ({ open, onClose }) => {
           fullWidth
           placeholder="Search profiles..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSearch(searchQuery)}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            if (hasSearched) setHasSearched(false);
+          }}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter' && searchQuery.trim()) {
+              executeSearch(searchQuery, activeTab);
+            }
+          }}
           sx={{
             '& .MuiOutlinedInput-root': {
               bgcolor: 'rgba(255,255,255,0.1)',
-              borderRadius: '20px',
+              borderRadius: '8px',
               '& fieldset': { border: 'none' },
               '& input': { 
                 color: '#fff', 
                 py: 1,
+                fontSize: '0.95rem',
                 '&::placeholder': { color: 'rgba(255,255,255,0.5)' }
               },
             },
@@ -227,94 +412,332 @@ const SearchOverlay = ({ open, onClose }) => {
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <Search sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                <Search sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 20 }} />
+              </InputAdornment>
+            ),
+            endAdornment: searchQuery && (
+              <InputAdornment position="end">
+                <IconButton size="small" onClick={() => { setSearchQuery(''); setHasSearched(false); }}>
+                  <Close sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 18 }} />
+                </IconButton>
               </InputAdornment>
             ),
           }}
         />
         
         <Typography
-          onClick={() => handleSearch(searchQuery)}
+          onClick={() => searchQuery.trim() && executeSearch(searchQuery, activeTab)}
           sx={{
-            color: '#fe2c55',
+            color: searchQuery.trim() ? '#fe2c55' : 'rgba(255,255,255,0.3)',
             fontWeight: 600,
-            cursor: 'pointer',
+            cursor: searchQuery.trim() ? 'pointer' : 'default',
             whiteSpace: 'nowrap',
+            fontSize: '0.95rem',
           }}
         >
           Search
         </Typography>
       </Box>
 
-      {/* Search Content */}
-      <Box sx={{ overflow: 'auto', height: 'calc(100% - 60px)' }}>
-        {/* Recent Searches */}
-        {recentSearches.length > 0 && (
+      {/* Results Tabs - Only show when we have results */}
+      {hasSearched && (
+        <Box
+          sx={{
+            display: 'flex',
+            gap: 0,
+            borderBottom: '1px solid rgba(255,255,255,0.05)',
+            flexShrink: 0,
+          }}
+        >
+          {searchTabs.map(tab => (
+            <Box
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              sx={{
+                flex: 1,
+                py: 1.5,
+                textAlign: 'center',
+                color: activeTab === tab.id ? '#fff' : 'rgba(255,255,255,0.5)',
+                fontWeight: activeTab === tab.id ? 600 : 400,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                borderBottom: activeTab === tab.id ? '2px solid #fff' : '2px solid transparent',
+                transition: 'all 0.2s',
+              }}
+            >
+              {tab.label}
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Content Area */}
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
+        {/* Loading State */}
+        {loading && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={28} sx={{ color: '#00f2ea' }} />
+          </Box>
+        )}
+
+        {/* Search Results - TikTok User List Style */}
+        {hasSearched && !loading && (
+          <Box>
+            {searchResults.length > 0 ? (
+              <List sx={{ py: 0 }}>
+                {searchResults.map((profile) => {
+                  const profileData = profile.profileData || profile.profile_data || {};
+                  const displayName = profileData.firstName || profile.username;
+                  const profileImage = resolveProfileImage(profileData);
+                  const bio = profileData.bio || '';
+                  const location = profileData.location?.city || '';
+                  const isVerified = (profile.verification_tier || profile.verificationTier || 0) >= 2;
+                  const isOnline = profile.isOnline || profile.is_online;
+                  
+                  return (
+                    <ListItem
+                      key={profile.id || profile._id}
+                      onClick={() => goToProfile(profile)}
+                      sx={{
+                        cursor: 'pointer',
+                        px: 2,
+                        py: 1.5,
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
+                        borderBottom: '1px solid rgba(255,255,255,0.03)',
+                      }}
+                    >
+                      {/* Profile Image */}
+                      <Box sx={{ position: 'relative', mr: 1.5 }}>
+                        <Avatar
+                          src={profileImage}
+                          sx={{ width: 52, height: 52 }}
+                        >
+                          {displayName?.charAt(0)?.toUpperCase()}
+                        </Avatar>
+                        {isOnline && (
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              bottom: 2,
+                              right: 2,
+                              width: 12,
+                              height: 12,
+                              borderRadius: '50%',
+                              bgcolor: '#4ade80',
+                              border: '2px solid #0a0a0f',
+                            }}
+                          />
+                        )}
+                      </Box>
+                      
+                      {/* Profile Info */}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography 
+                            sx={{ 
+                              color: '#fff', 
+                              fontWeight: 600, 
+                              fontSize: '0.95rem',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {displayName}
+                          </Typography>
+                          {isVerified && (
+                            <Verified sx={{ color: '#20d5ec', fontSize: 16 }} />
+                          )}
+                        </Box>
+                        <Typography 
+                          sx={{ 
+                            color: 'rgba(255,255,255,0.5)', 
+                            fontSize: '0.8rem',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          @{profile.username}{location ? ` • ${location}` : ''}
+                        </Typography>
+                        {bio && (
+                          <Typography 
+                            sx={{ 
+                              color: 'rgba(255,255,255,0.6)', 
+                              fontSize: '0.8rem',
+                              mt: 0.25,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {bio}
+                          </Typography>
+                        )}
+                      </Box>
+                      
+                      {/* Follow/View Button */}
+                      <Box
+                        sx={{
+                          bgcolor: '#fe2c55',
+                          color: '#fff',
+                          px: 2,
+                          py: 0.75,
+                          borderRadius: '4px',
+                          fontWeight: 600,
+                          fontSize: '0.85rem',
+                          ml: 1,
+                        }}
+                      >
+                        View
+                      </Box>
+                    </ListItem>
+                  );
+                })}
+              </List>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 6 }}>
+                <Person sx={{ fontSize: 64, color: 'rgba(255,255,255,0.2)', mb: 2 }} />
+                <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '1rem' }}>
+                  No users found for "{searchQuery}"
+                </Typography>
+                <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', mt: 0.5 }}>
+                  Try a different search term
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {/* Autocomplete Suggestions - Show while typing (before search) */}
+        {!hasSearched && searchQuery.trim() && autocompleteSuggestions.length > 0 && (
           <List sx={{ py: 0 }}>
-            {recentSearches.map((search, index) => (
+            {autocompleteSuggestions.map((suggestion, index) => (
               <ListItem
                 key={index}
-                onClick={() => handleSearch(search)}
+                onClick={() => handleSuggestionClick(suggestion.text)}
                 sx={{
                   cursor: 'pointer',
+                  px: 2,
+                  py: 1.25,
                   '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
                 }}
               >
-                <ListItemIcon sx={{ minWidth: 40 }}>
-                  <History sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  {suggestion.type === 'recent' ? (
+                    <History sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 20 }} />
+                  ) : suggestion.type === 'trending' ? (
+                    <TrendingUp sx={{ color: '#fe2c55', fontSize: 20 }} />
+                  ) : (
+                    <Search sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 20 }} />
+                  )}
                 </ListItemIcon>
                 <ListItemText
-                  primary={search}
-                  sx={{ '& .MuiTypography-root': { color: '#fff' } }}
+                  primary={suggestion.text}
+                  sx={{ 
+                    '& .MuiTypography-root': { 
+                      color: '#fff',
+                      fontSize: '0.95rem',
+                    } 
+                  }}
                 />
-                <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.3)' }}>
-                  <Close sx={{ fontSize: 18 }} />
-                </IconButton>
+                <NearMe 
+                  sx={{ 
+                    fontSize: 18, 
+                    color: 'rgba(255,255,255,0.3)', 
+                    transform: 'rotate(-45deg)' 
+                  }} 
+                />
               </ListItem>
             ))}
           </List>
         )}
 
-        <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', my: 1 }} />
+        {/* Initial State - Recent & Trending (when no search query) */}
+        {!hasSearched && !searchQuery.trim() && (
+          <>
+            {/* Recent Searches */}
+            {recentSearches.length > 0 && (
+              <>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.5 }}>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500, fontSize: '0.9rem' }}>
+                    Recent
+                  </Typography>
+                  <Typography
+                    onClick={clearHistory}
+                    sx={{ color: '#fe2c55', fontSize: '0.8rem', cursor: 'pointer' }}
+                  >
+                    Clear all
+                  </Typography>
+                </Box>
+                <List sx={{ py: 0 }}>
+                  {recentSearches.map((search, index) => (
+                    <ListItem
+                      key={index}
+                      onClick={() => handleSuggestionClick(search)}
+                      sx={{
+                        cursor: 'pointer',
+                        px: 2,
+                        py: 1,
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 36 }}>
+                        <History sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 20 }} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={search}
+                        sx={{ '& .MuiTypography-root': { color: '#fff', fontSize: '0.95rem' } }}
+                      />
+                      <IconButton
+                        size="small"
+                        onClick={(e) => removeFromHistory(search, e)}
+                        sx={{ color: 'rgba(255,255,255,0.3)' }}
+                      >
+                        <Close sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </ListItem>
+                  ))}
+                </List>
+              </>
+            )}
 
-        {/* Suggestions */}
-        <Box sx={{ px: 2, py: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>
-              You may like
-            </Typography>
-            <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', cursor: 'pointer' }}>
-              ↻ Refresh
-            </Typography>
-          </Box>
-          
-          <List sx={{ py: 0 }}>
-            {suggestions.map((item, index) => (
-              <ListItem
-                key={index}
-                onClick={() => handleSearch(item.text)}
-                sx={{
-                  cursor: 'pointer',
-                  px: 0,
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 30 }}>
-                  <Circle sx={{ fontSize: 8, color: item.trending ? '#fe2c55' : 'rgba(255,255,255,0.3)' }} />
-                </ListItemIcon>
-                <ListItemText
-                  primary={item.text}
-                  sx={{
-                    '& .MuiTypography-root': {
-                      color: item.trending ? '#fe2c55' : '#fff',
-                      fontWeight: item.trending ? 500 : 400,
-                    }
-                  }}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Box>
+            {/* Trending / You May Like */}
+            <Box sx={{ px: 2, py: 1.5 }}>
+              <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500, fontSize: '0.9rem', mb: 1 }}>
+                You may like
+              </Typography>
+              <List sx={{ py: 0 }}>
+                {trendingSuggestions.map((suggestion, index) => (
+                  <ListItem
+                    key={index}
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    sx={{
+                      cursor: 'pointer',
+                      px: 0,
+                      py: 1,
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 28 }}>
+                      <Circle sx={{ fontSize: 8, color: index < 2 ? '#fe2c55' : 'rgba(255,255,255,0.3)' }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={suggestion}
+                      sx={{
+                        '& .MuiTypography-root': {
+                          color: index < 2 ? '#fe2c55' : '#fff',
+                          fontWeight: index < 2 ? 500 : 400,
+                          fontSize: '0.95rem',
+                        }
+                      }}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+          </>
+        )}
       </Box>
     </motion.div>
   );
@@ -745,15 +1168,27 @@ const TikTokProfileFeed = () => {
     getGPSLocation();
   }, [userCountry, detectedCountry]);
 
+  // Use the currency hook for converting prices
+  const { convertFromUSD } = useCurrency();
+
   // Fetch profiles with location data
   const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
     try {
       if (pageNum === 1) setLoading(true);
       
+      // Map tab IDs to API filter parameters
+      const filterMap = {
+        'foryou': 'all',
+        'online': 'online',
+        'verified': 'verified',
+        'toprated': 'trending',
+      };
+      
       const params = new URLSearchParams({
         page: pageNum.toString(),
         limit: '10',
-        sort: activeTab === 'nearby' ? 'distance' : 'recommendation',
+        filter: filterMap[activeTab] || 'all',
+        sort: 'recommendation',
       });
 
       // CRITICAL: Always send location for Uber/Bolt-style sorting
@@ -804,21 +1239,39 @@ const TikTokProfileFeed = () => {
         newProfiles = newProfiles.filter(p => p.id !== currentUser.id);
       }
 
+      // Process profiles with currency conversion
+      const processedProfiles = newProfiles.map(profile => {
+        const profileData = profile.profile_data || profile.profileData || {};
+        const basePrice = profileData.basePrice != null ? parseFloat(profileData.basePrice) : null;
+        const converted = basePrice != null ? convertFromUSD(basePrice) : null;
+        
+        return {
+          ...profile,
+          id: profile._id || profile.id,
+          profileData,
+          profile_data: profileData,
+          verificationTier: parseInt(profile.verification_tier || profile.verificationTier) || 1,
+          trustScore: parseFloat(profile.reputation_score || profile.reputationScore || profile.trustScore) || 75,
+          isOnline: profile.isOnline || profile.is_online || false,
+          displayPrice: converted, // Currency-converted price
+        };
+      });
+
       if (append) {
-        setProfiles(prev => [...prev, ...newProfiles]);
+        setProfiles(prev => [...prev, ...processedProfiles]);
       } else {
-        setProfiles(newProfiles);
+        setProfiles(processedProfiles);
         setCurrentIndex(0);
       }
 
-      setHasMore(newProfiles.length === 10);
+      setHasMore(processedProfiles.length === 10);
       setPage(pageNum);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [activeTab, currentUser?.id, userLocation]);
+  }, [activeTab, currentUser?.id, userLocation, convertFromUSD]);
 
   // Initial load - wait for location
   useEffect(() => {

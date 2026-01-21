@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Colors -->
+    <color name="primary">#00F2EA</color>
+    <color name="primary_dark">#00C4BD</color>
+    <color name="primary_light">#4FF7F0</color>
+    <color name="on_primary">#0A0A0F</color>
+    
+    <!-- Secondary Colors -->
+    <color name="secondary">#FF0055</color>
+    <color name="secondary_dark">#CC0044</color>
+    <color name="secondary_light">#FF4D88</color>
+    <color name="on_secondary">#FFFFFF</color>
+    
+    <!-- Background Colors -->
+    <color name="background">#0A0A0F</color>
+    <color name="background_secondary">#141419</color>
+    <color name="surface">#1A1A22</color>
+    <color name="surface_variant">#242430</color>
+    
+    <!-- Glass Effect -->
+    <color name="glass_background">#1A1A22</color>
+    <color name="glass_border">#2A2A35</color>
+    
+    <!-- Text Colors -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#9999AA</color>
+    <color name="text_hint">#666677</color>
+    
+    <!-- Status Colors -->
+    <color name="success">#00D97E</color>
+    <color name="warning">#FFB800</color>
+    <color name="error">#FF3B5C</color>
+    <color name="info">#3B82F6</color>
+    
+    <!-- Premium/Gold -->
+    <color name="gold">#FFD700</color>
+    <color name="gold_dark">#CC9900</color>
+    
+    <!-- Gradients (start/end for gradient drawables) -->
+    <color name="gradient_primary_start">#00F2EA</color>
+    <color name="gradient_primary_end">#FF0055</color>
+    
+    <!-- Opacity variations -->
+    <color name="primary_10">#1A00F2EA</color>
+    <color name="primary_20">#3300F2EA</color>
+    <color name="secondary_10">#1AFF0055</color>
+    <color name="secondary_20">#33FF0055</color>
+    <color name="white_10">#1AFFFFFF</color>
+    <color name="white_20">#33FFFFFF</color>
+    <color name="black_50">#80000000</color>
+    <color name="black_70">#B3000000</color>
+    
+    <!-- System UI -->
+    <color name="status_bar">#0A0A0F</color>
+    <color name="navigation_bar">#0A0A0F</color>
+</resources>

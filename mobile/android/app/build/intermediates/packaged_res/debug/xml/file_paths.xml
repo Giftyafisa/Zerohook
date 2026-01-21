@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- External storage paths -->
+    <external-path name="external_files" path="." />
+    
+    <!-- Cache directory -->
+    <cache-path name="cache" path="." />
+    
+    <!-- App-specific external storage -->
+    <external-files-path name="external_files_path" path="." />
+    
+    <!-- Internal files directory -->
+    <files-path name="files" path="." />
+    
+    <!-- Images directory -->
+    <external-files-path name="images" path="Pictures/" />
+    
+    <!-- Camera captures -->
+    <external-cache-path name="camera" path="camera/" />
+</paths>

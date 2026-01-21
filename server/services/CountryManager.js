@@ -432,6 +432,16 @@ class CountryManager {
    */
   async getUserCountry(userId) {
     try {
+      if (!isDatabaseAvailable()) {
+        const country = this.getCountryByCode(this.defaultCountry);
+        return {
+          success: true,
+          country: country || null,
+          detectedCountry: this.defaultCountry,
+          preference: this.defaultCountry,
+          warning: 'Database unavailable, using default country'
+        };
+      }
       const user = await User.findById(userId).select('profileData');
       
       if (!user) {
@@ -459,6 +469,9 @@ class CountryManager {
    */
   async updateUserCountry(userId, countryCode) {
     try {
+      if (!isDatabaseAvailable()) {
+        return { success: false, error: 'Database unavailable' };
+      }
       const country = this.getCountryByCode(countryCode);
       if (!country) {
         return { success: false, error: 'Country not supported' };
@@ -485,6 +498,9 @@ class CountryManager {
    */
   async setDetectedCountry(userId, countryCode) {
     try {
+      if (!isDatabaseAvailable()) {
+        return { success: false, error: 'Database unavailable' };
+      }
       await User.findByIdAndUpdate(userId, {
         'profileData.detectedCountry': countryCode,
         updatedAt: new Date()

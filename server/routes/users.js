@@ -381,7 +381,15 @@ const handleBrowseProfiles = async (req, res) => {
       search,
       sort = 'recommendation',
       lat,
-      lng
+      lng,
+      // Frontend sends these parameter names - support both naming conventions
+      userLat,
+      userLng,
+      userCity,
+      userCountry,
+      locationSource,
+      locationConfidence,
+      locationAccuracy
     } = req.query;
 
     const pageNum = parseInt(page);
@@ -394,16 +402,23 @@ const handleBrowseProfiles = async (req, res) => {
     let userLocation = null;
     
     // Priority 1: Client-provided coordinates (GPS)
-    const providedLat = lat ? parseFloat(lat) : null;
-    const providedLng = lng ? parseFloat(lng) : null;
+    // Support both naming conventions: lat/lng and userLat/userLng
+    const providedLat = userLat ? parseFloat(userLat) : (lat ? parseFloat(lat) : null);
+    const providedLng = userLng ? parseFloat(userLng) : (lng ? parseFloat(lng) : null);
+    const providedCity = userCity || city || null;
+    const providedCountry = userCountry || country || null;
     
     if (providedLat != null && providedLng != null && !isNaN(providedLat) && !isNaN(providedLng)) {
       userLocation = {
         lat: providedLat,
         lng: providedLng,
-        source: 'gps'
+        city: providedCity,
+        country: providedCountry,
+        source: locationSource || 'gps',
+        confidence: locationConfidence ? parseFloat(locationConfidence) : 1.0,
+        accuracy: locationAccuracy ? parseFloat(locationAccuracy) : null
       };
-      console.log(`📍 Location from GPS: ${providedLat}, ${providedLng}`);
+      console.log(`📍 Location from client GPS: ${providedLat.toFixed(4)}, ${providedLng.toFixed(4)} (${providedCity || 'unknown city'}, ${providedCountry || 'unknown country'})`);
     }
     
     // Priority 2: Use LocationTrackingService if available
@@ -686,6 +701,86 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, account
 // Register both routes with the same handler
 router.get('/profiles', handleBrowseProfiles);
 router.get('/browse', handleBrowseProfiles);
+
+/**
+ * @route   POST /api/users/engagement
+ * @desc    Track TikTok-style profile engagement for algorithm learning
+ * @access  Public (works for anonymous users too)
+ */
+router.post('/engagement', async (req, res) => {
+  try {
+    const {
+      profileId,
+      viewDuration,
+      photoViews,
+      scrollDepth,
+      bioExpanded,
+      bioReadTime,
+      isReturnVisit,
+      action, // 'view', 'contact', 'favorite', 'skip', 'exit'
+      swipeDirection
+    } = req.body;
+
+    if (!profileId) {
+      return res.status(400).json({ error: 'profileId is required' });
+    }
+
+    // Get user ID from token if available (optional auth)
+    let userId = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+        userId = decoded.userId || decoded.id;
+      } catch (e) {
+        // Token invalid, continue as anonymous
+      }
+    }
+
+    // Use the TikTok engagement tracker if available
+    if (req.tiktokEngagementTracker) {
+      const result = await req.tiktokEngagementTracker.trackProfileEngagement({
+        userId: userId || 'anonymous',
+        sessionId: req.headers['x-session-id'] || `anon_${Date.now()}`,
+        profileId,
+        viewDuration: parseInt(viewDuration) || 0,
+        photoViews: parseInt(photoViews) || 0,
+        scrollDepth: parseInt(scrollDepth) || 0,
+        bioExpanded: Boolean(bioExpanded),
+        bioReadTime: parseInt(bioReadTime) || 0,
+        isReturnVisit: Boolean(isReturnVisit),
+        action: action || 'view'
+      });
+
+      return res.json({ success: true, ...result });
+    }
+
+    // Fallback: Track with recommendation engine
+    const actionData = {
+      profileId,
+      viewDuration,
+      photoViews,
+      scrollDepth,
+      bioExpanded,
+      bioReadTime,
+      isReturnVisit,
+      action,
+      swipeDirection,
+      timestamp: new Date().toISOString()
+    };
+
+    if (userId) {
+      await mongoRecommendationEngine.trackActivity(userId, 'profile_engagement', actionData);
+    }
+
+    res.json({ success: true, tracked: true });
+  } catch (error) {
+    console.error('Engagement tracking error:', error);
+    res.status(500).json({ error: 'Failed to track engagement' });
+  }
+});
 
 /**
  * @route   POST /api/users/track-activity

@@ -130,7 +130,7 @@ router.get('/:code', async (req, res) => {
  */
 router.post('/detect', async (req, res) => {
   try {
-    const { User } = require('../config/database');
+    const { User, isDatabaseAvailable } = require('../config/database');
     const CountryManager = require('../services/CountryManager');
     const countryManager = new CountryManager();
     
@@ -139,7 +139,7 @@ router.post('/detect', async (req, res) => {
     let userId = null;
     let userPhone = null;
     
-    if (token) {
+    if (token && isDatabaseAvailable()) {
       try {
         const jwt = require('jsonwebtoken');
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'zerohook-secret-key-2024');
@@ -160,6 +160,8 @@ router.post('/detect', async (req, res) => {
         // Token invalid or expired - treat as visitor
         console.log('🌍 Invalid token, treating as visitor');
       }
+    } else if (token && !isDatabaseAvailable()) {
+      console.log('⚠️ Database unavailable, skipping user phone lookup for country detection');
     }
     
     // METHOD 1: For REGISTERED USERS - Use phone number country code
@@ -169,10 +171,12 @@ router.post('/detect', async (req, res) => {
       
       if (phoneDetection && phoneDetection.success) {
         // Store detected country for user
-        try {
-          await countryManager.setDetectedCountry(userId, phoneDetection.country.code);
-        } catch (e) {
-          console.log('Could not store detected country:', e.message);
+        if (isDatabaseAvailable()) {
+          try {
+            await countryManager.setDetectedCountry(userId, phoneDetection.country.code);
+          } catch (e) {
+            console.log('Could not store detected country:', e.message);
+          }
         }
         
         return res.json({
@@ -193,7 +197,7 @@ router.post('/detect', async (req, res) => {
       const country = countryManager.getCountryByCode(detectedLocation.countryCode);
       if (country) {
         // Store detected country for user if authenticated
-        if (userId) {
+        if (userId && isDatabaseAvailable()) {
           try {
             await countryManager.setDetectedCountry(userId, detectedLocation.countryCode);
           } catch (e) {
@@ -242,7 +246,7 @@ router.post('/detect', async (req, res) => {
           const detectedCountry = countryManager.getCountryByCode(location.countryCode);
           if (detectedCountry) {
             // Store detected country for user if authenticated
-            if (userId) {
+            if (userId && isDatabaseAvailable()) {
               try {
                 await countryManager.setDetectedCountry(userId, location.countryCode);
               } catch (e) {
@@ -274,7 +278,7 @@ router.post('/detect', async (req, res) => {
     
     if (detectionResult.success) {
       // Store detected country for user if authenticated
-      if (userId) {
+      if (userId && isDatabaseAvailable()) {
         try {
           await countryManager.setDetectedCountry(userId, detectionResult.country.code);
         } catch (e) {

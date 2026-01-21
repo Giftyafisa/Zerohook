@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const Redis = require('redis');
 
 // MongoDB connection string
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://zerohook:11221122Ga@zerohook.cnyphi4.mongodb.net/zerohook?retryWrites=true&w=majority';
+// Prefer env var; fallback to local MongoDB for dev stability
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/zerohook';
 
 console.log('🔧 Database configuration loaded:');
 console.log('   Environment:', process.env.NODE_ENV);
@@ -118,9 +119,16 @@ const transactionSchema = new mongoose.Schema({
   service_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
   client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   provider_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // For wallet transactions
   amount: { type: Number, required: true },
+  currency: { type: String, default: 'NGN' },
+  country_code: String,
+  payment_method: { type: String, default: 'paystack' },
+  reference: String,
   escrow_address: String,
   status: { type: String, default: 'pending' },
+  type: { type: String, default: 'service' }, // 'service', 'deposit', 'withdrawal', 'escrow_hold', 'escrow_release'
+  metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   scheduled_time: Date,
   location_data: { type: mongoose.Schema.Types.Mixed, default: {} },
   verification_data: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -128,6 +136,12 @@ const transactionSchema = new mongoose.Schema({
   completion_proof: { type: mongoose.Schema.Types.Mixed, default: {} },
   completed_at: Date
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+// Index for efficient wallet queries
+transactionSchema.index({ user_id: 1, type: 1, status: 1 });
+transactionSchema.index({ client_id: 1, status: 1 });
+transactionSchema.index({ provider_id: 1, status: 1 });
+transactionSchema.index({ reference: 1 }, { unique: true, sparse: true });
 
 const trustEventSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

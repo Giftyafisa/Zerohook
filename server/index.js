@@ -49,6 +49,8 @@ const ConversationService = require('./services/ConversationService');
 const SystemHealthService = require('./services/SystemHealthService');
 const RecommendationEngine = require('./services/RecommendationEngine');
 const CloudinaryManager = require('./services/CloudinaryManager');
+const RealtimeLocationManager = require('./services/RealtimeLocationManager');
+const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
 const { connectDB, connectRedis } = require('./config/database');
 
 const app = express();
@@ -213,6 +215,16 @@ const recommendationEngine = new RecommendationEngine();
 const cloudinaryManager = new CloudinaryManager();
 const LocationTrackingService = require('./services/LocationTrackingService');
 const locationTrackingService = new LocationTrackingService();
+const realtimeLocationManager = new RealtimeLocationManager();
+const tiktokEngagementTracker = new TikTokEngagementTracker();
+
+// Initialize profile and location verification services (NEW)
+const ProfileCompletenessService = require('./services/ProfileCompletenessService');
+const LocationVerificationService = require('./services/LocationVerificationService');
+const profileCompletenessService = new ProfileCompletenessService();
+const locationVerificationService = new LocationVerificationService();
+console.log('📋 Profile Completeness Service initialized');
+console.log('📍 Location Verification Service initialized');
 
 // Initialize health service
 const systemHealth = new SystemHealthService();
@@ -304,6 +316,20 @@ const conversationService = new ConversationService();
   }
 
   try {
+    realtimeLocationManager.initialize(io);
+    console.log('✅ Realtime Location Manager initialized (Uber-style)');
+  } catch (error) {
+    console.error('❌ Realtime Location Manager initialization failed:', error);
+  }
+
+  try {
+    await tiktokEngagementTracker.initialize();
+    console.log('✅ TikTok Engagement Tracker initialized');
+  } catch (error) {
+    console.error('❌ TikTok Engagement Tracker initialization failed:', error);
+  }
+
+  try {
     await bitnobManager.initialize();
     console.log('✅ Bitnob Manager initialized');
   } catch (error) {
@@ -340,6 +366,10 @@ app.use((req, res, next) => {
   req.recommendationEngine = recommendationEngine;
   req.locationTrackingService = locationTrackingService;
   req.cloudinaryManager = cloudinaryManager;
+  req.realtimeLocationManager = realtimeLocationManager;
+  req.tiktokEngagementTracker = tiktokEngagementTracker;
+  req.profileCompletenessService = profileCompletenessService;
+  req.locationVerificationService = locationVerificationService;
   req.io = io;
   
   // Add database status to request for debugging
@@ -456,6 +486,9 @@ io.on('connection', async (socket) => {
     // Join user's personal room
     socket.join(`user_${socket.userId}`);
     
+    // ===== UBER-STYLE REAL-TIME LOCATION EVENTS =====
+    realtimeLocationManager.registerSocketHandlers(socket);
+    
     // Handle user activity
     socket.on('user_activity', async (data) => {
       await userActivityMonitor.logUserActivity(socket.userId, {
@@ -463,6 +496,16 @@ io.on('connection', async (socket) => {
         ipAddress: socket.handshake.address,
         userAgent: socket.handshake.headers['user-agent']
       });
+    });
+    
+    // ===== TIKTOK-STYLE ENGAGEMENT TRACKING =====
+    socket.on('profile_engagement', async (data) => {
+      const result = await tiktokEngagementTracker.trackProfileEngagement({
+        userId: socket.userId,
+        sessionId: socket.id,
+        ...data
+      });
+      socket.emit('engagement_tracked', result);
     });
     
     // Handle typing indicators

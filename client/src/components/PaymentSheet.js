@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -21,11 +21,14 @@ import {
   CheckCircle as CheckIcon
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../config/constants';
+import useCurrency from '../hooks/useCurrency';
 
 /**
  * PaymentSheet - Simple bottom drawer for holding money (escrow)
  * Uses simple labels: "Hold Money", "Release", "Problem"
  * Mobile-first design for easy one-hand use
+ * 
+ * CURRENCY: Automatically uses user's detected country currency
  */
 const PaymentSheet = ({ 
   open, 
@@ -36,11 +39,31 @@ const PaymentSheet = ({
   conversationId,
   onSuccess 
 }) => {
+  // Get user's currency based on detected country
+  const { symbol, currencyCode, countryCode } = useCurrency();
+  
   const [amount, setAmount] = useState(suggestedAmount);
   const [payMethod, setPayMethod] = useState('paystack');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  
+  // Quick amount buttons - adjusted based on currency
+  // These are local currency amounts (not USD)
+  const quickAmounts = useMemo(() => {
+    // Adjust quick amounts based on country
+    switch (countryCode) {
+      case 'GH':
+        return [50, 100, 200, 500]; // Ghana Cedis
+      case 'KE':
+        return [1000, 2000, 5000, 10000]; // Kenya Shillings
+      case 'ZA':
+        return [100, 200, 500, 1000]; // South African Rand
+      case 'NG':
+      default:
+        return [5000, 10000, 20000, 50000]; // Nigerian Naira
+    }
+  }, [countryCode]);
 
   const handleHoldMoney = async () => {
     if (!amount || parseFloat(amount) <= 0) {
@@ -63,6 +86,7 @@ const PaymentSheet = ({
         body: JSON.stringify({
           providerId,
           amount: parseFloat(amount),
+          currency: currencyCode, // Send the currency to backend
           paymentMethod: payMethod,
           conversationId,
           description: `Payment to ${providerName}`
@@ -78,6 +102,8 @@ const PaymentSheet = ({
           onSuccess && onSuccess({
             escrowId: data.transaction?.id || data.escrowId,
             amount: parseFloat(amount),
+            currency: currencyCode,
+            symbol: symbol,
             status: 'held'
           });
           onClose();
@@ -102,9 +128,6 @@ const PaymentSheet = ({
       onClose();
     }
   };
-
-  // Quick amount buttons
-  const quickAmounts = [5000, 10000, 20000, 50000];
 
   return (
     <Drawer
@@ -132,7 +155,7 @@ const PaymentSheet = ({
             </Typography>
             <Typography sx={styles.subtitle}>
               {success 
-                ? `₦${parseFloat(amount).toLocaleString()} is held until you release it`
+                ? `${symbol}${parseFloat(amount).toLocaleString()} is held until you release it`
                 : `Pay ${providerName} securely`
               }
             </Typography>
@@ -168,7 +191,7 @@ const PaymentSheet = ({
 
             {/* Amount Input */}
             <Box sx={styles.section}>
-              <Typography sx={styles.label}>Amount (₦)</Typography>
+              <Typography sx={styles.label}>Amount ({symbol})</Typography>
               <TextField
                 fullWidth
                 type="number"
@@ -176,7 +199,7 @@ const PaymentSheet = ({
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="Enter amount"
                 InputProps={{
-                  startAdornment: <Typography sx={{ color: '#888', mr: 1 }}>₦</Typography>,
+                  startAdornment: <Typography sx={{ color: '#888', mr: 1 }}>{symbol}</Typography>,
                   sx: styles.input
                 }}
               />
@@ -191,7 +214,7 @@ const PaymentSheet = ({
                     onClick={() => setAmount(String(amt))}
                     sx={styles.quickBtn}
                   >
-                    ₦{amt.toLocaleString()}
+                    {symbol}{amt.toLocaleString()}
                   </Button>
                 ))}
               </Box>
@@ -257,7 +280,7 @@ const PaymentSheet = ({
               {loading ? (
                 <CircularProgress size={24} sx={{ color: '#fff' }} />
               ) : (
-                <>Hold ₦{amount ? parseFloat(amount).toLocaleString() : '0'}</>
+                <>Hold {symbol}{amount ? parseFloat(amount).toLocaleString() : '0'}</>
               )}
             </Button>
           </>

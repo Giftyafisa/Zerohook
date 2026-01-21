@@ -1,12 +1,17 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
 const LocationTrackingService = require('../services/LocationTrackingService');
+const LocationVerificationService = require('../services/LocationVerificationService');
 
 // Shared location service instance for geolocation utilities
 const locationTrackingService = new LocationTrackingService();
 locationTrackingService.initialize().catch((err) => {
   console.error('LocationTrackingService init failed (non-fatal):', err.message);
 });
+
+// Location verification service for city coordinates
+const locationVerificationService = new LocationVerificationService();
+
 const router = express.Router();
 
 /**
@@ -237,6 +242,159 @@ router.get('/health', async (req, res) => {
     res.json({
       status: 'error',
       message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/geolocation/nearest-city
+ * @desc    Find nearest city to given coordinates
+ * @access  Public
+ */
+router.get('/nearest-city', async (req, res) => {
+  try {
+    const { lat, lng, country } = req.query;
+    
+    if (!lat || !lng) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'lat and lng query parameters are required' 
+      });
+    }
+
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+
+    if (isNaN(latitude) || isNaN(longitude)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'lat and lng must be valid numbers' 
+      });
+    }
+
+    const nearestCity = locationVerificationService.findNearestCity(
+      latitude, 
+      longitude, 
+      country || null
+    );
+
+    if (!nearestCity) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'No city found near these coordinates' 
+      });
+    }
+
+    res.json({
+      success: true,
+      city: nearestCity.city,
+      country: nearestCity.country,
+      distance: nearestCity.distance,
+      lat: nearestCity.lat,
+      lng: nearestCity.lng,
+      region: nearestCity.region,
+      population: nearestCity.population
+    });
+  } catch (error) {
+    console.error('Nearest city lookup error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to find nearest city' 
+    });
+  }
+});
+
+/**
+ * @route   GET /api/geolocation/cities/:countryCode
+ * @desc    Get all cities for a country (for dropdowns)
+ * @access  Public
+ */
+router.get('/cities/:countryCode', async (req, res) => {
+  try {
+    const { countryCode } = req.params;
+
+    if (!countryCode) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'countryCode is required' 
+      });
+    }
+
+    const cities = locationVerificationService.getCitiesForCountry(countryCode.toUpperCase());
+
+    res.json({
+      success: true,
+      countryCode: countryCode.toUpperCase(),
+      count: cities.length,
+      cities
+    });
+  } catch (error) {
+    console.error('Cities list error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to get cities list' 
+    });
+  }
+});
+
+/**
+ * @route   GET /api/geolocation/supported-countries
+ * @desc    Get list of supported countries
+ * @access  Public
+ */
+router.get('/supported-countries', async (req, res) => {
+  try {
+    const countries = locationVerificationService.getSupportedCountries();
+
+    res.json({
+      success: true,
+      count: countries.length,
+      countries
+    });
+  } catch (error) {
+    console.error('Supported countries error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to get supported countries' 
+    });
+  }
+});
+
+/**
+ * @route   POST /api/geolocation/check-location-change
+ * @desc    Check if user's location has changed significantly
+ * @access  Private
+ */
+router.post('/check-location-change', authMiddleware, async (req, res) => {
+  try {
+    const { currentLat, currentLng } = req.body;
+    const user = req.user;
+
+    if (!currentLat || !currentLng) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'currentLat and currentLng are required' 
+      });
+    }
+
+    // Get user's stored location from profile
+    const profileData = user.profile_data || user.profileData || {};
+    const storedLocation = profileData.location || {};
+
+    const changeResult = locationVerificationService.detectLocationChange(
+      { lat: parseFloat(currentLat), lng: parseFloat(currentLng) },
+      storedLocation
+    );
+
+    res.json({
+      success: true,
+      ...changeResult
+    });
+  } catch (error) {
+    console.error('Location change check error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to check location change' 
     });
   }
 });

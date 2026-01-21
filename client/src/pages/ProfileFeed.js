@@ -48,7 +48,7 @@ import {
   Login,
   Menu as MenuIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
 import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
@@ -58,16 +58,42 @@ import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { LOCATIONS } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
 import { VERIFICATION_TIERS, getVerificationTierConfig, VerificationBadge, TrustScoreBreakdown } from '../components/ui/StatusBadge';
+import ProfileCompletionReminder from '../components/ProfileCompletionReminder';
+import useCurrency from '../hooks/useCurrency';
+import useProfileEngagement from '../hooks/useProfileEngagement';
 import TikTokProfileFeed from '../components/TikTokProfileFeed';
 
 // Get all locations from user's country (or default to Ghana/Nigeria)
 const getAllLocations = (countryCode) => {
-  // Handle both string codes ('GH', 'gh') and country objects {code: 'GH', name: 'Ghana'}
-  const code = typeof countryCode === 'string' ? countryCode : countryCode?.code;
-  const countryKey = code?.toLowerCase() || 'ghana';
+  // Handle various input formats:
+  // - String country code: 'GH', 'gh'
+  // - String country name: 'Ghana', 'ghana'  
+  // - Country object: {code: 'GH', name: 'Ghana'}
+  let countryKey;
+  
+  if (typeof countryCode === 'string') {
+    // Could be a code ('GH', 'NG') or a name ('Ghana', 'Nigeria')
+    const lower = countryCode.toLowerCase();
+    // Map country codes to LOCATIONS keys
+    const codeToKey = { 'gh': 'ghana', 'ng': 'nigeria', 'ke': 'kenya', 'za': 'southafrica' };
+    countryKey = codeToKey[lower] || lower;
+  } else if (countryCode?.code) {
+    // Object with code property
+    const codeToKey = { 'gh': 'ghana', 'ng': 'nigeria', 'ke': 'kenya', 'za': 'southafrica' };
+    countryKey = codeToKey[countryCode.code.toLowerCase()] || countryCode.code.toLowerCase();
+  } else if (countryCode?.name) {
+    // Object with name property
+    countryKey = countryCode.name.toLowerCase();
+  } else {
+    countryKey = 'ghana'; // Default
+  }
+  
   const countryData = LOCATIONS[countryKey];
   
-  if (!countryData) return [];
+  if (!countryData) {
+    console.log('⚠️ getAllLocations: No data for country:', countryKey, 'input:', countryCode);
+    return [];
+  }
   
   // Flatten location data structure
   if (countryData.cities) {
@@ -497,6 +523,7 @@ const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
 
 // ============================================
 // PROFILE CARD COMPONENT (Clean Design)
+// With TikTok-style engagement tracking
 // ============================================
 
 const ProfileCard = ({ 
@@ -508,10 +535,22 @@ const ProfileCard = ({
   index,
   onView 
 }) => {
+  // Use currency hook for consistent currency symbol based on detected country
+  const { symbol: detectedCurrencySymbol } = useCurrency();
+  
+  // TikTok-style engagement tracking
+  const {
+    startTracking,
+    stopTracking,
+    trackScrollDepth,
+    trackContactClick
+  } = useProfileEngagement(profile?.id);
+  
   const cardRef = useRef(null);
   const viewStartTime = useRef(null);
+  const hasStartedTracking = useRef(false);
 
-  // Track view time
+  // Track view time with TikTok-style engagement
   useEffect(() => {
     viewStartTime.current = Date.now();
     
@@ -523,13 +562,22 @@ const ProfileCard = ({
     };
   }, [profile.id]);
 
-  // Intersection observer for view tracking
+  // Intersection observer for view tracking with engagement
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+            // Start engagement tracking when card becomes visible
+            if (!hasStartedTracking.current) {
+              startTracking();
+              hasStartedTracking.current = true;
+            }
             onView?.(profile.id);
+          } else if (!entry.isIntersecting && hasStartedTracking.current) {
+            // Stop tracking when card scrolls out of view
+            stopTracking('exit');
+            hasStartedTracking.current = false;
           }
         });
       },
@@ -540,8 +588,21 @@ const ProfileCard = ({
       observer.observe(cardRef.current);
     }
 
-    return () => observer.disconnect();
-  }, [profile.id, onView]);
+    return () => {
+      observer.disconnect();
+      // Cleanup tracking on unmount
+      if (hasStartedTracking.current) {
+        stopTracking('exit');
+      }
+    };
+  }, [profile.id, onView, startTracking, stopTracking]);
+
+  // Handle message click with engagement tracking
+  const handleMessageClick = (e) => {
+    e.stopPropagation();
+    trackContactClick(); // Track as high engagement signal
+    onMessage(profile);
+  };
 
   const profileData = profile.profileData || {};
   const displayName = profileData.firstName || profile.username || 'User';
@@ -550,7 +611,8 @@ const ProfileCard = ({
   const country = profileData.location?.country || '';
   const bio = profileData.bio || 'No bio available';
   const price = profile.displayPrice?.amount ?? profileData.basePrice ?? 0;
-  const priceSymbol = profile.displayPrice?.symbol || profile.displayPrice?.currency || '$';
+  // Use displayPrice symbol if available, otherwise use detected currency symbol (not hardcoded $)
+  const priceSymbol = profile.displayPrice?.symbol || profile.displayPrice?.currency || detectedCurrencySymbol;
   const isPriceConverted = Boolean(profile.displayPrice && profile.displayPrice.currency && profile.displayPrice.currency !== 'USD');
   const isOnline = profile.isOnline; // From backend
   const lastActive = profile.lastActive; // ISO date from backend
@@ -962,11 +1024,7 @@ const ProfileCard = ({
             fullWidth
             variant="contained"
             startIcon={<Message />}
-            onClick={(e) => {
-              e.stopPropagation();
-              onMessage(profile);
-              activityTracker.trackMessage(profile.id);
-            }}
+            onClick={handleMessageClick}
             sx={{
               background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
               color: '#000',
@@ -1138,19 +1196,26 @@ const SubscriptionPaywall = ({ onSubscribe }) => {
 const ProfileFeed = () => {
   const isMobile = useMediaQuery(useTheme().breakpoints.down('sm'));
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user: currentUser, isAuthenticated } = useAuth();
   const isSubscribed = useSelector(selectIsSubscribed);
   const reduxUser = useSelector(selectUser);
   const userCountry = useSelector(selectUserCountry);
   const detectedCountry = useSelector(selectDetectedCountry);
   const exchangeRates = useSelector(selectExchangeRates);
+  
+  // Use the centralized currency hook for consistent currency conversion
+  const { convertFromUSD, symbol: currencySymbol, countryCode: detectedCurrencyCountry } = useCurrency();
+
+  // Get initial search query from URL params
+  const initialSearchQuery = searchParams.get('search') || '';
 
   // State - ALL hooks must be called unconditionally
   const [displayedProfiles, setDisplayedProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [activeFilter, setActiveFilter] = useState('all');
   const [likedProfiles, setLikedProfiles] = useState(new Set());
   
@@ -1183,21 +1248,12 @@ const ProfileFeed = () => {
     return parts.length > 0 ? parts.join(', ') : 'Location enabled';
   }, [userLocation]);
 
+  // Use the unified currency hook for consistent conversion across the app
+  // This ensures ProfileFeed uses the same currency as ProfileDetailPage, PaymentSheet, etc.
   const convertPrice = useCallback((basePriceUSD) => {
-    const countryCode = (userLocation?.countryCode || userCountry?.code || detectedCountry?.code || '').toUpperCase();
-    const rateEntry = countryCode && exchangeRates ? exchangeRates[countryCode] : null;
-
-    if (rateEntry && basePriceUSD != null) {
-      const amount = Math.round(parseFloat(basePriceUSD) * rateEntry.rate * 100) / 100;
-      return { amount, currency: rateEntry.currency, symbol: rateEntry.symbol, originalAmount: basePriceUSD, baseCurrency: 'USD' };
-    }
-
-    if (basePriceUSD != null) {
-      return { amount: parseFloat(basePriceUSD), currency: 'USD', symbol: '$', originalAmount: basePriceUSD, baseCurrency: 'USD' };
-    }
-
-    return null;
-  }, [userLocation?.countryCode, userCountry?.code, detectedCountry?.code, exchangeRates]);
+    // Use the hook's convertFromUSD which already handles country detection properly
+    return convertFromUSD(basePriceUSD);
+  }, [convertFromUSD]);
 
   // Initialize activity tracker
   useEffect(() => {
@@ -1325,6 +1381,13 @@ const ProfileFeed = () => {
             const countryForLookup = userCountry || detectedCountry || 'ghana';
             const { location: nearestCity, distance } = findNearestCity(latitude, longitude, countryForLookup);
             
+            // Extract country name from object or use string directly
+            const getCountryName = (c) => {
+              if (!c) return 'Unknown';
+              if (typeof c === 'string') return c;
+              return c.name || c.code || 'Unknown';
+            };
+            
             // GPS success - use precise location with resolved city name
             const gpsLocation = {
               lat: latitude,
@@ -1332,7 +1395,7 @@ const ProfileFeed = () => {
               accuracy: accuracy,
               city: nearestCity?.name || 'Current Location',
               region: nearestCity?.region || nearestCity?.state || null,
-              country: userCountry || detectedCountry || 'Unknown',
+              country: getCountryName(userCountry || detectedCountry),
               source: 'gps',
               confidence: 1.0,
               distanceToCity: distance ? `${distance.toFixed(1)} km from ${nearestCity?.name}` : null
@@ -1340,7 +1403,7 @@ const ProfileFeed = () => {
             setUserLocation(gpsLocation);
             setLocationLoading(false);
             console.log('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, 
-              `(accuracy: ${gpsLocation.accuracy}m, nearest city: ${gpsLocation.city}, ${gpsLocation.distanceToCity})`);
+              `(accuracy: ${gpsLocation.accuracy}m, nearest city: ${gpsLocation.city}, country: ${gpsLocation.country}, ${gpsLocation.distanceToCity})`);
           },
           async (error) => {
             clearTimeout(locationTimeout);
@@ -1607,6 +1670,14 @@ const ProfileFeed = () => {
     }
   }, [locationLoading, userLocation, fetchProfiles]);
 
+  // Sync URL search params with state
+  useEffect(() => {
+    const urlSearch = searchParams.get('search') || '';
+    if (urlSearch !== searchQuery) {
+      setSearchQuery(urlSearch);
+    }
+  }, [searchParams]); // Only run when URL params change
+
   // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1705,6 +1776,13 @@ const ProfileFeed = () => {
         pb: { xs: 0, md: 4 },
       }}
     >
+      {/* Profile Completion Reminder - Shows if profile is incomplete */}
+      {isAuthenticated && (
+        <Box sx={{ px: 2, pt: 2 }}>
+          <ProfileCompletionReminder variant="banner" showDismiss={true} />
+        </Box>
+      )}
+      
       {/* Content Area - Filter Section */}
       <Box
         sx={{

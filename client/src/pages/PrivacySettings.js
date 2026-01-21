@@ -788,7 +788,7 @@ const PrivacySettings = () => {
                            privacySettings.priceCurrency === 'ZAR' ? 'R' :
                            privacySettings.priceCurrency === 'USD' ? '$' :
                            privacySettings.priceCurrency === 'EUR' ? '€' :
-                           privacySettings.priceCurrency === 'GBP' ? '£' : '₦'}
+                           privacySettings.priceCurrency === 'GBP' ? '£' : '$'}
                         </InputAdornment>
                       ),
                     }}

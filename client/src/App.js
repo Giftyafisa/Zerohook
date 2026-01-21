@@ -28,6 +28,9 @@ import { getRouteLayoutConfig } from './utils/routeUtils';
 // UI Components
 import { AnimatedBackground, ToastProvider } from './components/ui';
 
+// Location Change Detector - Prompts users to update their location
+import LocationChangeDetector from './components/LocationChangeDetector';
+
 // Page Components
 import HomePage from './pages/HomePageNew';
 import LoginPage from './pages/LoginPage';
@@ -221,6 +224,9 @@ function AppContent() {
     <MainLayout showNavigation={true}>
       {/* Animated Background - Only on desktop, disabled on performance-sensitive routes and reduced-motion */}
       {showAnimatedBackground && isDesktop && <AnimatedBackground />}
+      
+      {/* Location Change Detector - Prompts users to update their profile location */}
+      <LocationChangeDetector checkOnMount={true} thresholdKm={50} />
       
       {/* Main Content - Layout is fully handled by MainLayout (MobileShell or DesktopContainer) */}
       <Routes>

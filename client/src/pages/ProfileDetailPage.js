@@ -38,12 +38,16 @@ import { getDefaultImage } from '../config/images';
 import { useSocket } from '../contexts/SocketContext';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { resolveProfileImage } from '../utils/imageUtils';
+import useCurrency from '../hooks/useCurrency';
 
 const ProfileDetailPage = () => {
   const { isAuthenticated, user } = useAuth();
   const { profileId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // Currency conversion hook - converts USD prices to user's local currency
+  const { formatFromUSD, symbol: currencySymbol } = useCurrency();
   
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -418,7 +422,7 @@ const ProfileDetailPage = () => {
               {/* Price & Availability - Single Line */}
               <Box display="flex" alignItems="center" gap={2} mb={3}>
                 <Typography variant="h5" color="primary" fontWeight={600}>
-                  ${profileData.basePrice}
+                  {profileData.basePrice ? formatFromUSD(profileData.basePrice) : `${currencySymbol}0`}
                 </Typography>
                 {profileData.availability && profileData.availability.length > 0 && (
                   <>

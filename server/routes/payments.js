@@ -63,34 +63,31 @@ router.post('/create-payment-intent', authMiddleware, [
       return res.status(400).json({ error: paymentData.error });
     }
 
-    // Create transaction record
-    const { query } = require('../config/database');
-    const result = await query(`
-      INSERT INTO transactions (
-        user_id, service_id, amount, currency, payment_method, 
-        payment_intent_id, reference, status, country_code, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id
-    `, [
-      userId, 
-      serviceId || null,
-      amount, 
-      currency.toUpperCase(),
-      paymentMethod,
-      paymentData.paymentIntentId || null,
-      paymentData.reference || null,
-      'pending',
-      countryCode,
-      JSON.stringify({
+    // Create transaction record using MongoDB
+    const { Transaction } = require('../config/database');
+    const mongoose = require('mongoose');
+    
+    const transaction = await Transaction.create({
+      user_id: mongoose.Types.ObjectId.createFromHexString(userId),
+      service_id: serviceId || null,
+      amount: amount,
+      currency: currency.toUpperCase(),
+      payment_method: paymentMethod,
+      payment_intent_id: paymentData.paymentIntentId || null,
+      reference: paymentData.reference || null,
+      status: 'pending',
+      country_code: countryCode,
+      type: 'payment',
+      metadata: {
         country: countryCode,
         paymentMethod,
         ...paymentData.metadata
-      })
-    ]);
+      }
+    });
 
     res.json({
       success: true,
-      transactionId: result.rows[0].id,
+      transactionId: transaction._id.toString(),
       paymentIntent: paymentData,
       country: country,
       message: `Payment intent created for ${country ? country.name : 'your country'}`
@@ -148,26 +145,31 @@ router.post('/confirm', authMiddleware, [
       return res.status(400).json({ error: paymentResult.error });
     }
 
-    // Update transaction status
-    const { query } = require('../config/database');
-    const transactionUpdate = await query(`
-      UPDATE transactions 
-      SET status = $1, confirmed_at = CURRENT_TIMESTAMP, metadata = jsonb_set(metadata, '{confirmation}', $2)
-      WHERE (payment_intent_id = $3 OR reference = $4) AND user_id = $5
-      RETURNING id, amount, currency
-    `, [
-      'confirmed',
-      JSON.stringify(paymentResult),
-      paymentIntentId || null,
-      reference || null,
-      userId
-    ]);
+    // Update transaction status using MongoDB
+    const { Transaction } = require('../config/database');
+    const mongoose = require('mongoose');
+    
+    const searchQuery = {};
+    if (paymentIntentId) searchQuery.payment_intent_id = paymentIntentId;
+    if (reference) searchQuery.reference = reference;
+    searchQuery.user_id = mongoose.Types.ObjectId.createFromHexString(userId);
+    
+    const transaction = await Transaction.findOneAndUpdate(
+      searchQuery,
+      { 
+        $set: { 
+          status: 'confirmed', 
+          confirmed_at: new Date(),
+          'metadata.confirmation': paymentResult 
+        } 
+      },
+      { new: true }
+    );
 
     // Emit real-time payment confirmation to user
-    if (req.io && transactionUpdate.rows.length > 0) {
-      const transaction = transactionUpdate.rows[0];
+    if (req.io && transaction) {
       req.io.to(`user_${userId}`).emit('payment_confirmed', {
-        transactionId: transaction.id,
+        transactionId: transaction._id.toString(),
         amount: transaction.amount,
         currency: transaction.currency,
         status: 'confirmed',
@@ -192,29 +194,75 @@ router.post('/confirm', authMiddleware, [
  * @route   GET /api/payments/transactions
  * @desc    Get user's transaction history with country-specific filtering
  * @access  Private
- * 
- * NOTE: This route uses legacy SQL queries that need MongoDB migration.
- * Currently returns empty data as fallback.
  */
 router.get('/transactions', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { page = 1, limit = 10, status, country } = req.query;
+    const { page = 1, limit = 10, status, type } = req.query;
+    const { Transaction } = require('../config/database');
+    const mongoose = require('mongoose');
     
-    // TODO: Migrate to MongoDB Transaction model
-    // For now, return empty transactions with proper structure
-    console.log('⚠️ GET /transactions: SQL queries need MongoDB migration');
+    const userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Build query - get transactions where user is involved (as user, client, or provider)
+    const matchQuery = {
+      $or: [
+        { user_id: userObjectId },
+        { client_id: userObjectId },
+        { provider_id: userObjectId }
+      ]
+    };
+    
+    // Add status filter if provided
+    if (status) {
+      matchQuery.status = status;
+    }
+    
+    // Add type filter if provided
+    if (type) {
+      matchQuery.type = type;
+    }
+    
+    // Get total count
+    const total = await Transaction.countDocuments(matchQuery);
+    
+    // Get transactions with pagination
+    const transactions = await Transaction.find(matchQuery)
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+    
+    // Format transactions for frontend
+    const formattedTransactions = transactions.map(tx => {
+      // Determine if income or expense for this user
+      const isIncome = tx.provider_id?.toString() === userId || 
+                       (tx.type === 'deposit' && tx.user_id?.toString() === userId);
+      
+      return {
+        id: tx._id.toString(),
+        type: isIncome ? 'income' : 'expense',
+        title: tx.metadata?.description || tx.type || 'Transaction',
+        amount: Math.abs(tx.amount),
+        currency: tx.currency,
+        status: tx.status,
+        date: formatRelativeTime(tx.created_at),
+        rawDate: tx.created_at,
+        reference: tx.reference,
+        paymentMethod: tx.payment_method
+      };
+    });
     
     res.json({
       success: true,
-      transactions: [],
+      transactions: formattedTransactions,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: 0,
-        pages: 0
-      },
-      message: 'Transaction history temporarily unavailable - database migration in progress'
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
     });
 
   } catch (error) {
@@ -226,6 +274,23 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     });
   }
 });
+
+// Helper function for relative time
+function formatRelativeTime(date) {
+  const now = new Date();
+  const past = new Date(date);
+  const diffMs = now - past;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return past.toLocaleDateString();
+}
 
 /**
  * @route   GET /api/payments/methods
@@ -521,17 +586,14 @@ router.post('/paystack/initialize', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: `Minimum amount is ${currencySymbol}${minAmount}` });
     }
 
-    // Get user details
-    const { query } = require('../config/database');
-    const userResult = await query(`
-      SELECT email, username FROM users WHERE id = $1
-    `, [userId]);
-
-    if (userResult.rows.length === 0) {
+    // Get user details using MongoDB
+    const { User, Transaction } = require('../config/database');
+    const mongoose = require('mongoose');
+    
+    const user = await User.findById(userId).select('email username');
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    const user = userResult.rows[0];
 
     // Generate reference
     const reference = `PS_${Date.now()}_${userId.substring(0, 8)}`;
@@ -559,26 +621,22 @@ router.post('/paystack/initialize', authMiddleware, async (req, res) => {
       });
     }
 
-    // Create transaction record with detected currency
-    await query(`
-      INSERT INTO transactions (
-        user_id, service_id, amount, currency, payment_method, 
-        reference, status, country_code, metadata, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
-    `, [
-      userId,
-      serviceId || null,
-      amount,
-      currency,
-      'paystack',
-      reference,
-      'pending',
-      countryCode,
-      JSON.stringify({
+    // Create transaction record with detected currency using MongoDB
+    await Transaction.create({
+      user_id: mongoose.Types.ObjectId.createFromHexString(userId),
+      service_id: serviceId || null,
+      amount: amount,
+      currency: currency,
+      payment_method: 'paystack',
+      reference: reference,
+      status: 'pending',
+      country_code: countryCode,
+      type: type || 'wallet_topup',
+      metadata: {
         type: type || 'wallet_topup',
         description: description || `Wallet top-up - ${currencySymbol}${amount.toLocaleString()}`
-      })
-    ]);
+      }
+    });
 
     res.json({
       success: true,
@@ -606,39 +664,40 @@ router.post('/paystack-webhook', async (req, res) => {
     const { event, data } = req.body;
     
     if (event === 'charge.success') {
-      const { query } = require('../config/database');
+      const { User, Transaction, Subscription } = require('../config/database');
 
       console.log(`🔄 Processing Paystack webhook for: ${data.reference}`);
 
-      // Update transaction status
-      const transactionUpdate = await query(`
-        UPDATE transactions 
-        SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
-        WHERE reference = $1
-        RETURNING user_id, amount, currency
-      `, [data.reference]);
+      // Update transaction status using MongoDB
+      const transaction = await Transaction.findOneAndUpdate(
+        { reference: data.reference },
+        { $set: { status: 'confirmed', confirmed_at: new Date() } },
+        { new: true }
+      );
       
-      // Update subscription status
-      const subscriptionResult = await query(`
-        UPDATE subscriptions 
-        SET status = 'active', activated_at = CURRENT_TIMESTAMP
-        WHERE paystack_reference = $1
-        RETURNING user_id
-      `, [data.reference]);
+      // Update subscription status using MongoDB
+      const subscription = await Subscription.findOneAndUpdate(
+        { paystack_reference: data.reference },
+        { $set: { status: 'active', activated_at: new Date() } },
+        { new: true }
+      );
       
-      if (subscriptionResult.rows.length > 0) {
-        const userId = subscriptionResult.rows[0].user_id;
+      if (subscription) {
+        const userId = subscription.user_id.toString();
         
-        // Update user subscription status with tier and expiration
+        // Update user subscription status with tier and expiration using MongoDB
         try {
-          await query(`
-            UPDATE users 
-            SET is_subscribed = true, 
-                subscription_tier = 'premium',
-                subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `, [userId]);
+          const expiresAt = new Date();
+          expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+          
+          await User.findByIdAndUpdate(subscription.user_id, {
+            $set: {
+              isSubscribed: true,
+              subscriptionTier: 'premium',
+              subscriptionExpiresAt: expiresAt,
+              updatedAt: new Date()
+            }
+          });
           console.log(`✅ User subscription status updated for user: ${userId} (tier: premium, expires: 1 year)`);
         } catch (userUpdateError) {
           console.log(`⚠️  User update failed: ${userUpdateError.message}`);
@@ -670,14 +729,14 @@ router.post('/paystack-webhook', async (req, res) => {
         }
         
         console.log(`✅ Subscription activated for user: ${userId}`);
-      } else if (transactionUpdate.rows.length > 0) {
+      } else if (transaction) {
         // Notify user of transaction confirmation even if no subscription
-        const userId = transactionUpdate.rows[0].user_id;
+        const userId = transaction.user_id.toString();
         if (req.io) {
           req.io.to(`user_${userId}`).emit('payment_confirmed', {
             reference: data.reference,
-            amount: transactionUpdate.rows[0].amount,
-            currency: transactionUpdate.rows[0].currency,
+            amount: transaction.amount,
+            currency: transaction.currency,
             status: 'confirmed',
             timestamp: new Date().toISOString()
           });
@@ -700,23 +759,22 @@ router.post('/coinbase-webhook', async (req, res) => {
     const { event, data } = req.body;
     
     if (event.type === 'charge:confirmed') {
-      const { query } = require('../config/database');
+      const { Transaction } = require('../config/database');
       
-      // Update transaction status
-      const transactionUpdate = await query(`
-        UPDATE transactions 
-        SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
-        WHERE reference = $1
-        RETURNING user_id, amount, currency
-      `, [data.id]);
+      // Update transaction status using MongoDB
+      const transaction = await Transaction.findOneAndUpdate(
+        { reference: data.id },
+        { $set: { status: 'confirmed', confirmed_at: new Date() } },
+        { new: true }
+      );
       
       // Emit real-time notification for crypto payment
-      if (req.io && transactionUpdate.rows.length > 0) {
-        const userId = transactionUpdate.rows[0].user_id;
+      if (req.io && transaction) {
+        const userId = transaction.user_id.toString();
         req.io.to(`user_${userId}`).emit('payment_confirmed', {
           reference: data.id,
-          amount: transactionUpdate.rows[0].amount,
-          currency: transactionUpdate.rows[0].currency,
+          amount: transaction.amount,
+          currency: transaction.currency,
           paymentMethod: 'crypto',
           status: 'confirmed',
           timestamp: new Date().toISOString()
@@ -729,8 +787,8 @@ router.post('/coinbase-webhook', async (req, res) => {
             userId,
             type: 'payment',
             title: 'Crypto Payment Confirmed',
-            message: `Your crypto payment of ${transactionUpdate.rows[0].amount} ${transactionUpdate.rows[0].currency} has been confirmed!`,
-            data: { reference: data.id, amount: transactionUpdate.rows[0].amount, currency: transactionUpdate.rows[0].currency }
+            message: `Your crypto payment of ${transaction.amount} ${transaction.currency} has been confirmed!`,
+            data: { reference: data.id, amount: transaction.amount, currency: transaction.currency }
           });
         } catch (notifErr) {
           console.error('Failed to save crypto payment notification:', notifErr);
@@ -755,7 +813,8 @@ router.post('/coinbase-webhook', async (req, res) => {
 router.get('/balance', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { query } = require('../config/database');
+    const { Transaction } = require('../config/database');
+    const mongoose = require('mongoose');
     
     // Default response for mock user or when tables don't exist
     let earnings = 0;
@@ -765,39 +824,47 @@ router.get('/balance', authMiddleware, async (req, res) => {
     let pendingTransactions = 0;
     let currency = 'NGN';
     
-    // Try to get transaction summary - transactions table uses client_id/provider_id not user_id
+    const userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    
+    // Try to get transaction summary using MongoDB
     try {
-      const transactionResult = await query(`
-        SELECT 
-          COALESCE(SUM(CASE WHEN status = 'confirmed' OR status = 'completed' THEN amount ELSE 0 END), 0) as total_spent,
-          COUNT(CASE WHEN status = 'confirmed' OR status = 'completed' THEN 1 END) as completed_transactions,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_transactions
-        FROM transactions 
-        WHERE client_id = $1
-      `, [userId]);
+      const spentResult = await Transaction.aggregate([
+        { $match: { client_id: userObjectId } },
+        {
+          $group: {
+            _id: null,
+            total_spent: { $sum: { $cond: [{ $in: ['$status', ['confirmed', 'completed']] }, '$amount', 0] } },
+            completed_count: { $sum: { $cond: [{ $in: ['$status', ['confirmed', 'completed']] }, 1, 0] } },
+            pending_count: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } }
+          }
+        }
+      ]);
       
-      if (transactionResult.rows[0]) {
-        totalSpent = parseFloat(transactionResult.rows[0].total_spent) || 0;
-        completedTransactions = parseInt(transactionResult.rows[0].completed_transactions) || 0;
-        pendingTransactions = parseInt(transactionResult.rows[0].pending_transactions) || 0;
+      if (spentResult[0]) {
+        totalSpent = spentResult[0].total_spent || 0;
+        completedTransactions = spentResult[0].completed_count || 0;
+        pendingTransactions = spentResult[0].pending_count || 0;
       }
     } catch (dbError) {
       console.log('Transactions query failed, using defaults:', dbError.message);
     }
     
-    // Try to get earnings as a provider (provider_id = user receiving money)
+    // Try to get earnings as a provider (provider_id = user receiving money) using MongoDB
     try {
-      const escrowResult = await query(`
-        SELECT 
-          COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as earnings,
-          COALESCE(SUM(CASE WHEN status = 'pending' OR status = 'held' THEN amount ELSE 0 END), 0) as pending_earnings
-        FROM transactions
-        WHERE provider_id = $1
-      `, [userId]);
+      const earningsResult = await Transaction.aggregate([
+        { $match: { provider_id: userObjectId } },
+        {
+          $group: {
+            _id: null,
+            earnings: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$amount', 0] } },
+            pending_earnings: { $sum: { $cond: [{ $in: ['$status', ['pending', 'held']] }, '$amount', 0] } }
+          }
+        }
+      ]);
       
-      if (escrowResult.rows[0]) {
-        earnings = parseFloat(escrowResult.rows[0].earnings) || 0;
-        pendingEarnings = parseFloat(escrowResult.rows[0].pending_earnings) || 0;
+      if (earningsResult[0]) {
+        earnings = earningsResult[0].earnings || 0;
+        pendingEarnings = earningsResult[0].pending_earnings || 0;
       }
     } catch (dbError) {
       console.log('Escrow query failed, using defaults:', dbError.message);
@@ -842,7 +909,7 @@ router.get('/balance', authMiddleware, async (req, res) => {
 router.get('/wallet', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { query } = require('../config/database');
+    const { User, Transaction } = require('../config/database');
     
     let balance = 0;
     let escrowHeld = 0;
@@ -862,48 +929,43 @@ router.get('/wallet', authMiddleware, async (req, res) => {
       // Use default currency
     }
     
-    // Try to get balance from transactions
+    // Try to get balance from transactions using MongoDB
     try {
       // Get completed earnings (for providers)
-      const earningsResult = await query(`
-        SELECT COALESCE(SUM(amount), 0) as balance
-        FROM transactions 
-        WHERE provider_id = $1 AND status = 'completed'
-      `, [userId]);
+      const earningsResult = await Transaction.aggregate([
+        { $match: { provider_id: require('mongoose').Types.ObjectId.createFromHexString(userId), status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
       
       // Get total earnings (including released)
-      const totalEarningsResult = await query(`
-        SELECT COALESCE(SUM(amount), 0) as total_earnings
-        FROM transactions 
-        WHERE provider_id = $1 AND status IN ('completed', 'released')
-      `, [userId]);
+      const totalEarningsResult = await Transaction.aggregate([
+        { $match: { provider_id: require('mongoose').Types.ObjectId.createFromHexString(userId), status: { $in: ['completed', 'released'] } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
       
       // Get escrow held (as client - money waiting to be released)
-      const escrowResult = await query(`
-        SELECT COALESCE(SUM(amount), 0) as escrow_held
-        FROM transactions 
-        WHERE client_id = $1 AND status IN ('pending', 'held', 'escrow_held', 'in_progress')
-      `, [userId]);
+      const escrowResult = await Transaction.aggregate([
+        { $match: { client_id: require('mongoose').Types.ObjectId.createFromHexString(userId), status: { $in: ['pending', 'held', 'escrow_held', 'in_progress'] } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
       
       // Get pending withdrawals
-      const withdrawalResult = await query(`
-        SELECT COALESCE(SUM(amount), 0) as pending_withdrawal
-        FROM transactions 
-        WHERE user_id = $1 AND metadata->>'type' = 'withdrawal' AND status = 'pending'
-      `, [userId]);
+      const withdrawalResult = await Transaction.aggregate([
+        { $match: { user_id: require('mongoose').Types.ObjectId.createFromHexString(userId), type: 'withdrawal', status: 'pending' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+
+      // Get successful deposits (add to balance)
+      const depositResult = await Transaction.aggregate([
+        { $match: { user_id: require('mongoose').Types.ObjectId.createFromHexString(userId), type: 'deposit', status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
       
-      if (earningsResult.rows[0]) {
-        balance = parseFloat(earningsResult.rows[0].balance) || 0;
-      }
-      if (totalEarningsResult.rows[0]) {
-        totalEarnings = parseFloat(totalEarningsResult.rows[0].total_earnings) || 0;
-      }
-      if (escrowResult.rows[0]) {
-        escrowHeld = parseFloat(escrowResult.rows[0].escrow_held) || 0;
-      }
-      if (withdrawalResult.rows[0]) {
-        pendingWithdrawal = parseFloat(withdrawalResult.rows[0].pending_withdrawal) || 0;
-      }
+      balance = (earningsResult[0]?.total || 0) + (depositResult[0]?.total || 0);
+      totalEarnings = totalEarningsResult[0]?.total || 0;
+      escrowHeld = escrowResult[0]?.total || 0;
+      pendingWithdrawal = withdrawalResult[0]?.total || 0;
+      
     } catch (dbError) {
       console.log('Wallet query failed, using defaults:', dbError.message);
     }
@@ -942,7 +1004,8 @@ router.post('/deposit', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { amount } = req.body;
-    const { query } = require('../config/database');
+    const { User, Transaction } = require('../config/database');
+    const mongoose = require('mongoose');
 
     // Get user's country for currency detection
     const userCountry = await req.countryManager.getUserCountry(userId);
@@ -964,12 +1027,11 @@ router.post('/deposit', authMiddleware, async (req, res) => {
       });
     }
 
-    // Get user email
-    const userResult = await query('SELECT email, username FROM users WHERE id = $1', [userId]);
-    if (userResult.rows.length === 0) {
+    // Get user email using MongoDB
+    const user = await User.findById(userId).select('email username');
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const user = userResult.rows[0];
 
     // Generate reference
     const reference = `DEP_${Date.now()}_${userId.substring(0, 8)}`;
@@ -995,15 +1057,21 @@ router.post('/deposit', authMiddleware, async (req, res) => {
       });
     }
 
-    // Create transaction record
-    await query(`
-      INSERT INTO transactions (
-        user_id, amount, currency, payment_method, reference, status, country_code, metadata, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-    `, [
-      userId, amount, currency, 'paystack', reference, 'pending', countryCode,
-      JSON.stringify({ type: 'deposit', description: `Wallet deposit - ${currencySymbol}${amount.toLocaleString()}` })
-    ]);
+    // Create transaction record using MongoDB
+    await Transaction.create({
+      user_id: mongoose.Types.ObjectId.createFromHexString(userId),
+      amount: amount,
+      currency: currency,
+      payment_method: 'paystack',
+      reference: reference,
+      status: 'pending',
+      country_code: countryCode,
+      type: 'deposit',
+      metadata: { 
+        type: 'deposit', 
+        description: `Wallet deposit - ${currencySymbol}${amount.toLocaleString()}` 
+      }
+    });
 
     res.json({
       success: true,
@@ -1031,7 +1099,8 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { amount, bankCode, accountNumber, accountName } = req.body;
-    const { query } = require('../config/database');
+    const { User, Transaction } = require('../config/database');
+    const mongoose = require('mongoose');
 
     // Get user's country for currency detection
     const userCountry = await req.countryManager.getUserCountry(userId);
@@ -1057,14 +1126,25 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       });
     }
 
-    // Check available balance
-    const balanceResult = await query(`
-      SELECT COALESCE(SUM(amount), 0) as balance
-      FROM transactions 
-      WHERE provider_id = $1 AND status = 'completed'
-    `, [userId]);
+    // Check available balance using MongoDB
+    const userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
     
-    const availableBalance = parseFloat(balanceResult.rows[0]?.balance) || 0;
+    const earningsResult = await Transaction.aggregate([
+      { $match: { provider_id: userObjectId, status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const depositResult = await Transaction.aggregate([
+      { $match: { user_id: userObjectId, type: 'deposit', status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const withdrawnResult = await Transaction.aggregate([
+      { $match: { user_id: userObjectId, type: 'withdrawal', status: { $in: ['completed', 'pending'] } } },
+      { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
+    ]);
+    
+    const availableBalance = (earningsResult[0]?.total || 0) + (depositResult[0]?.total || 0) - (withdrawnResult[0]?.total || 0);
     
     if (amount > availableBalance) {
       return res.status(400).json({ 
@@ -1074,12 +1154,11 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       });
     }
 
-    // Get user info
-    const userResult = await query('SELECT email, username FROM users WHERE id = $1', [userId]);
-    if (userResult.rows.length === 0) {
+    // Get user info using MongoDB
+    const user = await User.findById(userId).select('email username');
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const user = userResult.rows[0];
 
     // Create transfer recipient with Paystack
     const recipientResult = await req.paystackManager.createTransferRecipient({
@@ -1113,22 +1192,25 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       });
     }
 
-    // Create withdrawal transaction record
-    await query(`
-      INSERT INTO transactions (
-        user_id, amount, currency, payment_method, reference, status, country_code, metadata, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-    `, [
-      userId, -amount, currency, 'paystack_transfer', reference, 'pending', countryCode,
-      JSON.stringify({ 
+    // Create withdrawal transaction record using MongoDB
+    await Transaction.create({
+      user_id: userObjectId,
+      amount: -amount, // Negative for withdrawal
+      currency: currency,
+      payment_method: 'paystack_transfer',
+      reference: reference,
+      status: 'pending',
+      country_code: countryCode,
+      type: 'withdrawal',
+      metadata: { 
         type: 'withdrawal', 
         bankCode: bankCode,
         accountNumber: accountNumber,
         accountName: accountName,
         recipientCode: recipientResult.recipient_code,
         transferCode: transferResult.transfer_code
-      })
-    ]);
+      }
+    });
 
     res.json({
       success: true,

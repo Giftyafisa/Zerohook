@@ -23,6 +23,8 @@ import {
   MenuItem,
   Alert,
   IconButton,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
 import {
@@ -38,18 +40,29 @@ import {
   VisibilityOff,
   QrCode2,
   Receipt,
+  Refresh as RefreshIcon,
+  ArrowBack as BackIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import useCurrency from '../hooks/useCurrency';
 
 const WalletPage = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Use currency hook for consistent currency symbol based on detected country
+  const { symbol: detectedCurrencySymbol, currencyCode: detectedCurrencyCode } = useCurrency();
+  
   const [loading, setLoading] = useState(true);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [depositDialog, setDepositDialog] = useState(false);
   const [withdrawDialog, setWithdrawDialog] = useState(false);
+  const [escrowDialog, setEscrowDialog] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [bankCode, setBankCode] = useState('');
@@ -61,54 +74,79 @@ const WalletPage = () => {
   const [processingDeposit, setProcessingDeposit] = useState(false);
   const [processingWithdraw, setProcessingWithdraw] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'escrow' ? 1 : 0);
   const [walletData, setWalletData] = useState({
     balance: 0,
     escrowHeld: 0,
     pendingWithdrawal: 0,
     totalEarnings: 0,
-    currency: 'NGN',
-    currencySymbol: '₦',
+    currency: '', // Will be set from detected currency or API
+    currencySymbol: '', // Will be set from detected currency or API
     transactions: []
   });
 
-  const mockTransactions = [
-    { id: 1, type: 'income', title: 'Service Payment', amount: 150.00, date: '2 hours ago', status: 'completed' },
-    { id: 2, type: 'expense', title: 'Platform Fee', amount: 7.50, date: '2 hours ago', status: 'completed' },
-    { id: 3, type: 'income', title: 'Escrow Release', amount: 200.00, date: 'Yesterday', status: 'completed' },
-    { id: 4, type: 'expense', title: 'Withdrawal', amount: 100.00, date: '2 days ago', status: 'completed' },
-  ];
+  const mockTransactions = [];
+
+  // Update wallet currency when detected currency changes (before API response arrives)
+  useEffect(() => {
+    if (detectedCurrencySymbol && !walletData.currencySymbol) {
+      setWalletData(prev => ({
+        ...prev,
+        currency: detectedCurrencyCode,
+        currencySymbol: detectedCurrencySymbol
+      }));
+    }
+  }, [detectedCurrencySymbol, detectedCurrencyCode, walletData.currencySymbol]);
+
+  // Fetch wallet data and transactions
+  const fetchWalletData = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Fetch wallet data
+      const walletResponse = await fetch(`${API_BASE_URL}/payments/wallet`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      // Fetch transactions
+      const txResponse = await fetch(`${API_BASE_URL}/payments/transactions?limit=10`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      let walletInfo = {};
+      let transactions = [];
+      
+      if (walletResponse.ok) {
+        const data = await walletResponse.json();
+        walletInfo = {
+          balance: data.wallet?.balance || data.balance || 0,
+          escrowHeld: data.wallet?.escrowHeld || data.escrowHeld || 0,
+          pendingWithdrawal: data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0,
+          totalEarnings: data.wallet?.totalEarnings || data.totalEarnings || 0,
+          currency: data.wallet?.currency || data.currency || detectedCurrencyCode,
+          currencySymbol: data.wallet?.currencySymbol || data.currencySymbol || detectedCurrencySymbol,
+        };
+      }
+      
+      if (txResponse.ok) {
+        const txData = await txResponse.json();
+        transactions = txData.transactions || [];
+      }
+      
+      setWalletData(prev => ({
+        ...prev,
+        ...walletInfo,
+        transactions
+      }));
+    } catch (error) {
+      console.error('Wallet fetch error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchWalletData = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/payments/wallet`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setWalletData({
-            balance: data.wallet?.balance || data.balance || 0,
-            escrowHeld: data.wallet?.escrowHeld || data.escrowHeld || 0,
-            pendingWithdrawal: data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0,
-            totalEarnings: data.wallet?.totalEarnings || data.totalEarnings || 0,
-            currency: data.wallet?.currency || data.currency || 'NGN',
-            currencySymbol: data.wallet?.currencySymbol || data.currencySymbol || '₦',
-            transactions: data.transactions || mockTransactions
-          });
-        } else {
-          setWalletData(prev => ({ ...prev, transactions: mockTransactions }));
-        }
-      } catch (error) {
-        console.error('Wallet fetch error:', error);
-        setWalletData(prev => ({ ...prev, transactions: mockTransactions }));
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (isAuthenticated) {
       fetchWalletData();
     } else {
@@ -333,13 +371,13 @@ const WalletPage = () => {
               </Box>
               <Typography sx={styles.actionText}>Withdraw</Typography>
             </Box>
-            <Box sx={styles.actionButton} onClick={() => navigate('/transactions')}>
+            <Box sx={styles.actionButton} onClick={fetchWalletData}>
               <Box sx={{ ...styles.actionIconCircle, background: 'linear-gradient(135deg, #a78bfa, #c4b5fd)' }}>
-                <Receipt sx={{ color: '#fff', fontSize: 22 }} />
+                <RefreshIcon sx={{ color: '#fff', fontSize: 22 }} />
               </Box>
-              <Typography sx={styles.actionText}>History</Typography>
+              <Typography sx={styles.actionText}>Refresh</Typography>
             </Box>
-            <Box sx={styles.actionButton} onClick={() => navigate('/transactions')}>
+            <Box sx={styles.actionButton} onClick={() => setEscrowDialog(true)}>
               <Box sx={{ ...styles.actionIconCircle, background: 'linear-gradient(135deg, #00ff88, #00cc6a)' }}>
                 <LockIcon sx={{ color: '#000', fontSize: 22 }} />
               </Box>
@@ -356,10 +394,9 @@ const WalletPage = () => {
             <HistoryIcon sx={{ color: '#00f2ea', fontSize: 20 }} />
             <Typography sx={styles.sectionTitle}>Recent Activity</Typography>
           </Box>
-          <Box sx={styles.viewAllButton} onClick={() => navigate('/transactions')}>
-            <Typography sx={styles.viewAllText}>View All</Typography>
-            <ChevronRight sx={{ fontSize: 18, color: 'rgba(255,255,255,0.5)' }} />
-          </Box>
+          <IconButton onClick={fetchWalletData} size="small" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+            <RefreshIcon fontSize="small" />
+          </IconButton>
         </Box>
 
         {/* Transaction List */}
@@ -408,55 +445,125 @@ const WalletPage = () => {
         </Box>
       </Box>
 
-      {/* Deposit Dialog */}
+      {/* Deposit Dialog - SportyBet Style */}
       <Dialog 
         open={depositDialog} 
         onClose={() => setDepositDialog(false)}
-        PaperProps={{ sx: styles.dialog }}
-        fullWidth
-        maxWidth="sm"
+        PaperProps={{ 
+          sx: { 
+            ...styles.fullScreenDialog,
+            m: 0,
+            maxHeight: '100%',
+            height: '100%',
+            maxWidth: '100%',
+            borderRadius: 0
+          } 
+        }}
+        fullScreen
       >
-        <DialogTitle sx={styles.dialogTitle}>
-          <AddIcon sx={{ mr: 1, color: '#00f2ea' }} />
-          Add Money
-        </DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <Typography sx={styles.dialogSubtext}>
-            Add funds to your wallet via Paystack
-          </Typography>
-          <TextField
+        {/* Header */}
+        <Box sx={styles.depositHeader}>
+          <IconButton onClick={() => setDepositDialog(false)} sx={{ color: '#fff' }}>
+            <BackIcon />
+          </IconButton>
+          <Typography sx={styles.depositHeaderTitle}>Deposit</Typography>
+          <Box sx={{ width: 40 }} /> {/* Spacer */}
+        </Box>
+
+        {/* Payment Method Tabs */}
+        <Box sx={styles.paymentTabs}>
+          <Box sx={styles.paymentTabActive}>
+            <WalletIcon sx={{ fontSize: 18, mr: 0.5 }} />
+            Mobile Money
+          </Box>
+          <Box sx={styles.paymentTab}>
+            Card
+          </Box>
+        </Box>
+
+        {/* Content */}
+        <Box sx={styles.depositContent}>
+          {/* Info Banner */}
+          <Box sx={styles.infoBanner}>
+            <WarningIcon sx={{ color: '#ffc107', mr: 1, fontSize: 20 }} />
+            <Typography sx={styles.infoBannerText}>
+              Payments are processed securely via Paystack. You'll be redirected to complete payment.
+            </Typography>
+          </Box>
+
+          {/* Balance Display */}
+          <Box sx={styles.balanceDisplay}>
+            <Typography sx={styles.balanceDisplayLabel}>Balance ({walletData.currency})</Typography>
+            <Typography sx={styles.balanceDisplayValue}>
+              {walletData.currencySymbol}{formatAmount(walletData.balance)}
+            </Typography>
+          </Box>
+
+          {/* Amount Input */}
+          <Box sx={styles.amountInputContainer}>
+            <Typography sx={styles.amountLabel}>
+              Amount ({walletData.currency})
+            </Typography>
+            <Box sx={styles.amountInputWrapper}>
+              <Typography sx={styles.currencyPrefix}>{walletData.currencySymbol}</Typography>
+              <TextField
+                fullWidth
+                type="number"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                placeholder="0.00"
+                variant="standard"
+                sx={styles.amountInput}
+                InputProps={{ disableUnderline: true }}
+              />
+            </Box>
+            <Typography sx={styles.minAmount}>min. {walletData.currencySymbol}1.00</Typography>
+          </Box>
+
+          {/* Quick Amount Buttons */}
+          <Box sx={styles.quickAmountRow}>
+            {[5, 10, 20, 50, 100].map((amount) => (
+              <Box 
+                key={amount}
+                sx={styles.quickAmountBtn}
+                onClick={() => setDepositAmount(amount.toString())}
+              >
+                +{walletData.currencySymbol}{amount}
+              </Box>
+            ))}
+          </Box>
+
+          {/* Deposit Button */}
+          <Button
             fullWidth
-            label="Amount"
-            type="number"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
-            placeholder="0.00"
-            sx={styles.textField}
-            InputProps={{
-              startAdornment: (
-                <Typography sx={{ color: '#00f2ea', fontWeight: 700, mr: 1 }}>
-                  {walletData.currencySymbol}
-                </Typography>
-              )
-            }}
-          />
-          <Alert severity="info" sx={styles.infoAlert}>
-            You'll be redirected to Paystack to complete the payment securely.
-          </Alert>
-        </DialogContent>
-        <DialogActions sx={styles.dialogActions}>
-          <Button onClick={() => setDepositDialog(false)} sx={styles.cancelButton}>
-            Cancel
-          </Button>
-          <Button 
-            variant="contained" 
+            variant="contained"
             onClick={handleDeposit}
-            disabled={processingDeposit || !depositAmount}
-            sx={styles.primaryButton}
+            disabled={processingDeposit || !depositAmount || parseFloat(depositAmount) < 1}
+            sx={styles.depositButton}
           >
-            {processingDeposit ? <CircularProgress size={20} /> : 'Continue'}
+            {processingDeposit ? (
+              <CircularProgress size={24} sx={{ color: '#fff' }} />
+            ) : (
+              `Top Up Now`
+            )}
           </Button>
-        </DialogActions>
+
+          {/* Info Points */}
+          <Box sx={styles.infoPoints}>
+            <Typography sx={styles.infoPoint}>
+              1. Maximum per transaction is {walletData.currencySymbol}50,000.00
+            </Typography>
+            <Typography sx={styles.infoPoint}>
+              2. Minimum per transaction is {walletData.currencySymbol}1.00
+            </Typography>
+            <Typography sx={styles.infoPoint}>
+              3. Deposit is free, no transaction fees.
+            </Typography>
+            <Typography sx={styles.infoPoint}>
+              4. Funds will be available immediately after payment.
+            </Typography>
+          </Box>
+        </Box>
       </Dialog>
 
       {/* Withdraw Dialog */}
@@ -541,6 +648,63 @@ const WalletPage = () => {
             sx={styles.withdrawButton}
           >
             {processingWithdraw ? <CircularProgress size={20} /> : 'Withdraw'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Escrow Info Dialog */}
+      <Dialog 
+        open={escrowDialog} 
+        onClose={() => setEscrowDialog(false)}
+        PaperProps={{ sx: styles.dialog }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle sx={styles.dialogTitle}>
+          <LockIcon sx={{ mr: 1, color: '#00ff88' }} />
+          Escrow Protection
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Box sx={{ mb: 3 }}>
+            <Typography sx={{ color: 'rgba(255,255,255,0.8)', mb: 2, lineHeight: 1.6 }}>
+              Escrow is your safety net. When a client books a service, their payment is held securely 
+              until the service is completed and both parties confirm satisfaction.
+            </Typography>
+            
+            <Box sx={{ 
+              background: 'rgba(0,255,136,0.1)', 
+              borderRadius: 2, 
+              p: 2, 
+              mb: 2,
+              border: '1px solid rgba(0,255,136,0.2)'
+            }}>
+              <Typography sx={{ color: '#00ff88', fontWeight: 600, mb: 1 }}>Currently in Escrow</Typography>
+              <Typography sx={{ color: '#fff', fontSize: '1.5rem', fontWeight: 700 }}>
+                {walletData.currencySymbol}{formatAmount(walletData.escrowHeld)}
+              </Typography>
+            </Box>
+
+            <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', mb: 2 }}>
+              <strong style={{ color: '#00f2ea' }}>How it works:</strong>
+            </Typography>
+            <Box component="ul" sx={{ color: 'rgba(255,255,255,0.7)', pl: 2, '& li': { mb: 1 } }}>
+              <li>Client books and pays for your service</li>
+              <li>Payment is held in secure escrow</li>
+              <li>You provide the service</li>
+              <li>Client confirms completion</li>
+              <li>Funds are released to your wallet (minus platform fee)</li>
+            </Box>
+
+            {walletData.escrowHeld > 0 && (
+              <Alert severity="info" sx={{ mt: 2, background: 'rgba(0,242,234,0.1)' }}>
+                You have active escrow funds. They will be released once services are confirmed complete.
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={styles.dialogActions}>
+          <Button onClick={() => setEscrowDialog(false)} sx={styles.primaryButton}>
+            Got it
           </Button>
         </DialogActions>
       </Dialog>
@@ -871,6 +1035,192 @@ const styles = {
   },
   cancelButton: {
     color: 'rgba(255,255,255,0.6)',
+  },
+  
+  // SportyBet-style Deposit Dialog
+  fullScreenDialog: {
+    background: '#0a0a0f',
+  },
+  depositHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    background: 'linear-gradient(135deg, #e53935, #c62828)',
+    px: 1,
+    py: 1.5,
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
+  },
+  depositHeaderTitle: {
+    color: '#fff',
+    fontSize: '1.1rem',
+    fontWeight: 600,
+  },
+  paymentTabs: {
+    display: 'flex',
+    background: '#1a1a2e',
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+  },
+  paymentTab: {
+    flex: 1,
+    py: 1.5,
+    px: 2,
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '0.85rem',
+    fontWeight: 500,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    '&:hover': {
+      background: 'rgba(255,255,255,0.05)',
+    },
+  },
+  paymentTabActive: {
+    flex: 1,
+    py: 1.5,
+    px: 2,
+    textAlign: 'center',
+    color: '#00f2ea',
+    fontSize: '0.85rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    borderBottom: '2px solid #00f2ea',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  depositContent: {
+    p: 2,
+    flex: 1,
+    overflowY: 'auto',
+  },
+  infoBanner: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    background: 'rgba(255, 193, 7, 0.1)',
+    border: '1px solid rgba(255, 193, 7, 0.3)',
+    borderRadius: 2,
+    p: 1.5,
+    mb: 3,
+  },
+  infoBannerText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: '0.8rem',
+    lineHeight: 1.5,
+  },
+  balanceDisplay: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    py: 1.5,
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    mb: 2,
+  },
+  balanceDisplayLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '0.9rem',
+  },
+  balanceDisplayValue: {
+    color: '#fff',
+    fontSize: '1rem',
+    fontWeight: 600,
+  },
+  amountInputContainer: {
+    mb: 3,
+  },
+  amountLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '0.85rem',
+    mb: 1,
+  },
+  amountInputWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    background: 'rgba(255,255,255,0.05)',
+    borderRadius: 2,
+    border: '1px solid rgba(255,255,255,0.15)',
+    px: 2,
+    py: 1.5,
+  },
+  currencyPrefix: {
+    color: '#00f2ea',
+    fontWeight: 700,
+    fontSize: '1.2rem',
+    mr: 1,
+  },
+  amountInput: {
+    '& .MuiInputBase-input': {
+      color: '#fff',
+      fontSize: '1.2rem',
+      fontWeight: 600,
+      p: 0,
+      '&::placeholder': {
+        color: 'rgba(255,255,255,0.3)',
+      },
+    },
+  },
+  minAmount: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '0.75rem',
+    mt: 0.5,
+    textAlign: 'right',
+  },
+  quickAmountRow: {
+    display: 'flex',
+    gap: 1,
+    mb: 3,
+    flexWrap: 'wrap',
+  },
+  quickAmountBtn: {
+    flex: '1 1 auto',
+    minWidth: 60,
+    py: 1,
+    px: 1.5,
+    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: 1.5,
+    color: '#fff',
+    fontSize: '0.85rem',
+    fontWeight: 500,
+    textAlign: 'center',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    '&:hover': {
+      background: 'rgba(0,242,234,0.15)',
+      borderColor: '#00f2ea',
+    },
+    '&:active': {
+      transform: 'scale(0.95)',
+    },
+  },
+  depositButton: {
+    background: 'linear-gradient(135deg, #00f2ea, #00d4d0)',
+    color: '#000',
+    fontWeight: 700,
+    fontSize: '1rem',
+    py: 1.5,
+    borderRadius: 2,
+    textTransform: 'none',
+    mb: 3,
+    '&:hover': {
+      background: 'linear-gradient(135deg, #00d4d0, #00b4b0)',
+    },
+    '&:disabled': {
+      background: 'rgba(255,255,255,0.1)',
+      color: 'rgba(255,255,255,0.3)',
+    },
+  },
+  infoPoints: {
+    mt: 2,
+  },
+  infoPoint: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '0.8rem',
+    mb: 0.75,
+    lineHeight: 1.5,
   },
 };
 

@@ -13,7 +13,10 @@ import {
   DialogActions,
   TextField,
   MenuItem,
-  Alert
+  Alert,
+  IconButton,
+  InputAdornment,
+  Slide
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import { API_BASE_URL } from '../config/constants';
@@ -26,12 +29,24 @@ import {
   Lock as HeldIcon,
   CheckCircle as ReleaseIcon,
   Warning as DisputeIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  ArrowBack as BackIcon,
+  Home as HomeIcon,
+  Help as HelpIcon,
+  PhoneAndroid as MobileIcon,
+  CreditCard as CardIcon,
+  Receipt as ReceiptIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useCurrency from '../hooks/useCurrency';
+
+// Fullscreen transition for dialogs
+const Transition = React.forwardRef(function Transition(props, ref) {
+  return <Slide direction="up" ref={ref} {...props} />;
+});
 
 // Tab name to index mapping for URL-based tab selection
 const TAB_MAP = {
@@ -67,6 +82,17 @@ const MyMoneyPage = () => {
   const [withdrawDialog, setWithdrawDialog] = useState(false);
   const [addAmount, setAddAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('mobile'); // 'mobile', 'card'
+  
+  // Currency-specific quick amounts
+  const getQuickAmounts = () => {
+    // Ghana cedis use smaller amounts
+    if (symbol === '₵') return [2, 5, 10, 50, 100];
+    // Nigerian naira use larger amounts  
+    if (symbol === '₦') return [1000, 2000, 5000, 10000, 20000];
+    // Default for other currencies
+    return [10, 20, 50, 100, 500];
+  };
 
   useEffect(() => {
     const fetchAllData = async () => {
@@ -207,8 +233,9 @@ const MyMoneyPage = () => {
 
   // Add money via Paystack
   const handleAddMoney = async () => {
-    if (!addAmount || Number(addAmount) < 100) {
-      toast.warning(`Minimum amount is ${symbol}100`);
+    const minAmount = symbol === '₵' ? 1 : 100; // GHS min is 1, NGN min is 100
+    if (!addAmount || Number(addAmount) < minAmount) {
+      toast.warning(`Minimum amount is ${symbol}${minAmount}`);
       return;
     }
     
@@ -524,94 +551,231 @@ const MyMoneyPage = () => {
         </Box>
       )}
 
-      {/* Add Money Dialog */}
+      {/* SportyBet-Style Add Money Dialog - Fullscreen */}
       <Dialog 
         open={addMoneyDialog} 
         onClose={() => setAddMoneyDialog(false)}
-        PaperProps={{ sx: styles.dialog }}
+        fullScreen
+        TransitionComponent={Transition}
+        PaperProps={{ sx: styles.fullscreenDialog }}
       >
-        <DialogTitle sx={styles.dialogTitle}>Add Money</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Add funds to your wallet via Paystack
-          </Typography>
-          <TextField
-            fullWidth
-            label={`Amount (${symbol})`}
-            type="number"
-            value={addAmount}
-            onChange={(e) => setAddAmount(e.target.value)}
-            sx={styles.textField}
-            placeholder="Enter amount"
-          />
-          <Box sx={styles.quickAmounts}>
-            {[1000, 5000, 10000, 20000].map((amt) => (
-              <Chip
+        {/* Header - SportyBet Red Style */}
+        <Box sx={styles.depositHeader}>
+          <IconButton onClick={() => setAddMoneyDialog(false)} sx={{ color: '#fff' }}>
+            <BackIcon />
+          </IconButton>
+          <Typography sx={styles.depositHeaderTitle}>Deposit</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <IconButton sx={{ color: '#fff' }}>
+              <HelpIcon />
+            </IconButton>
+            <IconButton onClick={() => navigate('/')} sx={{ color: '#fff' }}>
+              <HomeIcon />
+            </IconButton>
+          </Box>
+        </Box>
+
+        {/* Payment Method Tabs */}
+        <Box sx={styles.paymentTabs}>
+          <Box 
+            sx={{ 
+              ...styles.paymentTab, 
+              ...(paymentMethod === 'mobile' && styles.activePaymentTab) 
+            }}
+            onClick={() => setPaymentMethod('mobile')}
+          >
+            <MobileIcon sx={{ fontSize: 18 }} />
+            <Typography>Mobile Money</Typography>
+          </Box>
+          <Box 
+            sx={{ 
+              ...styles.paymentTab, 
+              ...(paymentMethod === 'card' && styles.activePaymentTab) 
+            }}
+            onClick={() => setPaymentMethod('card')}
+          >
+            <CardIcon sx={{ fontSize: 18 }} />
+            <Typography>Card</Typography>
+            <Chip label="NEW" size="small" sx={styles.newBadge} />
+          </Box>
+        </Box>
+
+        {/* Content */}
+        <Box sx={styles.depositContent}>
+          {/* Info Banner */}
+          <Box sx={styles.infoBanner}>
+            <InfoIcon sx={{ color: '#ffa726', fontSize: 20 }} />
+            <Typography sx={styles.infoBannerText}>
+              {paymentMethod === 'mobile' 
+                ? 'Mobile Money deposits are processed instantly via Paystack.'
+                : 'Card payments are secure and processed via Paystack.'}
+            </Typography>
+          </Box>
+
+          {/* Balance Display */}
+          <Box sx={styles.balanceDisplay}>
+            <Typography sx={styles.balanceDisplayLabel}>Balance ({symbol.replace(/[^A-Z]/g, '') || 'GHS'})</Typography>
+            <Typography sx={styles.balanceDisplayAmount}>{Number(walletData.balance).toFixed(2)}</Typography>
+          </Box>
+
+          {/* Amount Input */}
+          <Box sx={styles.amountInputSection}>
+            <Box sx={styles.amountInputRow}>
+              <Typography sx={styles.amountLabel}>Amount ({symbol.replace(/[^A-Z]/g, '') || 'GHS'})</Typography>
+              <Typography sx={styles.minLabel}>min. 1.00</Typography>
+            </Box>
+            <TextField
+              fullWidth
+              value={addAmount}
+              onChange={(e) => setAddAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder="0.00"
+              sx={styles.amountTextField}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Typography sx={{ color: '#fff', fontWeight: 600 }}>{symbol}</Typography>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
+
+          {/* Quick Amount Buttons */}
+          <Box sx={styles.quickAmountGrid}>
+            {getQuickAmounts().map((amt) => (
+              <Button
                 key={amt}
-                label={`${symbol}${amt.toLocaleString()}`}
+                variant="outlined"
                 onClick={() => setAddAmount(amt.toString())}
-                sx={{ 
-                  bgcolor: addAmount === amt.toString() ? '#00f2ea' : 'rgba(255,255,255,0.1)',
-                  color: addAmount === amt.toString() ? '#000' : '#fff'
+                sx={{
+                  ...styles.quickAmountBtn,
+                  ...(addAmount === amt.toString() && styles.quickAmountBtnActive)
                 }}
-              />
+              >
+                +{amt}
+              </Button>
             ))}
           </Box>
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setAddMoneyDialog(false)} sx={{ color: '#888' }}>
-            Cancel
-          </Button>
-          <Button 
-            variant="contained" 
+
+          {/* Top Up Button */}
+          <Button
+            fullWidth
+            variant="contained"
             onClick={handleAddMoney}
-            disabled={actionLoading || !addAmount}
-            sx={styles.primaryBtn}
+            disabled={actionLoading || !addAmount || Number(addAmount) < 1}
+            sx={styles.topUpButton}
           >
-            {actionLoading ? <CircularProgress size={20} /> : 'Continue'}
+            {actionLoading ? <CircularProgress size={24} sx={{ color: '#fff' }} /> : 'Top Up Now'}
           </Button>
-        </DialogActions>
+
+          {/* Info List */}
+          <Box sx={styles.infoList}>
+            <Typography sx={styles.infoItem}>1. Maximum per transaction is {symbol}50,000.00</Typography>
+            <Typography sx={styles.infoItem}>2. Minimum per transaction is {symbol}1.00</Typography>
+            <Typography sx={styles.infoItem}>3. Deposit is free, no transaction fees.</Typography>
+            <Typography sx={styles.infoItem}>4. Powered by Paystack - secure & instant.</Typography>
+          </Box>
+        </Box>
       </Dialog>
 
-      {/* Withdraw Dialog */}
+      {/* Withdraw Dialog - Also Improved */}
       <Dialog 
         open={withdrawDialog} 
         onClose={() => setWithdrawDialog(false)}
-        PaperProps={{ sx: styles.dialog }}
+        fullScreen
+        TransitionComponent={Transition}
+        PaperProps={{ sx: styles.fullscreenDialog }}
       >
-        <DialogTitle sx={styles.dialogTitle}>Withdraw</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Available: {symbol}{Number(walletData.balance).toLocaleString()}
-          </Typography>
-          <TextField
+        {/* Header */}
+        <Box sx={{ ...styles.depositHeader, bgcolor: '#7c4dff' }}>
+          <IconButton onClick={() => setWithdrawDialog(false)} sx={{ color: '#fff' }}>
+            <BackIcon />
+          </IconButton>
+          <Typography sx={styles.depositHeaderTitle}>Withdraw</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <IconButton sx={{ color: '#fff' }}>
+              <HelpIcon />
+            </IconButton>
+          </Box>
+        </Box>
+
+        <Box sx={styles.depositContent}>
+          {/* Available Balance */}
+          <Box sx={{ 
+            bgcolor: 'rgba(124, 77, 255, 0.15)', 
+            borderRadius: '12px', 
+            padding: '16px',
+            marginBottom: '20px',
+            border: '1px solid rgba(124, 77, 255, 0.3)'
+          }}>
+            <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', mb: 0.5 }}>
+              Available Balance
+            </Typography>
+            <Typography sx={{ color: '#fff', fontSize: '28px', fontWeight: 700 }}>
+              {symbol}{Number(walletData.balance).toLocaleString()}
+            </Typography>
+          </Box>
+
+          {/* Amount Input */}
+          <Box sx={styles.amountInputSection}>
+            <Typography sx={styles.amountLabel}>Withdrawal Amount</Typography>
+            <TextField
+              fullWidth
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder="0.00"
+              sx={styles.amountTextField}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Typography sx={{ color: '#fff', fontWeight: 600 }}>{symbol}</Typography>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
+
+          {/* Quick Amount Buttons */}
+          <Box sx={styles.quickAmountGrid}>
+            {[walletData.balance * 0.25, walletData.balance * 0.5, walletData.balance * 0.75, walletData.balance].map((amt, idx) => (
+              <Button
+                key={idx}
+                variant="outlined"
+                onClick={() => setWithdrawAmount(Math.floor(amt).toString())}
+                sx={{
+                  ...styles.quickAmountBtn,
+                  ...(withdrawAmount === Math.floor(amt).toString() && styles.quickAmountBtnActive)
+                }}
+              >
+                {['25%', '50%', '75%', 'All'][idx]}
+              </Button>
+            ))}
+          </Box>
+
+          {/* Withdraw Button */}
+          <Button
             fullWidth
-            label={`Amount (${symbol})`}
-            type="number"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(e.target.value)}
-            sx={styles.textField}
-            placeholder="Enter amount"
-          />
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setWithdrawDialog(false)} sx={{ color: '#888' }}>
-            Cancel
-          </Button>
-          <Button 
-            variant="contained" 
+            variant="contained"
             onClick={handleWithdraw}
             disabled={actionLoading || !withdrawAmount || Number(withdrawAmount) > walletData.balance}
-            sx={{ ...styles.primaryBtn, bgcolor: '#ff0055' }}
+            sx={{ ...styles.topUpButton, bgcolor: '#7c4dff', '&:hover': { bgcolor: '#651fff' } }}
           >
-            {actionLoading ? <CircularProgress size={20} /> : 'Withdraw'}
+            {actionLoading ? <CircularProgress size={24} sx={{ color: '#fff' }} /> : 'Withdraw Now'}
           </Button>
-        </DialogActions>
+
+          {/* Info */}
+          <Box sx={styles.infoList}>
+            <Typography sx={styles.infoItem}>• Withdrawals are processed within 24 hours</Typography>
+            <Typography sx={styles.infoItem}>• Funds will be sent to your registered bank account</Typography>
+            <Typography sx={styles.infoItem}>• Minimum withdrawal is {symbol}100</Typography>
+          </Box>
+        </Box>
       </Dialog>
     </Box>
   );
 };
 
+// Styles
 const styles = {
   container: {
     minHeight: '100vh',
@@ -799,6 +963,182 @@ const styles = {
     '&:hover': {
       bgcolor: '#00d4ce'
     }
+  },
+  
+  // SportyBet-Style Deposit Dialog Styles
+  fullscreenDialog: {
+    bgcolor: '#1a1a2e',
+    backgroundImage: 'none'
+  },
+  depositHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    bgcolor: '#d32f2f',
+    padding: '12px 8px',
+    position: 'sticky',
+    top: 0,
+    zIndex: 10
+  },
+  depositHeaderTitle: {
+    color: '#fff',
+    fontWeight: 700,
+    fontSize: '18px'
+  },
+  paymentTabs: {
+    display: 'flex',
+    bgcolor: '#252542',
+    borderBottom: '1px solid rgba(255,255,255,0.1)'
+  },
+  paymentTab: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+    padding: '14px',
+    cursor: 'pointer',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '14px',
+    borderBottom: '2px solid transparent',
+    transition: 'all 0.2s',
+    '&:hover': {
+      color: '#fff'
+    }
+  },
+  activePaymentTab: {
+    color: '#fff',
+    borderBottom: '2px solid #fff',
+    fontWeight: 600
+  },
+  newBadge: {
+    bgcolor: '#4caf50',
+    color: '#fff',
+    height: '18px',
+    fontSize: '10px',
+    fontWeight: 700
+  },
+  depositContent: {
+    padding: '16px',
+    flex: 1,
+    overflowY: 'auto'
+  },
+  infoBanner: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 1.5,
+    bgcolor: 'rgba(255, 167, 38, 0.15)',
+    borderRadius: '8px',
+    padding: '12px',
+    marginBottom: '20px',
+    border: '1px solid rgba(255, 167, 38, 0.3)'
+  },
+  infoBannerText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: '13px',
+    lineHeight: 1.5
+  },
+  balanceDisplay: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 1,
+    marginBottom: '16px'
+  },
+  balanceDisplayLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '14px'
+  },
+  balanceDisplayAmount: {
+    color: '#fff',
+    fontWeight: 600,
+    fontSize: '16px'
+  },
+  amountInputSection: {
+    marginBottom: '16px'
+  },
+  amountInputRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginBottom: '8px'
+  },
+  amountLabel: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: '14px',
+    fontWeight: 500
+  },
+  minLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '13px'
+  },
+  amountTextField: {
+    '& .MuiOutlinedInput-root': {
+      bgcolor: 'rgba(255,255,255,0.05)',
+      color: '#fff',
+      fontSize: '18px',
+      fontWeight: 600,
+      '& fieldset': { 
+        borderColor: 'rgba(255,255,255,0.2)',
+        borderRadius: '8px'
+      },
+      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+      '&.Mui-focused fieldset': { borderColor: '#00f2ea' }
+    },
+    '& input::placeholder': {
+      color: 'rgba(255,255,255,0.3)'
+    }
+  },
+  quickAmountGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, 1fr)',
+    gap: '8px',
+    marginBottom: '24px'
+  },
+  quickAmountBtn: {
+    borderColor: 'rgba(255,255,255,0.2)',
+    color: '#fff',
+    borderRadius: '6px',
+    padding: '10px 4px',
+    fontSize: '14px',
+    fontWeight: 500,
+    minWidth: 0,
+    '&:hover': {
+      borderColor: '#00f2ea',
+      bgcolor: 'rgba(0, 242, 234, 0.1)'
+    }
+  },
+  quickAmountBtnActive: {
+    borderColor: '#00f2ea',
+    bgcolor: 'rgba(0, 242, 234, 0.15)',
+    color: '#00f2ea'
+  },
+  topUpButton: {
+    bgcolor: '#666',
+    color: '#fff',
+    borderRadius: '8px',
+    padding: '14px',
+    fontSize: '16px',
+    fontWeight: 600,
+    textTransform: 'none',
+    marginBottom: '24px',
+    '&:hover': {
+      bgcolor: '#00f2ea',
+      color: '#000'
+    },
+    '&:disabled': {
+      bgcolor: '#444',
+      color: '#888'
+    }
+  },
+  infoList: {
+    borderTop: '1px solid rgba(255,255,255,0.1)',
+    paddingTop: '16px'
+  },
+  infoItem: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '13px',
+    marginBottom: '8px',
+    lineHeight: 1.5
   }
 };
 

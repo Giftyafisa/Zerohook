@@ -8,6 +8,8 @@
  * - Bottom: Clean name/location/bio overlay
  * - Stats integrated into profile info, not separate chips
  * - NO profile counter (removed per user request)
+ * - TikTok-style engagement tracking (view duration, scroll, etc.)
+ * - Uber/Bolt-style location sorting (same country first, closest first)
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -23,6 +25,8 @@ import {
   ListItemText,
   ListItemIcon,
   Divider,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   LocationOn,
@@ -39,15 +43,20 @@ import {
   TrendingUp,
   Person,
   AccessTime,
+  MyLocation,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../store/slices/authSlice';
+import { selectDetectedCountry, selectUserCountry } from '../store/slices/countrySlice';
 import { API_BASE_URL } from '../config/constants';
 import { resolveProfileImage } from '../utils/imageUtils';
 import { VerificationBadge } from './ui/StatusBadge';
+import ProfileCompletionReminder from './ProfileCompletionReminder';
 import { motion, AnimatePresence } from 'framer-motion';
+import useCurrency from '../hooks/useCurrency';
+import useProfileEngagement from '../hooks/useProfileEngagement';
 
 // ============================================
 // TIKTOK-STYLE TOP NAVIGATION
@@ -302,15 +311,6 @@ const SearchOverlay = ({ open, onClose }) => {
                     }
                   }}
                 />
-                {/* Placeholder for thumbnail */}
-                <Box
-                  sx={{
-                    width: 40,
-                    height: 50,
-                    bgcolor: 'rgba(255,255,255,0.1)',
-                    borderRadius: 1,
-                  }}
-                />
               </ListItem>
             ))}
           </List>
@@ -322,6 +322,7 @@ const SearchOverlay = ({ open, onClose }) => {
 
 // ============================================
 // FULL-SCREEN PROFILE CARD - REDESIGNED
+// With TikTok-style engagement tracking
 // ============================================
 const FullScreenProfileCard = ({
   profile,
@@ -330,6 +331,39 @@ const FullScreenProfileCard = ({
   onViewProfile,
   index,
 }) => {
+  // Use the currency hook for consistent currency symbol based on detected country
+  const { symbol: detectedCurrencySymbol } = useCurrency();
+  
+  // TikTok-style engagement tracking
+  const {
+    startTracking,
+    stopTracking,
+    trackScrollDepth,
+    trackBioExpand,
+    trackContactClick
+  } = useProfileEngagement(profile?.id);
+  
+  // Track view start time for this profile
+  const viewStartRef = useRef(null);
+  const hasTrackedRef = useRef(false);
+  
+  // Start tracking when profile becomes visible
+  useEffect(() => {
+    if (profile?.id && !hasTrackedRef.current) {
+      viewStartRef.current = Date.now();
+      startTracking();
+      hasTrackedRef.current = true;
+    }
+    
+    // Cleanup: stop tracking when profile changes or unmounts
+    return () => {
+      if (hasTrackedRef.current && profile?.id) {
+        stopTracking('exit');
+        hasTrackedRef.current = false;
+      }
+    };
+  }, [profile?.id, startTracking, stopTracking]);
+  
   const profileData = profile.profileData || {};
   const displayName = profileData.firstName || profile.username || 'User';
   const age = profileData.age;
@@ -340,7 +374,8 @@ const FullScreenProfileCard = ({
   const isOnline = profile.isOnline;
   const trustScore = Math.round(parseFloat(profile.trustScore) || 75);
   const price = profile.displayPrice?.amount ?? profileData.basePrice;
-  const priceSymbol = profile.displayPrice?.symbol || '₦';
+  // Use displayPrice symbol if available, otherwise use detected currency symbol (not hardcoded ₦)
+  const priceSymbol = profile.displayPrice?.symbol || detectedCurrencySymbol;
   
   const profileImage = resolveProfileImage(profileData);
   const isAvailable = profileData.availability?.includes?.(
@@ -430,6 +465,7 @@ const FullScreenProfileCard = ({
           <IconButton
             onClick={(e) => {
               e.stopPropagation();
+              trackContactClick(); // Track engagement before navigating
               onMessage(profile);
             }}
             sx={{
@@ -589,11 +625,16 @@ const FullScreenProfileCard = ({
 
 // ============================================
 // MAIN TIKTOK FEED COMPONENT - REDESIGNED
+// With engagement tracking for algorithm learning
+// NOW WITH: Uber/Bolt-style location sorting
 // ============================================
 const TikTokProfileFeed = () => {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { isAuthenticated } = useAuth();
   const currentUser = useSelector(selectUser);
+  const detectedCountry = useSelector(selectDetectedCountry);
+  const userCountry = useSelector(selectUserCountry);
 
   // State
   const [profiles, setProfiles] = useState([]);
@@ -604,6 +645,15 @@ const TikTokProfileFeed = () => {
   const [hasMore, setHasMore] = useState(true);
   const [activeTab, setActiveTab] = useState('foryou');
   const [showSearch, setShowSearch] = useState(false);
+  
+  // Location state for Uber/Bolt-style sorting
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(true);
+  const [locationError, setLocationError] = useState(null);
+  
+  // Track view time for current profile (for skip/swipe engagement)
+  const viewStartTimeRef = useRef(Date.now());
+  const currentProfileIdRef = useRef(null);
 
   // Refs
   const containerRef = useRef(null);
@@ -611,7 +661,91 @@ const TikTokProfileFeed = () => {
   const touchEndY = useRef(0);
   const isScrolling = useRef(false);
 
-  // Fetch profiles
+  // Get user's GPS location on mount (like Uber detects driver location)
+  useEffect(() => {
+    const getGPSLocation = async () => {
+      setLocationLoading(true);
+      
+      // First try to get GPS
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+              resolve,
+              reject,
+              { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+            );
+          });
+          
+          const country = userCountry?.code || detectedCountry?.code || 'GH';
+          const countryName = userCountry?.name || detectedCountry?.name || 'Ghana';
+          
+          // Find nearest city using the API
+          try {
+            const cityResponse = await fetch(
+              `${API_BASE_URL}/geolocation/nearest-city?lat=${position.coords.latitude}&lng=${position.coords.longitude}&country=${country}`
+            );
+            const cityData = await cityResponse.json();
+            
+            setUserLocation({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              city: cityData.success ? cityData.city : null,
+              country: countryName,
+              countryCode: country,
+              source: 'gps',
+              accuracy: position.coords.accuracy
+            });
+            console.log('📍 Mobile GPS location:', position.coords.latitude, position.coords.longitude, cityData.city);
+          } catch (e) {
+            // Fallback without city name
+            setUserLocation({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              country: countryName,
+              countryCode: country,
+              source: 'gps'
+            });
+          }
+          
+          setLocationLoading(false);
+          return;
+        } catch (gpsError) {
+          console.log('📍 GPS failed, using fallback:', gpsError.message);
+        }
+      }
+      
+      // Fallback to saved manual location
+      const savedLocation = localStorage.getItem('userManualLocation');
+      if (savedLocation) {
+        try {
+          const loc = JSON.parse(savedLocation);
+          setUserLocation({
+            ...loc,
+            source: 'manual'
+          });
+          setLocationLoading(false);
+          return;
+        } catch (e) {}
+      }
+      
+      // Final fallback: use detected country with no coordinates
+      const country = userCountry || detectedCountry;
+      if (country) {
+        setUserLocation({
+          country: country.name,
+          countryCode: country.code,
+          source: 'country_only'
+        });
+      }
+      
+      setLocationLoading(false);
+    };
+    
+    getGPSLocation();
+  }, [userCountry, detectedCountry]);
+
+  // Fetch profiles with location data
   const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
     try {
       if (pageNum === 1) setLoading(true);
@@ -622,8 +756,24 @@ const TikTokProfileFeed = () => {
         sort: activeTab === 'nearby' ? 'distance' : 'recommendation',
       });
 
-      // Add location for nearby tab
-      if (activeTab === 'nearby') {
+      // CRITICAL: Always send location for Uber/Bolt-style sorting
+      if (userLocation) {
+        if (userLocation.lat && userLocation.lng) {
+          params.append('userLat', userLocation.lat.toString());
+          params.append('userLng', userLocation.lng.toString());
+        }
+        if (userLocation.city) {
+          params.append('userCity', userLocation.city);
+        }
+        if (userLocation.country) {
+          params.append('userCountry', userLocation.country);
+        }
+        if (userLocation.countryCode) {
+          params.append('countryCode', userLocation.countryCode);
+        }
+        params.append('locationSource', userLocation.source || 'unknown');
+      } else {
+        // Fallback: try saved manual location
         const savedLocation = localStorage.getItem('userManualLocation');
         if (savedLocation) {
           try {
@@ -668,12 +818,14 @@ const TikTokProfileFeed = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, currentUser?.id]);
+  }, [activeTab, currentUser?.id, userLocation]);
 
-  // Initial load
+  // Initial load - wait for location
   useEffect(() => {
-    fetchProfiles(1);
-  }, [fetchProfiles]);
+    if (!locationLoading) {
+      fetchProfiles(1);
+    }
+  }, [fetchProfiles, locationLoading]);
 
   // Load more when near end
   useEffect(() => {
@@ -690,23 +842,56 @@ const TikTokProfileFeed = () => {
     fetchProfiles(1);
   };
 
-  // Handle swipe navigation
+  // Handle swipe navigation with engagement tracking
   const handleSwipe = useCallback((direction) => {
     if (isScrolling.current) return;
     
     isScrolling.current = true;
     
+    // Calculate view duration for the current profile being swiped away
+    const viewDuration = Date.now() - viewStartTimeRef.current;
+    const currentProfile = profiles[currentIndex];
+    
+    // Send engagement data for the profile being swiped away
+    if (currentProfile?.id) {
+      // Determine if this was a quick skip (< 2 seconds = low interest)
+      const action = viewDuration < 2000 ? 'skip' : 'exit';
+      
+      // Send engagement event via API (the FullScreenProfileCard handles socket)
+      try {
+        const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+        const token = localStorage.getItem('token');
+        fetch(`${API_BASE}/api/users/engagement`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+          },
+          body: JSON.stringify({
+            profileId: currentProfile.id,
+            viewDuration,
+            action,
+            swipeDirection: direction
+          })
+        }).catch(() => {}); // Silent fail
+      } catch (e) {}
+    }
+    
     if (direction === 'up' && currentIndex < profiles.length - 1) {
       setCurrentIndex(prev => prev + 1);
+      // Reset view timer for next profile
+      viewStartTimeRef.current = Date.now();
     } else if (direction === 'down' && currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
+      // Reset view timer for previous profile
+      viewStartTimeRef.current = Date.now();
     }
     
     // Debounce scrolling
     setTimeout(() => {
       isScrolling.current = false;
     }, 300);
-  }, [currentIndex, profiles.length]);
+  }, [currentIndex, profiles]);
 
   // Touch handlers
   const handleTouchStart = (e) => {
@@ -848,6 +1033,23 @@ const TikTokProfileFeed = () => {
         touchAction: 'pan-y',
       }}
     >
+      {/* Profile Completion Reminder - Shows at top if profile incomplete */}
+      {isAuthenticated && currentIndex === 0 && (
+        <Box 
+          sx={{ 
+            position: 'absolute', 
+            top: 'env(safe-area-inset-top, 60px)', 
+            left: 0, 
+            right: 0, 
+            zIndex: 200,
+            px: 1,
+            pt: 1
+          }}
+        >
+          <ProfileCompletionReminder variant="banner" showDismiss={true} />
+        </Box>
+      )}
+
       {/* Top Navigation - TikTok Style */}
       <TopNavigation
         activeTab={activeTab}

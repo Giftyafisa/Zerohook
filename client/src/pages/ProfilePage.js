@@ -594,7 +594,7 @@ const ProfilePage = () => {
                          editData.priceCurrency === 'ZAR' ? 'R' :
                          editData.priceCurrency === 'USD' ? '$' :
                          editData.priceCurrency === 'EUR' ? '€' :
-                         editData.priceCurrency === 'GBP' ? '£' : '₦'}
+                         editData.priceCurrency === 'GBP' ? '£' : '$'}
                       </InputAdornment>
                     ),
                   }}

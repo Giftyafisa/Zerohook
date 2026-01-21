@@ -28,20 +28,39 @@ export const AuthProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Fetch exchange rates on app load (for all users, even unauthenticated)
+  // CRITICAL FIX: Detect country and fetch exchange rates for ALL users (authenticated OR visitors)
+  // This must run on app load regardless of authentication status
   useEffect(() => {
-    const initializeExchangeRates = async () => {
+    const initializeLocationAndCurrency = async () => {
       try {
+        // First, detect user's country (works for both authenticated and visitors)
+        console.log('🌍 Detecting user country...');
+        await dispatch(detectUserCountry()).unwrap();
+        console.log('✅ Country detection complete');
+      } catch (error) {
+        console.log('⚠️ Country detection failed, using defaults:', error.message);
+      }
+      
+      try {
+        // Then fetch exchange rates
         console.log('💱 Initializing exchange rates...');
         await dispatch(fetchExchangeRates()).unwrap();
         console.log('✅ Exchange rates loaded');
       } catch (error) {
         console.log('⚠️ Exchange rates fetch failed, using defaults');
       }
+      
+      try {
+        // Load supported countries list
+        await dispatch(getSupportedCountries()).unwrap();
+      } catch (error) {
+        console.log('⚠️ Supported countries fetch failed');
+      }
     };
-    initializeExchangeRates();
+    
+    initializeLocationAndCurrency();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+  }, []); // Only run once on app mount - NOT dependent on authentication
 
   // FIXED: Simplified subscription status check
   useEffect(() => {
@@ -50,23 +69,21 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isAuthenticated, user, dispatch]);
 
-  // Country detection after authentication
+  // Re-detect country when user logs in (they may have phone number for better detection)
   useEffect(() => {
     if (isAuthenticated && user) {
-      const detectCountry = async () => {
+      const redetectCountryForAuthUser = async () => {
         try {
-          console.log('🌍 Detecting user country...');
+          console.log('🌍 Re-detecting country for authenticated user...');
           await dispatch(detectUserCountry()).unwrap();
-          await dispatch(getSupportedCountries()).unwrap();
-          console.log('✅ Country detection complete');
         } catch (error) {
-          console.log('⚠️ Country detection failed, using defaults:', error.message);
+          console.log('⚠️ Re-detection failed, keeping previous country');
         }
       };
-      detectCountry();
+      redetectCountryForAuthUser();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated]);
 
   const updateUser = (userData) => {
     if (user) {

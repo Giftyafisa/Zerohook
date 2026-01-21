@@ -7,8 +7,9 @@
  * Step 2: Show providers in user's CURRENT COUNTRY first
  * Step 3: Within country, prioritize by PROXIMITY (closest first like Uber)
  * Step 4: Apply quality factors (ratings, verification, activity)
- * Step 5: When nearby providers are exhausted, expand to further ones
- * Step 6: If searching specific profile, NO location limits
+ * Step 5: Penalize profiles with incomplete location data
+ * Step 6: When nearby providers are exhausted, expand to further ones
+ * Step 7: If searching specific profile, NO location limits
  * 
  * USER TYPE ROUTING:
  * - client → sees ONLY providers
@@ -20,9 +21,15 @@
  */
 
 const { User, UserActivityLog, SugarAccessPayment } = require('../config/database');
+const ProfileCompletenessService = require('./ProfileCompletenessService');
+const LocationVerificationService = require('./LocationVerificationService');
 
 class MongoRecommendationEngine {
   constructor() {
+    // Initialize helper services
+    this.profileCompletenessService = new ProfileCompletenessService();
+    this.locationVerificationService = new LocationVerificationService();
+    
     // Uber/Bolt-style weights - Country + Distance are MOST important
     this.weights = {
       countryMatch: 0.30,    // Same country = priority (like Uber shows drivers in your country)
@@ -144,6 +151,7 @@ class MongoRecommendationEngine {
   /**
    * Calculate recommendation score for a profile
    * UBER/BOLT-STYLE: Country first, then CLOSEST FIRST, then quality factors
+   * NEW: Uses fallback coordinates if profile has city but no GPS coordinates
    */
   calculateProfileScore(profile, userLocation, userPreferences = null) {
     let scores = {
@@ -153,11 +161,51 @@ class MongoRecommendationEngine {
       engagement: 0,
       freshness: 0,
       beauty: 0,
-      popularity: 0
+      popularity: 0,
+      completeness: 0
     };
 
     const profileData = profile.profile_data || profile.profileData || {};
     const profileLocation = profileData.location || {};
+
+    // PROFILE COMPLETENESS CHECK
+    // Get completeness score and penalty for incomplete profiles
+    const completeness = this.profileCompletenessService.calculateCompleteness(profile);
+    const completenessPenalty = this.profileCompletenessService.getRankingPenalty(profile);
+    profile.completenessScore = completeness.score;
+    profile.completenessLevel = completeness.level;
+    profile.canAppearInFeed = completeness.canAppearInFeed;
+    scores.completeness = completeness.score;
+
+    // FALLBACK COORDINATES - If profile has city but no GPS, use city coordinates
+    let profileLat = profileLocation.coordinates?.lat;
+    let profileLng = profileLocation.coordinates?.lng;
+    let coordinateSource = 'gps';
+
+    if ((!profileLat || !profileLng) && profileLocation.city && profileLocation.country) {
+      // Try to get coordinates from city name using LocationVerificationService
+      const fallbackCoords = this.locationVerificationService.assignFallbackCoordinates(profile);
+      if (fallbackCoords.coordinates) {
+        profileLat = fallbackCoords.coordinates.lat;
+        profileLng = fallbackCoords.coordinates.lng;
+        coordinateSource = fallbackCoords.source;
+        profile.coordinatesFallback = true;
+        profile.coordinateSource = coordinateSource;
+      }
+    }
+
+    // DEBUG: Log location data for first few profiles
+    if (!this._debugLogged) {
+      this._debugLogged = 0;
+    }
+    if (this._debugLogged < 5) {
+      console.log(`🔍 DEBUG Profile ${profile.username}:`);
+      console.log(`   userLocation: lat=${userLocation?.lat}, lng=${userLocation?.lng}, country=${userLocation?.country}`);
+      console.log(`   profileLocation: city=${profileLocation.city}, country=${profileLocation.country}`);
+      console.log(`   profileCoords: lat=${profileLat}, lng=${profileLng} (source: ${coordinateSource})`);
+      console.log(`   completeness: ${completeness.score}% (${completeness.level}), penalty: ${completenessPenalty}`);
+      this._debugLogged++;
+    }
 
     // 1. COUNTRY MATCH SCORE (Critical - Uber only shows drivers in your country)
     if (userLocation && userLocation.country && profileLocation.country) {
@@ -177,9 +225,10 @@ class MongoRecommendationEngine {
     }
 
     // 2. DISTANCE SCORE (UBER-STYLE: closer = MUCH higher score)
-    if (userLocation && userLocation.lat && userLocation.lng && profileLocation.coordinates) {
-      const profLat = parseFloat(profileLocation.coordinates.lat);
-      const profLng = parseFloat(profileLocation.coordinates.lng);
+    // Now uses fallback coordinates if available
+    if (userLocation && userLocation.lat && userLocation.lng && profileLat && profileLng) {
+      const profLat = parseFloat(profileLat);
+      const profLng = parseFloat(profileLng);
       
       if (!isNaN(profLat) && !isNaN(profLng) && 
           profLat >= -90 && profLat <= 90 && 
@@ -192,7 +241,7 @@ class MongoRecommendationEngine {
           profLng
         );
         profile.distance = Math.round(distance * 10) / 10;
-        profile.distanceEstimated = false;
+        profile.distanceEstimated = coordinateSource !== 'gps';
         
         // Uber-style scoring: Very close = very high score, drops off quickly
         if (distance <= 2) scores.distance = 100;
@@ -276,8 +325,25 @@ class MongoRecommendationEngine {
     const contactCount = profileData.contactCount || 0;
     scores.popularity = Math.min(viewCount / 5, 50) + Math.min(contactCount * 3, 50);
 
+    // 8. NEW PROFILE BOOST (TikTok-style cold start solution)
+    // New profiles get a boost to prevent them from being buried
+    const createdAt = new Date(profile.created_at || profile.createdAt || Date.now());
+    const ageInDays = (Date.now() - createdAt.getTime()) / (24 * 60 * 60 * 1000);
+    let newProfileBoost = 1.0;
+    if (ageInDays <= 14) {
+      // Max 1.5x boost for brand new profiles, decays over 14 days
+      newProfileBoost = 1.5 * Math.pow(0.9, ageInDays);
+      profile.isNewProfile = true;
+      profile.profileAgeDays = Math.round(ageInDays);
+    }
+
+    // 9. TIKTOK-STYLE ENGAGEMENT SCORE
+    // This would integrate with TikTokEngagementTracker if available
+    const tiktokEngagementScore = profileData.engagementScore || 50;
+    scores.tiktokEngagement = tiktokEngagementScore;
+
     // Calculate weighted final score
-    const finalScore = 
+    let finalScore = 
       (scores.countryMatch * this.weights.countryMatch) +
       (scores.distance * this.weights.distance) +
       (scores.quality * this.weights.quality) +
@@ -286,8 +352,27 @@ class MongoRecommendationEngine {
       (scores.beauty * this.weights.beauty) +
       (scores.popularity * this.weights.popularity);
 
+    // Apply new profile boost (multiplicative)
+    finalScore = finalScore * newProfileBoost;
+
+    // Add TikTok engagement as a small bonus (5% weight)
+    finalScore = finalScore * 0.95 + (tiktokEngagementScore * 0.05);
+
+    // 10. APPLY PROFILE COMPLETENESS PENALTY
+    // Incomplete profiles get deprioritized in recommendations
+    // This encourages users to complete their profiles
+    finalScore = finalScore * (1 - completenessPenalty);
+    
+    // If profile has no location at all, apply additional penalty
+    if (!profileLat && !profileLng && !profileLocation.city) {
+      finalScore = finalScore * 0.5; // 50% additional penalty for no location data
+      profile.noLocationPenalty = true;
+    }
+
     profile.recommendationScore = Math.round(finalScore * 10) / 10;
     profile.scoreBreakdown = scores;
+    profile.completenessPenalty = completenessPenalty > 0 ? Math.round(completenessPenalty * 100) : 0;
+    profile.newProfileBoost = newProfileBoost > 1.0 ? Math.round(newProfileBoost * 100) / 100 : null;
     profile.successRate = profileData.bookingSuccessRate || 70;
 
     return profile;
@@ -420,6 +505,9 @@ class MongoRecommendationEngine {
         .lean();
 
       console.log(`   Found ${profiles.length} raw profiles`);
+
+      // Reset debug counter for each request
+      this._debugLogged = 0;
 
       // Normalize and calculate scores for each profile
       let scoredProfiles = profiles.map(profile => {

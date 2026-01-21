@@ -79,8 +79,8 @@ router.get('/conversations', authMiddleware, async (req, res) => {
           { participant2Id: userId }
         ]
       })
-      .populate('participant1Id', 'username verificationTier profileData')
-      .populate('participant2Id', 'username verificationTier profileData')
+      .populate('participant1Id', 'username verification_tier profile_data')
+      .populate('participant2Id', 'username verification_tier profile_data')
       .sort({ lastMessageTime: -1 });
     } catch (dbError) {
       console.log('Conversations query failed:', dbError.message);
@@ -92,13 +92,31 @@ router.get('/conversations', authMiddleware, async (req, res) => {
         const isParticipant1 = conv.participant1Id?._id?.toString() === userId;
         const otherParticipant = isParticipant1 ? conv.participant2Id : conv.participant1Id;
         
+        // Resolve profile picture - handle multiple formats from profile_data
+        const profileData = otherParticipant?.profile_data || {};
+        let profilePicture = profileData.profilePicture || null;
+        
+        // If profilePicture is empty but profile_picture exists as an object with url
+        if (!profilePicture && profileData.profile_picture) {
+          profilePicture = typeof profileData.profile_picture === 'object' 
+            ? profileData.profile_picture.url 
+            : profileData.profile_picture;
+        }
+        
+        // Fallback to first photo in photos array
+        if (!profilePicture && profileData.photos && profileData.photos.length > 0) {
+          profilePicture = profileData.photos[0];
+        }
+        
+        console.log(`📸 Profile picture for ${otherParticipant?.username}:`, profilePicture);
+        
         return {
           id: conv._id,
           otherUser: {
             id: otherParticipant?._id,
             username: otherParticipant?.username,
-            verificationTier: otherParticipant?.verificationTier,
-            profilePicture: otherParticipant?.profileData?.profile_picture
+            verificationTier: otherParticipant?.verification_tier,
+            profilePicture: profilePicture
           },
           lastMessage: conv.lastMessage,
           lastMessageTime: conv.lastMessageTime,

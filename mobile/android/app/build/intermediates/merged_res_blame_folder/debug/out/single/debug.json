@@ -1,50 +1,50 @@
 [
     {
-        "merged": "C:\\Users\\aship\\.gradle\\daemon\\8.5\\com.zerohook.app-merged_res-88:\\xml_file_paths.xml.flat",
-        "source": "C:\\Users\\aship\\.gradle\\daemon\\8.5\\com.zerohook.app-main-90:\\xml\\file_paths.xml"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-xxhdpi_ic_launcher_round.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-xxhdpi/ic_launcher_round.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-xhdpi_ic_launcher_round.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-xhdpi/ic_launcher_round.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-xhdpi_ic_launcher_round.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-xhdpi/ic_launcher_round.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-xxxhdpi_ic_launcher.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-xxxhdpi/ic_launcher.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-hdpi_ic_launcher_round.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-hdpi/ic_launcher_round.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-xxxhdpi_ic_launcher_round.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-xxxhdpi/ic_launcher_round.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-xhdpi/ic_launcher.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-mdpi_ic_launcher.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-mdpi/ic_launcher.png"
+        "merged": "com.zerohook.app-merged_res-89:/xml_file_paths.xml.flat",
+        "source": "com.zerohook.app-main-91:/xml/file_paths.xml"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-mdpi_ic_launcher_round.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-mdpi/ic_launcher_round.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-mdpi_ic_launcher_round.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-mdpi/ic_launcher_round.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-hdpi_ic_launcher.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-hdpi/ic_launcher.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-xxxhdpi/ic_launcher.png"
     },
     {
-        "merged": "C:\\Users\\aship\\.gradle\\daemon\\8.5\\com.zerohook.app-merged_res-88:\\xml_network_security_config.xml.flat",
-        "source": "C:\\Users\\aship\\.gradle\\daemon\\8.5\\com.zerohook.app-main-90:\\xml\\network_security_config.xml"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-xxxhdpi_ic_launcher_round.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-xxxhdpi/ic_launcher_round.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-xxhdpi_ic_launcher_round.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-xxhdpi/ic_launcher_round.png"
+        "merged": "com.zerohook.app-merged_res-89:/xml_network_security_config.xml.flat",
+        "source": "com.zerohook.app-main-91:/xml/network_security_config.xml"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-xhdpi_ic_launcher.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-xhdpi/ic_launcher.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-xxhdpi/ic_launcher.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-hdpi_ic_launcher_round.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-hdpi/ic_launcher_round.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-hdpi/ic_launcher.png"
     },
     {
-        "merged": "com.zerohook.app-merged_res-88:/mipmap-xxhdpi_ic_launcher.png.flat",
-        "source": "com.zerohook.app-main-90:/mipmap-xxhdpi/ic_launcher.png"
+        "merged": "com.zerohook.app-merged_res-89:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "com.zerohook.app-main-91:/mipmap-mdpi/ic_launcher.png"
     }
 ]

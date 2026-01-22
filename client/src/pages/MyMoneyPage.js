@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import PaystackPop from '@paystack/inline-js';
 import {
   Box,
   Typography,
@@ -57,7 +58,7 @@ const TAB_MAP = {
 const MyMoneyPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { symbol, format } = useCurrency();
   
   // Tab state - initialize from URL param if present
@@ -84,6 +85,10 @@ const MyMoneyPage = () => {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('mobile'); // 'mobile', 'card'
   
+  // Success/Error messages
+  const [successMessage, setSuccessMessage] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
+  
   // Currency-specific quick amounts
   const getQuickAmounts = () => {
     // Ghana cedis use smaller amounts
@@ -94,68 +99,137 @@ const MyMoneyPage = () => {
     return [10, 20, 50, 100, 500];
   };
 
-  useEffect(() => {
-    const fetchAllData = async () => {
-      if (!isAuthenticated) {
-        setLoading(false);
-        return;
-      }
+  // Fetch all wallet data
+  const fetchAllData = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('token');
       
-      try {
-        const token = localStorage.getItem('token');
+      // Fetch wallet data
+      const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      // Fetch transactions
+      const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      // Fetch escrows
+      const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      let balance = 0, escrowHeld = 0, pendingWithdrawal = 0;
+      let transactions = [];
+      let escrows = [];
+
+      if (walletRes.ok) {
+        const data = await walletRes.json();
+        balance = data.wallet?.balance || data.balance || 0;
+        escrowHeld = data.wallet?.escrowHeld || data.escrowHeld || 0;
+        pendingWithdrawal = data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0;
+      }
+
+      if (txRes.ok) {
+        const data = await txRes.json();
+        transactions = data.transactions || data.data || [];
+      }
+
+      if (escrowRes.ok) {
+        const data = await escrowRes.json();
+        escrows = data.escrows || data.data || [];
+      }
+
+      setWalletData({
+        balance,
+        escrowHeld,
+        pendingWithdrawal,
+        transactions,
+        escrows
+      });
+    } catch (error) {
+      console.error('Fetch error:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
+
+  // Handle payment redirect callback - verify payment when user returns from Paystack
+  useEffect(() => {
+    const handlePaymentCallback = async () => {
+      const paymentStatus = searchParams.get('payment_status');
+      const reference = searchParams.get('reference');
+      const trxref = searchParams.get('trxref'); // Paystack sometimes uses this
+      
+      const paymentRef = reference || trxref;
+      
+      if (paymentRef) {
+        console.log('🔄 Payment redirect detected, verifying payment:', paymentRef);
+        setLoading(true);
         
-        // Fetch wallet data
-        const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        try {
+          const token = localStorage.getItem('token');
+          
+          // Verify the payment with backend
+          const response = await fetch(`${API_BASE_URL}/payments/verify-inline`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ reference: paymentRef })
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok && data.success) {
+            console.log('✅ Payment verified successfully:', data);
+            const amount = data.amount || 0;
+            const currency = data.currency || symbol;
+            toast.success(`Payment of ${currency}${amount.toLocaleString()} verified and credited to your wallet!`);
+            setSuccessMessage(`Payment of ${currency}${amount.toLocaleString()} credited!`);
+          } else if (data.status === 'already_verified') {
+            console.log('ℹ️ Payment was already verified');
+            toast.info('Payment already credited to your wallet!');
+          } else {
+            console.error('❌ Payment verification failed:', data);
+            toast.error(data.error || 'Payment verification failed. Please contact support.');
+            setErrorMessage(data.error || 'Payment verification failed');
+          }
+        } catch (err) {
+          console.error('Payment verification error:', err);
+          toast.error('Failed to verify payment. Please contact support if funds were deducted.');
+          setErrorMessage('Verification failed. Contact support if charged.');
+        }
         
-        // Fetch transactions
-        const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        // Clear URL params
+        setSearchParams({});
         
-        // Fetch escrows
-        const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        let balance = 0, escrowHeld = 0, pendingWithdrawal = 0;
-        let transactions = [];
-        let escrows = [];
-
-        if (walletRes.ok) {
-          const data = await walletRes.json();
-          balance = data.wallet?.balance || data.balance || 0;
-          escrowHeld = data.wallet?.escrowHeld || data.escrowHeld || 0;
-          pendingWithdrawal = data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0;
-        }
-
-        if (txRes.ok) {
-          const data = await txRes.json();
-          transactions = data.transactions || data.data || [];
-        }
-
-        if (escrowRes.ok) {
-          const data = await escrowRes.json();
-          escrows = data.escrows || data.data || [];
-        }
-
-        setWalletData({
-          balance,
-          escrowHeld,
-          pendingWithdrawal,
-          transactions,
-          escrows
-        });
-      } catch (error) {
-        console.error('Fetch error:', error);
-      } finally {
-        setLoading(false);
+        // Refresh wallet data
+        await fetchAllData();
+        
+        // Clear messages after delay
+        setTimeout(() => {
+          setSuccessMessage(null);
+          setErrorMessage(null);
+        }, 5000);
       }
     };
-
-    fetchAllData();
-  }, [isAuthenticated]);
+    
+    if (isAuthenticated) {
+      handlePaymentCallback();
+    }
+  }, [isAuthenticated, searchParams, setSearchParams, fetchAllData, symbol]);
 
   // Handle escrow release
   const handleRelease = async (escrowId) => {
@@ -231,7 +305,7 @@ const MyMoneyPage = () => {
     }
   };
 
-  // Add money via Paystack
+  // Add money via Paystack - Using Inline Popup
   const handleAddMoney = async () => {
     const minAmount = symbol === '₵' ? 1 : 100; // GHS min is 1, NGN min is 100
     if (!addAmount || Number(addAmount) < minAmount) {
@@ -242,30 +316,85 @@ const MyMoneyPage = () => {
     setActionLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/payments/paystack/initialize`, {
+      
+      // Use the deposit endpoint which returns access_code for inline popup
+      const response = await fetch(`${API_BASE_URL}/payments/deposit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          amount: Number(addAmount),
-          type: 'wallet_topup'
+          amount: Number(addAmount)
         })
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.authorizationUrl || data.authorization_url) {
-          window.location.href = data.authorizationUrl || data.authorization_url;
-        }
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to initiate payment');
+      }
+
+      // Check if we have access code for inline popup
+      if (data.accessCode || data.access_code) {
+        const accessCode = data.accessCode || data.access_code;
+        const paymentReference = data.reference;
+        
+        // Close the dialog first
+        setAddMoneyDialog(false);
+        setAddAmount('');
+        
+        // Launch Paystack inline popup
+        const popup = new PaystackPop();
+        popup.resumeTransaction(accessCode, {
+          onSuccess: async (response) => {
+            console.log('💳 Payment successful:', response);
+            toast.success(`Deposit of ${symbol}${Number(addAmount).toLocaleString()} successful!`);
+            setSuccessMessage(`${symbol}${Number(addAmount).toLocaleString()} added to wallet!`);
+            setActionLoading(false);
+            
+            // Verify the payment on backend
+            try {
+              const verifyRes = await fetch(`${API_BASE_URL}/payments/verify-inline`, {
+                method: 'POST',
+                headers: { 
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ reference: paymentReference })
+              });
+              const verifyData = await verifyRes.json();
+              console.log('✅ Payment verification:', verifyData);
+            } catch (verifyErr) {
+              console.error('Verification call failed:', verifyErr);
+            }
+            
+            // Refresh wallet data
+            setTimeout(() => {
+              fetchAllData();
+              setSuccessMessage(null);
+            }, 2000);
+          },
+          onCancel: () => {
+            console.log('Payment cancelled');
+            setActionLoading(false);
+            toast.info('Payment was cancelled');
+          },
+          onError: (error) => {
+            console.error('Payment error:', error);
+            setActionLoading(false);
+            toast.error(error.message || 'Payment failed. Please try again.');
+          }
+        });
+      } else if (data.authorizationUrl || data.authorization_url) {
+        // Fallback to redirect if no access code (shouldn't happen normally)
+        window.location.href = data.authorizationUrl || data.authorization_url;
       } else {
-        toast.error('Failed to initiate payment');
+        throw new Error('No payment authorization received');
       }
     } catch (error) {
       console.error('Payment error:', error);
-      toast.error('Payment failed. Try again.');
-    } finally {
+      toast.error(error.message || 'Payment failed. Try again.');
       setActionLoading(false);
       setAddMoneyDialog(false);
     }

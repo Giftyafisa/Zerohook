@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-86:/values-v23/values-v23.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-v23/values-v23.xml",
             "map": [
                 {
                     "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\ceeda1599848244bc14134967a59f815\\transformed\\work-runtime-2.9.0\\res\\values-v23\\values-v23.xml",

@@ -31,7 +31,9 @@ android {
     buildTypes {
         debug {
             isDebuggable = true
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:5000/api\"") // Emulator localhost
+            // Use production API for physical device testing
+            buildConfigField("String", "API_BASE_URL", "\"https://zerohook-api.onrender.com/api\"")
+            buildConfigField("String", "SOCKET_URL", "\"https://zerohook-api.onrender.com\"")
         }
         release {
             isMinifyEnabled = true
@@ -41,6 +43,7 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("String", "API_BASE_URL", "\"https://zerohook-api.onrender.com/api\"")
+            buildConfigField("String", "SOCKET_URL", "\"https://zerohook-api.onrender.com\"")
         }
     }
     

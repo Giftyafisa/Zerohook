@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-86:/values-pt-rPT/values-pt-rPT.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-pt-rPT/values-pt-rPT.xml",
             "map": [
                 {
                     "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\c651f057d079a1fbfb25fd4d36cc10d8\\transformed\\appcompat-1.6.1\\res\\values-pt-rPT\\values-pt-rPT.xml",

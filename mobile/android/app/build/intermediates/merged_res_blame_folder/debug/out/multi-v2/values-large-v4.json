@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-86:/values-large-v4/values-large-v4.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-large-v4/values-large-v4.xml",
             "map": [
                 {
                     "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\24da9ed16ec80bdd5055ca84cd9ff1b1\\transformed\\material-1.11.0\\res\\values-large-v4\\values-large-v4.xml",

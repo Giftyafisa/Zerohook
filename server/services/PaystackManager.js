@@ -46,54 +46,120 @@ class PaystackManager {
       const { 
         amount, 
         email, 
-        currency = 'USD', 
+        currency = 'NGN', 
         reference,
         callback_url,
+        channels,
         metadata = {}
       } = transactionData;
 
-      // Convert amount to smallest currency unit based on currency
-      let convertedAmount = amount;
-      if (currency === 'NGN') {
-        convertedAmount = Math.round(amount); // Already in kobo
-      } else if (currency === 'GHS') {
-        convertedAmount = Math.round(amount * 100); // Convert to pesewas
-      } else if (currency === 'KES') {
-        convertedAmount = Math.round(amount * 100); // Convert to cents
-      } else {
-        convertedAmount = Math.round(amount * 100); // Default to cents
-      }
+      // Paystack supported currencies - check your dashboard for enabled currencies
+      const SUPPORTED_CURRENCIES = ['NGN', 'GHS', 'ZAR', 'USD', 'KES'];
+      
+      // Use NGN as fallback if currency not in supported list
+      let finalCurrency = SUPPORTED_CURRENCIES.includes(currency) ? currency : 'NGN';
+      
+      // Convert amount to smallest currency unit (kobo, pesewas, cents)
+      // All amounts from frontend are in the main currency unit (e.g., Naira, not kobo)
+      const convertedAmount = Math.round(amount * 100);
 
-      const response = await axios.post(`${this.baseURL}/transaction/initialize`, {
+      console.log(`💳 Paystack: Initializing ${finalCurrency} ${amount} (${convertedAmount} smallest unit)`);
+
+      const requestData = {
         amount: convertedAmount,
         email,
-        currency,
+        currency: finalCurrency,
         reference,
         callback_url,
         metadata
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.secretKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      };
 
-      if (response.data.status) {
-        return {
-          success: true,
-          authorizationUrl: response.data.data.authorization_url,
-          reference: response.data.data.reference,
-          accessCode: response.data.data.access_code
+      // Add payment channels if specified (country-specific)
+      // Note: Some channels only work with certain currencies
+      if (channels && Array.isArray(channels) && channels.length > 0) {
+        // Filter channels based on currency
+        const currencyChannelMap = {
+          NGN: ['card', 'bank', 'ussd', 'bank_transfer', 'qr', 'mobile_money'],
+          GHS: ['card', 'mobile_money'],
+          KES: ['card', 'mobile_money'],
+          ZAR: ['card', 'eft'],
+          USD: ['card']
         };
-      } else {
-        console.error('Paystack API error response:', response.data);
-        throw new Error(`Paystack error: ${response.data.message || 'Unknown error'}`);
+        const allowedChannels = currencyChannelMap[finalCurrency] || ['card'];
+        const filteredChannels = channels.filter(ch => allowedChannels.includes(ch));
+        
+        if (filteredChannels.length > 0) {
+          requestData.channels = filteredChannels;
+          console.log(`💳 Paystack: Using channels: ${filteredChannels.join(', ')}`);
+        }
       }
+
+      // First attempt with requested currency
+      try {
+        const response = await axios.post(`${this.baseURL}/transaction/initialize`, requestData, {
+          headers: {
+            'Authorization': `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.data.status) {
+          console.log(`✅ Paystack: Transaction initialized - ${response.data.data.reference}`);
+          return {
+            success: true,
+            authorizationUrl: response.data.data.authorization_url,
+            reference: response.data.data.reference,
+            accessCode: response.data.data.access_code,
+            currency: finalCurrency
+          };
+        }
+      } catch (firstError) {
+        // If currency not supported, try without channels (simplest request)
+        if (firstError.response?.data?.code === 'unsupported_currency') {
+          console.log(`⚠️  Currency ${finalCurrency} not enabled, trying without channels...`);
+          
+          // Try again without channels (minimal request)
+          const minimalRequest = {
+            amount: convertedAmount,
+            email,
+            currency: finalCurrency,
+            reference,
+            metadata
+          };
+
+          const retryResponse = await axios.post(`${this.baseURL}/transaction/initialize`, minimalRequest, {
+            headers: {
+              'Authorization': `Bearer ${this.secretKey}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (retryResponse.data.status) {
+            console.log(`✅ Paystack: Transaction initialized (retry) - ${retryResponse.data.data.reference}`);
+            return {
+              success: true,
+              authorizationUrl: retryResponse.data.data.authorization_url,
+              reference: retryResponse.data.data.reference,
+              accessCode: retryResponse.data.data.access_code,
+              currency: finalCurrency
+            };
+          }
+        }
+        throw firstError;
+      }
+
+      throw new Error('Paystack initialization failed');
     } catch (error) {
       console.error('Paystack transaction initialization failed:', error);
       if (error.response) {
         console.error('Paystack response data:', error.response.data);
         console.error('Paystack response status:', error.response.status);
+        
+        // Provide helpful error messages
+        if (error.response.data?.code === 'unsupported_currency') {
+          console.error('⚠️  SOLUTION: Enable the currency in your Paystack Dashboard → Settings → Preferences');
+          console.error('⚠️  For test mode, ensure the currency is enabled for test transactions');
+        }
       }
       throw error;
     }

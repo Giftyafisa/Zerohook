@@ -9,7 +9,8 @@
  * - Bottom-focused actions for thumb reach
  * - Minimal borders, use spacing and shadows instead
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import PaystackPop from '@paystack/inline-js';
 import {
   Box,
   Typography,
@@ -25,6 +26,7 @@ import {
   IconButton,
   Tabs,
   Tab,
+  Chip,
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
 import {
@@ -43,23 +45,54 @@ import {
   Refresh as RefreshIcon,
   ArrowBack as BackIcon,
   Warning as WarningIcon,
+  CreditCard as CardIcon,
+  PhoneAndroid as MobileIcon,
+  AccountBalance as BankIcon,
+  CheckCircle as CheckIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useCurrency from '../hooks/useCurrency';
 
+// Payment channel display info by country
+const PAYMENT_CHANNELS_INFO = {
+  NG: [
+    { id: 'card', name: 'Card', icon: CardIcon },
+    { id: 'bank', name: 'Pay with Bank', icon: BankIcon },
+    { id: 'ussd', name: 'USSD', icon: MobileIcon },
+    { id: 'bank_transfer', name: 'Bank Transfer', icon: BankIcon },
+  ],
+  GH: [
+    { id: 'card', name: 'Card', icon: CardIcon },
+    { id: 'mobile_money', name: 'Mobile Money', icon: MobileIcon },
+  ],
+  KE: [
+    { id: 'card', name: 'Card', icon: CardIcon },
+    { id: 'mobile_money', name: 'M-PESA', icon: MobileIcon },
+  ],
+  ZA: [
+    { id: 'card', name: 'Card', icon: CardIcon },
+    { id: 'eft', name: 'EFT / Ozow', icon: BankIcon },
+    { id: 'qr', name: 'QR Code', icon: QrCode2 },
+  ],
+  DEFAULT: [
+    { id: 'card', name: 'Card', icon: CardIcon },
+  ],
+};
+
 const WalletPage = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Use currency hook for consistent currency symbol based on detected country
-  const { symbol: detectedCurrencySymbol, currencyCode: detectedCurrencyCode } = useCurrency();
+  const { symbol: detectedCurrencySymbol, currencyCode: detectedCurrencyCode, countryCode } = useCurrency();
   
   const [loading, setLoading] = useState(true);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
   const [depositDialog, setDepositDialog] = useState(false);
   const [withdrawDialog, setWithdrawDialog] = useState(false);
   const [escrowDialog, setEscrowDialog] = useState(false);
@@ -75,6 +108,7 @@ const WalletPage = () => {
   const [processingWithdraw, setProcessingWithdraw] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'escrow' ? 1 : 0);
+  const [paymentChannels, setPaymentChannels] = useState([]);
   const [walletData, setWalletData] = useState({
     balance: 0,
     escrowHeld: 0,
@@ -206,11 +240,90 @@ const WalletPage = () => {
     verifyAccount();
   }, [accountNumber, bankCode]);
 
-  const handleDeposit = async () => {
-    if (!depositAmount || parseFloat(depositAmount) <= 0) return;
+  // Set payment channels based on detected country
+  useEffect(() => {
+    const channels = PAYMENT_CHANNELS_INFO[countryCode] || PAYMENT_CHANNELS_INFO.DEFAULT;
+    setPaymentChannels(channels);
+  }, [countryCode]);
+
+  // Handle payment redirect callback - verify payment when user returns from Paystack
+  useEffect(() => {
+    const handlePaymentCallback = async () => {
+      const paymentStatus = searchParams.get('payment_status');
+      const reference = searchParams.get('reference');
+      const trxref = searchParams.get('trxref'); // Paystack sometimes uses this
+      
+      const paymentRef = reference || trxref;
+      
+      if (paymentRef) {
+        console.log('🔄 Payment redirect detected, verifying payment:', paymentRef);
+        setLoading(true);
+        
+        try {
+          const token = localStorage.getItem('token');
+          
+          // Verify the payment with backend
+          const response = await fetch(`${API_BASE_URL}/payments/verify-inline`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ reference: paymentRef })
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok && data.success) {
+            console.log('✅ Payment verified successfully:', data);
+            setSuccessMessage(`Payment of ${data.currency || walletData.currencySymbol}${(data.amount || 0).toLocaleString()} verified and credited to your wallet!`);
+          } else if (data.status === 'already_verified') {
+            console.log('ℹ️ Payment was already verified');
+            setSuccessMessage('Payment already credited to your wallet!');
+          } else {
+            console.error('❌ Payment verification failed:', data);
+            setError(data.error || 'Payment verification failed. Please contact support.');
+          }
+        } catch (err) {
+          console.error('Payment verification error:', err);
+          setError('Failed to verify payment. Please contact support if funds were deducted.');
+        }
+        
+        // Clear URL params
+        setSearchParams({});
+        
+        // Refresh wallet data
+        await fetchWalletData();
+        
+        // Clear messages after delay
+        setTimeout(() => {
+          setSuccessMessage(null);
+        }, 5000);
+      }
+    };
+    
+    if (isAuthenticated) {
+      handlePaymentCallback();
+    }
+  }, [isAuthenticated, searchParams, setSearchParams]);
+
+  /**
+   * Handle deposit using Paystack Inline Popup
+   * This opens the payment form as a modal overlay on the site
+   */
+  const handleDeposit = useCallback(async () => {
+    if (!depositAmount || parseFloat(depositAmount) <= 0) {
+      setError('Please enter a valid amount');
+      return;
+    }
+    
     setProcessingDeposit(true);
+    setError(null);
+    
     try {
       const token = localStorage.getItem('token');
+      
+      // Initialize deposit and get access code from backend
       const response = await fetch(`${API_BASE_URL}/payments/deposit`, {
         method: 'POST',
         headers: { 
@@ -219,16 +332,72 @@ const WalletPage = () => {
         },
         body: JSON.stringify({ amount: parseFloat(depositAmount) })
       });
+      
       const data = await response.json();
-      if (response.ok && data.authorizationUrl) {
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to initialize deposit');
+      }
+      
+      // Check if we have access code for inline popup
+      if (data.accessCode || data.access_code) {
+        const accessCode = data.accessCode || data.access_code;
+        
+        // Close the deposit dialog first
+        setDepositDialog(false);
+        
+        // Launch Paystack inline popup
+        const popup = new PaystackPop();
+        popup.resumeTransaction(accessCode, {
+          onSuccess: async (response) => {
+            console.log('Payment successful:', response);
+            setSuccessMessage(`Deposit of ${walletData.currencySymbol}${parseFloat(depositAmount).toLocaleString()} successful!`);
+            setDepositAmount('');
+            setProcessingDeposit(false);
+            
+            // Verify the payment on backend
+            try {
+              await fetch(`${API_BASE_URL}/payments/verify-inline`, {
+                method: 'POST',
+                headers: { 
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ reference: data.reference })
+              });
+            } catch (verifyErr) {
+              console.error('Verification call failed:', verifyErr);
+            }
+            
+            // Refresh wallet data
+            setTimeout(() => {
+              fetchWalletData();
+              setSuccessMessage(null);
+            }, 2000);
+          },
+          onCancel: () => {
+            console.log('Payment cancelled');
+            setProcessingDeposit(false);
+            setError('Payment was cancelled');
+          },
+          onError: (error) => {
+            console.error('Payment error:', error);
+            setProcessingDeposit(false);
+            setError(error.message || 'Payment failed. Please try again.');
+          }
+        });
+      } else if (data.authorizationUrl) {
+        // Fallback to redirect if no access code
         window.location.href = data.authorizationUrl;
+      } else {
+        throw new Error('No payment authorization received');
       }
     } catch (error) {
       console.error('Deposit error:', error);
-    } finally {
+      setError(error.message || 'Failed to process deposit');
       setProcessingDeposit(false);
     }
-  };
+  }, [depositAmount, walletData.currencySymbol]);
 
   const handleWithdraw = async () => {
     if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) return;
@@ -470,24 +639,44 @@ const WalletPage = () => {
           <Box sx={{ width: 40 }} /> {/* Spacer */}
         </Box>
 
-        {/* Payment Method Tabs */}
+        {/* Available Payment Methods for User's Country */}
         <Box sx={styles.paymentTabs}>
-          <Box sx={styles.paymentTabActive}>
-            <WalletIcon sx={{ fontSize: 18, mr: 0.5 }} />
-            Mobile Money
-          </Box>
-          <Box sx={styles.paymentTab}>
-            Card
-          </Box>
+          {paymentChannels.map((channel, index) => {
+            const IconComponent = channel.icon;
+            return (
+              <Box key={channel.id} sx={index === 0 ? styles.paymentTabActive : styles.paymentTab}>
+                <IconComponent sx={{ fontSize: 16, mr: 0.5 }} />
+                {channel.name}
+              </Box>
+            );
+          })}
         </Box>
 
         {/* Content */}
         <Box sx={styles.depositContent}>
-          {/* Info Banner */}
+          {/* Error Alert */}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+          
+          {/* Success Alert */}
+          {successMessage && (
+            <Alert 
+              severity="success" 
+              icon={<CheckIcon />}
+              sx={{ mb: 2, borderRadius: 2, bgcolor: 'rgba(0, 200, 83, 0.1)', border: '1px solid rgba(0, 200, 83, 0.3)' }}
+            >
+              {successMessage}
+            </Alert>
+          )}
+
+          {/* Info Banner - Updated messaging */}
           <Box sx={styles.infoBanner}>
-            <WarningIcon sx={{ color: '#ffc107', mr: 1, fontSize: 20 }} />
+            <LockIcon sx={{ color: '#00C853', mr: 1, fontSize: 20 }} />
             <Typography sx={styles.infoBannerText}>
-              Payments are processed securely via Paystack. You'll be redirected to complete payment.
+              Secure inline payment powered by Paystack. Complete payment without leaving this page.
             </Typography>
           </Box>
 
@@ -540,11 +729,12 @@ const WalletPage = () => {
             onClick={handleDeposit}
             disabled={processingDeposit || !depositAmount || parseFloat(depositAmount) < 1}
             sx={styles.depositButton}
+            startIcon={processingDeposit ? null : <LockIcon />}
           >
             {processingDeposit ? (
               <CircularProgress size={24} sx={{ color: '#fff' }} />
             ) : (
-              `Top Up Now`
+              `Pay ${walletData.currencySymbol}${depositAmount || '0'} Securely`
             )}
           </Button>
 
@@ -561,6 +751,14 @@ const WalletPage = () => {
             </Typography>
             <Typography sx={styles.infoPoint}>
               4. Funds will be available immediately after payment.
+            </Typography>
+          </Box>
+          
+          {/* Security Badge */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mt: 3, gap: 1 }}>
+            <LockIcon sx={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }} />
+            <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+              256-bit SSL Encrypted • Secured by Paystack
             </Typography>
           </Box>
         </Box>

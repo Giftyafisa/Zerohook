@@ -1,5 +1,5 @@
 const express = require('express');
-const { query } = require('../config/database');
+const { User, VerificationRequest } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
@@ -28,13 +28,13 @@ router.post('/submit-documents', authMiddleware, [
     const { documentType, documentNumber, documentImages, verificationTier } = req.body;
     const userId = req.user.userId;
 
-    // Check current verification tier
-    const userResult = await query(`
-      SELECT verification_tier, verification_data FROM users WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId).select('verification_tier verification_data').lean();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
-    const currentTier = userResult.rows[0].verification_tier;
-    const verificationData = userResult.rows[0].verification_data || {};
+    const currentTier = user.verification_tier || 1;
+    const verificationData = user.verification_data || {};
 
     if (verificationTier <= currentTier) {
       return res.status(400).json({
@@ -43,40 +43,32 @@ router.post('/submit-documents', authMiddleware, [
     }
 
     // Create verification request
-    const verificationResult = await query(`
-      INSERT INTO verification_requests (
-        user_id, requested_tier, document_type, document_number,
-        document_images, status, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-      RETURNING id
-    `, [
-      userId, verificationTier, documentType, documentNumber,
-      JSON.stringify(documentImages), 'pending'
-    ]);
+    const verificationResult = await VerificationRequest.create({
+      user_id: userId,
+      requested_tier: verificationTier,
+      document_type: documentType,
+      document_number: documentNumber,
+      document_images: documentImages,
+      status: 'pending'
+    });
 
     // Update user verification data
-    await query(`
-      UPDATE users 
-      SET verification_data = jsonb_set(
-        verification_data, 
-        '{pending_verification}', 
-        $1
-      ), updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [
-      JSON.stringify({
-        requestId: verificationResult.rows[0].id,
-        requestedTier: verificationTier,
-        documentType: documentType,
-        submittedAt: new Date().toISOString()
-      }),
-      userId
-    ]);
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'verification_data.pending_verification': {
+          requestId: verificationResult._id.toString(),
+          requestedTier: verificationTier,
+          documentType: documentType,
+          submittedAt: new Date().toISOString()
+        },
+        updated_at: new Date()
+      }
+    });
 
     // Emit real-time notification to user
     if (req.io) {
       req.io.to(`user_${userId}`).emit('verification_submitted', {
-        requestId: verificationResult.rows[0].id,
+        requestId: verificationResult._id.toString(),
         requestedTier: verificationTier,
         status: 'pending',
         timestamp: new Date().toISOString()
@@ -90,7 +82,7 @@ router.post('/submit-documents', authMiddleware, [
           type: 'verification',
           title: 'Verification Documents Submitted',
           message: `Your Tier ${verificationTier} verification documents have been submitted and are pending review.`,
-          data: { requestId: verificationResult.rows[0].id, requestedTier: verificationTier }
+          data: { requestId: verificationResult._id.toString(), requestedTier: verificationTier }
         });
       } catch (notifErr) {
         console.error('Failed to save verification notification:', notifErr);
@@ -99,7 +91,7 @@ router.post('/submit-documents', authMiddleware, [
 
     res.json({
       message: 'Verification documents submitted successfully',
-      requestId: verificationResult.rows[0].id,
+      requestId: verificationResult._id.toString(),
       status: 'pending'
     });
 
@@ -139,22 +131,16 @@ router.post('/verify-phone', authMiddleware, [
     }
 
     // Update user phone verification
-    await query(`
-      UPDATE users 
-      SET verification_data = jsonb_set(
-        verification_data, 
-        '{phone_verified}', 
-        $1
-      ), updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [
-      JSON.stringify({
-        phoneNumber: phoneNumber,
-        verifiedAt: new Date().toISOString(),
-        status: 'verified'
-      }),
-      userId
-    ]);
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'verification_data.phone_verified': {
+          phoneNumber: phoneNumber,
+          verifiedAt: new Date().toISOString(),
+          status: 'verified'
+        },
+        updated_at: new Date()
+      }
+    });
 
     res.json({
       message: 'Phone number verified successfully',
@@ -197,22 +183,16 @@ router.post('/verify-email', authMiddleware, [
     }
 
     // Update user email verification
-    await query(`
-      UPDATE users 
-      SET verification_data = jsonb_set(
-        verification_data, 
-        '{email_verified}', 
-        $1
-      ), updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [
-      JSON.stringify({
-        email: email,
-        verifiedAt: new Date().toISOString(),
-        status: 'verified'
-      }),
-      userId
-    ]);
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'verification_data.email_verified': {
+          email: email,
+          verifiedAt: new Date().toISOString(),
+          status: 'verified'
+        },
+        updated_at: new Date()
+      }
+    });
 
     // Emit real-time notification to user
     if (req.io) {
@@ -279,24 +259,16 @@ router.post('/social-verification', authMiddleware, [
     }
 
     // Update user social verification
-    await query(`
-      UPDATE users 
-      SET verification_data = jsonb_set(
-        verification_data, 
-        '{social_verified}',
-        COALESCE(verification_data->'social_verified', '{}'::jsonb) || $1
-      ), updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [
-      JSON.stringify({
-        [platform]: {
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        [`verification_data.social_verified.${platform}`]: {
           username: username,
           verifiedAt: new Date().toISOString(),
           status: 'verified'
-        }
-      }),
-      userId
-    ]);
+        },
+        updated_at: new Date()
+      }
+    });
 
     res.json({
       message: 'Social media account verified successfully',
@@ -320,21 +292,23 @@ router.get('/status', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const userResult = await query(`
-      SELECT verification_tier, verification_data, reputation_score, trust_score
-      FROM users WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId)
+      .select('verification_tier verification_data reputation_score trust_score')
+      .lean();
 
-    const user = userResult.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     const verificationData = user.verification_data || {};
 
     // Calculate verification progress
     const verificationProgress = calculateVerificationProgress(verificationData, user.verification_tier);
 
     res.json({
-      currentTier: user.verification_tier,
-      reputationScore: user.reputation_score,
-      trustScore: user.trust_score,
+      currentTier: user.verification_tier || 1,
+      reputationScore: user.reputation_score || 0,
+      trustScore: user.trust_score || 0,
       verificationProgress: verificationProgress,
       verificationData: verificationData
     });
@@ -351,8 +325,9 @@ router.get('/status', authMiddleware, async (req, res) => {
  * @access  Private
  */
 router.post('/request-upgrade', authMiddleware, [
-  body('requestedTier').isInt({ min: 1, max: 4 }),
-  body('reason').isLength({ min: 10, max: 500 })
+  body('requestedTier').optional().isInt({ min: 1, max: 4 }),
+  body('verificationTier').optional().isInt({ min: 1, max: 4 }),
+  body('reason').optional().isLength({ min: 10, max: 500 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -363,46 +338,52 @@ router.post('/request-upgrade', authMiddleware, [
       });
     }
 
-    const { requestedTier, reason } = req.body;
+    const { requestedTier, verificationTier, reason } = req.body;
+    const targetTier = requestedTier || verificationTier;
     const userId = req.user.userId;
 
+    if (!targetTier) {
+      return res.status(400).json({ error: 'requestedTier or verificationTier is required' });
+    }
+
     // Check current tier
-    const userResult = await query(`
-      SELECT verification_tier FROM users WHERE id = $1
-    `, [userId]);
+    const user = await User.findById(userId).select('verification_tier').lean();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
-    const currentTier = userResult.rows[0].verification_tier;
+    const currentTier = user.verification_tier || 1;
 
-    if (requestedTier <= currentTier) {
+    if (targetTier <= currentTier) {
       return res.status(400).json({
         error: 'Cannot request same or lower tier'
       });
     }
 
     // Check if upgrade request already exists
-    const existingRequest = await query(`
-      SELECT id FROM verification_requests 
-      WHERE user_id = $1 AND status = 'pending'
-    `, [userId]);
+    const existingRequest = await VerificationRequest.findOne({
+      user_id: userId,
+      status: 'pending'
+    }).lean();
 
-    if (existingRequest.rows.length > 0) {
+    if (existingRequest) {
       return res.status(400).json({
         error: 'Upgrade request already pending'
       });
     }
 
     // Create upgrade request
-    const upgradeResult = await query(`
-      INSERT INTO verification_requests (
-        user_id, requested_tier, reason, status, created_at
-      ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-      RETURNING id
-    `, [userId, requestedTier, reason, 'pending']);
+    const upgradeResult = await VerificationRequest.create({
+      user_id: userId,
+      requested_tier: targetTier,
+      reason: reason || 'Tier upgrade request',
+      status: 'pending'
+    });
 
     res.json({
       message: 'Upgrade request submitted successfully',
-      requestId: upgradeResult.rows[0].id,
-      requestedTier: requestedTier,
+      requestId: upgradeResult._id.toString(),
+      requestedTier: targetTier,
       status: 'pending'
     });
 

@@ -1,7 +1,8 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const { Subscription, SubscriptionPlan, User } = require('../config/database');
+const mongoose = require('mongoose');
 const router = express.Router();
 
 // Helper function to get country-specific currency
@@ -140,42 +141,57 @@ router.post('/create', authMiddleware, [
 
     if (paystackResponse && paystackResponse.success) {
       console.log('📋 Paystack response structure:', JSON.stringify(paystackResponse, null, 2));
-      
-      // Paystack succeeded - create subscription record
-      const subscriptionResult = await query(`
-        INSERT INTO subscriptions (
-          user_id, plan_id, amount, currency, country_code,
-          paystack_reference, status, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-        RETURNING id
-      `, [userId, actualPlanId, amount, currency, countryCode, paystackResponse.reference, 'pending']);
+
+      // Paystack succeeded - create subscription record using MongoDB
+      console.log(`📝 Creating MongoDB subscription record for user ${userId}, amount: ${amount} ${currency}, reference: ${paystackResponse.reference}`);
+
+      const subscription = await Subscription.create({
+        user_id: mongoose.Types.ObjectId.createFromHexString(userId),
+        plan_id: actualPlanId ? mongoose.Types.ObjectId.createFromHexString(actualPlanId) : null,
+        amount: amount,
+        currency: currency,
+        country_code: countryCode,
+        paystack_reference: paystackResponse.reference,
+        status: 'pending'
+      });
+
+      console.log(`✅ MongoDB subscription created with ID: ${subscription._id.toString()}`);
 
       res.json({
         success: true,
         message: 'Subscription created successfully via Paystack',
-        subscriptionId: subscriptionResult.rows[0].id,
+        subscriptionId: subscription._id.toString(),
         paymentData: {
           reference: paystackResponse.reference,
-          authorizationUrl: paystackResponse.authorizationUrl
+          authorizationUrl: paystackResponse.authorizationUrl,
+          // Include accessCode for inline popup payment
+          accessCode: paystackResponse.accessCode,
+          access_code: paystackResponse.accessCode
         }
       });
     } else {
       // Use fallback payment method (simulation for testing)
       const fallbackReference = `FALLBACK_${Date.now()}_${userId}`;
-      
-      // Create subscription record with fallback status
-      const subscriptionResult = await query(`
-        INSERT INTO subscriptions (
-          user_id, plan_id, amount, currency, country_code,
-          paystack_reference, status, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-        RETURNING id
-      `, [userId, actualPlanId, amount, currency, countryCode, fallbackReference, 'pending']);
+
+      // Create subscription record with fallback status using MongoDB
+      console.log(`📝 Creating MongoDB fallback subscription record for user ${userId}, amount: ${amount} ${currency}, reference: ${fallbackReference}`);
+
+      const fallbackSubscription = await Subscription.create({
+        user_id: mongoose.Types.ObjectId.createFromHexString(userId),
+        plan_id: actualPlanId ? mongoose.Types.ObjectId.createFromHexString(actualPlanId) : null,
+        amount: amount,
+        currency: currency,
+        country_code: countryCode,
+        paystack_reference: fallbackReference,
+        status: 'pending'
+      });
+
+      console.log(`✅ MongoDB fallback subscription created with ID: ${fallbackSubscription._id.toString()}`);
 
       res.json({
         success: true,
         message: 'Subscription created successfully (Test Mode)',
-        subscriptionId: subscriptionResult.rows[0].id,
+        subscriptionId: fallbackSubscription._id.toString(),
         paymentData: {
           reference: fallbackReference,
           authorizationUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/test-payment`,

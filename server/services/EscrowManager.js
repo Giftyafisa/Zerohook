@@ -1,6 +1,7 @@
-const { query } = require('../config/database');
-const { ethers } = require('ethers');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { query, Transaction, User, EscrowTransaction } = require('../config/database');
+const mongoose = require('mongoose');
+// const { ethers } = require('ethers'); // Commented out for now - blockchain features disabled
+// const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Using Paystack instead
 
 class EscrowManager {
   constructor() {
@@ -14,29 +15,9 @@ class EscrowManager {
     try {
       console.log('💰 Initializing Escrow Manager...');
       
-      // Initialize blockchain provider (Polygon)
-      this.provider = new ethers.JsonRpcProvider(
-        process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com'
-      );
-      
-      // Initialize wallet for contract interactions
-      if (process.env.ESCROW_PRIVATE_KEY && 
-          process.env.ESCROW_PRIVATE_KEY !== 'your_escrow_wallet_private_key' &&
-          process.env.ESCROW_PRIVATE_KEY.length > 10) {
-        try {
-          this.wallet = new ethers.Wallet(process.env.ESCROW_PRIVATE_KEY, this.provider);
-          console.log('✅ Blockchain wallet initialized');
-        } catch (error) {
-          console.log('⚠️  Invalid private key format, skipping wallet initialization');
-        }
-      } else {
-        console.log('⚠️  No valid private key provided, blockchain features disabled');
-      }
-      
-      // Initialize Stripe
-      if (process.env.STRIPE_SECRET_KEY) {
-        console.log('✅ Stripe initialized');
-      }
+      // For now, we're using Paystack for payments (Africa-focused)
+      // Blockchain escrow is disabled until properly configured
+      console.log('✅ Escrow Manager initialized (Paystack mode)');
       
       this.initialized = true;
       return true;
@@ -51,7 +32,7 @@ class EscrowManager {
   }
 
   /**
-   * Create a new escrow transaction
+   * Create a new escrow transaction - Uses MongoDB
    */
   async createEscrow(transactionData) {
     try {
@@ -60,83 +41,102 @@ class EscrowManager {
         providerId, 
         serviceId, 
         amount, 
+        currency = 'NGN',
         scheduledTime,
         locationData,
-        paymentMethodId 
+        paymentMethod = 'wallet' // 'wallet' uses user's wallet balance, 'paystack' uses Paystack
       } = transactionData;
 
-      // Create Stripe payment intent
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Convert to cents
-        currency: 'usd',
-        payment_method: paymentMethodId,
-        confirmation_method: 'manual',
-        confirm: true,
-        capture_method: 'manual', // Don't capture until service completed
-        metadata: {
-          clientId,
-          providerId,
-          serviceId,
-          type: 'escrow'
-        }
-      });
-
-      // Create transaction record
-      const transactionResult = await query(`
-        INSERT INTO transactions (
-          service_id, client_id, provider_id, amount, 
-          scheduled_time, location_data, status
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, 'escrowed')
-        RETURNING *
-      `, [
-        serviceId, 
-        clientId, 
-        providerId, 
-        amount, 
-        scheduledTime,
-        JSON.stringify(locationData)
-      ]);
-
-      const transaction = transactionResult.rows[0];
-
-      // Store payment intent details
-      await query(`
-        UPDATE transactions 
-        SET verification_data = jsonb_set(
-          verification_data, 
-          '{payment_intent_id}', 
-          to_jsonb($1::text)
-        )
-        WHERE id = $2
-      `, [paymentIntent.id, transaction.id]);
-
-      // If blockchain integration is available, also create on-chain escrow
-      if (this.wallet && process.env.ESCROW_CONTRACT_ADDRESS) {
-        try {
-          const txHash = await this.createBlockchainEscrow(
-            transaction.id,
-            clientId,
-            providerId,
-            amount
-          );
-          
-          await query(`
-            UPDATE transactions 
-            SET escrow_address = $1
-            WHERE id = $2
-          `, [txHash, transaction.id]);
-        } catch (blockchainError) {
-          console.warn('Blockchain escrow creation failed, using Stripe only:', blockchainError.message);
+      // Convert IDs to ObjectId
+      const clientObjId = typeof clientId === 'string' ? 
+        mongoose.Types.ObjectId.createFromHexString(clientId) : clientId;
+      const providerObjId = typeof providerId === 'string' ? 
+        mongoose.Types.ObjectId.createFromHexString(providerId) : providerId;
+      
+      // If using wallet payment, check client has sufficient balance
+      if (paymentMethod === 'wallet') {
+        const { Transaction } = require('../config/database');
+        
+        // Calculate client's wallet balance
+        const depositResult = await Transaction.aggregate([
+          { 
+            $match: { 
+              user_id: clientObjId, 
+              type: { $in: ['deposit', 'wallet_topup'] }, 
+              status: { $in: ['completed', 'confirmed'] } 
+            } 
+          },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        
+        const withdrawalResult = await Transaction.aggregate([
+          { 
+            $match: { 
+              user_id: clientObjId, 
+              type: 'withdrawal', 
+              status: { $in: ['completed', 'confirmed'] } 
+            } 
+          },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        
+        const escrowHeldResult = await Transaction.aggregate([
+          { 
+            $match: { 
+              client_id: clientObjId, 
+              type: 'escrow_hold',
+              status: { $in: ['held', 'pending'] } 
+            } 
+          },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        
+        const deposits = depositResult[0]?.total || 0;
+        const withdrawals = withdrawalResult[0]?.total || 0;
+        const escrowHeld = escrowHeldResult[0]?.total || 0;
+        const availableBalance = deposits - withdrawals - escrowHeld;
+        
+        if (availableBalance < amount) {
+          throw new Error(`Insufficient wallet balance. Available: ${currency}${availableBalance.toFixed(2)}, Required: ${currency}${amount}`);
         }
       }
 
+      // Generate reference
+      const reference = `ESC_${Date.now()}_${clientId.toString().substring(0, 8)}`;
+
+      // Create escrow hold transaction in MongoDB
+      const { Transaction } = require('../config/database');
+      const escrowTransaction = await Transaction.create({
+        service_id: serviceId ? mongoose.Types.ObjectId.createFromHexString(serviceId) : null,
+        client_id: clientObjId,
+        provider_id: providerObjId,
+        user_id: clientObjId, // The client is the one holding the money
+        amount: amount,
+        currency: currency,
+        payment_method: paymentMethod,
+        reference: reference,
+        status: 'held', // Escrow status
+        type: 'escrow_hold',
+        scheduled_time: scheduledTime ? new Date(scheduledTime) : null,
+        location_data: locationData || {},
+        metadata: {
+          type: 'escrow',
+          description: `Escrow for service`,
+          scheduledTime: scheduledTime,
+          paymentMethod: paymentMethod
+        }
+      });
+
+      console.log(`✅ Escrow created: ${reference} - ${currency}${amount} from ${clientId} to ${providerId}`);
+
       return {
-        transactionId: transaction.id,
-        paymentIntentId: paymentIntent.id,
-        status: 'escrowed',
-        amount,
-        created: transaction.created_at
+        id: escrowTransaction._id.toString(),
+        transactionId: escrowTransaction._id.toString(),
+        reference: reference,
+        status: 'held',
+        amount: amount,
+        currency: currency,
+        created: escrowTransaction.created_at
       };
 
     } catch (error) {
@@ -146,77 +146,62 @@ class EscrowManager {
   }
 
   /**
-   * Confirm service completion and release funds
+   * Confirm service completion and release funds - MongoDB version
    */
   async confirmCompletion(transactionId, completionProof) {
     try {
+      const { Transaction } = require('../config/database');
+      
       // Get transaction details
-      const transactionResult = await query(`
-        SELECT * FROM transactions WHERE id = $1
-      `, [transactionId]);
+      const transactionObjId = typeof transactionId === 'string' ? 
+        mongoose.Types.ObjectId.createFromHexString(transactionId) : transactionId;
+      
+      const transaction = await Transaction.findById(transactionObjId);
 
-      if (transactionResult.rows.length === 0) {
+      if (!transaction) {
         throw new Error('Transaction not found');
       }
-
-      const transaction = transactionResult.rows[0];
       
-      if (transaction.status !== 'escrowed') {
-        throw new Error('Transaction not in escrow status');
+      if (transaction.status !== 'held' && transaction.status !== 'escrowed') {
+        throw new Error(`Transaction not in escrow status. Current status: ${transaction.status}`);
       }
 
-      // Validate completion proof
-      const proofValidation = await this.validateCompletionProof(
-        transaction, 
-        completionProof
-      );
+      // Update escrow transaction to released
+      transaction.status = 'released';
+      transaction.completion_proof = completionProof || {};
+      transaction.completed_at = new Date();
+      await transaction.save();
 
-      if (!proofValidation.valid) {
-        throw new Error(`Invalid completion proof: ${proofValidation.reason}`);
-      }
+      // Create a new transaction for the provider showing they earned the money
+      const platformFee = transaction.amount * 0.05; // 5% platform fee
+      const providerAmount = transaction.amount - platformFee;
 
-      // Release funds via Stripe
-      const paymentIntentId = transaction.verification_data?.payment_intent_id;
-      if (paymentIntentId) {
-        await stripe.paymentIntents.capture(paymentIntentId);
-      }
+      await Transaction.create({
+        provider_id: transaction.provider_id,
+        user_id: transaction.provider_id, // For wallet calculations
+        client_id: transaction.client_id,
+        amount: providerAmount,
+        currency: transaction.currency,
+        payment_method: 'escrow_release',
+        reference: `REL_${transaction.reference}`,
+        status: 'completed',
+        type: 'escrow_release',
+        metadata: {
+          originalEscrowId: transaction._id.toString(),
+          originalAmount: transaction.amount,
+          platformFee: platformFee,
+          description: 'Escrow funds released'
+        }
+      });
 
-      // Create Stripe transfer to provider
-      const platformFee = Math.round(transaction.amount * 0.05 * 100); // 5% platform fee
-      const providerAmount = Math.round(transaction.amount * 100) - platformFee;
-
-      // Get provider's Stripe account
-      const providerResult = await query(`
-        SELECT profile_data->'stripe_account_id' as stripe_account_id 
-        FROM users WHERE id = $1
-      `, [transaction.provider_id]);
-
-      const stripeAccountId = providerResult.rows[0]?.stripe_account_id;
-
-      if (stripeAccountId) {
-        await stripe.transfers.create({
-          amount: providerAmount,
-          currency: 'usd',
-          destination: stripeAccountId,
-        });
-      }
-
-      // Update transaction status
-      await query(`
-        UPDATE transactions 
-        SET status = 'completed',
-            completion_proof = $1,
-            completed_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-      `, [JSON.stringify(completionProof), transactionId]);
-
-      // Update reputation scores
-      await this.updateReputationScores(transaction);
+      console.log(`✅ Escrow released: ${transaction.reference} - ${transaction.currency}${providerAmount} to provider`);
 
       return {
         success: true,
-        transactionId,
+        transactionId: transactionId,
         status: 'completed',
+        amount: providerAmount,
+        platformFee: platformFee,
         completedAt: new Date().toISOString()
       };
 
@@ -227,47 +212,37 @@ class EscrowManager {
   }
 
   /**
-   * Handle dispute initiation
+   * Handle dispute initiation - MongoDB version
    */
   async initiateDispute(transactionId, disputeData, initiatorId) {
     try {
-      const transactionResult = await query(`
-        SELECT * FROM transactions WHERE id = $1
-      `, [transactionId]);
+      const { Transaction } = require('../config/database');
+      
+      const transactionObjId = typeof transactionId === 'string' ? 
+        mongoose.Types.ObjectId.createFromHexString(transactionId) : transactionId;
+      
+      const transaction = await Transaction.findById(transactionObjId);
 
-      if (transactionResult.rows.length === 0) {
+      if (!transaction) {
         throw new Error('Transaction not found');
       }
 
-      const transaction = transactionResult.rows[0];
-
       // Update transaction with dispute data
-      await query(`
-        UPDATE transactions 
-        SET status = 'disputed',
-            dispute_data = $1
-        WHERE id = $2
-      `, [JSON.stringify({
+      transaction.status = 'disputed';
+      transaction.dispute_data = {
         initiator: initiatorId,
         reason: disputeData.reason,
         evidence: disputeData.evidence,
         timestamp: new Date().toISOString(),
         status: 'open'
-      }), transactionId]);
+      };
+      await transaction.save();
 
-      // Pause any pending transfers
-      const paymentIntentId = transaction.verification_data?.payment_intent_id;
-      if (paymentIntentId) {
-        // In a real implementation, you might need to handle this differently
-        console.log(`Dispute initiated for payment intent: ${paymentIntentId}`);
-      }
-
-      // Create dispute resolution case
-      const disputeId = await this.createDisputeCase(transaction, disputeData, initiatorId);
+      console.log(`⚠️ Dispute initiated for escrow: ${transaction.reference}`);
 
       return {
         success: true,
-        disputeId,
+        disputeId: `DIS_${transaction._id.toString().substring(0, 8)}`,
         status: 'disputed'
       };
 
@@ -278,55 +253,50 @@ class EscrowManager {
   }
 
   /**
-   * Resolve dispute based on evidence and voting
+   * Resolve dispute based on evidence - MongoDB version
    */
   async resolveDispute(transactionId, resolution) {
     try {
       const { winner, reasoning, evidence } = resolution;
+      const { Transaction } = require('../config/database');
+      
+      const transactionObjId = typeof transactionId === 'string' ? 
+        mongoose.Types.ObjectId.createFromHexString(transactionId) : transactionId;
 
-      const transactionResult = await query(`
-        SELECT * FROM transactions WHERE id = $1
-      `, [transactionId]);
+      const transaction = await Transaction.findById(transactionObjId);
 
-      const transaction = transactionResult.rows[0];
-      const paymentIntentId = transaction.verification_data?.payment_intent_id;
-
-      if (winner === 'client') {
-        // Refund to client
-        if (paymentIntentId) {
-          await stripe.refunds.create({
-            payment_intent: paymentIntentId
-          });
-        }
-      } else if (winner === 'provider') {
-        // Release funds to provider
-        if (paymentIntentId) {
-          await stripe.paymentIntents.capture(paymentIntentId);
-        }
-        
-        // Transfer to provider (similar to completion)
-        await this.transferToProvider(transaction);
+      if (!transaction) {
+        throw new Error('Transaction not found');
       }
 
-      // Update transaction
-      await query(`
-        UPDATE transactions 
-        SET status = 'resolved',
-            dispute_data = jsonb_set(
-              dispute_data, 
-              '{resolution}', 
-              to_jsonb($1::jsonb)
-            )
-        WHERE id = $2
-      `, [JSON.stringify({
-        winner,
-        reasoning,
-        evidence,
-        resolvedAt: new Date().toISOString()
-      }), transactionId]);
-
-      // Update reputation based on resolution
-      await this.updateDisputeReputation(transaction, winner);
+      if (winner === 'client') {
+        // Refund to client - mark escrow as refunded
+        transaction.status = 'refunded';
+        transaction.dispute_data = {
+          ...transaction.dispute_data,
+          resolution: {
+            winner: 'client',
+            reasoning,
+            evidence,
+            resolvedAt: new Date().toISOString()
+          },
+          status: 'resolved'
+        };
+        await transaction.save();
+        
+        console.log(`✅ Dispute resolved in favor of client - Escrow refunded: ${transaction.reference}`);
+      } else {
+        // Release to provider
+        await this.confirmCompletion(transactionId, {
+          type: 'dispute_resolution',
+          winner: 'provider',
+          reasoning,
+          evidence,
+          resolvedAt: new Date().toISOString()
+        });
+        
+        console.log(`✅ Dispute resolved in favor of provider - Escrow released: ${transaction.reference}`);
+      }
 
       return {
         success: true,
@@ -341,36 +311,33 @@ class EscrowManager {
   }
 
   /**
-   * Get escrow status
+   * Get escrow status - MongoDB version
    */
   async getEscrowStatus(transactionId) {
     try {
-      const result = await query(`
-        SELECT 
-          t.*,
-          c.username as client_username,
-          p.username as provider_username,
-          s.title as service_title
-        FROM transactions t
-        JOIN users c ON t.client_id = c.id
-        JOIN users p ON t.provider_id = p.id
-        JOIN services s ON t.service_id = s.id
-        WHERE t.id = $1
-      `, [transactionId]);
+      const { Transaction, User, Service } = require('../config/database');
+      
+      const transactionObjId = typeof transactionId === 'string' ? 
+        mongoose.Types.ObjectId.createFromHexString(transactionId) : transactionId;
+      
+      const transaction = await Transaction.findById(transactionObjId);
 
-      if (result.rows.length === 0) {
+      if (!transaction) {
         throw new Error('Transaction not found');
       }
 
-      const transaction = result.rows[0];
+      // Get client and provider info
+      const client = await User.findById(transaction.client_id).select('username');
+      const provider = await User.findById(transaction.provider_id).select('username');
 
       return {
-        transactionId: transaction.id,
+        transactionId: transaction._id.toString(),
+        reference: transaction.reference,
         status: transaction.status,
         amount: transaction.amount,
-        client: transaction.client_username,
-        provider: transaction.provider_username,
-        service: transaction.service_title,
+        currency: transaction.currency,
+        client: client?.username || 'Unknown',
+        provider: provider?.username || 'Unknown',
         scheduledTime: transaction.scheduled_time,
         createdAt: transaction.created_at,
         completedAt: transaction.completed_at,

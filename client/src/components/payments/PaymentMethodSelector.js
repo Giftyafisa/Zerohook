@@ -18,18 +18,43 @@ import {
   CreditCard,
   AccountBalance,
   CurrencyBitcoin,
-  CheckCircle
+  CheckCircle,
+  PhoneAndroid,
+  Lock
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { colors } from '../../theme/colors';
 import { API_BASE_URL } from '../../config/constants';
+
+// Country-specific payment channels for Paystack
+const PAYMENT_CHANNELS_BY_COUNTRY = {
+  NG: { name: 'Nigeria', channels: ['card', 'bank', 'ussd', 'bank_transfer'], flag: '🇳🇬' },
+  GH: { name: 'Ghana', channels: ['card', 'mobile_money'], flag: '🇬🇭' },
+  KE: { name: 'Kenya', channels: ['card', 'mobile_money'], flag: '🇰🇪' },
+  ZA: { name: 'South Africa', channels: ['card', 'eft', 'qr'], flag: '🇿🇦' },
+  EG: { name: 'Egypt', channels: ['card'], flag: '🇪🇬' },
+  CI: { name: "Côte d'Ivoire", channels: ['card', 'mobile_money'], flag: '🇨🇮' },
+  RW: { name: 'Rwanda', channels: ['card', 'mobile_money'], flag: '🇷🇼' },
+  DEFAULT: { name: 'International', channels: ['card'], flag: '🌍' }
+};
+
+const CHANNEL_NAMES = {
+  card: 'Credit/Debit Card',
+  bank: 'Bank Account',
+  ussd: 'USSD',
+  bank_transfer: 'Bank Transfer',
+  mobile_money: 'Mobile Money',
+  eft: 'EFT',
+  qr: 'QR Code'
+};
 
 const PaymentMethodSelector = ({ 
   amount, 
   currency = 'USD', 
   onPaymentMethodSelect, 
   onPaymentInitiate,
-  loading = false 
+  loading = false,
+  userCountry = 'DEFAULT'
 }) => {
   const [selectedMethod, setSelectedMethod] = useState('paystack');
   const [paymentMethods, setPaymentMethods] = useState([]);
@@ -37,6 +62,9 @@ const PaymentMethodSelector = ({
   const [selectedCurrency, setSelectedCurrency] = useState(currency);
   const [exchangeRate, setExchangeRate] = useState(1);
   const [loadingMethods, setLoadingMethods] = useState(true);
+
+  // Get country-specific payment channels
+  const countryChannels = PAYMENT_CHANNELS_BY_COUNTRY[userCountry] || PAYMENT_CHANNELS_BY_COUNTRY.DEFAULT;
 
   useEffect(() => {
     fetchPaymentMethods();
@@ -119,7 +147,7 @@ const PaymentMethodSelector = ({
   const getMethodDescription = (method) => {
     switch (method.id) {
       case 'paystack':
-        return 'Fast international payments with local bank support';
+        return `Fast secure payments with ${countryChannels.flag} ${countryChannels.name} local options`;
       case 'crypto':
         return 'Decentralized payments with Bitcoin, Ethereum, and more';
       case 'stripe':
@@ -288,11 +316,40 @@ const PaymentMethodSelector = ({
       >
         <Typography variant="body2">
           <strong>{paymentMethods.find(m => m.id === selectedMethod)?.name}</strong> will be used for this payment.
-          {selectedMethod === 'paystack' && ' You\'ll be redirected to a secure payment page.'}
+          {selectedMethod === 'paystack' && ' Payment will complete securely in a popup window.'}
           {selectedMethod === 'crypto' && ' You\'ll receive a unique wallet address for payment.'}
           {selectedMethod === 'stripe' && ' Your payment will be processed securely through Stripe.'}
         </Typography>
       </Alert>
+
+      {/* Show available payment channels for Paystack */}
+      {selectedMethod === 'paystack' && (
+        <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <Lock sx={{ fontSize: 18, color: 'success.main' }} />
+            <Typography variant="body2" fontWeight="medium" color="text.secondary">
+              Available payment methods for {countryChannels.flag} {countryChannels.name}:
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {countryChannels.channels.map((channel) => (
+              <Chip
+                key={channel}
+                label={CHANNEL_NAMES[channel] || channel}
+                size="small"
+                icon={
+                  channel === 'card' ? <CreditCard sx={{ fontSize: 16 }} /> :
+                  channel.includes('mobile') ? <PhoneAndroid sx={{ fontSize: 16 }} /> :
+                  <AccountBalance sx={{ fontSize: 16 }} />
+                }
+                variant="outlined"
+                color="primary"
+                sx={{ fontSize: '0.75rem' }}
+              />
+            ))}
+          </Box>
+        </Box>
+      )}
 
       <Box sx={{ display: 'flex', justifyContent: 'center' }}>
         <Button

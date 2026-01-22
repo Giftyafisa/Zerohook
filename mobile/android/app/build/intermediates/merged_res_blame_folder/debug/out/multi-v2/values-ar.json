@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-86:/values-ar/values-ar.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-ar/values-ar.xml",
             "map": [
                 {
                     "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\4467964157e73ba583bf2d915e53c244\\transformed\\jetified-play-services-base-18.1.0\\res\\values-ar\\values.xml",

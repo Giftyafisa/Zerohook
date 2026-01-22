@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-86:/values-zh-rTW/values-zh-rTW.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-zh-rTW/values-zh-rTW.xml",
             "map": [
                 {
                     "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\3dc0ac7e6471544805a5011ca53ccb05\\transformed\\core-1.12.0\\res\\values-zh-rTW\\values-zh-rTW.xml",

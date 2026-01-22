@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
+import PaystackPop from '@paystack/inline-js';
 import {
   Box,
   Container,
@@ -20,27 +21,39 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Chip
 } from '@mui/material';
-import { CheckCircle, Star, Payment, OpenInNew, LocationOn } from '@mui/icons-material';
+import { CheckCircle, Star, Payment, OpenInNew, LocationOn, Lock, CreditCard, PhoneAndroid, AccountBalance } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import { selectUser, setSubscriptionStatus } from '../store/slices/authSlice';
 import { detectUserCountry } from '../store/slices/countrySlice';
 import subscriptionAPI from '../services/subscriptionAPI';
 
-// Supported countries with pricing
+// Supported countries with pricing and payment channels
 const SUPPORTED_COUNTRIES = [
-  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', price: 30000, phoneCode: '+234' },
-  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', price: 500, phoneCode: '+233' },
-  { code: 'KE', name: 'Kenya', flag: '🇰🇪', currency: 'KES', symbol: 'KSh', price: 6500, phoneCode: '+254' },
-  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', symbol: 'R', price: 750, phoneCode: '+27' },
-  { code: 'UG', name: 'Uganda', flag: '🇺🇬', currency: 'UGX', symbol: 'USh', price: 150000, phoneCode: '+256' },
-  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', currency: 'TZS', symbol: 'TSh', price: 100000, phoneCode: '+255' },
-  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', currency: 'RWF', symbol: 'FRw', price: 50000, phoneCode: '+250' },
-  { code: 'BW', name: 'Botswana', flag: '🇧🇼', currency: 'BWP', symbol: 'P', price: 550, phoneCode: '+267' },
-  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', currency: 'ZMW', symbol: 'ZK', price: 1000, phoneCode: '+260' },
-  { code: 'MW', name: 'Malawi', flag: '🇲🇼', currency: 'MWK', symbol: 'MK', price: 70000, phoneCode: '+265' }
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', price: 30000, phoneCode: '+234', channels: ['card', 'bank', 'ussd', 'bank_transfer'] },
+  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', price: 500, phoneCode: '+233', channels: ['card', 'mobile_money'] },
+  { code: 'KE', name: 'Kenya', flag: '🇰🇪', currency: 'KES', symbol: 'KSh', price: 6500, phoneCode: '+254', channels: ['card', 'mobile_money'] },
+  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', symbol: 'R', price: 750, phoneCode: '+27', channels: ['card', 'eft', 'qr'] },
+  { code: 'UG', name: 'Uganda', flag: '🇺🇬', currency: 'UGX', symbol: 'USh', price: 150000, phoneCode: '+256', channels: ['card'] },
+  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', currency: 'TZS', symbol: 'TSh', price: 100000, phoneCode: '+255', channels: ['card'] },
+  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', currency: 'RWF', symbol: 'FRw', price: 50000, phoneCode: '+250', channels: ['card'] },
+  { code: 'BW', name: 'Botswana', flag: '🇧🇼', currency: 'BWP', symbol: 'P', price: 550, phoneCode: '+267', channels: ['card'] },
+  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', currency: 'ZMW', symbol: 'ZK', price: 1000, phoneCode: '+260', channels: ['card'] },
+  { code: 'MW', name: 'Malawi', flag: '🇲🇼', currency: 'MWK', symbol: 'MK', price: 70000, phoneCode: '+265', channels: ['card'] }
 ];
+
+// Payment channel display names
+const CHANNEL_NAMES = {
+  card: { name: 'Card', icon: CreditCard },
+  bank: { name: 'Pay with Bank', icon: AccountBalance },
+  ussd: { name: 'USSD', icon: PhoneAndroid },
+  bank_transfer: { name: 'Bank Transfer', icon: AccountBalance },
+  mobile_money: { name: 'Mobile Money', icon: PhoneAndroid },
+  eft: { name: 'EFT / Ozow', icon: AccountBalance },
+  qr: { name: 'QR Code', icon: CreditCard }
+};
 
 const SubscriptionPage = () => {
   const navigate = useNavigate();
@@ -123,21 +136,68 @@ const SubscriptionPage = () => {
         countryCode: selectedCountry.code
       });
 
-                if (response.success) {
-            // Store the payment reference for verification
-            const paymentDataWithRef = {
-              ...response.paymentData,
-              paystackReference: response.paymentData.reference || response.paymentData.paystackReference
-            };
-            setPaymentData(paymentDataWithRef);
-            setShowPaymentDialog(true);
-            
-            if (response.paymentData.isTestMode) {
-              toast.info('Test Mode: Using fallback payment method');
-            } else {
-              toast.success('Subscription created! Redirecting to payment...');
+      if (response.success) {
+        // Store the payment reference for verification
+        const paymentDataWithRef = {
+          ...response.paymentData,
+          paystackReference: response.paymentData.reference || response.paymentData.paystackReference
+        };
+        setPaymentData(paymentDataWithRef);
+        
+        // Check if we have access code for inline popup
+        const accessCode = response.paymentData.accessCode || response.paymentData.access_code;
+        
+        if (accessCode) {
+          // Use Paystack inline popup (no redirect!)
+          toast.info('Opening secure payment...');
+          
+          const popup = new PaystackPop();
+          popup.resumeTransaction(accessCode, {
+            onSuccess: async (response) => {
+              console.log('Payment successful:', response);
+              toast.success('🎉 Payment completed! Activating subscription...');
+              
+              // Verify payment and activate subscription
+              try {
+                const verifyResponse = await subscriptionAPI.verifyPaymentByReference(paymentDataWithRef.paystackReference);
+                if (verifyResponse.success && verifyResponse.isSubscribed) {
+                  dispatch(setSubscriptionStatus(true));
+                  toast.success('🎉 Subscription activated successfully!');
+                  setTimeout(() => navigate('/dashboard'), 2000);
+                }
+              } catch (verifyErr) {
+                console.error('Verification error:', verifyErr);
+                // Still navigate - webhook will handle activation
+                dispatch(setSubscriptionStatus(true));
+                setTimeout(() => navigate('/dashboard'), 2000);
+              }
+              
+              setPaymentLoading(false);
+            },
+            onCancel: () => {
+              console.log('Payment cancelled');
+              toast.warning('Payment was cancelled');
+              setPaymentLoading(false);
+            },
+            onError: (error) => {
+              console.error('Payment error:', error);
+              toast.error('Payment failed. Please try again.');
+              setPaymentLoading(false);
             }
+          });
+        } else if (response.paymentData.authorizationUrl) {
+          // Fallback to redirect dialog if no access code
+          setShowPaymentDialog(true);
+          
+          if (response.paymentData.isTestMode) {
+            toast.info('Test Mode: Using fallback payment method');
           } else {
+            toast.success('Subscription created! Click to proceed to payment...');
+          }
+        } else {
+          throw new Error('No payment method available');
+        }
+      } else {
         setError(response.error || 'Failed to create subscription');
         toast.error('Failed to create subscription');
       }
@@ -327,6 +387,34 @@ const SubscriptionPage = () => {
                   </ListItem>
                 ))}
               </List>
+
+              {/* Payment Methods Available */}
+              {selectedCountry && selectedCountry.channels && (
+                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Lock sx={{ fontSize: 18, color: 'success.main' }} />
+                    <Typography variant="body2" fontWeight="medium" color="text.secondary">
+                      Secure payment methods for {selectedCountry.name}:
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {selectedCountry.channels.map((channel) => (
+                      <Chip
+                        key={channel}
+                        label={CHANNEL_NAMES[channel] || channel}
+                        size="small"
+                        icon={
+                          channel === 'card' ? <CreditCard sx={{ fontSize: 16 }} /> :
+                          channel.includes('mobile') ? <PhoneAndroid sx={{ fontSize: 16 }} /> :
+                          <AccountBalance sx={{ fontSize: 16 }} />
+                        }
+                        variant="outlined"
+                        sx={{ fontSize: '0.7rem' }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+              )}
             </CardContent>
 
             <CardActions sx={{ p: 4, pt: 2 }}>

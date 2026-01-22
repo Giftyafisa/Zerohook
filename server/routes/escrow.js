@@ -1,18 +1,31 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
+const mongoose = require('mongoose');
 const router = express.Router();
 
 /**
  * @route   POST /api/escrow/create
- * @desc    Create escrow for transaction
+ * @desc    Create escrow for transaction (hold money for a service)
  * @access  Private
  */
 router.post('/create', authMiddleware, async (req, res) => {
   try {
     const clientId = req.user.userId;
-    const { serviceId, providerId, amount, scheduledTime, locationData, paymentMethodId } = req.body;
+    const { serviceId, providerId, amount, scheduledTime, locationData, paymentMethod = 'wallet' } = req.body;
 
-    // Risk assessment
+    // Validate required fields
+    if (!providerId) {
+      return res.status(400).json({ error: 'Provider ID is required' });
+    }
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+
+    // Get client's country for currency
+    const userCountry = await req.countryManager?.getUserCountry(clientId);
+    const currency = userCountry?.country?.currency || 'NGN';
+
+    // Risk assessment (now using MongoDB)
     const riskAssessment = await req.trustEngine.assessTransactionRisk(
       clientId, providerId, amount, 'service_booking'
     );
@@ -25,15 +38,16 @@ router.post('/create', authMiddleware, async (req, res) => {
       });
     }
 
-    // Create escrow
+    // Create escrow (now using MongoDB)
     const escrowResult = await req.escrowManager.createEscrow({
       clientId,
       providerId,
       serviceId,
       amount,
+      currency,
       scheduledTime,
       locationData,
-      paymentMethodId
+      paymentMethod
     });
 
     // Notify provider via socket
@@ -41,12 +55,14 @@ router.post('/create', authMiddleware, async (req, res) => {
       req.io.to(`user_${providerId}`).emit('escrow_created', {
         escrowId: escrowResult.id || escrowResult.transactionId,
         amount,
+        currency,
         clientId,
-        message: 'New payment held for your service!'
+        message: `New payment of ${currency}${amount} held for your service!`
       });
     }
 
     res.json({
+      success: true,
       message: 'Escrow created successfully',
       transaction: escrowResult,
       riskAssessment
@@ -63,7 +79,7 @@ router.post('/create', authMiddleware, async (req, res) => {
 
 /**
  * @route   POST /api/escrow/:id/complete
- * @desc    Confirm service completion
+ * @desc    Confirm service completion and release escrow
  * @access  Private
  */
 router.post('/:id/complete', authMiddleware, async (req, res) => {
@@ -72,15 +88,28 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
     const { completionProof } = req.body;
     const userId = req.user.userId;
 
-    // Verify user is part of this transaction
-    const { query } = require('../config/database');
-    const transactionResult = await query(`
-      SELECT * FROM transactions 
-      WHERE id = $1 AND (client_id = $2 OR provider_id = $2)
-    `, [transactionId, userId]);
+    // Verify user is part of this transaction using MongoDB
+    const { Transaction } = require('../config/database');
+    
+    const transactionObjId = mongoose.Types.ObjectId.isValid(transactionId) ? 
+      new mongoose.Types.ObjectId(transactionId) : null;
+    
+    if (!transactionObjId) {
+      return res.status(400).json({ error: 'Invalid transaction ID' });
+    }
+    
+    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    
+    const transaction = await Transaction.findOne({
+      _id: transactionObjId,
+      $or: [
+        { client_id: userObjId },
+        { provider_id: userObjId }
+      ]
+    });
 
-    if (transactionResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Transaction not found' });
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found or not authorized' });
     }
 
     // Confirm completion
@@ -89,7 +118,20 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
       completionProof
     );
 
+    // Notify other party
+    const otherPartyId = transaction.client_id.toString() === userId ? 
+      transaction.provider_id.toString() : transaction.client_id.toString();
+    
+    if (req.io) {
+      req.io.to(`user_${otherPartyId}`).emit('escrow_completed', {
+        escrowId: transactionId,
+        amount: result.amount,
+        message: 'Service completed and payment released!'
+      });
+    }
+
     res.json({
+      success: true,
       message: 'Transaction completed successfully',
       result
     });
@@ -144,14 +186,26 @@ router.get('/:id/status', authMiddleware, async (req, res) => {
     const transactionId = req.params.id;
     const userId = req.user.userId;
 
-    // Verify user access
-    const { query } = require('../config/database');
-    const accessResult = await query(`
-      SELECT 1 FROM transactions 
-      WHERE id = $1 AND (client_id = $2 OR provider_id = $2)
-    `, [transactionId, userId]);
+    // Verify user access using MongoDB
+    const { Transaction } = require('../config/database');
+    
+    const transactionObjId = mongoose.Types.ObjectId.isValid(transactionId) ? 
+      new mongoose.Types.ObjectId(transactionId) : null;
+    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    
+    if (!transactionObjId) {
+      return res.status(400).json({ error: 'Invalid transaction ID' });
+    }
+    
+    const transaction = await Transaction.findOne({
+      _id: transactionObjId,
+      $or: [
+        { client_id: userObjId },
+        { provider_id: userObjId }
+      ]
+    });
 
-    if (accessResult.rows.length === 0) {
+    if (!transaction) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -175,60 +229,70 @@ router.get('/:id/status', authMiddleware, async (req, res) => {
 router.get('/list', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { query } = require('../config/database');
+    const { Transaction, User } = require('../config/database');
     
-    // Get all escrows where user is client or provider
-    const escrowsResult = await query(`
-      SELECT 
-        t.id,
-        t.service_id,
-        t.client_id,
-        t.provider_id,
-        t.amount,
-        t.status,
-        t.scheduled_time,
-        t.created_at,
-        t.updated_at,
-        s.title as service_title,
-        s.description as service_description,
-        client.username as client_name,
-        client.profile_data->>'profilePicture' as client_avatar,
-        provider.username as provider_name,
-        provider.profile_data->>'profilePicture' as provider_avatar,
-        CASE 
-          WHEN t.client_id = $1 THEN 'client'
-          WHEN t.provider_id = $1 THEN 'provider'
-        END as user_role
-      FROM transactions t
-      LEFT JOIN services s ON t.service_id = s.id
-      LEFT JOIN users client ON t.client_id = client.id
-      LEFT JOIN users provider ON t.provider_id = provider.id
-      WHERE (t.client_id = $1 OR t.provider_id = $1)
-        AND t.status IN ('pending', 'escrow_held', 'in_progress', 'held')
-      ORDER BY t.created_at DESC
-    `, [userId]);
+    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    
+    // Get all escrows where user is client or provider using MongoDB
+    const escrows = await Transaction.find({
+      $or: [
+        { client_id: userObjId },
+        { provider_id: userObjId }
+      ],
+      type: 'escrow_hold',
+      status: { $in: ['pending', 'escrow_held', 'in_progress', 'held'] }
+    }).sort({ created_at: -1 });
 
-    // Transform to frontend format
-    const escrows = escrowsResult.rows.map(row => ({
-      id: row.id,
-      amount: parseFloat(row.amount),
-      currency: 'NGN',
-      status: row.status === 'escrow_held' || row.status === 'in_progress' ? 'held' : row.status,
-      providerName: row.provider_name,
-      providerAvatar: row.provider_avatar,
-      providerId: row.provider_id,
-      clientName: row.client_name,
-      clientAvatar: row.client_avatar,
-      clientId: row.client_id,
-      serviceTitle: row.service_title || 'Service',
-      createdAt: row.created_at,
-      description: row.service_description
+    // Get user details for each escrow
+    const transformedEscrows = await Promise.all(escrows.map(async (escrow) => {
+      let clientName = 'Client';
+      let clientAvatar = null;
+      let providerName = 'Provider';
+      let providerAvatar = null;
+
+      try {
+        if (escrow.client_id) {
+          const client = await User.findById(escrow.client_id).select('username profileData profile_data');
+          if (client) {
+            clientName = client.username;
+            clientAvatar = client.profileData?.profilePicture || client.profile_data?.profilePicture;
+          }
+        }
+        if (escrow.provider_id) {
+          const provider = await User.findById(escrow.provider_id).select('username profileData profile_data');
+          if (provider) {
+            providerName = provider.username;
+            providerAvatar = provider.profileData?.profilePicture || provider.profile_data?.profilePicture;
+          }
+        }
+      } catch (e) {
+        // Use defaults
+      }
+
+      const userRole = escrow.client_id?.toString() === userId ? 'client' : 'provider';
+
+      return {
+        id: escrow._id.toString(),
+        amount: parseFloat(escrow.amount),
+        currency: escrow.currency || 'NGN',
+        status: escrow.status === 'escrow_held' || escrow.status === 'in_progress' ? 'held' : escrow.status,
+        providerName,
+        providerAvatar,
+        providerId: escrow.provider_id?.toString(),
+        clientName,
+        clientAvatar,
+        clientId: escrow.client_id?.toString(),
+        serviceTitle: escrow.metadata?.serviceTitle || 'Service',
+        createdAt: escrow.created_at,
+        description: escrow.metadata?.description,
+        userRole
+      };
     }));
 
     res.json({
       success: true,
-      escrows,
-      count: escrows.length
+      escrows: transformedEscrows,
+      count: transformedEscrows.length
     });
 
   } catch (error) {
@@ -249,48 +313,62 @@ router.post('/complete', authMiddleware, async (req, res) => {
   try {
     const { escrowId } = req.body;
     const userId = req.user.userId;
-    const { query: dbQuery } = require('../config/database');
+    const { Transaction } = require('../config/database');
+
+    const escrowObjId = mongoose.Types.ObjectId.isValid(escrowId) ? 
+      new mongoose.Types.ObjectId(escrowId) : null;
+    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+
+    if (!escrowObjId) {
+      return res.status(400).json({ error: 'Invalid escrow ID' });
+    }
 
     // Verify user is the client for this escrow
-    const escrowResult = await dbQuery(`
-      SELECT * FROM transactions 
-      WHERE id = $1 AND client_id = $2
-    `, [escrowId, userId]);
+    const escrow = await Transaction.findOne({
+      _id: escrowObjId,
+      client_id: userObjId,
+      type: 'escrow_hold'
+    });
 
-    if (escrowResult.rows.length === 0) {
+    if (!escrow) {
       return res.status(403).json({ error: 'Only the client can release payment' });
     }
 
-    // Update status to completed
-    await dbQuery(`
-      UPDATE transactions 
-      SET status = 'completed', completed_at = NOW(), updated_at = NOW()
-      WHERE id = $1
-    `, [escrowId]);
+    // Use EscrowManager to properly release the escrow
+    const result = await req.escrowManager.confirmCompletion(escrowId, {
+      type: 'client_release',
+      releasedBy: userId,
+      timestamp: new Date().toISOString()
+    });
 
     // Notify provider via socket
-    const escrow = escrowResult.rows[0];
     if (req.io && escrow.provider_id) {
-      req.io.to(`user_${escrow.provider_id}`).emit('escrow_released', {
+      req.io.to(`user_${escrow.provider_id.toString()}`).emit('escrow_released', {
         escrowId,
-        amount: escrow.amount,
-        message: 'Payment released! Funds added to your wallet.'
+        amount: result.amount,
+        currency: escrow.currency,
+        message: `Payment of ${escrow.currency}${result.amount} released! Funds added to your wallet.`
       });
     }
 
     // Record trust event
     if (req.trustEngine) {
-      await req.trustEngine.recordTrustEvent(
-        userId,
-        'escrow_released',
-        { transactionId: escrowId },
-        5 // Positive trust impact
-      );
+      try {
+        await req.trustEngine.recordTrustEvent(
+          userId,
+          'escrow_released',
+          { transactionId: escrowId },
+          5 // Positive trust impact
+        );
+      } catch (e) {
+        console.log('Trust event recording failed:', e.message);
+      }
     }
 
     res.json({
       success: true,
-      message: 'Payment released successfully'
+      message: 'Payment released successfully',
+      result
     });
 
   } catch (error) {
@@ -311,46 +389,61 @@ router.post('/dispute', authMiddleware, async (req, res) => {
   try {
     const { escrowId, reason } = req.body;
     const userId = req.user.userId;
-    const { query: dbQuery } = require('../config/database');
+    const { Transaction } = require('../config/database');
+
+    const escrowObjId = mongoose.Types.ObjectId.isValid(escrowId) ? 
+      new mongoose.Types.ObjectId(escrowId) : null;
+    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+
+    if (!escrowObjId) {
+      return res.status(400).json({ error: 'Invalid escrow ID' });
+    }
 
     // Verify user is part of this escrow
-    const escrowResult = await dbQuery(`
-      SELECT * FROM transactions 
-      WHERE id = $1 AND (client_id = $2 OR provider_id = $2)
-    `, [escrowId, userId]);
+    const escrow = await Transaction.findOne({
+      _id: escrowObjId,
+      $or: [
+        { client_id: userObjId },
+        { provider_id: userObjId }
+      ]
+    });
 
-    if (escrowResult.rows.length === 0) {
+    if (!escrow) {
       return res.status(403).json({ error: 'Access denied to this escrow' });
     }
 
-    // Update status to disputed
-    await dbQuery(`
-      UPDATE transactions 
-      SET status = 'disputed', updated_at = NOW()
-      WHERE id = $1
-    `, [escrowId]);
+    // Use EscrowManager to initiate dispute
+    await req.escrowManager.initiateDispute(escrowId, { reason, evidence: [] }, userId);
 
     // Notify both parties via socket
-    const escrow = escrowResult.rows[0];
     if (req.io) {
       // Notify the other party
-      const otherUserId = escrow.client_id === userId ? escrow.provider_id : escrow.client_id;
-      req.io.to(`user_${otherUserId}`).emit('escrow_disputed', {
-        escrowId,
-        amount: escrow.amount,
-        reason,
-        message: 'A dispute has been opened. Support will contact you.'
-      });
+      const otherUserId = escrow.client_id?.toString() === userId ? 
+        escrow.provider_id?.toString() : escrow.client_id?.toString();
+      
+      if (otherUserId) {
+        req.io.to(`user_${otherUserId}`).emit('escrow_disputed', {
+          escrowId,
+          amount: escrow.amount,
+          currency: escrow.currency,
+          reason,
+          message: 'A dispute has been opened. Support will contact you.'
+        });
+      }
     }
 
     // Record trust event (negative for disputed transactions)
     if (req.trustEngine) {
-      await req.trustEngine.recordTrustEvent(
-        userId,
-        'escrow_disputed',
-        { transactionId: escrowId, reason },
-        -2 // Slight negative trust impact for opening dispute
-      );
+      try {
+        await req.trustEngine.recordTrustEvent(
+          userId,
+          'escrow_disputed',
+          { transactionId: escrowId, reason },
+          -2 // Slight negative trust impact for opening dispute
+        );
+      } catch (e) {
+        console.log('Trust event recording failed:', e.message);
+      }
     }
 
     res.json({

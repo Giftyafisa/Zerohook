@@ -429,6 +429,10 @@ class CountryManager {
 
   /**
    * Get user's country preferences
+   * Priority: 1) User's explicitly set country preference
+   *           2) Detected country from phone number (most reliable)
+   *           3) Detected country from IP
+   *           4) Default country (NG)
    */
   async getUserCountry(userId) {
     try {
@@ -442,21 +446,53 @@ class CountryManager {
           warning: 'Database unavailable, using default country'
         };
       }
-      const user = await User.findById(userId).select('profileData');
+      const user = await User.findById(userId).select('profileData phone');
       
       if (!user) {
         return { success: false, error: 'User not found' };
       }
 
-      const countryCode = user.profileData?.country || this.defaultCountry;
-      const detectedCountry = user.profileData?.detectedCountry || this.defaultCountry;
+      // Priority 1: Check if user has explicitly set a country preference
+      let countryCode = user.profileData?.country;
+      let source = 'user_preference';
+      
+      // Priority 2: If no explicit preference, detect from phone number
+      if (!countryCode && user.phone) {
+        const phoneDetection = this.detectCountryFromPhone(user.phone);
+        if (phoneDetection && phoneDetection.success) {
+          countryCode = phoneDetection.country.code;
+          source = 'phone_detection';
+          console.log(`🌍 Country detected from phone ${user.phone}: ${countryCode}`);
+          
+          // Save the detected country for future use
+          await User.findByIdAndUpdate(userId, {
+            'profileData.detectedCountry': countryCode
+          }).catch(err => console.error('Failed to save detected country:', err));
+        }
+      }
+      
+      // Priority 3: Use previously detected country from IP
+      if (!countryCode) {
+        countryCode = user.profileData?.detectedCountry;
+        source = 'ip_detection';
+      }
+      
+      // Priority 4: Fall back to default
+      if (!countryCode) {
+        countryCode = this.defaultCountry;
+        source = 'default';
+      }
+
       const country = this.getCountryByCode(countryCode);
+
+      console.log(`🌍 getUserCountry for ${userId}: ${countryCode} (${country?.name}) via ${source}`);
 
       return {
         success: true,
         country: country || null,
-        detectedCountry: detectedCountry,
-        preference: countryCode
+        detectedCountry: countryCode,
+        preference: countryCode,
+        source: source
       };
     } catch (error) {
       console.error('Failed to get user country:', error);

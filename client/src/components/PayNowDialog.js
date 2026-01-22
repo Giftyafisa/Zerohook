@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -13,16 +13,38 @@ import {
   RadioGroup,
   FormControlLabel,
   TextField,
-  Divider
+  Divider,
+  Chip
 } from '@mui/material';
 import {
   Lock as EscrowIcon,
   CreditCard as CardIcon,
   AccountBalance as BankIcon,
   PhoneAndroid as MobileIcon,
-  CheckCircle as SuccessIcon
+  CheckCircle as SuccessIcon,
+  Security as SecurityIcon
 } from '@mui/icons-material';
+import PaystackPop from '@paystack/inline-js';
 import { API_BASE_URL } from '../config/constants';
+
+// Country-specific payment channels
+const PAYMENT_CHANNELS_BY_COUNTRY = {
+  NG: { channels: ['card', 'bank', 'ussd', 'bank_transfer'], name: 'Nigeria', flag: '🇳🇬' },
+  GH: { channels: ['card', 'mobile_money'], name: 'Ghana', flag: '🇬🇭' },
+  KE: { channels: ['card', 'mobile_money'], name: 'Kenya', flag: '🇰🇪' },
+  ZA: { channels: ['card', 'eft', 'qr'], name: 'South Africa', flag: '🇿🇦' },
+  DEFAULT: { channels: ['card'], name: 'International', flag: '🌍' }
+};
+
+const CHANNEL_NAMES = {
+  card: 'Card',
+  bank: 'Bank',
+  ussd: 'USSD',
+  bank_transfer: 'Bank Transfer',
+  mobile_money: 'Mobile Money',
+  eft: 'EFT',
+  qr: 'QR Code'
+};
 
 /**
  * PayNowDialog - Simple escrow payment flow
@@ -37,13 +59,17 @@ const PayNowDialog = ({
   providerName,
   providerId,
   serviceId,
-  onSuccess
+  onSuccess,
+  userCountry = 'NG'
 }) => {
   const [step, setStep] = useState('select'); // select, processing, success, error
   const [paymentMethod, setPaymentMethod] = useState('paystack');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [escrowId, setEscrowId] = useState(null);
+
+  // Get country-specific channels
+  const countryData = PAYMENT_CHANNELS_BY_COUNTRY[userCountry] || PAYMENT_CHANNELS_BY_COUNTRY.DEFAULT;
 
   const formatCurrency = (amt, curr) => {
     const symbols = { NGN: '₦', USD: '$', GHS: '₵', KES: 'KSh' };
@@ -84,8 +110,6 @@ const PayNowDialog = ({
       setEscrowId(escrowData.escrowId || escrowData.id);
 
       // Step 2: Initialize payment based on method
-      let paymentUrl = null;
-      
       if (paymentMethod === 'paystack') {
         const paymentResponse = await fetch(`${API_BASE_URL}/payments/create-payment-intent`, {
           method: 'POST',
@@ -98,6 +122,7 @@ const PayNowDialog = ({
             currency,
             escrowId: escrowData.escrowId || escrowData.id,
             provider: 'paystack',
+            channels: countryData.channels,
             metadata: {
               serviceId,
               providerId,
@@ -108,19 +133,54 @@ const PayNowDialog = ({
 
         if (paymentResponse.ok) {
           const paymentData = await paymentResponse.json();
-          paymentUrl = paymentData.authorizationUrl || paymentData.authorization_url;
+          const accessCode = paymentData.accessCode || paymentData.access_code;
+          
+          // Use inline popup if access_code is available
+          if (accessCode) {
+            try {
+              const popup = new PaystackPop();
+              await popup.resumeTransaction(accessCode, {
+                onSuccess: (transaction) => {
+                  console.log('Payment successful:', transaction);
+                  setStep('success');
+                  onSuccess?.({
+                    escrowId: escrowData.escrowId || escrowData.id,
+                    amount,
+                    currency,
+                    reference: transaction.reference
+                  });
+                },
+                onCancel: () => {
+                  console.log('Payment cancelled');
+                  setStep('select');
+                  setLoading(false);
+                },
+                onError: (error) => {
+                  console.error('Payment error:', error);
+                  setError('Payment failed. Please try again.');
+                  setStep('error');
+                }
+              });
+              return; // Exit early, popup handles the flow
+            } catch (popupError) {
+              console.error('Popup failed, using redirect:', popupError);
+              // Fallback to redirect
+              const paymentUrl = paymentData.authorizationUrl || paymentData.authorization_url;
+              if (paymentUrl) {
+                window.open(paymentUrl, '_blank');
+              }
+            }
+          } else {
+            // No access code, use redirect URL
+            const paymentUrl = paymentData.authorizationUrl || paymentData.authorization_url;
+            if (paymentUrl) {
+              window.open(paymentUrl, '_blank');
+            }
+          }
         }
       }
 
-      // Open payment URL or show success
-      if (paymentUrl) {
-        window.open(paymentUrl, '_blank');
-        setStep('success');
-      } else {
-        // Simulate success for demo
-        setStep('success');
-      }
-
+      setStep('success');
       onSuccess?.({
         escrowId: escrowData.escrowId || escrowData.id,
         amount,
@@ -144,7 +204,13 @@ const PayNowDialog = ({
   };
 
   const paymentMethods = [
-    { id: 'paystack', label: 'Card / Bank / Mobile', icon: <CardIcon />, desc: 'Pay with card, bank transfer, or mobile money' },
+    { 
+      id: 'paystack', 
+      label: `${countryData.flag} ${countryData.name} Payment`, 
+      icon: <CardIcon />, 
+      desc: `Pay with ${countryData.channels.map(c => CHANNEL_NAMES[c]).join(', ')}`,
+      channels: countryData.channels
+    },
     { id: 'bank', label: 'Direct Bank Transfer', icon: <BankIcon />, desc: 'Transfer directly to escrow account' },
     { id: 'mobile', label: 'Mobile Money', icon: <MobileIcon />, desc: 'MTN, Airtel, or other mobile money' }
   ];
@@ -239,10 +305,10 @@ const PayNowDialog = ({
         {step === 'success' && (
           <Box sx={styles.successState}>
             <SuccessIcon sx={{ fontSize: 64, color: '#66bb6a', mb: 2 }} />
-            <Typography sx={styles.successTitle}>Payment Started!</Typography>
+            <Typography sx={styles.successTitle}>Payment Complete!</Typography>
             <Typography sx={styles.successText}>
-              Complete payment in the new window.<br />
-              Money will be held safely until you confirm service.
+              Your payment has been processed securely.<br />
+              Money is held safely until you confirm service completion.
             </Typography>
             <Alert severity="info" sx={{ mt: 2 }}>
               After service is done, come back here and click "Release Payment" to pay the provider.

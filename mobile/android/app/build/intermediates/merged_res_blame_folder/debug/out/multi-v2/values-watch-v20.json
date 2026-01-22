@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-86:/values-watch-v20/values-watch-v20.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-watch-v20/values-watch-v20.xml",
             "map": [
                 {
                     "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\c651f057d079a1fbfb25fd4d36cc10d8\\transformed\\appcompat-1.6.1\\res\\values-watch-v20\\values-watch-v20.xml",

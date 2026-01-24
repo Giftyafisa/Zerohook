@@ -1,6 +1,10 @@
 /**
  * Currency Utility Functions
  * Centralized currency formatting that uses Redux country detection
+ * 
+ * SUBSCRIPTION PRICING:
+ * Base price: $20 USD for 6-month subscription
+ * Local prices are calculated using exchange rates below
  */
 
 // Default exchange rates and symbols matching countrySlice (Updated January 2026)

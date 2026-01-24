@@ -5,7 +5,7 @@ const router = express.Router();
 
 /**
  * @route   POST /api/escrow/create
- * @desc    Create escrow for transaction (hold money for a service)
+ * @desc    Create escrow for transaction (hold money for a service) - generates completion PIN
  * @access  Private
  */
 router.post('/create', authMiddleware, async (req, res) => {
@@ -38,7 +38,7 @@ router.post('/create', authMiddleware, async (req, res) => {
       });
     }
 
-    // Create escrow (now using MongoDB)
+    // Create escrow with PIN (now using MongoDB)
     const escrowResult = await req.escrowManager.createEscrow({
       clientId,
       providerId,
@@ -50,21 +50,22 @@ router.post('/create', authMiddleware, async (req, res) => {
       paymentMethod
     });
 
-    // Notify provider via socket
+    // Notify provider via socket (but DON'T send PIN - only client sees PIN)
     if (req.io) {
       req.io.to(`user_${providerId}`).emit('escrow_created', {
         escrowId: escrowResult.id || escrowResult.transactionId,
         amount,
         currency,
         clientId,
-        message: `New payment of ${currency}${amount} held for your service!`
+        message: `New payment of ${currency}${amount} held for your service! Ask client for completion PIN after service.`
       });
     }
 
     res.json({
       success: true,
-      message: 'Escrow created successfully',
+      message: 'Escrow created successfully. Share the PIN with provider ONLY after service is complete.',
       transaction: escrowResult,
+      completionPin: escrowResult.completionPin, // Only sent to client
       riskAssessment
     });
 
@@ -72,6 +73,379 @@ router.post('/create', authMiddleware, async (req, res) => {
     console.error('Create escrow error:', error);
     res.status(500).json({
       error: 'Failed to create escrow',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/escrow/enter-pin
+ * @desc    Provider enters PIN to confirm service was delivered (Uber-style)
+ * @access  Private (Provider only)
+ */
+router.post('/enter-pin', authMiddleware, async (req, res) => {
+  try {
+    const providerId = req.user.userId;
+    const { escrowId, pin } = req.body;
+
+    if (!escrowId || !pin) {
+      return res.status(400).json({ error: 'Escrow ID and PIN are required' });
+    }
+
+    const result = await req.escrowManager.enterCompletionPin(escrowId, pin, providerId);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error,
+        attemptsRemaining: result.attemptsRemaining
+      });
+    }
+
+    // Get escrow details to notify client
+    const { Transaction } = require('../config/database');
+    const escrow = await Transaction.findById(escrowId);
+
+    // Notify client that PIN was entered - they need to confirm
+    if (req.io && escrow?.client_id) {
+      req.io.to(`user_${escrow.client_id.toString()}`).emit('pin_entered', {
+        escrowId,
+        amount: escrow.amount,
+        currency: escrow.currency,
+        confirmationDeadline: result.confirmationDeadline,
+        message: `Provider entered completion PIN. Please confirm the service was delivered within 48 hours, or funds will auto-release.`
+      });
+    }
+
+    res.json({
+      success: true,
+      message: result.message,
+      confirmationDeadline: result.confirmationDeadline,
+      autoReleaseAt: result.autoReleaseAt
+    });
+
+  } catch (error) {
+    console.error('Enter PIN error:', error);
+    res.status(500).json({
+      error: 'Failed to verify PIN',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/escrow/confirm
+ * @desc    Client confirms service was delivered - releases funds
+ * @access  Private (Client only)
+ */
+router.post('/confirm', authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user.userId;
+    const { escrowId } = req.body;
+
+    if (!escrowId) {
+      return res.status(400).json({ error: 'Escrow ID is required' });
+    }
+
+    const result = await req.escrowManager.clientConfirmService(escrowId, clientId);
+
+    // Get escrow details to notify provider
+    const { Transaction } = require('../config/database');
+    const escrow = await Transaction.findById(escrowId);
+
+    // Notify provider that payment was released
+    if (req.io && escrow?.provider_id) {
+      req.io.to(`user_${escrow.provider_id.toString()}`).emit('escrow_released', {
+        escrowId,
+        amount: result.amount,
+        currency: escrow.currency,
+        message: `Payment of ${escrow.currency}${result.amount} released! Funds added to your wallet.`
+      });
+    }
+
+    // Record positive trust event
+    if (req.trustEngine) {
+      try {
+        await req.trustEngine.recordTrustEvent(clientId, 'escrow_confirmed', { escrowId }, 5);
+      } catch (e) {}
+    }
+
+    res.json({
+      success: true,
+      message: 'Service confirmed! Payment released to provider.',
+      result
+    });
+
+  } catch (error) {
+    console.error('Confirm service error:', error);
+    res.status(500).json({
+      error: 'Failed to confirm service',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/escrow/claim-complete
+ * @desc    Provider claims service was completed (when client refuses to share PIN)
+ * @access  Private (Provider only)
+ */
+router.post('/claim-complete', authMiddleware, async (req, res) => {
+  try {
+    const providerId = req.user.userId;
+    const { escrowId, evidenceDescription, evidenceFiles } = req.body;
+
+    if (!escrowId) {
+      return res.status(400).json({ error: 'Escrow ID is required' });
+    }
+
+    const result = await req.escrowManager.providerClaimServiceComplete(escrowId, providerId, {
+      evidenceDescription: evidenceDescription || 'Service completed as agreed',
+      evidenceFiles: evidenceFiles || []
+    });
+
+    // Get escrow details to notify client
+    const { Transaction } = require('../config/database');
+    const escrow = await Transaction.findById(escrowId);
+
+    // Notify client that provider claims completion - they need to respond
+    if (req.io && escrow?.client_id) {
+      req.io.to(`user_${escrow.client_id.toString()}`).emit('provider_claimed_complete', {
+        escrowId,
+        amount: escrow.amount,
+        currency: escrow.currency,
+        clientResponseDeadline: result.clientResponseDeadline,
+        message: `Provider claims the service was delivered. Please share the PIN, confirm, or dispute within 24 hours. If you don't respond, payment will auto-release to the provider.`,
+        urgency: 'high'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: result.message,
+      clientResponseDeadline: result.clientResponseDeadline,
+      nextSteps: result.nextSteps
+    });
+
+  } catch (error) {
+    console.error('Claim complete error:', error);
+    res.status(500).json({
+      error: 'Failed to claim service completion',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/escrow/dispute
+ * @desc    Open dispute on escrow
+ * @access  Private
+ */
+router.post('/dispute', authMiddleware, async (req, res) => {
+  try {
+    const { escrowId, reason } = req.body;
+    const userId = req.user.userId;
+    const { Transaction } = require('../config/database');
+
+    if (!escrowId || !reason) {
+      return res.status(400).json({ error: 'Escrow ID and reason are required' });
+    }
+
+    const escrowObjId = mongoose.Types.ObjectId.isValid(escrowId) ? 
+      new mongoose.Types.ObjectId(escrowId) : null;
+    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+
+    if (!escrowObjId) {
+      return res.status(400).json({ error: 'Invalid escrow ID' });
+    }
+
+    // Verify user is part of this escrow
+    const escrow = await Transaction.findOne({
+      _id: escrowObjId,
+      $or: [
+        { client_id: userObjId },
+        { provider_id: userObjId }
+      ]
+    });
+
+    if (!escrow) {
+      return res.status(403).json({ error: 'Access denied to this escrow' });
+    }
+
+    // Use EscrowManager to initiate dispute
+    const result = await req.escrowManager.initiateDispute(escrowId, { reason, evidence: [] }, userId);
+
+    // Notify the other party via socket
+    if (req.io) {
+      const otherUserId = escrow.client_id?.toString() === userId ? 
+        escrow.provider_id?.toString() : escrow.client_id?.toString();
+      
+      if (otherUserId) {
+        req.io.to(`user_${otherUserId}`).emit('escrow_disputed', {
+          escrowId,
+          amount: escrow.amount,
+          currency: escrow.currency,
+          reason,
+          message: 'A dispute has been opened. You can upload evidence to support your case. Admin will review within 24-48 hours.'
+        });
+      }
+    }
+
+    // Record trust event (slight negative for opening dispute)
+    if (req.trustEngine) {
+      try {
+        await req.trustEngine.recordTrustEvent(userId, 'escrow_disputed', { escrowId, reason }, -1);
+      } catch (e) {}
+    }
+
+    res.json({
+      success: true,
+      message: result.message,
+      disputeId: result.disputeId
+    });
+
+  } catch (error) {
+    console.error('Dispute escrow error:', error);
+    res.status(500).json({
+      error: 'Failed to submit dispute',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/escrow/:id/evidence
+ * @desc    Upload evidence for a dispute
+ * @access  Private
+ */
+router.post('/:id/evidence', authMiddleware, async (req, res) => {
+  try {
+    const transactionId = req.params.id;
+    const userId = req.user.userId;
+    const { fileUrl, fileType, description } = req.body;
+
+    if (!fileUrl) {
+      return res.status(400).json({ error: 'File URL is required' });
+    }
+
+    const result = await req.escrowManager.addDisputeEvidence(transactionId, userId, {
+      fileUrl,
+      fileType,
+      description
+    });
+
+    res.json({
+      success: true,
+      message: 'Evidence uploaded successfully'
+    });
+
+  } catch (error) {
+    console.error('Upload evidence error:', error);
+    res.status(500).json({
+      error: 'Failed to upload evidence',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/escrow/:id/pin
+ * @desc    Get completion PIN for an escrow (client only)
+ * @access  Private (Client only)
+ */
+router.get('/:id/pin', authMiddleware, async (req, res) => {
+  try {
+    const transactionId = req.params.id;
+    const userId = req.user.userId;
+    const { Transaction } = require('../config/database');
+
+    const transactionObjId = mongoose.Types.ObjectId.isValid(transactionId) ? 
+      new mongoose.Types.ObjectId(transactionId) : null;
+    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+
+    if (!transactionObjId) {
+      return res.status(400).json({ error: 'Invalid transaction ID' });
+    }
+
+    // Only the CLIENT can see the PIN
+    const escrow = await Transaction.findOne({
+      _id: transactionObjId,
+      client_id: userObjId,
+      type: 'escrow_hold'
+    });
+
+    if (!escrow) {
+      return res.status(403).json({ error: 'Access denied. Only the client can view the PIN.' });
+    }
+
+    res.json({
+      success: true,
+      completionPin: escrow.completion_pin,
+      status: escrow.status,
+      pinEntered: !!escrow.pin_entered_at,
+      message: escrow.pin_entered_at 
+        ? 'PIN has been entered. Please confirm the service was delivered.' 
+        : 'Share this PIN with the provider ONLY after the service is complete.'
+    });
+
+  } catch (error) {
+    console.error('Get PIN error:', error);
+    res.status(500).json({
+      error: 'Failed to get PIN',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/escrow/dispute-status
+ * @desc    Get user's dispute/ban status
+ * @access  Private
+ */
+router.get('/dispute-status', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const status = await req.escrowManager.getUserDisputeStatus(userId);
+
+    res.json({
+      success: true,
+      ...status
+    });
+
+  } catch (error) {
+    console.error('Get dispute status error:', error);
+    res.status(500).json({
+      error: 'Failed to get dispute status',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/escrow/request-unban
+ * @desc    Request account unban (for banned users)
+ * @access  Public (allows banned users to submit)
+ */
+router.post('/request-unban', async (req, res) => {
+  try {
+    const { userId, reason } = req.body;
+
+    if (!userId || !reason) {
+      return res.status(400).json({ error: 'User ID and reason are required' });
+    }
+
+    // We need to instantiate escrowManager or use a static method
+    const EscrowManager = require('../services/EscrowManager');
+    const escrowManager = new EscrowManager();
+    
+    const result = await escrowManager.requestUnban(userId, reason);
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Request unban error:', error);
+    res.status(500).json({
+      error: 'Failed to submit unban request',
       message: error.message
     });
   }
@@ -178,7 +552,7 @@ router.post('/:id/dispute', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/escrow/:id/status
- * @desc    Get escrow status
+ * @desc    Get escrow status (PIN visible only to client)
  * @access  Private
  */
 router.get('/:id/status', authMiddleware, async (req, res) => {
@@ -209,7 +583,8 @@ router.get('/:id/status', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const status = await req.escrowManager.getEscrowStatus(transactionId);
+    // Pass userId so PIN visibility can be determined
+    const status = await req.escrowManager.getEscrowStatus(transactionId, userId);
 
     res.json({ status });
 
@@ -223,7 +598,7 @@ router.get('/:id/status', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/escrow/list
- * @desc    Get user's escrows (as client or provider)
+ * @desc    Get user's escrows (as client or provider) - includes PIN verification status
  * @access  Private
  */
 router.get('/list', authMiddleware, async (req, res) => {
@@ -234,14 +609,14 @@ router.get('/list', authMiddleware, async (req, res) => {
     const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
     
     // Get all escrows where user is client or provider using MongoDB
+    // Include more statuses to show completed/disputed escrows too
     const escrows = await Transaction.find({
       $or: [
         { client_id: userObjId },
         { provider_id: userObjId }
       ],
-      type: 'escrow_hold',
-      status: { $in: ['pending', 'escrow_held', 'in_progress', 'held'] }
-    }).sort({ created_at: -1 });
+      type: 'escrow_hold'
+    }).sort({ created_at: -1 }).limit(50);
 
     // Get user details for each escrow
     const transformedEscrows = await Promise.all(escrows.map(async (escrow) => {
@@ -270,12 +645,45 @@ router.get('/list', authMiddleware, async (req, res) => {
       }
 
       const userRole = escrow.client_id?.toString() === userId ? 'client' : 'provider';
+      const isClient = userRole === 'client';
+
+      // Normalize status for frontend
+      let displayStatus = escrow.status;
+      if (escrow.status === 'escrow_held' || escrow.status === 'in_progress') {
+        displayStatus = 'held';
+      }
+
+      // Generate PIN for old escrows that don't have one (migration for pre-PIN escrows)
+      let completionPin = escrow.completion_pin;
+      if (!completionPin && (displayStatus === 'held' || displayStatus === 'escrow_held' || displayStatus === 'in_progress')) {
+        // Generate and save a PIN for this old escrow
+        const crypto = require('crypto');
+        completionPin = crypto.randomInt(100000, 999999).toString();
+        
+        // Calculate confirmation deadline (48 hours from now for old escrows)
+        const confirmationDeadline = new Date();
+        confirmationDeadline.setHours(confirmationDeadline.getHours() + 48);
+        
+        // Update the escrow with the new PIN
+        await Transaction.updateOne(
+          { _id: escrow._id },
+          { 
+            $set: { 
+              completion_pin: completionPin,
+              confirmation_deadline: confirmationDeadline,
+              auto_release_at: confirmationDeadline // Auto-release if not confirmed
+            }
+          }
+        );
+        
+        console.log(`🔐 Generated PIN ${completionPin} for old escrow ${escrow._id}`);
+      }
 
       return {
         id: escrow._id.toString(),
         amount: parseFloat(escrow.amount),
         currency: escrow.currency || 'NGN',
-        status: escrow.status === 'escrow_held' || escrow.status === 'in_progress' ? 'held' : escrow.status,
+        status: displayStatus,
         providerName,
         providerAvatar,
         providerId: escrow.provider_id?.toString(),
@@ -285,7 +693,18 @@ router.get('/list', authMiddleware, async (req, res) => {
         serviceTitle: escrow.metadata?.serviceTitle || 'Service',
         createdAt: escrow.created_at,
         description: escrow.metadata?.description,
-        userRole
+        userRole,
+        // PIN verification status
+        completionPin: isClient ? completionPin : null, // Only client sees PIN
+        pinEntered: !!escrow.pin_entered_at,
+        pinEnteredAt: escrow.pin_entered_at,
+        providerConfirmed: escrow.provider_confirmed || false,
+        clientConfirmed: escrow.client_confirmed || false,
+        confirmationDeadline: escrow.confirmation_deadline,
+        autoReleaseAt: escrow.auto_release_at,
+        // Dispute info
+        isDisputed: escrow.status === 'disputed',
+        disputeData: escrow.dispute_data
       };
     }));
 

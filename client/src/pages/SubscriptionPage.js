@@ -22,26 +22,57 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Chip
+  Chip,
+  LinearProgress,
+  Avatar,
+  IconButton
 } from '@mui/material';
-import { CheckCircle, Star, Payment, OpenInNew, LocationOn, Lock, CreditCard, PhoneAndroid, AccountBalance } from '@mui/icons-material';
+import { 
+  CheckCircle, 
+  Star, 
+  Payment, 
+  OpenInNew, 
+  LocationOn, 
+  Lock, 
+  CreditCard, 
+  PhoneAndroid, 
+  AccountBalance,
+  Shield,
+  Verified,
+  Message,
+  TrendingUp,
+  Support,
+  AutoAwesome,
+  Bolt,
+  ArrowForward,
+  Close
+} from '@mui/icons-material';
+import { motion } from 'framer-motion';
 import { toast } from 'react-toastify';
 import { selectUser, setSubscriptionStatus } from '../store/slices/authSlice';
 import { detectUserCountry } from '../store/slices/countrySlice';
 import subscriptionAPI from '../services/subscriptionAPI';
 
+// Motion components
+const MotionBox = motion(Box);
+const MotionCard = motion(Card);
+
+// Base price in USD - $20 for 6-month subscription
+const BASE_PRICE_USD = 20;
+
 // Supported countries with pricing and payment channels
+// Prices calculated based on $20 USD base price using current exchange rates
 const SUPPORTED_COUNTRIES = [
-  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', price: 30000, phoneCode: '+234', channels: ['card', 'bank', 'ussd', 'bank_transfer'] },
-  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', price: 500, phoneCode: '+233', channels: ['card', 'mobile_money'] },
-  { code: 'KE', name: 'Kenya', flag: '🇰🇪', currency: 'KES', symbol: 'KSh', price: 6500, phoneCode: '+254', channels: ['card', 'mobile_money'] },
-  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', symbol: 'R', price: 750, phoneCode: '+27', channels: ['card', 'eft', 'qr'] },
-  { code: 'UG', name: 'Uganda', flag: '🇺🇬', currency: 'UGX', symbol: 'USh', price: 150000, phoneCode: '+256', channels: ['card'] },
-  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', currency: 'TZS', symbol: 'TSh', price: 100000, phoneCode: '+255', channels: ['card'] },
-  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', currency: 'RWF', symbol: 'FRw', price: 50000, phoneCode: '+250', channels: ['card'] },
-  { code: 'BW', name: 'Botswana', flag: '🇧🇼', currency: 'BWP', symbol: 'P', price: 550, phoneCode: '+267', channels: ['card'] },
-  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', currency: 'ZMW', symbol: 'ZK', price: 1000, phoneCode: '+260', channels: ['card'] },
-  { code: 'MW', name: 'Malawi', flag: '🇲🇼', currency: 'MWK', symbol: 'MK', price: 70000, phoneCode: '+265', channels: ['card'] }
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', price: 32000, phoneCode: '+234', channels: ['card', 'bank', 'ussd', 'bank_transfer'] },  // $20 * 1580
+  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', price: 300, phoneCode: '+233', channels: ['card', 'mobile_money'] },  // $20 * 15.2
+  { code: 'KE', name: 'Kenya', flag: '🇰🇪', currency: 'KES', symbol: 'KSh', price: 3100, phoneCode: '+254', channels: ['card', 'mobile_money'] },  // $20 * 154
+  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', symbol: 'R', price: 380, phoneCode: '+27', channels: ['card', 'eft', 'qr'] },  // $20 * 18.8
+  { code: 'UG', name: 'Uganda', flag: '🇺🇬', currency: 'UGX', symbol: 'USh', price: 76000, phoneCode: '+256', channels: ['card'] },  // $20 * 3780
+  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', currency: 'TZS', symbol: 'TSh', price: 52000, phoneCode: '+255', channels: ['card'] },  // $20 * 2580
+  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', currency: 'RWF', symbol: 'FRw', price: 26500, phoneCode: '+250', channels: ['card'] },  // $20 * 1320
+  { code: 'BW', name: 'Botswana', flag: '🇧🇼', currency: 'BWP', symbol: 'P', price: 280, phoneCode: '+267', channels: ['card'] },  // $20 * 13.8
+  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', currency: 'ZMW', symbol: 'ZK', price: 550, phoneCode: '+260', channels: ['card'] },  // $20 * 27.5
+  { code: 'MW', name: 'Malawi', flag: '🇲🇼', currency: 'MWK', symbol: 'MK', price: 35000, phoneCode: '+265', channels: ['card'] }  // $20 * 1750
 ];
 
 // Payment channel display names
@@ -286,12 +317,38 @@ const SubscriptionPage = () => {
 
   if (loading || detectingLocation) {
     return (
-      <Container maxWidth="md" sx={{ py: 8, textAlign: 'center' }}>
-        <CircularProgress size={60} />
-        <Typography variant="h6" sx={{ mt: 2 }}>
+      <Box sx={{ 
+        minHeight: '100vh', 
+        background: 'linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: 3
+      }}>
+        <MotionBox
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <Box sx={{ 
+            width: 80, 
+            height: 80, 
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #00f2ea, #ff00d4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 0 40px rgba(0, 242, 234, 0.3)'
+          }}>
+            <LocationOn sx={{ fontSize: 40, color: '#fff' }} />
+          </Box>
+        </MotionBox>
+        <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600 }}>
           {detectingLocation ? '📍 Detecting your location...' : 'Loading...'}
         </Typography>
-      </Container>
+        <LinearProgress sx={{ width: 200, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.1)' }} />
+      </Box>
     );
   }
 
@@ -303,156 +360,431 @@ const SubscriptionPage = () => {
     }).format(price);
   };
 
+  // Feature list for the subscription
+  const features = [
+    { icon: <Verified />, text: 'Full Platform Access', highlight: true },
+    { icon: <Message />, text: 'Unlimited Messaging' },
+    { icon: <Shield />, text: 'Secure Escrow Payments' },
+    { icon: <TrendingUp />, text: 'Trust & Reputation System' },
+    { icon: <Support />, text: '24/7 Priority Support' },
+    { icon: <AutoAwesome />, text: 'Premium Profile Badge' }
+  ];
+
   return (
-    <Container maxWidth="lg" sx={{ py: 6 }}>
-      <Box textAlign="center" mb={6}>
-        <Typography variant="h3" fontWeight="bold" color="primary.main" gutterBottom>
-          Welcome to Zerohook! 🎉
-        </Typography>
-        <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
-          Complete your registration with a subscription to access the platform
-        </Typography>
-      </Box>
+    <Box sx={{ 
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0a0a0f 100%)',
+      py: { xs: 4, md: 8 },
+      px: 2
+    }}>
+      <Container maxWidth="lg">
+        {/* Header Section */}
+        <MotionBox
+          initial={{ y: -30, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.6 }}
+          sx={{ textAlign: 'center', mb: { xs: 4, md: 6 } }}
+        >
+          <Typography 
+            variant="h3" 
+            sx={{ 
+              fontWeight: 800,
+              background: 'linear-gradient(135deg, #00f2ea 0%, #ff00d4 50%, #00f2ea 100%)',
+              backgroundSize: '200% auto',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              animation: 'gradient 3s ease infinite',
+              mb: 2,
+              fontSize: { xs: '2rem', md: '3rem' },
+              '@keyframes gradient': {
+                '0%': { backgroundPosition: '0% center' },
+                '50%': { backgroundPosition: '100% center' },
+                '100%': { backgroundPosition: '0% center' }
+              }
+            }}
+          >
+            Welcome to Zerohook 🔥
+          </Typography>
+          <Typography 
+            variant="h6" 
+            sx={{ 
+              color: 'rgba(255,255,255,0.7)', 
+              maxWidth: 500, 
+              mx: 'auto',
+              fontSize: { xs: '0.95rem', md: '1.1rem' }
+            }}
+          >
+            Complete your registration to unlock the full platform experience
+          </Typography>
+        </MotionBox>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 4 }}>
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert 
+            severity="error" 
+            sx={{ 
+              mb: 4, 
+              bgcolor: 'rgba(255, 51, 51, 0.1)',
+              color: '#ff5555',
+              border: '1px solid rgba(255, 51, 51, 0.3)'
+            }}
+          >
+            {error}
+          </Alert>
+        )}
 
-      <Grid container spacing={4} justifyContent="center">
-        <Grid item xs={12} md={6} lg={5}>
-          <Card elevation={4} sx={{ height: '100%', border: '2px solid', borderColor: 'primary.main' }}>
-            {/* Country Badge at Top */}
-            {selectedCountry && (
-              <Box 
-                sx={{ 
-                  bgcolor: 'primary.main', 
-                  color: 'white', 
-                  py: 1.5, 
-                  px: 2,
+        {/* Main Pricing Card */}
+        <Grid container spacing={4} justifyContent="center" alignItems="stretch">
+          {/* Pricing Card */}
+          <Grid item xs={12} md={6} lg={5}>
+            <MotionCard
+              initial={{ y: 30, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              sx={{
+                height: '100%',
+                background: 'linear-gradient(145deg, rgba(26, 26, 46, 0.9), rgba(10, 10, 15, 0.95))',
+                borderRadius: 4,
+                border: '2px solid',
+                borderColor: '#00f2ea',
+                boxShadow: '0 20px 60px rgba(0, 242, 234, 0.15)',
+                overflow: 'hidden',
+                position: 'relative',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 4,
+                  background: 'linear-gradient(90deg, #00f2ea, #ff00d4, #00f2ea)',
+                  backgroundSize: '200% auto',
+                  animation: 'gradient 3s ease infinite'
+                }
+              }}
+            >
+              {/* Country Badge */}
+              {selectedCountry && (
+                <Box sx={{ 
+                  background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.15), rgba(255, 0, 212, 0.15))',
+                  py: 2,
+                  px: 3,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 1
-                }}
-              >
-                <LocationOn />
-                <Typography variant="body1" fontWeight="bold">
-                  {selectedCountry.flag} Paying from {selectedCountry.name}
-                </Typography>
-              </Box>
-            )}
-            
-            <CardContent sx={{ p: 4, textAlign: 'center' }}>
-              <Typography variant="h4" fontWeight="bold" color="primary.main" gutterBottom>
-                Basic Access
-              </Typography>
-              
-              <Box sx={{ my: 3 }}>
-                {selectedCountry && (
-                  <>
-                    <Typography variant="h2" fontWeight="bold" color="primary.main">
-                      {selectedCountry.symbol}{formatPrice(selectedCountry.price)}
-                    </Typography>
-                    <Typography variant="h6" color="text.secondary">
-                      {selectedCountry.currency}
-                    </Typography>
-                  </>
-                )}
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  One-time payment • Lifetime access
-                </Typography>
-              </Box>
-
-              <Divider sx={{ my: 2 }} />
-
-              <List sx={{ textAlign: 'left' }}>
-                {[
-                  'Full access to the platform',
-                  'Browse all services',
-                  'Create and manage services',
-                  'Secure messaging system',
-                  'Trust and reputation system',
-                  '24/7 customer support'
-                ].map((feature, index) => (
-                  <ListItem key={index} sx={{ px: 0 }}>
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      <CheckCircle color="success" />
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary={feature}
-                      primaryTypographyProps={{ variant: 'body2' }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-
-              {/* Payment Methods Available */}
-              {selectedCountry && selectedCountry.channels && (
-                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Lock sx={{ fontSize: 18, color: 'success.main' }} />
-                    <Typography variant="body2" fontWeight="medium" color="text.secondary">
-                      Secure payment methods for {selectedCountry.name}:
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {selectedCountry.channels.map((channel) => (
-                      <Chip
-                        key={channel}
-                        label={CHANNEL_NAMES[channel] || channel}
-                        size="small"
-                        icon={
-                          channel === 'card' ? <CreditCard sx={{ fontSize: 16 }} /> :
-                          channel.includes('mobile') ? <PhoneAndroid sx={{ fontSize: 16 }} /> :
-                          <AccountBalance sx={{ fontSize: 16 }} />
-                        }
-                        variant="outlined"
-                        sx={{ fontSize: '0.7rem' }}
-                      />
-                    ))}
-                  </Box>
+                  gap: 1.5,
+                  borderBottom: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                  <LocationOn sx={{ color: '#00f2ea', fontSize: 22 }} />
+                  <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: '1rem' }}>
+                    {selectedCountry.flag} Paying from {selectedCountry.name}
+                  </Typography>
+                  <Chip 
+                    label={selectedCountry.currency} 
+                    size="small" 
+                    sx={{ 
+                      bgcolor: 'rgba(0, 242, 234, 0.2)', 
+                      color: '#00f2ea',
+                      fontWeight: 700,
+                      fontSize: '0.75rem'
+                    }} 
+                  />
                 </Box>
               )}
-            </CardContent>
 
-            <CardActions sx={{ p: 4, pt: 2 }}>
-              <Button
-                fullWidth
-                variant="contained"
-                size="large"
-                onClick={handleSubscribe}
-                disabled={paymentLoading || !selectedCountry}
-                startIcon={paymentLoading ? <CircularProgress size={20} /> : <Payment />}
-                sx={{
-                  py: 1.5,
-                  fontSize: '1.1rem',
-                  fontWeight: 'bold'
-                }}
-              >
-                {paymentLoading ? 'Processing...' : `Pay ${selectedCountry?.symbol}${formatPrice(selectedCountry?.price || 0)} ${selectedCountry?.currency || ''}`}
-              </Button>
-            </CardActions>
-          </Card>
-        </Grid>
-      </Grid>
+              <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+                {/* Plan Name & Badge */}
+                <Box sx={{ textAlign: 'center', mb: 3 }}>
+                  <Chip 
+                    icon={<Bolt sx={{ color: '#ffd700 !important' }} />}
+                    label="6-MONTH ACCESS" 
+                    sx={{ 
+                      bgcolor: 'rgba(255, 215, 0, 0.15)',
+                      color: '#ffd700',
+                      fontWeight: 700,
+                      mb: 2,
+                      fontSize: '0.8rem',
+                      px: 1
+                    }}
+                  />
+                  <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700 }}>
+                    Premium Membership
+                  </Typography>
+                </Box>
 
-      <Box sx={{ mt: 8, textAlign: 'center' }}>
-        <Typography variant="h6" color="text.secondary" gutterBottom>
-          Why Subscribe to Zerohook?
-        </Typography>
-        <Grid container spacing={3} justifyContent="center" sx={{ mt: 2 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <Box textAlign="center">
-              <Star sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-              <Typography variant="body2" color="text.secondary">
-                Premium User Experience
-              </Typography>
-            </Box>
+                {/* Price Display */}
+                {selectedCountry && (
+                  <Box sx={{ 
+                    textAlign: 'center', 
+                    py: 3,
+                    my: 2,
+                    borderRadius: 3,
+                    background: 'linear-gradient(135deg, rgba(0, 242, 234, 0.08), rgba(255, 0, 212, 0.08))',
+                    border: '1px solid rgba(255,255,255,0.1)'
+                  }}>
+                    <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', mb: 0.5 }}>
+                      One-time payment
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 1 }}>
+                      <Typography sx={{ 
+                        fontSize: { xs: '2.5rem', md: '3.5rem' },
+                        fontWeight: 800,
+                        color: '#fff',
+                        lineHeight: 1
+                      }}>
+                        {selectedCountry.symbol}{formatPrice(selectedCountry.price)}
+                      </Typography>
+                    </Box>
+                    <Typography sx={{ color: '#00f2ea', fontWeight: 600, mt: 1 }}>
+                      for 6 months
+                    </Typography>
+                    <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', mt: 1 }}>
+                      ≈ ${BASE_PRICE_USD} USD • Auto-renews every 6 months
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Features List */}
+                <List sx={{ py: 0 }}>
+                  {features.map((feature, index) => (
+                    <ListItem 
+                      key={index} 
+                      sx={{ 
+                        px: 0, 
+                        py: 1,
+                        borderBottom: index < features.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none'
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 40 }}>
+                        <Box sx={{ 
+                          color: feature.highlight ? '#00f2ea' : 'rgba(255,255,255,0.6)',
+                          '& svg': { fontSize: 22 }
+                        }}>
+                          {feature.icon}
+                        </Box>
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary={feature.text}
+                        primaryTypographyProps={{ 
+                          sx: { 
+                            color: feature.highlight ? '#fff' : 'rgba(255,255,255,0.8)',
+                            fontWeight: feature.highlight ? 600 : 400,
+                            fontSize: '0.95rem'
+                          }
+                        }}
+                      />
+                      <CheckCircle sx={{ color: '#00ff88', fontSize: 20 }} />
+                    </ListItem>
+                  ))}
+                </List>
+
+                {/* Payment Methods */}
+                {selectedCountry?.channels && (
+                  <Box sx={{ 
+                    mt: 3, 
+                    p: 2, 
+                    borderRadius: 2,
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)'
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                      <Lock sx={{ fontSize: 16, color: '#00ff88' }} />
+                      <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem' }}>
+                        Secure payment options:
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {selectedCountry.channels.map((channel) => (
+                        <Chip
+                          key={channel}
+                          label={CHANNEL_NAMES[channel]?.name || channel}
+                          size="small"
+                          sx={{ 
+                            bgcolor: 'rgba(255,255,255,0.08)',
+                            color: 'rgba(255,255,255,0.7)',
+                            fontSize: '0.7rem',
+                            height: 26,
+                            '& .MuiChip-icon': { color: 'rgba(255,255,255,0.5)' }
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+              </CardContent>
+
+              <CardActions sx={{ p: { xs: 3, md: 4 }, pt: 0 }}>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  size="large"
+                  onClick={handleSubscribe}
+                  disabled={paymentLoading || !selectedCountry}
+                  endIcon={paymentLoading ? null : <ArrowForward />}
+                  sx={{
+                    py: 2,
+                    fontSize: '1.1rem',
+                    fontWeight: 700,
+                    borderRadius: 3,
+                    background: 'linear-gradient(135deg, #00f2ea, #00d4aa)',
+                    color: '#000',
+                    boxShadow: '0 8px 30px rgba(0, 242, 234, 0.3)',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 12px 40px rgba(0, 242, 234, 0.4)',
+                      background: 'linear-gradient(135deg, #00f2ea, #00f2ea)'
+                    },
+                    '&:disabled': {
+                      background: 'rgba(255,255,255,0.1)',
+                      color: 'rgba(255,255,255,0.3)'
+                    }
+                  }}
+                >
+                  {paymentLoading ? (
+                    <CircularProgress size={24} sx={{ color: '#000' }} />
+                  ) : (
+                    `Get Access Now`
+                  )}
+                </Button>
+              </CardActions>
+            </MotionCard>
+          </Grid>
+
+          {/* Benefits Side */}
+          <Grid item xs={12} md={6} lg={5}>
+            <MotionBox
+              initial={{ y: 30, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+              sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 3 }}
+            >
+              {/* Trust Stats */}
+              <Box sx={{ 
+                p: 3,
+                borderRadius: 3,
+                background: 'linear-gradient(145deg, rgba(26, 26, 46, 0.6), rgba(10, 10, 15, 0.8))',
+                border: '1px solid rgba(255,255,255,0.08)'
+              }}>
+                <Typography sx={{ color: '#fff', fontWeight: 700, mb: 2, fontSize: '1.1rem' }}>
+                  🛡️ Why Zerohook?
+                </Typography>
+                <Grid container spacing={2}>
+                  {[
+                    { label: 'Verified Users', value: '10K+', icon: '✓' },
+                    { label: 'Countries', value: '10+', icon: '🌍' },
+                    { label: 'Satisfaction', value: '98%', icon: '⭐' },
+                    { label: 'Secure', value: '100%', icon: '🔒' }
+                  ].map((stat, i) => (
+                    <Grid item xs={6} key={i}>
+                      <Box sx={{ 
+                        p: 2, 
+                        borderRadius: 2, 
+                        bgcolor: 'rgba(255,255,255,0.03)',
+                        textAlign: 'center'
+                      }}>
+                        <Typography sx={{ fontSize: '1.5rem', mb: 0.5 }}>{stat.icon}</Typography>
+                        <Typography sx={{ color: '#00f2ea', fontWeight: 700, fontSize: '1.3rem' }}>
+                          {stat.value}
+                        </Typography>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }}>
+                          {stat.label}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+
+              {/* Testimonial */}
+              <Box sx={{ 
+                p: 3,
+                borderRadius: 3,
+                background: 'linear-gradient(145deg, rgba(26, 26, 46, 0.6), rgba(10, 10, 15, 0.8))',
+                border: '1px solid rgba(255,255,255,0.08)',
+                flex: 1
+              }}>
+                <Typography sx={{ color: '#fff', fontWeight: 700, mb: 2, fontSize: '1.1rem' }}>
+                  💬 What Users Say
+                </Typography>
+                <Box sx={{ 
+                  p: 2, 
+                  borderRadius: 2, 
+                  bgcolor: 'rgba(0, 242, 234, 0.05)',
+                  border: '1px solid rgba(0, 242, 234, 0.1)'
+                }}>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.8)', fontStyle: 'italic', mb: 2, lineHeight: 1.6 }}>
+                    "The escrow system gives me peace of mind. I know my payments are secure until the service is complete."
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Avatar sx={{ width: 36, height: 36, bgcolor: '#00f2ea', color: '#000' }}>A</Avatar>
+                    <Box>
+                      <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: '0.9rem' }}>
+                        Ama K.
+                      </Typography>
+                      <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem' }}>
+                        Verified User • Accra
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              </Box>
+
+              {/* Money Back Guarantee */}
+              <Box sx={{ 
+                p: 2.5,
+                borderRadius: 3,
+                background: 'linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 242, 234, 0.1))',
+                border: '1px solid rgba(0, 255, 136, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2
+              }}>
+                <Shield sx={{ color: '#00ff88', fontSize: 36 }} />
+                <Box>
+                  <Typography sx={{ color: '#00ff88', fontWeight: 700, fontSize: '0.95rem' }}>
+                    7-Day Money Back Guarantee
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>
+                    Not satisfied? Get a full refund within 7 days.
+                  </Typography>
+                </Box>
+              </Box>
+            </MotionBox>
           </Grid>
         </Grid>
-      </Box>
+
+        {/* Country Selector (if needed) */}
+        <MotionBox
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8 }}
+          sx={{ textAlign: 'center', mt: 4 }}
+        >
+          <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', mb: 1 }}>
+            Not in {selectedCountry?.name}? Select your country:
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
+            {SUPPORTED_COUNTRIES.map((country) => (
+              <Chip
+                key={country.code}
+                label={`${country.flag} ${country.code}`}
+                onClick={() => setSelectedCountry(country)}
+                sx={{
+                  bgcolor: selectedCountry?.code === country.code ? 'rgba(0, 242, 234, 0.2)' : 'rgba(255,255,255,0.05)',
+                  color: selectedCountry?.code === country.code ? '#00f2ea' : 'rgba(255,255,255,0.6)',
+                  border: selectedCountry?.code === country.code ? '1px solid #00f2ea' : '1px solid transparent',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  '&:hover': {
+                    bgcolor: 'rgba(0, 242, 234, 0.1)'
+                  }
+                }}
+              />
+            ))}
+          </Box>
+        </MotionBox>
+      </Container>
 
       {/* Payment Dialog */}
       <Dialog 
@@ -578,7 +910,7 @@ const SubscriptionPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 };
 

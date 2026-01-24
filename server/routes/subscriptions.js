@@ -245,17 +245,17 @@ router.post('/verify-payment', authMiddleware, [
       });
     }
 
-    // Update user subscription status with tier and expiration
+    // Update user subscription status with tier and expiration (6-month subscription)
     try {
       await query(`
         UPDATE users 
         SET is_subscribed = true, 
             subscription_tier = 'premium',
-            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
       `, [userId]);
-      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 1 year)`);
+      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
       console.log(`   Subscription activated but user status not updated`);
@@ -316,17 +316,17 @@ router.post('/verify-payment-manual', async (req, res) => {
       });
     }
 
-    // Update user subscription status with tier and expiration
+    // Update user subscription status with tier and expiration (6-month subscription)
     try {
       await query(`
         UPDATE users 
         SET is_subscribed = true, 
             subscription_tier = 'premium',
-            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
       `, [userId]);
-      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 1 year)`);
+      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
       console.log(`   Subscription activated but user status not updated`);
@@ -393,17 +393,17 @@ router.post('/activate-all-pending', authMiddleware, async (req, res) => {
       console.log(`✅ Activated subscription ${sub.id} (${sub.paystack_reference})`);
     }
 
-    // Update user subscription status with tier and expiration
+    // Update user subscription status with tier and expiration (6-month subscription)
     try {
       await query(`
         UPDATE users 
         SET is_subscribed = true, 
             subscription_tier = 'premium',
-            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
       `, [userId]);
-      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 1 year)`);
+      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
     }
@@ -475,17 +475,17 @@ router.post('/verify-payment-by-reference', async (req, res) => {
             WHERE id = $1
           `, [payment.id]);
 
-          // Update user subscription status with tier and expiration
+          // Update user subscription status with tier and expiration (6-month subscription)
           await query(`
             UPDATE users 
             SET is_subscribed = true, 
                 subscription_tier = 'premium',
-                subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '1 year',
+                subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
           `, [payment.user_id]);
 
-          console.log(`✅ Payment verified and activated for user: ${payment.user_id} (tier: premium, expires: 1 year)`);
+          console.log(`✅ Payment verified and activated for user: ${payment.user_id} (tier: premium, expires: 6 months)`);
           
           res.json({
             success: true,

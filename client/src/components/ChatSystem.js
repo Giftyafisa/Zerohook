@@ -546,6 +546,14 @@ const ChatSystem = ({
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error('💬 Chat start failed:', response.status, errorData);
+        
+        // Handle subscription limit error - redirect to subscribe page
+        if (response.status === 403 && errorData.error === 'subscription_required') {
+          toast.warning('You have reached your free messaging limit. Subscribe to message unlimited people! 🌟');
+          navigate('/subscribe');
+          return null;
+        }
+        
         throw new Error(errorData.message || 'Failed to start conversation');
       }
       

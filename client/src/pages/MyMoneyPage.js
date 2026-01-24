@@ -17,7 +17,9 @@ import {
   Alert,
   IconButton,
   InputAdornment,
-  Slide
+  Slide,
+  LinearProgress,
+  Tooltip
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import { API_BASE_URL } from '../config/constants';
@@ -37,7 +39,14 @@ import {
   PhoneAndroid as MobileIcon,
   CreditCard as CardIcon,
   Receipt as ReceiptIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  VpnKey as PinIcon,
+  Timer as TimerIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
+  ContentCopy as CopyIcon,
+  Gavel as GavelIcon,
+  AttachFile as AttachIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
@@ -84,6 +93,17 @@ const MyMoneyPage = () => {
   const [addAmount, setAddAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('mobile'); // 'mobile', 'card'
+  
+  // PIN Verification States
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [selectedEscrow, setSelectedEscrow] = useState(null);
+  const [pinInput, setPinInput] = useState('');
+  const [showPin, setShowPin] = useState(false);
+  const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeEvidence, setDisputeEvidence] = useState(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [disputeStatus, setDisputeStatus] = useState(null);
   
   // Success/Error messages
   const [successMessage, setSuccessMessage] = useState(null);
@@ -304,6 +324,334 @@ const MyMoneyPage = () => {
       setActionLoading(false);
     }
   };
+
+  // ==================== PIN VERIFICATION SYSTEM ====================
+  
+  // Copy PIN to clipboard
+  const handleCopyPin = (pin) => {
+    navigator.clipboard.writeText(pin);
+    toast.success('PIN copied to clipboard!');
+  };
+
+  // Open PIN entry dialog (for provider)
+  const openPinEntry = (escrow) => {
+    setSelectedEscrow(escrow);
+    setPinInput('');
+    setPinDialogOpen(true);
+  };
+
+  // Enter PIN (Provider submits PIN to verify service)
+  const handleEnterPin = async () => {
+    if (!selectedEscrow || !pinInput || pinInput.length !== 6) {
+      toast.error('Please enter the 6-digit PIN');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/enter-pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          escrowId: selectedEscrow.id, 
+          pin: pinInput 
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Update local state
+        setWalletData(prev => ({
+          ...prev,
+          escrows: prev.escrows.map(e => 
+            e.id === selectedEscrow.id ? { ...e, status: 'pin_entered', pin_entered_at: new Date().toISOString() } : e
+          )
+        }));
+        toast.success('PIN verified! Waiting for client confirmation.');
+        setPinDialogOpen(false);
+        setPinInput('');
+        setSelectedEscrow(null);
+      } else {
+        toast.error(data.error || 'Invalid PIN');
+      }
+    } catch (error) {
+      console.error('PIN entry error:', error);
+      toast.error('Failed to verify PIN');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Client confirms service completed
+  const handleConfirmService = async (escrow) => {
+    setSelectedEscrow(escrow);
+    setConfirmDialogOpen(true);
+  };
+
+  const confirmServiceDelivery = async () => {
+    if (!selectedEscrow) return;
+
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ escrowId: selectedEscrow.id })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setWalletData(prev => ({
+          ...prev,
+          escrows: prev.escrows.map(e => 
+            e.id === selectedEscrow.id ? { ...e, status: 'released' } : e
+          )
+        }));
+        toast.success('Payment released to provider!');
+        setConfirmDialogOpen(false);
+        setSelectedEscrow(null);
+      } else {
+        toast.error(data.error || 'Failed to confirm service');
+      }
+    } catch (error) {
+      console.error('Confirm error:', error);
+      toast.error('Failed to confirm service');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Open dispute dialog (new version with evidence support)
+  const openDisputeDialog = (escrow) => {
+    setSelectedEscrow(escrow);
+    setDisputeReason('');
+    setDisputeEvidence(null);
+    setDisputeDialogOpen(true);
+  };
+
+  // Submit dispute with evidence
+  const handleSubmitDispute = async () => {
+    if (!selectedEscrow || !disputeReason.trim()) {
+      toast.error('Please describe the issue');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          escrowId: selectedEscrow.id, 
+          reason: disputeReason 
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Upload evidence if provided
+        if (disputeEvidence) {
+          const formData = new FormData();
+          formData.append('file', disputeEvidence);
+          formData.append('description', 'Dispute evidence');
+          
+          await fetch(`${API_BASE_URL}/escrow/${selectedEscrow.id}/evidence`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+          });
+        }
+
+        setWalletData(prev => ({
+          ...prev,
+          escrows: prev.escrows.map(e => 
+            e.id === selectedEscrow.id ? { ...e, status: 'disputed' } : e
+          )
+        }));
+        toast.info('Dispute submitted. Our team will review and contact you within 24-48 hours.');
+        setDisputeDialogOpen(false);
+        setSelectedEscrow(null);
+        setDisputeReason('');
+        setDisputeEvidence(null);
+      } else {
+        toast.error(data.error || 'Failed to submit dispute');
+      }
+    } catch (error) {
+      console.error('Dispute error:', error);
+      toast.error('Failed to submit dispute');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Provider claims service was completed (when client refuses to share PIN)
+  const handleClaimComplete = async (escrow) => {
+    const confirmed = window.confirm(
+      `Claim that you completed this service?\n\n` +
+      `If the client doesn't respond within 24 hours, payment will auto-release to you.\n\n` +
+      `⚠️ WARNING: False claims may result in account penalties.`
+    );
+    
+    if (!confirmed) return;
+
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/claim-complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          escrowId: escrow.id,
+          evidenceDescription: 'Service completed as agreed'
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setWalletData(prev => ({
+          ...prev,
+          escrows: prev.escrows.map(e => 
+            e.id === escrow.id ? { 
+              ...e, 
+              provider_claimed_complete: true,
+              provider_claim_data: {
+                client_response_deadline: data.clientResponseDeadline
+              }
+            } : e
+          )
+        }));
+        toast.success('Service completion claimed! Client has been notified.');
+        toast.info('If client doesn\'t respond within 24 hours, payment will auto-release to you.');
+      } else {
+        toast.error(data.error || 'Failed to claim completion');
+      }
+    } catch (error) {
+      console.error('Claim complete error:', error);
+      toast.error('Failed to claim completion');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Fetch user's dispute status (warnings/strikes)
+  const fetchDisputeStatus = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/escrow/dispute-status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setDisputeStatus(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch dispute status:', error);
+    }
+  }, []);
+
+  // Fetch dispute status on mount
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchDisputeStatus();
+    }
+  }, [isAuthenticated, fetchDisputeStatus]);
+
+  // Calculate time remaining for confirmation
+  const getTimeRemaining = (autoReleaseAt) => {
+    if (!autoReleaseAt) return null;
+    const now = new Date();
+    const release = new Date(autoReleaseAt);
+    const diff = release - now;
+    
+    if (diff <= 0) return 'Auto-release imminent';
+    
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    return `${hours}h ${minutes}m remaining`;
+  };
+
+  // Get escrow status display info
+  const getEscrowStatusInfo = (escrow) => {
+    // Check for provider claim first (it's a sub-state of 'held')
+    if (escrow.provider_claimed_complete && escrow.status === 'held') {
+      return {
+        label: 'Provider Claims Complete',
+        color: '#ff9800',
+        bgcolor: 'rgba(255, 152, 0, 0.2)',
+        icon: <TimerIcon sx={{ fontSize: 16 }} />,
+        urgent: true
+      };
+    }
+
+    switch (escrow.status) {
+      case 'held':
+        return {
+          label: 'Awaiting Service',
+          color: '#ffd700',
+          bgcolor: 'rgba(255, 215, 0, 0.2)',
+          icon: <HeldIcon sx={{ fontSize: 16 }} />
+        };
+      case 'pin_entered':
+        return {
+          label: 'PIN Verified - Confirm',
+          color: '#00f2ea',
+          bgcolor: 'rgba(0, 242, 234, 0.2)',
+          icon: <PinIcon sx={{ fontSize: 16 }} />
+        };
+      case 'disputed':
+        return {
+          label: 'Under Review',
+          color: '#ff5722',
+          bgcolor: 'rgba(255, 87, 34, 0.2)',
+          icon: <GavelIcon sx={{ fontSize: 16 }} />
+        };
+      case 'released':
+      case 'completed':
+        return {
+          label: 'Completed',
+          color: '#00ff88',
+          bgcolor: 'rgba(0, 255, 136, 0.2)',
+          icon: <ReleaseIcon sx={{ fontSize: 16 }} />
+        };
+      case 'refunded':
+        return {
+          label: 'Refunded',
+          color: '#9c27b0',
+          bgcolor: 'rgba(156, 39, 176, 0.2)',
+          icon: <DepositIcon sx={{ fontSize: 16 }} />
+        };
+      default:
+        return {
+          label: escrow.status || 'Pending',
+          color: '#888',
+          bgcolor: 'rgba(136, 136, 136, 0.2)',
+          icon: <HeldIcon sx={{ fontSize: 16 }} />
+        };
+    }
+  };
+
+  // ==================== END PIN VERIFICATION SYSTEM ====================
 
   // Add money via Paystack - Using Inline Popup
   const handleAddMoney = async () => {
@@ -555,65 +903,339 @@ const MyMoneyPage = () => {
               </Typography>
             </Box>
           ) : (
-            activeEscrows.map((escrow) => (
-              <motion.div
-                key={escrow.id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-              >
-                <Box sx={styles.escrowCard}>
-                  <Box sx={styles.escrowHeader}>
-                    <Typography sx={styles.escrowProvider}>
-                      {escrow.provider_name || escrow.providerName || 'Service Provider'}
-                    </Typography>
+            activeEscrows.map((escrow) => {
+              const statusInfo = getEscrowStatusInfo(escrow);
+              // Check role - backend returns userRole, clientId, providerId
+              const isClient = escrow.userRole === 'client' || escrow.clientId === user?.id || escrow.client_id === user?.id;
+              const isProvider = escrow.userRole === 'provider' || escrow.providerId === user?.id || escrow.provider_id === user?.id;
+              const hasProviderClaim = escrow.provider_claimed_complete || escrow.providerClaimedComplete;
+              // Get PIN - backend returns as completionPin
+              const escrowPin = escrow.completionPin || escrow.completion_pin;
+              
+              console.log('🔍 Escrow debug:', {
+                id: escrow.id,
+                userRole: escrow.userRole,
+                isClient,
+                isProvider,
+                pin: escrowPin,
+                status: escrow.status,
+                clientId: escrow.clientId,
+                providerId: escrow.providerId,
+                userId: user?.id
+              });
+              
+              return (
+                <motion.div
+                  key={escrow.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                >
+                  <Box sx={{ 
+                    ...styles.escrowCard, 
+                    border: statusInfo.urgent ? '2px solid #ff9800' : undefined 
+                  }}>
+                    {/* Role Indicator */}
                     <Chip 
-                      label="Held" 
-                      size="small" 
-                      sx={{ bgcolor: 'rgba(0, 255, 136, 0.2)', color: '#00ff88' }} 
+                      label={isClient ? '👤 You are the CLIENT (paying)' : '🛠️ You are the PROVIDER (receiving)'} 
+                      size="small"
+                      sx={{ 
+                        mb: 1, 
+                        bgcolor: isClient ? 'rgba(255, 152, 0, 0.2)' : 'rgba(0, 242, 234, 0.2)', 
+                        color: isClient ? '#ff9800' : '#00f2ea',
+                        fontSize: '0.7rem'
+                      }} 
                     />
-                  </Box>
-                  <Typography sx={styles.escrowAmount}>
-                    {symbol}{Number(escrow.amount).toLocaleString()}
-                  </Typography>
-                  <Typography sx={styles.escrowDate}>
-                    {escrow.created_at ? new Date(escrow.created_at).toLocaleDateString() : 'Recently'}
-                  </Typography>
-                  
-                  {/* Actions - Only show for client */}
-                  {escrow.client_id === user?.id && (
-                    <Box sx={styles.escrowActions}>
-                      <Button
-                        variant="contained"
-                        size="small"
-                        startIcon={<ReleaseIcon />}
-                        onClick={() => handleRelease(escrow.id)}
-                        disabled={actionLoading}
-                        sx={{ bgcolor: '#00ff88', color: '#000', '&:hover': { bgcolor: '#00cc6a' } }}
-                      >
-                        Release
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<DisputeIcon />}
-                        onClick={() => handleDispute(escrow.id)}
-                        disabled={actionLoading}
-                        sx={{ borderColor: '#ffa726', color: '#ffa726' }}
-                      >
-                        Problem
-                      </Button>
+                    
+                    {/* Header with Status */}
+                    <Box sx={styles.escrowHeader}>
+                      <Typography sx={styles.escrowProvider}>
+                        {isClient 
+                          ? (escrow.providerName || escrow.provider_name || 'Service Provider')
+                          : (escrow.clientName || escrow.client_name || 'Client')
+                        }
+                      </Typography>
+                      <Chip 
+                        icon={statusInfo.icon}
+                        label={statusInfo.label} 
+                        size="small" 
+                        sx={{ bgcolor: statusInfo.bgcolor, color: statusInfo.color }} 
+                      />
                     </Box>
-                  )}
-                  
-                  {/* Provider view */}
-                  {escrow.provider_id === user?.id && (
-                    <Alert severity="info" sx={{ mt: 2, bgcolor: 'rgba(0, 242, 234, 0.1)' }}>
-                      Waiting for client to release payment
-                    </Alert>
-                  )}
-                </Box>
-              </motion.div>
-            ))
+                    
+                    {/* Amount */}
+                    <Typography sx={styles.escrowAmount}>
+                      {symbol}{Number(escrow.amount).toLocaleString()}
+                    </Typography>
+                    <Typography sx={styles.escrowDate}>
+                      {escrow.createdAt ? new Date(escrow.createdAt).toLocaleDateString() : (escrow.created_at ? new Date(escrow.created_at).toLocaleDateString() : 'Recently')}
+                    </Typography>
+
+                    {/* ============ CLIENT VIEW ============ */}
+                    {isClient && (
+                      <Box sx={{ mt: 2 }}>
+                        {/* Status: Held - Show PIN */}
+                        {escrow.status === 'held' && !hasProviderClaim && (
+                          <>
+                            {/* PIN Display */}
+                            <Box sx={{ 
+                              p: 2, 
+                              bgcolor: 'rgba(0, 255, 136, 0.1)', 
+                              borderRadius: 2, 
+                              mb: 2,
+                              border: '1px dashed #00ff88'
+                            }}>
+                              <Typography variant="caption" sx={{ color: '#888', mb: 1, display: 'block' }}>
+                                YOUR COMPLETION PIN
+                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography sx={{ 
+                                  fontFamily: 'monospace', 
+                                  fontSize: '1.8rem', 
+                                  fontWeight: 'bold',
+                                  color: '#00ff88',
+                                  letterSpacing: '0.3rem'
+                                }}>
+                                  {showPin ? (escrowPin || '------') : '••••••'}
+                                </Typography>
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => setShowPin(!showPin)}
+                                  sx={{ color: '#888' }}
+                                >
+                                  {showPin ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                                </IconButton>
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => handleCopyPin(escrowPin)}
+                                  sx={{ color: '#00ff88' }}
+                                >
+                                  <CopyIcon />
+                                </IconButton>
+                              </Box>
+                              <Alert severity="warning" sx={{ mt: 1, bgcolor: 'transparent', p: 0 }}>
+                                <Typography variant="caption">
+                                  Share this PIN with the provider ONLY AFTER you receive the service
+                                </Typography>
+                              </Alert>
+                            </Box>
+                            
+                            {/* Dispute button only */}
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              fullWidth
+                              startIcon={<DisputeIcon />}
+                              onClick={() => openDisputeDialog(escrow)}
+                              disabled={actionLoading}
+                              sx={{ borderColor: '#ffa726', color: '#ffa726' }}
+                            >
+                              Report Problem
+                            </Button>
+                          </>
+                        )}
+
+                        {/* Status: Provider Claimed Complete - URGENT */}
+                        {escrow.status === 'held' && hasProviderClaim && (
+                          <>
+                            <Alert severity="warning" sx={{ mb: 2, bgcolor: 'rgba(255, 152, 0, 0.1)' }}>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                                ⚠️ Provider claims service was delivered!
+                              </Typography>
+                              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                                Time remaining: {getTimeRemaining(escrow.provider_claim_data?.client_response_deadline)}
+                              </Typography>
+                              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#ff5722' }}>
+                                If you don't respond, payment will auto-release to provider.
+                              </Typography>
+                            </Alert>
+                            
+                            <Box sx={{ display: 'flex', gap: 1, flexDirection: 'column' }}>
+                              {/* Show PIN for client to share */}
+                              <Box sx={{ 
+                                p: 1.5, 
+                                bgcolor: 'rgba(0, 255, 136, 0.1)', 
+                                borderRadius: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1
+                              }}>
+                                <PinIcon sx={{ color: '#00ff88' }} />
+                                <Typography sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                                  {showPin ? (escrowPin || '------') : '••••••'}
+                                </Typography>
+                                <IconButton size="small" onClick={() => setShowPin(!showPin)}>
+                                  {showPin ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                                </IconButton>
+                                <IconButton size="small" onClick={() => handleCopyPin(escrowPin)}>
+                                  <CopyIcon />
+                                </IconButton>
+                              </Box>
+                              
+                              <Button
+                                variant="contained"
+                                fullWidth
+                                startIcon={<ReleaseIcon />}
+                                onClick={() => handleConfirmService(escrow)}
+                                disabled={actionLoading}
+                                sx={{ bgcolor: '#00ff88', color: '#000', '&:hover': { bgcolor: '#00cc6a' } }}
+                              >
+                                Confirm Service Received
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                fullWidth
+                                startIcon={<DisputeIcon />}
+                                onClick={() => openDisputeDialog(escrow)}
+                                disabled={actionLoading}
+                                sx={{ borderColor: '#ff5722', color: '#ff5722' }}
+                              >
+                                Dispute - Service NOT Delivered
+                              </Button>
+                            </Box>
+                          </>
+                        )}
+
+                        {/* Status: PIN Entered - Confirm or Dispute */}
+                        {escrow.status === 'pin_entered' && (
+                          <>
+                            <Alert severity="info" sx={{ mb: 2, bgcolor: 'rgba(0, 242, 234, 0.1)' }}>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                                ✓ Provider entered the correct PIN
+                              </Typography>
+                              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                                Auto-release in: {getTimeRemaining(escrow.auto_release_at)}
+                              </Typography>
+                            </Alert>
+                            
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Button
+                                variant="contained"
+                                fullWidth
+                                startIcon={<ReleaseIcon />}
+                                onClick={() => handleConfirmService(escrow)}
+                                disabled={actionLoading}
+                                sx={{ bgcolor: '#00ff88', color: '#000', '&:hover': { bgcolor: '#00cc6a' } }}
+                              >
+                                Confirm & Release
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                fullWidth
+                                startIcon={<DisputeIcon />}
+                                onClick={() => openDisputeDialog(escrow)}
+                                disabled={actionLoading}
+                                sx={{ borderColor: '#ff5722', color: '#ff5722' }}
+                              >
+                                Dispute
+                              </Button>
+                            </Box>
+                          </>
+                        )}
+
+                        {/* Status: Disputed */}
+                        {escrow.status === 'disputed' && (
+                          <Alert severity="warning" sx={{ bgcolor: 'rgba(255, 87, 34, 0.1)' }}>
+                            <Typography variant="subtitle2">Under Admin Review</Typography>
+                            <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                              Our team will review evidence and contact you within 24-48 hours.
+                            </Typography>
+                          </Alert>
+                        )}
+                      </Box>
+                    )}
+
+                    {/* ============ PROVIDER VIEW ============ */}
+                    {isProvider && (
+                      <Box sx={{ mt: 2 }}>
+                        {/* Status: Held - Enter PIN or Claim */}
+                        {escrow.status === 'held' && !hasProviderClaim && (
+                          <>
+                            <Alert severity="info" sx={{ mb: 2, bgcolor: 'rgba(0, 242, 234, 0.1)' }}>
+                              <Typography variant="subtitle2">
+                                Deliver the service, then ask the client for the 6-digit PIN
+                              </Typography>
+                            </Alert>
+                            
+                            <Box sx={{ display: 'flex', gap: 1, flexDirection: 'column' }}>
+                              <Button
+                                variant="contained"
+                                fullWidth
+                                startIcon={<PinIcon />}
+                                onClick={() => openPinEntry(escrow)}
+                                disabled={actionLoading}
+                                sx={{ bgcolor: '#00f2ea', color: '#000', '&:hover': { bgcolor: '#00c4be' } }}
+                              >
+                                Enter PIN
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                fullWidth
+                                startIcon={<TimerIcon />}
+                                onClick={() => handleClaimComplete(escrow)}
+                                disabled={actionLoading}
+                                sx={{ borderColor: '#ff9800', color: '#ff9800', fontSize: '0.75rem' }}
+                              >
+                                Client Won't Share PIN? Claim Completion
+                              </Button>
+                            </Box>
+                          </>
+                        )}
+
+                        {/* Status: Claimed - Waiting for client response */}
+                        {escrow.status === 'held' && hasProviderClaim && (
+                          <Alert severity="info" sx={{ bgcolor: 'rgba(255, 152, 0, 0.1)' }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                              ⏳ Claim submitted - Waiting for client
+                            </Typography>
+                            <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                              Client has until: {escrow.provider_claim_data?.client_response_deadline 
+                                ? new Date(escrow.provider_claim_data.client_response_deadline).toLocaleString()
+                                : '24 hours from claim'}
+                            </Typography>
+                            <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#00ff88' }}>
+                              If client doesn't respond, payment will auto-release to you.
+                            </Typography>
+                          </Alert>
+                        )}
+
+                        {/* Status: PIN Entered - Waiting for client confirmation */}
+                        {escrow.status === 'pin_entered' && (
+                          <Alert severity="success" sx={{ bgcolor: 'rgba(0, 255, 136, 0.1)' }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                              ✓ PIN Verified Successfully!
+                            </Typography>
+                            <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                              Waiting for client confirmation. Payment will auto-release in: {getTimeRemaining(escrow.auto_release_at)}
+                            </Typography>
+                          </Alert>
+                        )}
+
+                        {/* Status: Disputed */}
+                        {escrow.status === 'disputed' && (
+                          <Alert severity="warning" sx={{ bgcolor: 'rgba(255, 87, 34, 0.1)' }}>
+                            <Typography variant="subtitle2">Dispute Opened</Typography>
+                            <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                              Client has disputed this transaction. Our team will review and contact you.
+                            </Typography>
+                            <Button
+                              size="small"
+                              sx={{ mt: 1, color: '#ff5722' }}
+                              startIcon={<AttachIcon />}
+                              onClick={() => {
+                                // TODO: Open evidence upload dialog
+                                toast.info('Evidence upload coming soon. Please email support@zerohook.com with your evidence.');
+                              }}
+                            >
+                              Upload Evidence
+                            </Button>
+                          </Alert>
+                        )}
+                      </Box>
+                    )}
+                  </Box>
+                </motion.div>
+              );
+            })
           )}
         </Box>
       )}
@@ -899,6 +1521,270 @@ const MyMoneyPage = () => {
             <Typography sx={styles.infoItem}>• Minimum withdrawal is {symbol}100</Typography>
           </Box>
         </Box>
+      </Dialog>
+
+      {/* PIN Entry Dialog (for Provider) */}
+      <Dialog
+        open={pinDialogOpen}
+        onClose={() => {
+          setPinDialogOpen(false);
+          setPinInput('');
+        }}
+        PaperProps={{
+          sx: {
+            bgcolor: '#1a1a2e',
+            borderRadius: '16px',
+            border: '1px solid rgba(0, 242, 234, 0.3)',
+            maxWidth: '400px',
+            width: '90%'
+          }
+        }}
+      >
+        <DialogTitle sx={{ color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PinIcon sx={{ color: '#00f2ea' }} />
+            Enter Completion PIN
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Alert severity="info" sx={{ mb: 2, bgcolor: 'rgba(0, 242, 234, 0.1)' }}>
+            <Typography variant="body2">
+              Ask the client for the 6-digit PIN they received when creating this escrow.
+            </Typography>
+          </Alert>
+          <TextField
+            fullWidth
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+            placeholder="Enter 6-digit PIN"
+            inputProps={{
+              maxLength: 6,
+              style: { 
+                textAlign: 'center', 
+                fontSize: '1.5rem', 
+                letterSpacing: '0.5rem',
+                fontFamily: 'monospace'
+              }
+            }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(0, 242, 234, 0.1)',
+                '& fieldset': { borderColor: 'rgba(0, 242, 234, 0.3)' },
+                '&:hover fieldset': { borderColor: '#00f2ea' },
+                '&.Mui-focused fieldset': { borderColor: '#00f2ea' },
+              },
+              '& .MuiInputBase-input': { color: '#fff' }
+            }}
+          />
+          {selectedEscrow && (
+            <Box sx={{ mt: 2, p: 1.5, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Escrow Amount: {symbol}{Number(selectedEscrow.amount).toLocaleString()}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <Button
+            onClick={() => {
+              setPinDialogOpen(false);
+              setPinInput('');
+            }}
+            sx={{ color: '#888' }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleEnterPin}
+            disabled={actionLoading || pinInput.length !== 6}
+            sx={{ bgcolor: '#00f2ea', color: '#000', '&:hover': { bgcolor: '#00c4be' } }}
+          >
+            {actionLoading ? <CircularProgress size={20} /> : 'Verify PIN'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Service Dialog (for Client) */}
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => {
+          setConfirmDialogOpen(false);
+          setSelectedEscrow(null);
+        }}
+        PaperProps={{
+          sx: {
+            bgcolor: '#1a1a2e',
+            borderRadius: '16px',
+            border: '1px solid rgba(0, 255, 136, 0.3)',
+            maxWidth: '400px',
+            width: '90%'
+          }
+        }}
+      >
+        <DialogTitle sx={{ color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ReleaseIcon sx={{ color: '#00ff88' }} />
+            Confirm Service Delivery
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Alert severity="warning" sx={{ mb: 2, bgcolor: 'rgba(255, 167, 38, 0.1)' }}>
+            <Typography variant="body2">
+              <strong>This action is final!</strong><br />
+              Once confirmed, the payment will be released to the provider immediately.
+            </Typography>
+          </Alert>
+          
+          {selectedEscrow && (
+            <Box sx={{ 
+              p: 2, 
+              bgcolor: 'rgba(0, 255, 136, 0.1)', 
+              borderRadius: 2,
+              textAlign: 'center'
+            }}>
+              <Typography variant="caption" color="text.secondary">
+                Amount to Release
+              </Typography>
+              <Typography sx={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#00ff88' }}>
+                {symbol}{Number(selectedEscrow.amount).toLocaleString()}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                to {selectedEscrow.provider_name || selectedEscrow.providerName || 'Provider'}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <Button
+            onClick={() => {
+              setConfirmDialogOpen(false);
+              setSelectedEscrow(null);
+            }}
+            sx={{ color: '#888' }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={confirmServiceDelivery}
+            disabled={actionLoading}
+            sx={{ bgcolor: '#00ff88', color: '#000', '&:hover': { bgcolor: '#00cc6a' } }}
+          >
+            {actionLoading ? <CircularProgress size={20} /> : 'Confirm & Release Payment'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dispute Dialog */}
+      <Dialog
+        open={disputeDialogOpen}
+        onClose={() => {
+          setDisputeDialogOpen(false);
+          setSelectedEscrow(null);
+          setDisputeReason('');
+          setDisputeEvidence(null);
+        }}
+        PaperProps={{
+          sx: {
+            bgcolor: '#1a1a2e',
+            borderRadius: '16px',
+            border: '1px solid rgba(255, 87, 34, 0.3)',
+            maxWidth: '450px',
+            width: '90%'
+          }
+        }}
+      >
+        <DialogTitle sx={{ color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <GavelIcon sx={{ color: '#ff5722' }} />
+            Report Problem
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Alert severity="info" sx={{ mb: 2, bgcolor: 'rgba(255, 87, 34, 0.1)' }}>
+            <Typography variant="body2">
+              Please describe the issue. Our team will review your case within 24-48 hours.
+            </Typography>
+          </Alert>
+          
+          {disputeStatus && disputeStatus.disputeStrikes > 0 && (
+            <Alert severity="warning" sx={{ mb: 2, bgcolor: 'rgba(255, 167, 38, 0.1)' }}>
+              <Typography variant="body2">
+                ⚠️ You have {disputeStatus.disputeStrikes}/{disputeStatus.maxStrikes} strikes. 
+                Losing another dispute may result in account suspension.
+              </Typography>
+            </Alert>
+          )}
+
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            value={disputeReason}
+            onChange={(e) => setDisputeReason(e.target.value)}
+            placeholder="Describe what went wrong..."
+            sx={{
+              mb: 2,
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(255, 255, 255, 0.05)',
+                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                '&.Mui-focused fieldset': { borderColor: '#ff5722' },
+              },
+              '& .MuiInputBase-input': { color: '#fff' }
+            }}
+          />
+
+          <Button
+            variant="outlined"
+            component="label"
+            fullWidth
+            startIcon={<AttachIcon />}
+            sx={{ 
+              borderColor: 'rgba(255, 255, 255, 0.2)', 
+              color: '#888',
+              '&:hover': { borderColor: '#ff5722' }
+            }}
+          >
+            {disputeEvidence ? disputeEvidence.name : 'Attach Evidence (Optional)'}
+            <input
+              type="file"
+              hidden
+              accept="image/*,video/*,.pdf"
+              onChange={(e) => setDisputeEvidence(e.target.files[0])}
+            />
+          </Button>
+          
+          {selectedEscrow && (
+            <Box sx={{ mt: 2, p: 1.5, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Escrow Amount: {symbol}{Number(selectedEscrow.amount).toLocaleString()}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <Button
+            onClick={() => {
+              setDisputeDialogOpen(false);
+              setSelectedEscrow(null);
+              setDisputeReason('');
+              setDisputeEvidence(null);
+            }}
+            sx={{ color: '#888' }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitDispute}
+            disabled={actionLoading || !disputeReason.trim()}
+            sx={{ bgcolor: '#ff5722', color: '#fff', '&:hover': { bgcolor: '#e64a19' } }}
+          >
+            {actionLoading ? <CircularProgress size={20} /> : 'Submit Dispute'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

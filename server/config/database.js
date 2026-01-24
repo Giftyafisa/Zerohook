@@ -85,7 +85,30 @@ const userSchema = new mongoose.Schema({
   subscription_tier: { type: String, default: 'free' },
   subscription_expires_at: Date,
   status: { type: String, default: 'active' },
-  last_active: { type: Date, default: Date.now }
+  last_active: { type: Date, default: Date.now },
+  // Dispute tracking and ban system
+  dispute_strikes: { type: Number, default: 0 }, // 3 strikes = ban
+  dispute_warnings: [{
+    warning_number: Number,
+    reason: String,
+    escrow_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' },
+    issued_at: { type: Date, default: Date.now }
+  }],
+  is_banned: { type: Boolean, default: false },
+  ban_data: {
+    banned_at: Date,
+    ban_reason: String,
+    ban_type: { type: String, enum: ['dispute_fraud', 'manual', 'other'] },
+    related_disputes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' }]
+  },
+  unban_requests: [{
+    requested_at: { type: Date, default: Date.now },
+    reason: String,
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    reviewed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reviewed_at: Date,
+    admin_notes: String
+  }]
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 const serviceCategorySchema = new mongoose.Schema({
@@ -134,7 +157,40 @@ const transactionSchema = new mongoose.Schema({
   verification_data: { type: mongoose.Schema.Types.Mixed, default: {} },
   dispute_data: { type: mongoose.Schema.Types.Mixed, default: {} },
   completion_proof: { type: mongoose.Schema.Types.Mixed, default: {} },
-  completed_at: Date
+  completed_at: Date,
+  // PIN Verification System (Uber-style)
+  completion_pin: { type: String }, // 6-digit PIN only visible to client
+  pin_entered_at: Date, // When provider entered the PIN
+  pin_entered_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  // Dual Confirmation System
+  client_confirmed: { type: Boolean, default: false },
+  client_confirmed_at: Date,
+  provider_confirmed: { type: Boolean, default: false },
+  provider_confirmed_at: Date,
+  // Auto-release tracking
+  auto_release_at: Date, // When funds will auto-release if no dispute
+  confirmation_deadline: Date, // Client must confirm/dispute before this
+  // Provider Service Completion Claim (for when client refuses to share PIN)
+  provider_claimed_complete: { type: Boolean, default: false },
+  provider_claim_data: {
+    claimed_at: Date,
+    evidence_description: String,
+    evidence_files: [{
+      file_url: String,
+      file_type: String,
+      uploaded_at: { type: Date, default: Date.now }
+    }],
+    client_notified_at: Date,
+    client_response_deadline: Date // Client has 24h to share PIN or dispute
+  },
+  // Evidence for disputes
+  evidence: [{
+    uploaded_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    file_url: String,
+    file_type: String,
+    description: String,
+    uploaded_at: { type: Date, default: Date.now }
+  }]
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Index for efficient wallet queries

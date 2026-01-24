@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -10,7 +10,8 @@ import {
   DialogActions,
   Chip,
   CircularProgress,
-  Alert
+  Alert,
+  InputAdornment
 } from '@mui/material';
 import {
   Lock as HoldIcon,
@@ -20,6 +21,7 @@ import {
   AccountBalanceWallet as WalletIcon
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../config/constants';
+import useCurrency from '../hooks/useCurrency';
 
 /**
  * MilestoneRequest Component
@@ -44,10 +46,21 @@ export const MilestoneRequestDialog = ({
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Use currency hook for country-specific currency
+  const { symbol, code: currencyCode, minAmount, quickAmounts: defaultQuickAmounts } = useCurrency();
+  
+  // Dynamic quick amounts based on currency
+  const quickAmounts = defaultQuickAmounts || 
+    (currencyCode === 'GHS' ? [10, 50, 100, 200, 500] :
+     currencyCode === 'NGN' ? [1000, 5000, 10000, 20000, 50000] :
+     [10, 50, 100, 200, 500]);
+  
+  const minimumAmount = minAmount || (currencyCode === 'GHS' ? 5 : 500);
 
   const handleSend = async () => {
-    if (!amount || Number(amount) < 500) {
-      setError('Minimum amount is ₦500');
+    if (!amount || Number(amount) < minimumAmount) {
+      setError(`Minimum amount is ${symbol}${minimumAmount}`);
       return;
     }
 
@@ -65,6 +78,7 @@ export const MilestoneRequestDialog = ({
         body: JSON.stringify({
           recipientId,
           amount: Number(amount),
+          currency: currencyCode,
           description: description || (isProvider ? 'Service payment' : 'Payment request'),
           requestType: isProvider ? 'provider_request' : 'client_request'
         })
@@ -87,8 +101,6 @@ export const MilestoneRequestDialog = ({
       setLoading(false);
     }
   };
-
-  const quickAmounts = [1000, 5000, 10000, 20000, 50000];
 
   return (
     <Dialog 
@@ -115,12 +127,15 @@ export const MilestoneRequestDialog = ({
 
         <TextField
           fullWidth
-          label="Amount (₦)"
+          label={`Amount (${symbol})`}
           type="number"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           sx={styles.textField}
           placeholder="Enter amount"
+          InputProps={{
+            startAdornment: <InputAdornment position="start" sx={{ color: '#fff' }}>{symbol}</InputAdornment>,
+          }}
         />
 
         {/* Quick amount buttons */}
@@ -128,7 +143,7 @@ export const MilestoneRequestDialog = ({
           {quickAmounts.map((amt) => (
             <Chip
               key={amt}
-              label={`₦${amt.toLocaleString()}`}
+              label={`${symbol}${amt.toLocaleString()}`}
               onClick={() => setAmount(amt.toString())}
               sx={{
                 bgcolor: amount === amt.toString() ? '#00f2ea' : 'rgba(255,255,255,0.1)',

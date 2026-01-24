@@ -5,6 +5,83 @@ const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const NotificationService = require('../services/NotificationService');
 
+// Maximum unique contacts for non-subscribers
+const FREE_TIER_MAX_CONTACTS = 3;
+
+/**
+ * Check if user can message new contacts (subscription limit)
+ * @param {string} userId - Current user ID
+ * @returns {Object} { canMessage: boolean, uniqueContacts: number, maxContacts: number, requiresSubscription: boolean }
+ */
+const checkMessagingLimit = async (userId, targetUserId) => {
+  try {
+    // Get user to check subscription status
+    const user = await User.findById(userId).select('is_subscribed subscription_expires_at');
+    
+    // Subscribed users have unlimited messaging
+    if (user?.is_subscribed) {
+      const expiresAt = user.subscription_expires_at ? new Date(user.subscription_expires_at) : null;
+      if (!expiresAt || expiresAt > new Date()) {
+        return { canMessage: true, uniqueContacts: 0, maxContacts: Infinity, requiresSubscription: false };
+      }
+    }
+
+    // Check existing conversations for this user
+    const existingConversations = await Conversation.find({
+      $or: [
+        { participant1Id: userId },
+        { participant2Id: userId }
+      ]
+    }).select('participant1Id participant2Id');
+
+    // Get unique contact IDs
+    const uniqueContactIds = new Set();
+    existingConversations.forEach(conv => {
+      const contactId = conv.participant1Id?.toString() === userId 
+        ? conv.participant2Id?.toString() 
+        : conv.participant1Id?.toString();
+      if (contactId) uniqueContactIds.add(contactId);
+    });
+
+    // Check if already in conversation with this target
+    const alreadyInConversation = uniqueContactIds.has(targetUserId);
+    
+    // If already in conversation, can continue messaging
+    if (alreadyInConversation) {
+      return { 
+        canMessage: true, 
+        uniqueContacts: uniqueContactIds.size, 
+        maxContacts: FREE_TIER_MAX_CONTACTS, 
+        requiresSubscription: false,
+        isExistingContact: true
+      };
+    }
+
+    // Check if trying to add new contact exceeds limit
+    if (uniqueContactIds.size >= FREE_TIER_MAX_CONTACTS) {
+      return { 
+        canMessage: false, 
+        uniqueContacts: uniqueContactIds.size, 
+        maxContacts: FREE_TIER_MAX_CONTACTS, 
+        requiresSubscription: true,
+        message: `Free users can only message ${FREE_TIER_MAX_CONTACTS} unique people. Subscribe to message unlimited contacts.`
+      };
+    }
+
+    return { 
+      canMessage: true, 
+      uniqueContacts: uniqueContactIds.size, 
+      maxContacts: FREE_TIER_MAX_CONTACTS, 
+      requiresSubscription: false,
+      remainingContacts: FREE_TIER_MAX_CONTACTS - uniqueContactIds.size
+    };
+  } catch (error) {
+    console.error('Error checking messaging limit:', error);
+    // Default to allowing message on error
+    return { canMessage: true, uniqueContacts: 0, maxContacts: FREE_TIER_MAX_CONTACTS, requiresSubscription: false };
+  }
+};
+
 // Custom validator for MongoDB ObjectId or UUID
 const isMongoIdOrUUID = (value) => {
   if (!value) return true; // Let optional() handle this
@@ -366,6 +443,18 @@ router.post('/conversation', authMiddleware, [
       return res.status(400).json({ error: 'Cannot create conversation with yourself' });
     }
     
+    // Check messaging limit for non-subscribers
+    const limitCheck = await checkMessagingLimit(userId, otherUserId);
+    if (!limitCheck.canMessage) {
+      return res.status(403).json({ 
+        error: 'subscription_required',
+        message: limitCheck.message,
+        uniqueContacts: limitCheck.uniqueContacts,
+        maxContacts: limitCheck.maxContacts,
+        requiresSubscription: true
+      });
+    }
+    
     // Check if conversation already exists
     let existingConv = await Conversation.findOne({
       $or: [
@@ -393,7 +482,12 @@ router.post('/conversation', authMiddleware, [
     
     res.json({
       conversationId: conversationData.id,
-      createdAt: conversationData.created_at
+      createdAt: conversationData.created_at,
+      messagingLimit: {
+        uniqueContacts: limitCheck.uniqueContacts,
+        maxContacts: limitCheck.maxContacts,
+        remainingContacts: limitCheck.remainingContacts
+      }
     });
 
   } catch (error) {
@@ -433,6 +527,18 @@ router.post('/start', authMiddleware, [
       return res.status(400).json({ error: 'Cannot create conversation with yourself' });
     }
     
+    // Check messaging limit for non-subscribers
+    const limitCheck = await checkMessagingLimit(userId, otherUserId);
+    if (!limitCheck.canMessage) {
+      return res.status(403).json({ 
+        error: 'subscription_required',
+        message: limitCheck.message,
+        uniqueContacts: limitCheck.uniqueContacts,
+        maxContacts: limitCheck.maxContacts,
+        requiresSubscription: true
+      });
+    }
+    
     // Check if conversation already exists
     let conversation = await Conversation.findOne({
       $or: [
@@ -452,7 +558,12 @@ router.post('/start', authMiddleware, [
     res.json({
       success: true,
       conversationId: conversation._id,
-      createdAt: conversation.createdAt
+      createdAt: conversation.createdAt,
+      messagingLimit: {
+        uniqueContacts: limitCheck.uniqueContacts,
+        maxContacts: limitCheck.maxContacts,
+        remainingContacts: limitCheck.remainingContacts
+      }
     });
 
   } catch (error) {
@@ -627,5 +738,65 @@ const deleteConversationHandler = async (req, res) => {
 
 router.delete('/conversation/:conversationId', authMiddleware, deleteConversationHandler);
 router.delete('/conversations/:conversationId', authMiddleware, deleteConversationHandler);
+
+/**
+ * @route   GET /api/chat/messaging-limit
+ * @desc    Get user's messaging limit status (for non-subscribers)
+ * @access  Private
+ */
+router.get('/messaging-limit', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Get user subscription status
+    const user = await User.findById(userId).select('is_subscribed subscription_expires_at');
+    
+    const isSubscribed = user?.is_subscribed && 
+      (!user.subscription_expires_at || new Date(user.subscription_expires_at) > new Date());
+    
+    if (isSubscribed) {
+      return res.json({
+        success: true,
+        isSubscribed: true,
+        uniqueContacts: 0,
+        maxContacts: Infinity,
+        remainingContacts: Infinity,
+        requiresSubscription: false
+      });
+    }
+
+    // Count unique contacts for non-subscribers
+    const existingConversations = await Conversation.find({
+      $or: [
+        { participant1Id: userId },
+        { participant2Id: userId }
+      ]
+    }).select('participant1Id participant2Id');
+
+    const uniqueContactIds = new Set();
+    existingConversations.forEach(conv => {
+      const contactId = conv.participant1Id?.toString() === userId 
+        ? conv.participant2Id?.toString() 
+        : conv.participant1Id?.toString();
+      if (contactId) uniqueContactIds.add(contactId);
+    });
+
+    const uniqueContacts = uniqueContactIds.size;
+    const remainingContacts = Math.max(0, FREE_TIER_MAX_CONTACTS - uniqueContacts);
+
+    res.json({
+      success: true,
+      isSubscribed: false,
+      uniqueContacts,
+      maxContacts: FREE_TIER_MAX_CONTACTS,
+      remainingContacts,
+      requiresSubscription: remainingContacts === 0
+    });
+
+  } catch (error) {
+    console.error('Get messaging limit error:', error);
+    res.status(500).json({ error: 'Failed to get messaging limit' });
+  }
+});
 
 module.exports = { router };

@@ -429,4 +429,84 @@ function calculateVerificationProgress(verificationData, currentTier) {
   return progress;
 }
 
+/**
+ * Check if user meets full verification requirements
+ * Full verification requires: Subscription + Email + Face/ID verification
+ */
+function checkFullVerification(user) {
+  const verificationData = user.verification_data || {};
+  
+  // Check subscription
+  const isSubscribed = user.is_subscribed && 
+    (!user.subscription_expires_at || new Date(user.subscription_expires_at) > new Date());
+  
+  // Check email verification
+  const emailVerified = verificationData.email_verified?.status === 'verified';
+  
+  // Check ID/face verification (tier 2+ means ID verified)
+  const idVerified = (user.verification_tier || 1) >= 2;
+  
+  // Check face verification (if available)
+  const faceVerified = verificationData.face_verified?.status === 'verified';
+  
+  // Full verification: subscription + email + (ID or face)
+  const isFullyVerified = isSubscribed && emailVerified && (idVerified || faceVerified);
+  
+  return {
+    isFullyVerified,
+    isSubscribed,
+    emailVerified,
+    idVerified,
+    faceVerified,
+    verificationTier: user.verification_tier || 1,
+    requirements: {
+      subscription: { required: true, met: isSubscribed, label: 'Premium Subscription' },
+      email: { required: true, met: emailVerified, label: 'Email Verified' },
+      identity: { required: true, met: idVerified || faceVerified, label: 'ID/Face Verified' }
+    }
+  };
+}
+
+/**
+ * @route   GET /api/verification/full-status
+ * @desc    Get comprehensive verification status (for displaying verified badge)
+ * @access  Private
+ */
+router.get('/full-status', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const user = await User.findById(userId)
+      .select('verification_tier verification_data is_subscribed subscription_expires_at reputation_score trust_score')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const fullVerification = checkFullVerification(user);
+    const verificationData = user.verification_data || {};
+    const verificationProgress = calculateVerificationProgress(verificationData, user.verification_tier);
+
+    res.json({
+      success: true,
+      currentTier: user.verification_tier || 1,
+      reputationScore: user.reputation_score || 0,
+      trustScore: user.trust_score || 0,
+      verificationProgress,
+      verificationData,
+      // Full verification status
+      fullVerification,
+      // Quick access fields
+      isFullyVerified: fullVerification.isFullyVerified,
+      canDisplayVerifiedBadge: fullVerification.isFullyVerified,
+      requirements: fullVerification.requirements
+    });
+
+  } catch (error) {
+    console.error('Get full verification status error:', error);
+    res.status(500).json({ error: 'Failed to fetch verification status' });
+  }
+});
+
 module.exports = router;

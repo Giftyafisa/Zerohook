@@ -1240,10 +1240,52 @@ router.get('/wallet', authMiddleware, async (req, res) => {
         },
         { $group: { _id: null, total: { $sum: '$amount' } } }
       ]);
+
+      // Get completed withdrawals (subtract from balance)
+      const withdrawnResult = await Transaction.aggregate([
+        { 
+          $match: { 
+            user_id: require('mongoose').Types.ObjectId.createFromHexString(userId), 
+            type: 'withdrawal', 
+            status: { $in: ['completed', 'confirmed'] } 
+          } 
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+
+      // Get escrow held by user as CLIENT (money they're holding for services)
+      const escrowAsClientResult = await Transaction.aggregate([
+        { 
+          $match: { 
+            client_id: require('mongoose').Types.ObjectId.createFromHexString(userId), 
+            type: 'escrow_hold',
+            status: { $in: ['pending', 'held', 'escrow_held', 'in_progress', 'pin_entered'] } 
+          } 
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+
+      // Get escrow released TO user as PROVIDER (money they've earned from released escrows)
+      const escrowReleasedResult = await Transaction.aggregate([
+        { 
+          $match: { 
+            user_id: require('mongoose').Types.ObjectId.createFromHexString(userId), 
+            type: 'escrow_release',
+            status: { $in: ['completed', 'confirmed'] } 
+          } 
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
       
-      balance = (earningsResult[0]?.total || 0) + (depositResult[0]?.total || 0);
-      totalEarnings = totalEarningsResult[0]?.total || 0;
-      escrowHeld = escrowResult[0]?.total || 0;
+      const deposits = depositResult[0]?.total || 0;
+      const withdrawn = withdrawnResult[0]?.total || 0;
+      const escrowHeldAsClient = escrowAsClientResult[0]?.total || 0;
+      const escrowReleased = escrowReleasedResult[0]?.total || 0;
+      
+      // Available balance = deposits + escrow releases - withdrawals - held escrows
+      balance = deposits + escrowReleased - withdrawn - escrowHeldAsClient;
+      totalEarnings = (totalEarningsResult[0]?.total || 0) + escrowReleased;
+      escrowHeld = escrowHeldAsClient;
       pendingWithdrawal = withdrawalResult[0]?.total || 0;
       
     } catch (dbError) {

@@ -103,27 +103,6 @@ const LoginPage = () => {
           </Typography>
         </Box>
 
-        {/* Test Credentials Note */}
-        <Box 
-          sx={{ 
-            mb: 3,
-            p: 2,
-            borderRadius: '12px',
-            background: 'rgba(0, 170, 255, 0.1)',
-            border: '1px solid rgba(0, 170, 255, 0.2)',
-          }}
-        >
-          <Typography 
-            sx={{ 
-              color: '#00aaff', 
-              fontSize: '14px',
-              fontFamily: '"Outfit", sans-serif',
-            }}
-          >
-            <strong>Test Mode:</strong> Use <code style={{ background: 'rgba(0, 170, 255, 0.2)', padding: '2px 6px', borderRadius: '4px' }}>akua.mensah@ghana.com</code> / <code style={{ background: 'rgba(0, 170, 255, 0.2)', padding: '2px 6px', borderRadius: '4px' }}>AkuaPass123!</code>
-          </Typography>
-        </Box>
-
         {/* Error Alert */}
         {(authError || localError) && (
           <Box 

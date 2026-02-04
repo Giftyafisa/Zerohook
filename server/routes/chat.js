@@ -154,7 +154,8 @@ router.get('/conversations', authMiddleware, async (req, res) => {
         $or: [
           { participant1Id: userId },
           { participant2Id: userId }
-        ]
+        ],
+        status: { $ne: 'deleted' } // Exclude deleted conversations
       })
       .populate('participant1Id', 'username verification_tier profile_data')
       .populate('participant2Id', 'username verification_tier profile_data')
@@ -601,6 +602,49 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
 });
 
 /**
+ * @route   DELETE /api/chat/conversations/:conversationId
+ * @route   DELETE /api/chat/conversation/:conversationId (alias)
+ * @desc    Delete a conversation (and its messages)
+ * @access  Private
+ */
+const deleteConversationHandler = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user.userId;
+
+    if (!isDatabaseAvailable()) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Verify user is part of this conversation
+    const conv = await Conversation.findById(conversationId);
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const userIdStr = userId?.toString();
+    const p1 = conv.participant1Id?.toString();
+    const p2 = conv.participant2Id?.toString();
+    const isMember = (p1 === userIdStr || p2 === userIdStr);
+    if (!isMember) {
+      return res.status(403).json({ error: 'Access denied to this conversation' });
+    }
+
+    // Hard delete messages and conversation
+    await Message.deleteMany({ conversationId });
+    await Conversation.deleteOne({ _id: conversationId });
+
+    res.json({ success: true, message: 'Conversation deleted' });
+  } catch (error) {
+    console.error('Delete conversation error:', error);
+    res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+};
+
+router.delete('/conversations/:conversationId', authMiddleware, deleteConversationHandler);
+router.delete('/conversation/:conversationId', authMiddleware, deleteConversationHandler);
+
+/**
  * @route   POST /api/chat/video-call
  * @desc    Initiate or join video call
  * @access  Private
@@ -697,47 +741,6 @@ router.post('/block-user', authMiddleware, [
     res.status(500).json({ error: 'Failed to block user' });
   }
 });
-
-/**
- * @route   DELETE /api/chat/conversation/:conversationId
- * @route   DELETE /api/chat/conversations/:conversationId (alias)
- * @desc    Delete a conversation
- * @access  Private
- */
-const deleteConversationHandler = async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const userId = req.user.userId;
-    
-    // Verify user is part of this conversation
-    const conversation = await Conversation.findOne({
-      _id: conversationId,
-      $or: [
-        { participant1Id: userId },
-        { participant2Id: userId }
-      ]
-    });
-    
-    if (!conversation) {
-      return res.status(403).json({ error: 'Access denied to this conversation' });
-    }
-    
-    // Soft delete conversation
-    await Conversation.findByIdAndUpdate(conversationId, {
-      status: 'deleted',
-      updatedAt: new Date()
-    });
-    
-    res.json({ message: 'Conversation deleted successfully' });
-
-  } catch (error) {
-    console.error('Delete conversation error:', error);
-    res.status(500).json({ error: 'Failed to delete conversation' });
-  }
-};
-
-router.delete('/conversation/:conversationId', authMiddleware, deleteConversationHandler);
-router.delete('/conversations/:conversationId', authMiddleware, deleteConversationHandler);
 
 /**
  * @route   GET /api/chat/messaging-limit

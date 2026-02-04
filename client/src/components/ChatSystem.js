@@ -358,27 +358,56 @@ const ChatSystem = ({
 
     const handleNewMessage = (messageData) => {
       let conversationFound = false;
+      const messageTimestamp = messageData.createdAt || messageData.timestamp || new Date().toISOString();
+
       if (selectedConversation && messageData.conversationId === selectedConversation.id) {
-        setMessages(prev => [...prev, messageData]);
+        setMessages((prev) => {
+          // Deduplicate by message id
+          if (prev.some((m) => m.id === messageData.id)) {
+            return prev;
+          }
+
+          // Replace optimistic temp message if it matches
+          if (messageData.senderId === user?.id) {
+            const tempIndex = prev.findIndex(
+              (m) => m.status === 'sending' &&
+                m.senderId === user?.id &&
+                m.conversationId === messageData.conversationId &&
+                m.content === messageData.content
+            );
+            if (tempIndex >= 0) {
+              const next = [...prev];
+              next[tempIndex] = { ...messageData, createdAt: messageTimestamp, status: 'sent' };
+              return next;
+            }
+          }
+
+          return [...prev, { ...messageData, createdAt: messageTimestamp }];
+        });
+
         if (messageData.senderId !== user?.id) {
           setRemoteTyping(false);
           markConversationRead(messageData.conversationId);
         }
       }
-      setConversations(prev =>
-        sortConversations(prev.map(conv => {
-          if (conv.id !== messageData.conversationId) return conv;
-          conversationFound = true;
-          const isOwn = messageData.senderId === user?.id;
-          const isActive = selectedConversation?.id === conv.id;
-          return {
-            ...conv,
-            lastMessage: messageData.content,
-            lastMessageTime: messageData.createdAt,
-            unreadCount: isOwn || isActive ? 0 : (conv.unreadCount || 0) + 1
-          };
-        }))
+
+      setConversations((prev) =>
+        sortConversations(
+          prev.map((conv) => {
+            if (conv.id !== messageData.conversationId) return conv;
+            conversationFound = true;
+            const isOwn = messageData.senderId === user?.id;
+            const isActive = selectedConversation?.id === conv.id;
+            return {
+              ...conv,
+              lastMessage: messageData.content,
+              lastMessageTime: messageTimestamp,
+              unreadCount: isOwn || isActive ? 0 : (conv.unreadCount || 0) + 1
+            };
+          })
+        )
       );
+
       if (!conversationFound) {
         // Fetch latest conversations to include new thread
         loadConversations({ silent: true });
@@ -402,10 +431,30 @@ const ChatSystem = ({
     socket.on('typing_start', handleTypingStart);
     socket.on('typing_stop', handleTypingStop);
 
+    // Handle user online/offline status updates
+    const handleUserStatus = ({ userId, isOnline }) => {
+      console.log('👤 User status update:', userId, isOnline ? 'online' : 'offline');
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.participantId === userId
+            ? { ...conv, participantOnline: isOnline }
+            : conv
+        )
+      );
+      // Update selected conversation if it's with this user
+      if (selectedConversation?.participantId === userId) {
+        setSelectedConversation((prev) =>
+          prev ? { ...prev, participantOnline: isOnline } : prev
+        );
+      }
+    };
+    socket.on('user_status', handleUserStatus);
+
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('typing_start', handleTypingStart);
       socket.off('typing_stop', handleTypingStop);
+      socket.off('user_status', handleUserStatus);
     };
   }, [socket, isConnected, selectedConversation, user]);
 

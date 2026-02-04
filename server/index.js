@@ -489,6 +489,15 @@ io.on('connection', async (socket) => {
       socket.handshake.address, 
       socket.handshake.headers['user-agent']
     );
+
+    // Broadcast online status to other users
+    socket.broadcast.emit('user_status', {
+      userId: socket.userId,
+      username: socket.username,
+      status: 'online',
+      isOnline: true,
+      timestamp: new Date().toISOString()
+    });
     
     // Join user's personal room
     socket.join(`user_${socket.userId}`);
@@ -518,6 +527,12 @@ io.on('connection', async (socket) => {
     // Handle typing indicators
     socket.on('typing_start', async (data) => {
       await userActivityMonitor.updateTypingStatus(socket.userId, true, data.conversationId);
+      socket.to(`conversation_${data.conversationId}`).emit('typing_start', {
+        userId: socket.userId,
+        username: socket.username,
+        conversationId: data.conversationId
+      });
+      // Backward compatibility for older clients
       socket.to(`conversation_${data.conversationId}`).emit('user_typing', {
         userId: socket.userId,
         username: socket.username,
@@ -527,6 +542,11 @@ io.on('connection', async (socket) => {
     
     socket.on('typing_stop', async (data) => {
       await userActivityMonitor.updateTypingStatus(socket.userId, false, data.conversationId);
+      socket.to(`conversation_${data.conversationId}`).emit('typing_stop', {
+        userId: socket.userId,
+        username: socket.username,
+        conversationId: data.conversationId
+      });
     });
     
     // Handle page navigation
@@ -888,6 +908,13 @@ io.on('connection', async (socket) => {
     console.log(`User ${socket.username} (${socket.userId}) disconnected:`, socket.id);
     try {
       await userActivityMonitor.updateUserPresence(socket.userId, 'offline');
+      socket.broadcast.emit('user_status', {
+        userId: socket.userId,
+        username: socket.username,
+        status: 'offline',
+        isOnline: false,
+        timestamp: new Date().toISOString()
+      });
     } catch (error) {
       console.error('Error updating user presence on disconnect:', error);
     }

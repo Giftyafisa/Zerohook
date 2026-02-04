@@ -42,6 +42,7 @@ export const MobilePageContainer = ({
         right: 0,
         bottom: 0,
         width: '100%',
+        maxWidth: '100vw', // CRITICAL: Prevent overflow
         height: '100dvh', // Dynamic viewport height for mobile
         maxHeight: '-webkit-fill-available', // Safari fix
         
@@ -49,12 +50,14 @@ export const MobilePageContainer = ({
         bgcolor: backgroundColor,
         color: '#fff',
         
-        // Prevent any overflow
+        // Prevent any overflow - CRITICAL for mobile
         overflow: 'hidden',
+        overflowX: 'hidden', // Explicit horizontal overflow prevention
         
         // Layout
         display: 'flex',
         flexDirection: 'column',
+        boxSizing: 'border-box',
       }}
     >
       {/* Main Content Area */}

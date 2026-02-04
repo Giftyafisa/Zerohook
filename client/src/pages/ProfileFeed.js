@@ -479,8 +479,19 @@ const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
         overflowX: 'auto',
         py: { xs: 0.5, sm: 1 },
         px: 0.5,
+        // CRITICAL: Prevent horizontal overflow while allowing scroll
+        width: '100%',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
         '&::-webkit-scrollbar': { display: 'none' },
         scrollbarWidth: 'none',
+        // Enable smooth horizontal scroll on touch
+        WebkitOverflowScrolling: 'touch',
+        scrollSnapType: 'x mandatory',
+        '& > *': {
+          scrollSnapAlign: 'start',
+          flexShrink: 0, // Prevent chips from shrinking
+        },
       }}
     >
       {filters.map((filter) => (
@@ -1287,9 +1298,23 @@ const ProfileFeed = () => {
 
     /**
      * Get IP-based location via backend proxy (no exposed API key)
+     * Includes caching to prevent redundant API calls
      */
+    const IP_LOCATION_CACHE_KEY = 'zerohook_ip_location';
+    const IP_LOCATION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
+    
     const getIPLocation = async () => {
       try {
+        // Check cache first to avoid redundant API calls
+        const cached = sessionStorage.getItem(IP_LOCATION_CACHE_KEY);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < IP_LOCATION_CACHE_TTL) {
+            console.log('📍 Using cached IP location');
+            return data;
+          }
+        }
+
         const token = localStorage.getItem('token');
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
@@ -1310,7 +1335,7 @@ const ProfileFeed = () => {
           const body = await response.json();
           const ipData = body?.data;
           if (ipData) {
-            return {
+            const locationData = {
               lat: ipData.lat ?? ipData.latitude ?? null,
               lng: ipData.lng ?? ipData.longitude ?? null,
               city: ipData.city,
@@ -1320,6 +1345,12 @@ const ProfileFeed = () => {
               source: ipData.source || 'ip-proxy',
               confidence: ipData.confidence ?? 'medium'
             };
+            // Cache the result
+            sessionStorage.setItem(IP_LOCATION_CACHE_KEY, JSON.stringify({
+              data: locationData,
+              timestamp: Date.now()
+            }));
+            return locationData;
           }
         }
       } catch (error) {

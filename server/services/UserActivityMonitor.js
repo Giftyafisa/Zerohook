@@ -116,11 +116,19 @@ class UserActivityMonitor {
       // Update users table last_active
       await User.findByIdAndUpdate(userId, { lastActive: now });
 
-      // Update session if socketId provided
+      // Update session if socketId provided - FIX: Avoid duplicate key errors
       if (socketId) {
+        // First, deactivate any OTHER active sessions for this user (prevents duplicate socketId issues)
         await UserSession.updateMany(
-          { userId, isActive: true },
-          { socketId, lastActivity: now }
+          { userId, isActive: true, socketId: { $ne: socketId } },
+          { isActive: false, disconnectedAt: now }
+        );
+        
+        // Then upsert the current session (using findOneAndUpdate avoids E11000 errors)
+        await UserSession.findOneAndUpdate(
+          { userId, socketId },
+          { $set: { lastActivity: now, isActive: true } },
+          { upsert: true }
         );
       }
 

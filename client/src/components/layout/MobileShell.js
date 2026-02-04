@@ -36,10 +36,13 @@ const ShellContainer = styled(Box)({
   left: 0,
   right: 0,
   bottom: 0,
+  width: '100vw',
+  maxWidth: '100vw',
   display: 'flex',
   flexDirection: 'column',
   background: '#000', // Pure black for immersive TikTok feel
   overflow: 'hidden',
+  overflowX: 'hidden', // CRITICAL: Explicitly prevent horizontal overflow
   // Use dvh for accurate mobile viewport (handles address bar)
   height: '100vh',
   '@supports (height: 100dvh)': {
@@ -48,6 +51,9 @@ const ShellContainer = styled(Box)({
   // Prevent any overscroll behavior
   overscrollBehavior: 'none',
   touchAction: 'manipulation',
+  // CRITICAL: CSS containment for performance and overflow prevention
+  contain: 'layout style paint',
+  boxSizing: 'border-box',
 });
 
 // Fixed header region - locked at top with safe area
@@ -55,6 +61,8 @@ const HeaderRegion = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'hasHeader',
 })(({ hasHeader }) => ({
   flexShrink: 0,
+  width: '100%',
+  maxWidth: '100vw',
   height: hasHeader ? `${tokens.layout.mobileHeaderHeight}px` : 0,
   minHeight: hasHeader ? `${tokens.layout.mobileHeaderHeight}px` : 0,
   // Safe area for notched devices (iPhone X+)
@@ -74,9 +82,12 @@ const ContentRegion = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'noPadding' && prop !== 'isFullBleed',
 })(({ noPadding, isFullBleed }) => ({
   flex: 1,
+  width: '100%',
+  maxWidth: '100vw', // CRITICAL: Prevent content from exceeding viewport
+  minWidth: 0, // Allow flex shrink
   minHeight: 0, // Critical for flex scroll behavior
   overflow: 'auto',
-  overflowX: 'hidden',
+  overflowX: 'hidden', // CRITICAL: Prevent horizontal scroll
   WebkitOverflowScrolling: 'touch', // Smooth iOS momentum scrolling
   scrollBehavior: 'smooth',
   // Full bleed for immersive content (TikTok feed, etc.)
@@ -90,6 +101,13 @@ const ContentRegion = styled(Box, {
   msOverflowStyle: 'none',
   // Prevent rubber-banding on iOS
   overscrollBehavior: 'contain',
+  // CRITICAL: Box sizing for proper padding calculation
+  boxSizing: 'border-box',
+  // Children should not overflow
+  '& > *': {
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+  },
 }));
 
 // Fixed bottom nav region - locked at bottom with safe area
@@ -97,6 +115,8 @@ const NavRegion = styled(Box, {
   shouldForwardProp: (prop) => prop !== 'hasBottomNav' && prop !== 'isOverlay',
 })(({ hasBottomNav, isOverlay }) => ({
   flexShrink: 0,
+  width: '100%',
+  maxWidth: '100vw',
   height: hasBottomNav ? `${tokens.layout.bottomNavHeight}px` : 0,
   minHeight: hasBottomNav ? `${tokens.layout.bottomNavHeight}px` : 0,
   // Safe area for home indicator (iPhone)

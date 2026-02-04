@@ -1479,11 +1479,14 @@ const TikTokProfileFeed = () => {
       sx={{
         height: '100%',
         width: '100%',
+        maxWidth: '100vw', // CRITICAL: Prevent overflow
         overflow: 'hidden',
+        overflowX: 'hidden', // CRITICAL: Explicit horizontal overflow prevention
         bgcolor: '#000',
         position: 'relative',
         overscrollBehavior: 'none',
         touchAction: 'pan-y',
+        boxSizing: 'border-box',
       }}
     >
       {/* Profile Completion Reminder - Shows at top if profile incomplete */}

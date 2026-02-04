@@ -92,6 +92,7 @@ const GlassMenu = styled(Menu)({
     borderRadius: '16px',
     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
     minWidth: 220,
+    maxWidth: 'calc(100vw - 32px)', // FIXED: Prevent overflow on mobile
     padding: '8px',
   },
 });
@@ -361,7 +362,8 @@ const Navbar = () => {
         '& .MuiPaper-root': {
           maxHeight: '80vh',
           overflow: 'auto',
-          minWidth: 260,
+          minWidth: { xs: 'calc(100vw - 32px)', sm: 260 }, // FIXED: Responsive minWidth
+          maxWidth: 'calc(100vw - 32px)', // FIXED: Prevent overflow
         }
       }}
     >

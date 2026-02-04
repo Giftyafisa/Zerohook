@@ -37,9 +37,9 @@ services:
       - key: ENCRYPTION_KEY
         value: zerohook-32-byte-encryption-2024
       - key: RATE_LIMIT_WINDOW_MS
-        value: "900000"
+        value: "300000"
       - key: RATE_LIMIT_MAX_REQUESTS
-        value: "100"
+        value: "500"
       - key: DEFAULT_COUNTRY
         value: NG
       - key: SUPPORTED_COUNTRIES

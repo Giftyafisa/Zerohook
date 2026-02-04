@@ -53,12 +53,13 @@ const NavItem = styled(Box, {
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  // Ultra-compact sizing like TikTok - icons tight with labels
-  minWidth: '44px',
+  // Flexible sizing - allow labels to fit without wrapping
+  minWidth: '52px',
   minHeight: '40px',
-  width: '56px',
-  padding: '2px 0',
-  gap: '1px', // Minimal gap between icon and label
+  flex: '1 1 0', // Equal flexible distribution
+  maxWidth: '72px', // Prevent oversized items
+  padding: '2px 4px',
+  gap: '2px', // Slight gap between icon and label
   borderRadius: `${tokens.borderRadius.md}px`,
   cursor: 'pointer',
   transition: tokens.transition.fast,
@@ -90,13 +91,18 @@ const NavItem = styled(Box, {
   
   '& .nav-label': {
     color: active ? tokens.colors.primary.main : tokens.colors.text.tertiary,
-    fontSize: '9px', // Ultra-compact text
+    fontSize: '10px', // Slightly larger for readability
     fontWeight: active ? tokens.fontWeight.semibold : tokens.fontWeight.medium,
     marginTop: '0', // No margin, use gap instead
     fontFamily: '"Outfit", sans-serif',
     transition: tokens.transition.fast,
     lineHeight: 1,
     letterSpacing: '0.2px',
+    whiteSpace: 'nowrap', // CRITICAL: Prevent text wrapping
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    textAlign: 'center',
+    maxWidth: '100%',
   },
   
   // Touch feedback
@@ -314,7 +320,8 @@ const MobileBottomNav = () => {
             backdropFilter: tokens.backdropBlur.md,
             border: `1px solid ${tokens.colors.border.primary}`,
             borderRadius: `${tokens.borderRadius.lg}px`,
-            minWidth: 200,
+            minWidth: { xs: 'calc(100vw - 32px)', sm: 200 }, // FIXED: Responsive minWidth
+            maxWidth: 'calc(100vw - 32px)', // FIXED: Prevent overflow
             mb: 1,
           }
         }}

@@ -2,6 +2,11 @@ import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+// Cache keys and TTLs
+const COUNTRY_CACHE_KEY = 'zerohook_detected_country';
+const SUPPORTED_COUNTRIES_CACHE_KEY = 'zerohook_supported_countries';
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' }
@@ -16,6 +21,18 @@ api.interceptors.request.use((config) => {
 const countryAPI = {
   async detectCountry() {
     try {
+      // Check cache first to avoid redundant API calls
+      const cached = sessionStorage.getItem(COUNTRY_CACHE_KEY);
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < CACHE_TTL) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('🌍 Using cached country detection');
+          }
+          return data;
+        }
+      }
+
       // Gate logging in production
       if (process.env.NODE_ENV !== 'production') {
         console.log('🌍 countryAPI.detectCountry() called');
@@ -28,6 +45,13 @@ const countryAPI = {
       if (process.env.NODE_ENV !== 'production') {
         console.log('🌍 countryAPI response:', response.data);
       }
+
+      // Cache the result
+      sessionStorage.setItem(COUNTRY_CACHE_KEY, JSON.stringify({
+        data: response.data,
+        timestamp: Date.now()
+      }));
+
       return response.data;
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -46,7 +70,23 @@ const countryAPI = {
 
   async getSupportedCountries() {
     try {
+      // Check cache first
+      const cached = sessionStorage.getItem(SUPPORTED_COUNTRIES_CACHE_KEY);
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < CACHE_TTL) {
+          return data;
+        }
+      }
+
       const response = await api.get('/countries');
+      
+      // Cache the result
+      sessionStorage.setItem(SUPPORTED_COUNTRIES_CACHE_KEY, JSON.stringify({
+        data: response.data,
+        timestamp: Date.now()
+      }));
+
       return response.data;
     } catch (error) {
       console.error('Error getting supported countries:', error);

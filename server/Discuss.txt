@@ -1410,3 +1410,6 @@ socket.on('engagement_tracked', (result) => { /* confirmation */ });
 Would you like me to integrate the engagement tracking into the existing ProfileFeed/TikTokProfileFeed components, or help you create test provider data to verify the algorithm?
 
 Made changes.
+
+
+See how part of the page are flow out of the screen. Please work on the mobile view layout of the whole system to fit every phone sreen it finds itself. Ask me question if you do not understand what I mean.

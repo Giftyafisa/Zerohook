@@ -222,10 +222,13 @@ const MobileHomePage = () => {
       sx={{
         position: 'relative',
         width: '100%',
+        maxWidth: '100vw', // CRITICAL: Prevent overflow
         minHeight: '100vh',
         // Ensure content can be scrolled
         overflow: 'visible',
+        overflowX: 'hidden', // CRITICAL: Prevent horizontal scroll
         pb: '80px', // Space for bottom nav
+        boxSizing: 'border-box',
       }}
     >
       {/* Video Showcase - At the Very Top */}

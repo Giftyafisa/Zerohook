@@ -122,12 +122,22 @@ const MainLayout = ({ children, showNavigation = true }) => {
         sx={{
           position: 'fixed',
           inset: 0,
+          width: '100vw',
+          maxWidth: '100vw',
+          height: '100vh',
           bgcolor: '#000',
           display: 'flex',
           flexDirection: 'column',
           // Prevent any overscroll
           overscrollBehavior: 'none',
           touchAction: 'manipulation',
+          // CRITICAL: Explicit overflow prevention
+          overflow: 'hidden',
+          overflowX: 'hidden',
+          boxSizing: 'border-box',
+          '@supports (height: 100dvh)': {
+            height: '100dvh',
+          },
         }}
       >
         {/* Full screen content - takes all space */}
@@ -136,6 +146,8 @@ const MainLayout = ({ children, showNavigation = true }) => {
             flex: 1, 
             position: 'relative', 
             overflow: 'hidden', // Content handles its own scrolling
+            overflowX: 'hidden', // CRITICAL: Prevent horizontal scroll
+            maxWidth: '100%',
           }}
         >
           {children}

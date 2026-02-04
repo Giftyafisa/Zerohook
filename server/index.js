@@ -171,31 +171,36 @@ app.use(performanceMonitoring);
 
 // Rate limiting - More lenient for development
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 1 * 60 * 1000, // 1 minute
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 1000, // limit each IP to 1000 requests per minute
-  message: 'Too many requests from this IP, please try again later.',
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 5 * 60 * 1000, // 5 minutes default
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500, // 500 requests per 5 minutes
+  message: { error: 'Too many requests from this IP, please try again later.', retryAfter: '5 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false }, // Disable X-Forwarded-For validation warning
   skip: (req) => {
-    // Skip rate limiting for health checks and authentication endpoints
+    // Skip rate limiting for essential endpoints that are called frequently on page load
     const p = req.path || '';
     return p === '/api/health' ||
            p.startsWith('/api/health/') ||
            p === '/api/auth/login' ||
            p === '/api/auth/register' ||
            p.startsWith('/api/auth/') ||
-           p.startsWith('/api/subscriptions/');
+           p.startsWith('/api/subscriptions/') ||
+           p.startsWith('/api/countries') ||       // Country detection - called on every page load
+           p.startsWith('/api/geolocation/');      // IP detection - called on every page load
   }
 });
 
-// Apply rate limiting to all routes EXCEPT auth and subscriptions
+// Apply rate limiting to all routes EXCEPT the skipped ones
 app.use('/api/', (req, res, next) => {
   const p = req.path || '';
+  // Skip rate limiting for essential infrastructure routes
   if (p.startsWith('/auth/') || 
       p.startsWith('/subscriptions/') || 
+      p.startsWith('/countries') ||
+      p.startsWith('/geolocation/') ||
       p === '/health' || p.startsWith('/health/')) {
-    return next(); // Skip rate limiting for these routes
+    return next();
   }
   return limiter(req, res, next);
 });
@@ -902,8 +907,45 @@ app.use('*', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
+// ============================================
+// RENDER FREE TIER KEEP-ALIVE (Self-Ping)
+// Pings backend every 14 minutes to prevent 
+// Render from spinning down the service
+// Note: Frontend is static site (doesn't sleep)
+// ============================================
+const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes (Render sleeps after 15 min)
+const BACKEND_URL = process.env.RENDER_EXTERNAL_URL || 'https://zerohook-api.onrender.com';
+
+const keepAlive = async () => {
+  const timestamp = new Date().toISOString();
+  
+  // Ping backend health endpoint (self-ping)
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/health`, {
+      method: 'GET',
+      headers: { 'User-Agent': 'ZerohookKeepAlive/1.0' },
+      signal: AbortSignal.timeout(10000) // 10 second timeout
+    });
+    const data = await response.json().catch(() => ({}));
+    console.log(`🏓 [${timestamp}] Keep-alive ping: ${response.status === 200 ? '✅ OK' : '⚠️ ' + response.status} (DB: ${data.database || 'unknown'})`);
+  } catch (error) {
+    console.log(`🏓 [${timestamp}] Keep-alive ping failed: ${error.message}`);
+  }
+};
+
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
+  
+  // Start keep-alive pings only in production (Render)
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
+    console.log(`🏓 Keep-alive enabled: Self-ping every 14 minutes to ${BACKEND_URL}`);
+    
+    // Initial ping after 1 minute (let server fully start)
+    setTimeout(keepAlive, 60 * 1000);
+    
+    // Then ping every 14 minutes
+    setInterval(keepAlive, PING_INTERVAL);
+  }
 });

@@ -1731,7 +1731,8 @@ const ChatSystem = ({
             bgcolor: '#1a1a2e',
             border: '1px solid rgba(255,255,255,0.1)',
             borderRadius: '20px',
-            minWidth: 300
+            minWidth: { xs: 'calc(100vw - 32px)', sm: 300 }, // FIXED: Responsive minWidth
+            maxWidth: 'calc(100vw - 32px)', // FIXED: Prevent overflow on small screens
           }
         }}
       >
@@ -1932,7 +1933,8 @@ const ChatSystem = ({
             border: '1px solid rgba(255,255,255,0.1)',
             borderRadius: '14px',
             backdropFilter: 'blur(18px)',
-            minWidth: 180,
+            minWidth: { xs: 'calc(100vw - 64px)', sm: 180 }, // FIXED: Responsive minWidth
+            maxWidth: 'calc(100vw - 32px)', // FIXED: Prevent overflow
             '& .MuiMenuItem-root': {
               color: '#fff',
               gap: 1.5,

@@ -58,10 +58,13 @@ const ProfilePage = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
-  // Countries and cities state
+  // Countries, regions, and cities state
   const [countries, setCountries] = useState([]);
+  const [regions, setRegions] = useState([]);
   const [cities, setCities] = useState([]);
+  const [regionInputValue, setRegionInputValue] = useState('');
   const [cityInputValue, setCityInputValue] = useState('');
+  const [loadingRegions, setLoadingRegions] = useState(false);
   const [loadingCities, setLoadingCities] = useState(false);
   const [locationLookupLoading, setLocationLookupLoading] = useState(false);
   const [locationSuggestion, setLocationSuggestion] = useState(null);
@@ -102,7 +105,33 @@ const ProfilePage = () => {
     fetchCountries();
   }, []);
 
-  // Fetch cities when country changes
+  // Fetch regions when country changes
+  useEffect(() => {
+    const fetchRegions = async () => {
+      if (!editData.countryCode) {
+        setRegions([]);
+        return;
+      }
+      
+      setLoadingRegions(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/regions`);
+        if (response.ok) {
+          const data = await response.json();
+          setRegions(data.regions || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch regions:', error);
+        setRegions([]);
+      } finally {
+        setLoadingRegions(false);
+      }
+    };
+    
+    fetchRegions();
+  }, [editData.countryCode]);
+
+  // Fetch cities when country changes - load all cities for the country
   useEffect(() => {
     const fetchCities = async () => {
       if (!editData.countryCode) {
@@ -112,19 +141,23 @@ const ProfilePage = () => {
       
       setLoadingCities(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/cities?search=${cityInputValue}`);
+        // Fetch all cities for the country (search param filters on server side)
+        const searchParam = cityInputValue ? `?search=${encodeURIComponent(cityInputValue)}` : '';
+        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/cities${searchParam}`);
         if (response.ok) {
           const data = await response.json();
           setCities(data.cities || []);
         }
       } catch (error) {
         console.error('Failed to fetch cities:', error);
+        setCities([]);
       } finally {
         setLoadingCities(false);
       }
     };
     
-    const debounceTimer = setTimeout(fetchCities, 300);
+    // Debounce search but load immediately on country change
+    const debounceTimer = setTimeout(fetchCities, cityInputValue ? 300 : 0);
     return () => clearTimeout(debounceTimer);
   }, [editData.countryCode, cityInputValue]);
 
@@ -167,7 +200,8 @@ const ProfilePage = () => {
 
       setProfileData(data);
       setEditData(data);
-      setCityInputValue(data.city);
+      setRegionInputValue(data.region || '');
+      setCityInputValue(data.city || '');
     } catch (error) {
       console.error('Profile fetch error:', error);
     } finally {
@@ -267,9 +301,12 @@ const ProfilePage = () => {
       ...prev,
       countryCode: countryCode,
       country: selectedCountry?.name || '',
+      region: '', // Reset region when country changes
       city: '' // Reset city when country changes
     }));
+    setRegionInputValue('');
     setCityInputValue('');
+    setRegions([]);
     setCities([]);
   };
 
@@ -504,41 +541,118 @@ const ProfilePage = () => {
             
             {/* Region/State and City Row */}
             <Box sx={styles.formRow}>
-              {/* Region/State Input */}
-              <TextField
-                label="Region/State"
-                value={editData.region || ''}
-                onChange={(e) => setEditData({ ...editData, region: e.target.value })}
-                sx={styles.textField}
+              {/* Region/State Autocomplete */}
+              <Autocomplete
                 fullWidth
-                placeholder="e.g. Greater Accra, Lagos State"
+                freeSolo
+                openOnFocus
+                selectOnFocus
+                handleHomeEndKeys
+                options={regions}
+                value={editData.region || ''}
+                inputValue={regionInputValue}
+                onInputChange={(event, newInputValue, reason) => {
+                  setRegionInputValue(newInputValue);
+                  if (reason === 'input' || reason === 'clear') {
+                    setEditData({ ...editData, region: newInputValue || '' });
+                  }
+                }}
+                onChange={(event, newValue) => {
+                  const resolvedRegion = typeof newValue === 'string' ? newValue : (newValue || '');
+                  setEditData({ ...editData, region: resolvedRegion });
+                  setRegionInputValue(resolvedRegion || '');
+                }}
+                onBlur={() => {
+                  if (regionInputValue && regionInputValue !== editData.region) {
+                    setEditData(prev => ({ ...prev, region: regionInputValue }));
+                  }
+                }}
+                loading={loadingRegions}
                 disabled={!editData.countryCode}
+                noOptionsText={editData.countryCode ? "Type to search or enter your region" : "Select country first"}
+                PaperComponent={({ children }) => (
+                  <Paper sx={{
+                    bgcolor: '#1a1a2e',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    maxHeight: '200px',
+                    '& .MuiAutocomplete-option': {
+                      color: '#fff',
+                      padding: '10px 16px',
+                      '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' },
+                      '&[aria-selected="true"]': { bgcolor: 'rgba(0,242,234,0.2)' }
+                    },
+                    '& .MuiAutocomplete-listbox': {
+                      maxHeight: '200px',
+                      padding: 0
+                    }
+                  }}>
+                    {children}
+                  </Paper>
+                )}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Region/State"
+                    placeholder={editData.countryCode ? "Tap to see regions or type your own..." : "Select country first"}
+                    sx={styles.textField}
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {loadingRegions ? <CircularProgress color="inherit" size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
               />
               
               {/* City/Town/Village Autocomplete */}
               <Autocomplete
                 fullWidth
                 freeSolo
+                openOnFocus
+                selectOnFocus
+                handleHomeEndKeys
                 options={cities}
                 value={editData.city || ''}
                 inputValue={cityInputValue}
-                onInputChange={(event, newInputValue) => {
+                onInputChange={(event, newInputValue, reason) => {
                   setCityInputValue(newInputValue);
                   setLocationSuggestion(null);
+                  if (reason === 'input' || reason === 'clear') {
+                    setEditData({ ...editData, city: newInputValue || '' });
+                  }
                 }}
                 onChange={(event, newValue) => {
-                  setEditData({ ...editData, city: newValue || '' });
+                  const resolvedCity = typeof newValue === 'string' ? newValue : (newValue || '');
+                  setEditData({ ...editData, city: resolvedCity });
+                  setCityInputValue(resolvedCity || '');
+                }}
+                onBlur={() => {
+                  // Ensure the typed value is saved when user clicks away
+                  if (cityInputValue && cityInputValue !== editData.city) {
+                    setEditData(prev => ({ ...prev, city: cityInputValue }));
+                  }
                 }}
                 loading={loadingCities}
                 disabled={!editData.countryCode}
+                noOptionsText={editData.countryCode ? "Type to search or enter your city" : "Select country first"}
                 PaperComponent={({ children }) => (
                   <Paper sx={{
                     bgcolor: '#1a1a2e',
                     border: '1px solid rgba(255,255,255,0.1)',
+                    maxHeight: '200px',
                     '& .MuiAutocomplete-option': {
                       color: '#fff',
+                      padding: '10px 16px',
                       '&:hover': { bgcolor: 'rgba(0,242,234,0.1)' },
                       '&[aria-selected="true"]': { bgcolor: 'rgba(0,242,234,0.2)' }
+                    },
+                    '& .MuiAutocomplete-listbox': {
+                      maxHeight: '200px',
+                      padding: 0
                     }
                   }}>
                     {children}
@@ -548,7 +662,7 @@ const ProfilePage = () => {
                   <TextField
                     {...params}
                     label="City/Town/Village"
-                    placeholder={editData.countryCode ? "Start typing your city, town, or village..." : "Select country first"}
+                    placeholder={editData.countryCode ? "Tap to see cities or type your own..." : "Select country first"}
                     sx={styles.textField}
                     InputProps={{
                       ...params.InputProps,

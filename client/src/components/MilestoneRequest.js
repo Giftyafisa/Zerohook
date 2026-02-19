@@ -192,6 +192,7 @@ export const MilestoneRequestCard = ({
   onPay
 }) => {
   const [loading, setLoading] = useState(false);
+  const { symbol } = useCurrency();
   
   const isFromMe = request.senderId === currentUserId;
   const isPending = request.status === 'pending';

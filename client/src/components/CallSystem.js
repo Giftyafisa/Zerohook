@@ -476,7 +476,7 @@ const CallSystem = () => {
     setActiveCall(null);
     setOutgoingCall(null);
     setCallDuration(0);
-    if (callTimer) {
+    if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
       callTimerRef.current = null;
     }

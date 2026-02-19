@@ -66,7 +66,7 @@ const HelpSupportPage = () => {
     {
       id: 'panel3',
       question: 'What payment methods are accepted?',
-      answer: 'We accept credit/debit cards, mobile money (M-Pesa, MTN Mobile Money), bank transfers via Paystack, and cryptocurrency payments (Bitcoin, Ethereum, USDT).',
+      answer: 'We accept fee-free cryptocurrency payments including Bitcoin (BTC), Ethereum (ETH), USDT, USDC, BNB, Solana (SOL), and Litecoin (LTC). All payments are processed on-chain with zero platform fees.',
       category: 'Payments'
     },
     {

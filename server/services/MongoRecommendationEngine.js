@@ -49,9 +49,15 @@ class MongoRecommendationEngine {
       maxRating: 3000
     };
     
-    // Cache for user preferences
+    // Cache for user preferences (bounded LRU-style)
     this.userPreferencesCache = new Map();
     this.cacheTTL = 5 * 60 * 1000; // 5 minutes
+    this.maxCacheSize = 5000; // Max cached user entries
+  }
+
+  // Escape special regex characters from user input
+  escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   /**
@@ -124,6 +130,12 @@ class MongoRecommendationEngine {
       // Get most common locations and categories
       preferences.preferredLocations = this.getMostCommon(preferences.preferredLocations, 5);
       preferences.preferredCategories = this.getMostCommon(preferences.preferredCategories, 5);
+
+      // Evict oldest entries if cache exceeds max size
+      if (this.userPreferencesCache.size >= this.maxCacheSize) {
+        const firstKey = this.userPreferencesCache.keys().next().value;
+        this.userPreferencesCache.delete(firstKey);
+      }
 
       this.userPreferencesCache.set(userId, {
         data: preferences,
@@ -281,8 +293,9 @@ class MongoRecommendationEngine {
     scores.quality = (verificationTier * 25 * 0.35) + (reputationScore * 0.35) + (reliabilityScore * 0.30);
 
     // 4. ENGAGEMENT SCORE (response rate, booking success)
-    const responseRate = profileData.responseRate || 80;
-    const bookingSuccess = profileData.bookingSuccessRate || 70;
+    // Clamp user-provided values to prevent manipulation
+    const responseRate = Math.min(100, Math.max(0, Number(profileData.responseRate) || 50));
+    const bookingSuccess = Math.min(100, Math.max(0, Number(profileData.bookingSuccessRate) || 50));
     scores.engagement = (responseRate * 0.5) + (bookingSuccess * 0.5);
 
     // 5. FRESHNESS SCORE (recently active profiles rank higher)
@@ -331,8 +344,8 @@ class MongoRecommendationEngine {
     const ageInDays = (Date.now() - createdAt.getTime()) / (24 * 60 * 60 * 1000);
     let newProfileBoost = 1.0;
     if (ageInDays <= 14) {
-      // Max 1.5x boost for brand new profiles, decays over 14 days
-      newProfileBoost = 1.5 * Math.pow(0.9, ageInDays);
+      // Boost: starts at 1.5x for brand new profiles, linearly decays to 1.0x over 14 days
+      newProfileBoost = 1.0 + 0.5 * Math.max(0, 1 - ageInDays / 14);
       profile.isNewProfile = true;
       profile.profileAgeDays = Math.round(ageInDays);
     }
@@ -355,8 +368,9 @@ class MongoRecommendationEngine {
     // Apply new profile boost (multiplicative)
     finalScore = finalScore * newProfileBoost;
 
-    // Add TikTok engagement as a small bonus (5% weight)
-    finalScore = finalScore * 0.95 + (tiktokEngagementScore * 0.05);
+    // Add TikTok engagement as bonus within existing weights (not additive)
+    // Renormalize: use tiktokEngagement to further boost engagement factor
+    finalScore = finalScore + (tiktokEngagementScore * 0.03);
 
     // 10. APPLY PROFILE COMPLETENESS PENALTY
     // Incomplete profiles get deprioritized in recommendations
@@ -450,11 +464,12 @@ class MongoRecommendationEngine {
 
       // Apply city filter
       if (filters.city) {
+        const escapedCity = this.escapeRegExp(filters.city);
         mongoQuery.$and = mongoQuery.$and || [];
         mongoQuery.$and.push({
           $or: [
-            { 'profile_data.location.city': new RegExp(filters.city, 'i') },
-            { 'profileData.location.city': new RegExp(filters.city, 'i') }
+            { 'profile_data.location.city': new RegExp(escapedCity, 'i') },
+            { 'profileData.location.city': new RegExp(escapedCity, 'i') }
           ]
         });
       }
@@ -484,7 +499,7 @@ class MongoRecommendationEngine {
 
       // Apply search filter
       if (filters.searchQuery && filters.searchQuery.trim()) {
-        const searchTerm = filters.searchQuery.trim();
+        const searchTerm = this.escapeRegExp(filters.searchQuery.trim());
         mongoQuery.$and = mongoQuery.$and || [];
         mongoQuery.$and.push({
           $or: [

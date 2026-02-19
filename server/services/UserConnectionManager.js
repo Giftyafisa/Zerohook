@@ -1,5 +1,17 @@
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { User, BlockedUser, Service, Conversation, Message } = require('../config/database');
 const ConversationService = require('./ConversationService');
+const NotificationService = require('./NotificationService');
+
+const userConnectionSchema = new mongoose.Schema({
+  from_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  to_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  connection_type: { type: String, default: 'contact_request' },
+  message: { type: String, default: '' },
+  status: { type: String, default: 'pending' }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+const UserConnection = mongoose.models.UserConnection || mongoose.model('UserConnection', userConnectionSchema);
 
 class UserConnectionManager {
   constructor() {
@@ -16,14 +28,7 @@ class UserConnectionManager {
    */
   async checkConnectionStatus(userId1, userId2) {
     try {
-      const connection = await query(`
-        SELECT id, status, connection_type, created_at
-        FROM user_connections 
-        WHERE (from_user_id = $1 AND to_user_id = $2) 
-           OR (from_user_id = $2 AND to_user_id = $1)
-      `, [userId1, userId2]);
-
-      if (connection.rows.length === 0) {
+      if (!mongoose.Types.ObjectId.isValid(userId1) || !mongoose.Types.ObjectId.isValid(userId2)) {
         return {
           exists: false,
           status: null,
@@ -32,13 +37,31 @@ class UserConnectionManager {
         };
       }
 
-      const conn = connection.rows[0];
+      const user1 = new mongoose.Types.ObjectId(userId1);
+      const user2 = new mongoose.Types.ObjectId(userId2);
+
+      const connection = await UserConnection.findOne({
+        $or: [
+          { from_user_id: user1, to_user_id: user2 },
+          { from_user_id: user2, to_user_id: user1 }
+        ]
+      }).select('_id status connection_type created_at').lean();
+
+      if (!connection) {
+        return {
+          exists: false,
+          status: null,
+          connectionType: null,
+          createdAt: null
+        };
+      }
+
       return {
         exists: true,
-        status: conn.status,
-        connectionType: conn.connection_type,
-        createdAt: conn.created_at,
-        connectionId: conn.id
+        status: connection.status,
+        connectionType: connection.connection_type,
+        createdAt: connection.created_at,
+        connectionId: connection._id.toString()
       };
     } catch (error) {
       console.error('Check connection status error:', error);
@@ -51,68 +74,80 @@ class UserConnectionManager {
    */
   async sendContactRequest(fromUserId, toUserId, message = '', connectionType = 'contact_request') {
     try {
-      // Check if users exist and are not blocked
-      const userCheck = await query(`
-        SELECT u1.id as from_user_id, u1.username as from_username, u1.verification_tier as from_tier,
-               u2.id as to_user_id, u2.username as to_username, u2.verification_tier as to_tier
-        FROM users u1, users u2
-        WHERE u1.id = $1 AND u2.id = $2
-      `, [fromUserId, toUserId]);
+      if (!mongoose.Types.ObjectId.isValid(fromUserId) || !mongoose.Types.ObjectId.isValid(toUserId)) {
+        throw new Error('One or both users not found');
+      }
 
-      if (userCheck.rows.length === 0) {
+      const fromObjId = new mongoose.Types.ObjectId(fromUserId);
+      const toObjId = new mongoose.Types.ObjectId(toUserId);
+
+      // Check if users exist and are not blocked
+      const users = await User.find({ _id: { $in: [fromObjId, toObjId] } })
+        .select('_id username verification_tier')
+        .lean();
+
+      if (users.length !== 2) {
+        throw new Error('One or both users not found');
+      }
+
+      const fromUser = users.find((u) => u._id.toString() === fromUserId.toString());
+      const toUser = users.find((u) => u._id.toString() === toUserId.toString());
+
+      if (!fromUser || !toUser) {
         throw new Error('One or both users not found');
       }
 
       // Check if already connected
-      const existingConnection = await query(`
-        SELECT id FROM user_connections 
-        WHERE (from_user_id = $1 AND to_user_id = $2) 
-           OR (from_user_id = $2 AND to_user_id = $1)
-      `, [fromUserId, toUserId]);
+      const existingConnection = await UserConnection.findOne({
+        $or: [
+          { from_user_id: fromObjId, to_user_id: toObjId },
+          { from_user_id: toObjId, to_user_id: fromObjId }
+        ]
+      }).select('_id').lean();
 
-      if (existingConnection.rows.length > 0) {
+      if (existingConnection) {
         throw new Error('Users are already connected');
       }
 
       // Check if blocked
-      const blockedCheck = await query(`
-        SELECT id FROM blocked_users 
-        WHERE (blocker_id = $1 AND blocked_id = $2) 
-           OR (blocker_id = $2 AND blocked_id = $1)
-      `, [fromUserId, toUserId]);
+      const blockedCheck = await BlockedUser.findOne({
+        $or: [
+          { blocker_id: fromObjId, blocked_id: toObjId },
+          { blocker_id: toObjId, blocked_id: fromObjId }
+        ]
+      }).select('_id').lean();
 
-      if (blockedCheck.rows.length > 0) {
+      if (blockedCheck) {
         throw new Error('Cannot connect with blocked user');
       }
 
       // Create connection request
-      const connectionResult = await query(`
-        INSERT INTO user_connections (
-          from_user_id, to_user_id, connection_type, message, status, created_at
-        ) VALUES ($1, $2, $3, $4, 'pending', CURRENT_TIMESTAMP)
-        RETURNING id, created_at
-      `, [fromUserId, toUserId, connectionType, message]);
+      const connection = await UserConnection.create({
+        from_user_id: fromObjId,
+        to_user_id: toObjId,
+        connection_type: connectionType,
+        message,
+        status: 'pending'
+      });
 
       // Create notification for recipient
-      await query(`
-        INSERT INTO notifications (
-          user_id, type, title, message, data, created_at
-        ) VALUES ($1, 'contact_request', 'New Contact Request', $2, $3, CURRENT_TIMESTAMP)
-      `, [
-        toUserId, 
-        `You have a new contact request from ${userCheck.rows[0].from_username}`,
-        JSON.stringify({
-          connectionId: connectionResult.rows[0].id,
+      await NotificationService.create(
+        toUserId,
+        'contact_request',
+        'New Contact Request',
+        `You have a new contact request from ${fromUser.username}`,
+        {
+          connectionId: connection._id.toString(),
           fromUserId,
-          fromUsername: userCheck.rows[0].from_username,
+          fromUsername: fromUser.username,
           message,
           connectionType
-        })
-      ]);
+        }
+      );
 
       return {
         success: true,
-        connectionId: connectionResult.rows[0].id,
+        connectionId: connection._id.toString(),
         message: 'Contact request sent successfully'
       };
 
@@ -131,61 +166,86 @@ class UserConnectionManager {
         throw new Error('Invalid action. Must be accept or reject');
       }
 
-      // Get connection details
-      const connectionResult = await query(`
-        SELECT uc.*, u.username as from_username
-        FROM user_connections uc
-        JOIN users u ON uc.from_user_id = u.id
-        WHERE uc.id = $1 AND uc.to_user_id = $2 AND uc.status = 'pending'
-      `, [connectionId, userId]);
-
-      if (connectionResult.rows.length === 0) {
+      if (!mongoose.Types.ObjectId.isValid(connectionId) || !mongoose.Types.ObjectId.isValid(userId)) {
         throw new Error('Contact request not found or already processed');
       }
 
-      const connection = connectionResult.rows[0];
+      const connectionObjId = new mongoose.Types.ObjectId(connectionId);
+      const userObjId = new mongoose.Types.ObjectId(userId);
+
+      // Get connection details
+      const connection = await UserConnection.findOne({
+        _id: connectionObjId,
+        to_user_id: userObjId,
+        status: 'pending'
+      })
+        .populate('from_user_id', 'username')
+        .lean();
+
+      if (!connection) {
+        throw new Error('Contact request not found or already processed');
+      }
+
       const newStatus = action === 'accept' ? 'accepted' : 'rejected';
 
       // Update connection status
-      await query(`
-        UPDATE user_connections 
-        SET status = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-      `, [newStatus, connectionId]);
+      await UserConnection.updateOne(
+        { _id: connectionObjId },
+        { $set: { status: newStatus, updated_at: new Date() } }
+      );
 
       if (action === 'accept') {
-        // Create conversation between users (conversations table has no 'status' column)
-        await query(`
-          INSERT INTO conversations (participant1_id, participant2_id, created_at, updated_at)
-          VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          ON CONFLICT DO NOTHING
-        `, [connection.from_user_id, connection.to_user_id]);
+        let conversation = await Conversation.findOne({
+          $or: [
+            { participant1Id: connection.from_user_id._id, participant2Id: connection.to_user_id },
+            { participant1Id: connection.to_user_id, participant2Id: connection.from_user_id._id }
+          ]
+        }).select('_id').lean();
+
+        if (!conversation) {
+          conversation = await Conversation.create({
+            participant1Id: connection.from_user_id._id,
+            participant2Id: connection.to_user_id,
+            status: 'active'
+          });
+        }
 
         // Send welcome message
         const welcomeMessage = `Hi! Thanks for accepting my contact request. How can I help you today?`;
-        await query(`
-          INSERT INTO messages (conversation_id, sender_id, content, message_type, created_at)
-          SELECT c.id, $1, $2, 'text', CURRENT_TIMESTAMP
-          FROM conversations c
-          WHERE (c.participant1_id = $1 AND c.participant2_id = $3)
-             OR (c.participant1_id = $3 AND c.participant2_id = $1)
-        `, [connection.from_user_id, welcomeMessage, connection.to_user_id]);
+        const conversationId = conversation._id || conversation.id;
+
+        await Message.create({
+          conversationId,
+          senderId: connection.from_user_id._id,
+          content: welcomeMessage,
+          messageType: 'text',
+          metadata: {}
+        });
+
+        await Conversation.updateOne(
+          { _id: conversationId },
+          {
+            $set: {
+              lastMessage: welcomeMessage,
+              lastMessageTime: new Date(),
+              updatedAt: new Date()
+            }
+          }
+        );
       }
 
       // Notify the requester
-      await query(`
-        INSERT INTO notifications (
-          user_id, type, title, message, data, created_at
-        ) VALUES ($1, 'contact_response', 'Contact Request Response', $2, $3, CURRENT_TIMESTAMP)
-      `, [
-        connection.from_user_id,
+      await NotificationService.create(
+        connection.from_user_id._id.toString(),
+        'contact_response',
+        'Contact Request Response',
         `Your contact request was ${action}ed`,
-        JSON.stringify({
+        {
           connectionId,
           action,
-          toUserId: connection.to_user_id
-        })
-      ]);
+          toUserId: connection.to_user_id.toString()
+        }
+      );
 
       return {
         success: true,
@@ -204,51 +264,40 @@ class UserConnectionManager {
    */
   async getUserConnections(userId) {
     try {
-      const connections = await query(`
-        SELECT 
-          uc.id,
-          uc.connection_type,
-          uc.message,
-          uc.status,
-          uc.created_at,
-          CASE 
-            WHEN uc.from_user_id = $1 THEN uc.to_user_id
-            ELSE uc.from_user_id
-          END as other_user_id,
-          CASE 
-            WHEN uc.from_user_id = $1 THEN u2.username
-            ELSE u1.username
-          END as other_username,
-          CASE 
-            WHEN uc.from_user_id = $1 THEN u2.verification_tier
-            ELSE u1.verification_tier
-          END as other_tier,
-          CASE 
-            WHEN uc.from_user_id = $1 THEN u2.profile_data->>'profile_picture'
-            ELSE u1.profile_data->>'profile_picture'
-          END as other_picture
-        FROM user_connections uc
-        JOIN users u1 ON uc.from_user_id = u1.id
-        JOIN users u2 ON uc.to_user_id = u2.id
-        WHERE uc.from_user_id = $1 OR uc.to_user_id = $1
-        ORDER BY uc.created_at DESC
-      `, [userId]);
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return { success: true, connections: [] };
+      }
+
+      const userObjId = new mongoose.Types.ObjectId(userId);
+
+      const connections = await UserConnection.find({
+        $or: [{ from_user_id: userObjId }, { to_user_id: userObjId }]
+      })
+        .populate('from_user_id', 'username verification_tier profile_data')
+        .populate('to_user_id', 'username verification_tier profile_data')
+        .sort({ created_at: -1 })
+        .lean();
 
       return {
         success: true,
-        connections: connections.rows.map(conn => ({
-          id: conn.id,
-          connectionType: conn.connection_type,
-          message: conn.message,
-          status: conn.status,
-          createdAt: conn.created_at,
-          otherUser: {
-            id: conn.other_user_id,
-            username: conn.other_username,
-            verificationTier: conn.other_tier,
-            profilePicture: conn.other_picture
-          }
-        }))
+        connections: connections.map((conn) => {
+          const isSender = conn.from_user_id?._id?.toString() === userId.toString();
+          const otherUser = isSender ? conn.to_user_id : conn.from_user_id;
+
+          return {
+            id: conn._id.toString(),
+            connectionType: conn.connection_type,
+            message: conn.message,
+            status: conn.status,
+            createdAt: conn.created_at,
+            otherUser: {
+              id: otherUser?._id?.toString(),
+              username: otherUser?.username,
+              verificationTier: otherUser?.verification_tier,
+              profilePicture: otherUser?.profile_data?.profile_picture || null
+            }
+          };
+        })
       };
 
     } catch (error) {
@@ -262,74 +311,86 @@ class UserConnectionManager {
    */
   async sendServiceInquiry(fromUserId, toUserId, serviceId, message) {
     try {
-      // Check if service exists and belongs to the recipient
-      const serviceCheck = await query(`
-        SELECT id, title, provider_id FROM services WHERE id = $1
-      `, [serviceId]);
-
-      if (serviceCheck.rows.length === 0) {
+      if (!mongoose.Types.ObjectId.isValid(fromUserId) || !mongoose.Types.ObjectId.isValid(toUserId) || !mongoose.Types.ObjectId.isValid(serviceId)) {
         throw new Error('Service not found');
       }
 
-      if (serviceCheck.rows[0].provider_id !== toUserId) {
+      const fromObjId = new mongoose.Types.ObjectId(fromUserId);
+      const toObjId = new mongoose.Types.ObjectId(toUserId);
+      const serviceObjId = new mongoose.Types.ObjectId(serviceId);
+
+      // Check if service exists and belongs to the recipient
+      const service = await Service.findById(serviceObjId)
+        .select('_id title provider_id')
+        .lean();
+
+      if (!service) {
+        throw new Error('Service not found');
+      }
+
+      if (service.provider_id?.toString() !== toUserId.toString()) {
         throw new Error('Service does not belong to the specified user');
       }
 
       // Create or get existing conversation
-      let conversation = await query(`
-        SELECT id FROM conversations 
-        WHERE (participant1_id = $1 AND participant2_id = $2) 
-           OR (participant1_id = $2 AND participant2_id = $1)
-      `, [fromUserId, toUserId]);
+      let conversation = await Conversation.findOne({
+        $or: [
+          { participant1Id: fromObjId, participant2Id: toObjId },
+          { participant1Id: toObjId, participant2Id: fromObjId }
+        ]
+      }).select('_id').lean();
 
-      if (conversation.rows.length === 0) {
+      if (!conversation) {
         // Create new conversation
-        conversation = await query(`
-          INSERT INTO conversations (participant1_id, participant2_id, created_at)
-          VALUES ($1, $2, CURRENT_TIMESTAMP)
-          RETURNING id
-        `, [fromUserId, toUserId]);
+        conversation = await Conversation.create({
+          participant1Id: fromObjId,
+          participant2Id: toObjId,
+          status: 'active'
+        });
       }
 
-      const conversationId = conversation.rows[0].id;
+      const conversationId = conversation._id || conversation.id;
 
       // Send service inquiry message
-      const inquiryMessage = `Service Inquiry: ${serviceCheck.rows[0].title}\n\n${message}`;
-      await query(`
-        INSERT INTO messages (conversation_id, sender_id, content, message_type, created_at)
-        VALUES ($1, $2, $3, 'service_inquiry', CURRENT_TIMESTAMP)
-      `, [
-        conversationId, 
-        fromUserId, 
-        inquiryMessage
-      ]);
+      const inquiryMessage = `Service Inquiry: ${service.title}\n\n${message}`;
+      await Message.create({
+        conversationId,
+        senderId: fromObjId,
+        content: inquiryMessage,
+        messageType: 'service_inquiry',
+        metadata: { serviceId: serviceObjId }
+      });
 
       // Update conversation last message
-      await query(`
-        UPDATE conversations 
-        SET last_message = $1, last_message_time = CURRENT_TIMESTAMP
-        WHERE id = $2
-      `, [inquiryMessage, conversationId]);
+      await Conversation.updateOne(
+        { _id: conversationId },
+        {
+          $set: {
+            lastMessage: inquiryMessage,
+            lastMessageTime: new Date(),
+            updatedAt: new Date()
+          }
+        }
+      );
 
       // Create notification for service provider
-      await query(`
-        INSERT INTO notifications (
-          user_id, type, title, message, data, created_at
-        ) VALUES ($1, 'service_inquiry', 'New Service Inquiry', $2, $3, CURRENT_TIMESTAMP)
-      `, [
+      await NotificationService.create(
         toUserId,
+        'service_inquiry',
+        'New Service Inquiry',
         'You have a new service inquiry',
-        JSON.stringify({
-          conversationId,
+        {
+          conversationId: conversationId.toString(),
           fromUserId,
           serviceId,
-          serviceTitle: serviceCheck.rows[0].title
-        })
-      ]);
+          serviceTitle: service.title
+        }
+      );
 
       return {
         success: true,
-        conversationId,
+        conversationId: conversationId.toString(),
+        serviceTitle: service.title,
         message: 'Service inquiry sent successfully'
       };
 
@@ -344,32 +405,32 @@ class UserConnectionManager {
    */
   async getPendingRequests(userId) {
     try {
-      const requests = await query(`
-        SELECT 
-          uc.id,
-          uc.connection_type,
-          uc.message,
-          uc.created_at,
-          u.username as from_username,
-          u.verification_tier as from_tier,
-          u.profile_data->>'profile_picture' as from_picture
-        FROM user_connections uc
-        JOIN users u ON uc.from_user_id = u.id
-        WHERE uc.to_user_id = $1 AND uc.status = 'pending'
-        ORDER BY uc.created_at DESC
-      `, [userId]);
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return { success: true, requests: [] };
+      }
+
+      const userObjId = new mongoose.Types.ObjectId(userId);
+
+      const requests = await UserConnection.find({
+        to_user_id: userObjId,
+        status: 'pending'
+      })
+        .populate('from_user_id', 'username verification_tier profile_data')
+        .sort({ created_at: -1 })
+        .lean();
 
       return {
         success: true,
-        requests: requests.rows.map(req => ({
-          id: req.id,
+        requests: requests.map((req) => ({
+          id: req._id.toString(),
           connectionType: req.connection_type,
           message: req.message,
           createdAt: req.created_at,
           fromUser: {
-            username: req.from_username,
-            verificationTier: req.from_tier,
-            profilePicture: req.from_picture
+            id: req.from_user_id?._id?.toString(),
+            username: req.from_user_id?.username,
+            verificationTier: req.from_user_id?.verification_tier,
+            profilePicture: req.from_user_id?.profile_data?.profile_picture || null
           }
         }))
       };

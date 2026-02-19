@@ -36,7 +36,7 @@ router.get('/', async (req, res) => {
     if (authHeader && typeof authHeader === 'string') {
       const token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
       try {
-        const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
         currentUserId = payload.userId || payload.id || null;
       } catch (err) {
         // Ignore invalid token for public endpoint; proceed unauthenticated

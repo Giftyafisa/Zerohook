@@ -154,12 +154,12 @@ export const SocketProvider = ({ children }) => {
       // Escrow notification handlers
       newSocket.on('escrow_created', (data) => {
         dispatch(incrementUnreadNotifications());
-        showNotification('💰 Payment Held', data.message || `₦${Number(data.amount).toLocaleString()} held for your service`, 'success');
+        showNotification('💰 Payment Held', data.message || `$${Number(data.amount).toLocaleString()} held for your service`, 'success');
       });
 
       newSocket.on('escrow_released', (data) => {
         dispatch(incrementUnreadNotifications());
-        showNotification('✅ Payment Released', data.message || `₦${Number(data.amount).toLocaleString()} added to your wallet`, 'success');
+        showNotification('✅ Payment Released', data.message || `$${Number(data.amount).toLocaleString()} added to your wallet`, 'success');
       });
 
       newSocket.on('escrow_disputed', (data) => {
@@ -170,7 +170,7 @@ export const SocketProvider = ({ children }) => {
       // Milestone request notification handlers
       newSocket.on('milestone_request', (data) => {
         dispatch(incrementUnreadNotifications());
-        showNotification('📩 Payment Request', `${data.senderName} sent you a payment request for ₦${Number(data.amount).toLocaleString()}`, 'info');
+        showNotification('📩 Payment Request', `${data.senderName} sent you a payment request for $${Number(data.amount).toLocaleString()}`, 'info');
       });
 
       newSocket.on('milestone_response', (data) => {

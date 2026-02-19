@@ -1,7 +1,18 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
 const router = express.Router();
+
+const notificationSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  type: { type: String, default: 'system' },
+  title: { type: String, required: true },
+  message: { type: String, required: true },
+  data: { type: mongoose.Schema.Types.Mixed, default: {} },
+  read: { type: Boolean, default: false }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+const Notification = mongoose.models.Notification || mongoose.model('Notification', notificationSchema);
 
 /**
  * @route   GET /api/notifications
@@ -11,42 +22,32 @@ const router = express.Router();
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    
-    // Get user notifications from the database
-    // Table: notifications, columns: id, user_id, type, title, message, data (jsonb), read (boolean), created_at
-    const notificationsResult = await query(`
-      SELECT 
-        id, type, title, message, read as is_read, created_at, data as metadata
-      FROM notifications 
-      WHERE user_id = $1 
-      ORDER BY created_at DESC 
-      LIMIT 50
-    `, [userId]);
-
-    // If notifications table doesn't exist, return empty array
-    if (notificationsResult.rows) {
-      res.json({
-        notifications: notificationsResult.rows
-      });
-    } else {
-      res.json({
-        notifications: []
-      });
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
     }
+    
+    const notifications = await Notification.find({ user_id: userId })
+      .sort({ created_at: -1 })
+      .limit(50)
+      .lean();
+
+    res.json({
+      notifications: notifications.map((notification) => ({
+        id: notification._id.toString(),
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        is_read: Boolean(notification.read),
+        created_at: notification.created_at,
+        metadata: notification.data || {}
+      }))
+    });
 
   } catch (error) {
     console.error('Get notifications error:', error);
-    
-    // If table doesn't exist, return empty notifications
-    if (error.message.includes('relation "notifications" does not exist')) {
-      res.json({
-        notifications: []
-      });
-    } else {
-      res.status(500).json({
-        error: 'Failed to get notifications'
-      });
-    }
+    res.status(500).json({
+      error: 'Failed to get notifications'
+    });
   }
 });
 
@@ -59,12 +60,11 @@ router.put('/:id/read', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user or notification ID' });
+    }
 
-    await query(`
-      UPDATE notifications 
-      SET read = true 
-      WHERE id = $1 AND user_id = $2
-    `, [id, userId]);
+    await Notification.updateOne({ _id: id, user_id: userId }, { read: true });
 
     res.json({
       success: true,
@@ -87,12 +87,11 @@ router.put('/:id/read', authMiddleware, async (req, res) => {
 router.put('/mark-all-read', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
 
-    await query(`
-      UPDATE notifications 
-      SET read = true 
-      WHERE user_id = $1 AND read = false
-    `, [userId]);
+    await Notification.updateMany({ user_id: userId, read: false }, { read: true });
 
     res.json({
       success: true,
@@ -123,12 +122,11 @@ router.post('/mark-read', authMiddleware, async (req, res) => {
       });
     }
 
-    // Table: notifications, column: read (not is_read)
-    await query(`
-      UPDATE notifications 
-      SET read = true 
-      WHERE id = $1 AND user_id = $2
-    `, [notificationId, userId]);
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(notificationId)) {
+      return res.status(400).json({ error: 'Invalid user or notification ID' });
+    }
+
+    await Notification.updateOne({ _id: notificationId, user_id: userId }, { read: true });
 
     res.json({
       success: true,
@@ -152,11 +150,11 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user or notification ID' });
+    }
 
-    await query(`
-      DELETE FROM notifications 
-      WHERE id = $1 AND user_id = $2
-    `, [id, userId]);
+    await Notification.deleteOne({ _id: id, user_id: userId });
 
     res.json({
       success: true,

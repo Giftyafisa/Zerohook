@@ -1,12 +1,15 @@
-const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const { User } = require('../config/database');
 
 class VerificationManager {
   constructor() {
-    this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-    });
+    // OTP store: userId -> { code, expiresAt, attempts }
+    this.otpStore = new Map();
+    this.maxOtpAttempts = 5;
+    this.otpTTL = 10 * 60 * 1000; // 10 minutes
+    // Tier advancement cooldown (minimum time between tier upgrades)
+    this.tierCooldownMs = 24 * 60 * 60 * 1000; // 24 hours
   }
 
   // Verification Tiers
@@ -51,25 +54,55 @@ class VerificationManager {
     ];
   }
 
-  // Get user's current verification tier
+  // Generate a cryptographically secure OTP
+  generateOTP() {
+    return crypto.randomInt(100000, 999999).toString();
+  }
+
+  // Store OTP for a user (with expiry and rate limiting)
+  storeOTP(userId, purpose) {
+    const code = this.generateOTP();
+    const key = `${userId}_${purpose}`;
+    this.otpStore.set(key, {
+      code,
+      expiresAt: Date.now() + this.otpTTL,
+      attempts: 0
+    });
+    // Cleanup expired OTPs periodically
+    if (this.otpStore.size > 1000) {
+      for (const [k, v] of this.otpStore) {
+        if (Date.now() > v.expiresAt) this.otpStore.delete(k);
+      }
+    }
+    return code;
+  }
+
+  // Validate an OTP
+  validateOTP(userId, purpose, submittedCode) {
+    const key = `${userId}_${purpose}`;
+    const stored = this.otpStore.get(key);
+    if (!stored) return { valid: false, error: 'No OTP found. Please request a new code.' };
+    if (Date.now() > stored.expiresAt) {
+      this.otpStore.delete(key);
+      return { valid: false, error: 'OTP expired. Please request a new code.' };
+    }
+    stored.attempts++;
+    if (stored.attempts > this.maxOtpAttempts) {
+      this.otpStore.delete(key);
+      return { valid: false, error: 'Too many attempts. Please request a new code.' };
+    }
+    if (stored.code !== submittedCode) {
+      return { valid: false, error: `Invalid OTP. ${this.maxOtpAttempts - stored.attempts} attempts remaining.` };
+    }
+    this.otpStore.delete(key);
+    return { valid: true };
+  }
+
+  // Get user's current verification tier (MongoDB)
   async getUserVerificationTier(userId) {
     try {
-      const query = `
-        SELECT 
-          verification_tier,
-          verification_score,
-          documents_verified,
-          verified_at,
-          expires_at
-        FROM verification_tiers 
-        WHERE user_id = $1
-        ORDER BY verification_tier DESC
-        LIMIT 1
-      `;
-
-      const result = await this.pool.query(query, [userId]);
-      
-      if (result.rows.length === 0) {
+      const user = await User.findById(userId).select('verification_tier verification_data profile_data');
+      if (!user) {
         return {
           tier: 0,
           score: 0,
@@ -80,15 +113,34 @@ class VerificationManager {
         };
       }
 
-      const currentTier = result.rows[0];
-      const nextTier = this.getNextTier(currentTier.verification_tier);
+      const verData = user.verification_data || {};
+      const currentTier = user.verification_tier || 0;
+      const nextTier = this.getNextTier(currentTier);
+
+      // Check expiry
+      if (verData.expires_at && new Date(verData.expires_at) < new Date()) {
+        // Verification expired - demote to basic
+        await User.findByIdAndUpdate(userId, {
+          verification_tier: 1,
+          'verification_data.expired': true
+        });
+        return {
+          tier: 1,
+          score: verData.score || 0,
+          documents: verData.documents || {},
+          verified_at: verData.verified_at,
+          expires_at: verData.expires_at,
+          expired: true,
+          next_tier: this.getVerificationTiers()[0]
+        };
+      }
 
       return {
-        tier: currentTier.verification_tier,
-        score: currentTier.verification_score,
-        documents: currentTier.documents_verified || {},
-        verified_at: currentTier.verified_at,
-        expires_at: currentTier.expires_at,
+        tier: currentTier,
+        score: verData.score || 0,
+        documents: verData.documents || {},
+        verified_at: verData.verified_at,
+        expires_at: verData.expires_at,
         next_tier: nextTier
       };
     } catch (error) {
@@ -104,37 +156,51 @@ class VerificationManager {
     return nextTier || null;
   }
 
-  // Verify phone number
+  // Request phone OTP (sends code - integrate with SMS provider in production)
+  async requestPhoneOTP(userId, phoneNumber) {
+    const code = this.storeOTP(userId, 'phone');
+    // TODO: Integrate real SMS provider (e.g., Twilio, Africa's Talking)
+    // For now, log the OTP in development only
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEV] Phone OTP for ${userId}: ${code}`);
+    }
+    return { success: true, message: 'OTP sent to your phone number.' };
+  }
+
+  // Verify phone number with OTP
   async verifyPhone(userId, phoneNumber, otpCode) {
     try {
-      // In a real implementation, you would verify the OTP
-      // For now, we'll simulate successful verification
-      const isVerified = otpCode === '123456'; // Demo OTP
-
-      if (isVerified) {
-        await this.updateVerificationStatus(userId, 'phone_verified', true);
-        return { success: true, message: 'Phone number verified successfully' };
-      } else {
-        return { success: false, message: 'Invalid OTP code' };
+      const result = this.validateOTP(userId, 'phone', otpCode);
+      if (!result.valid) {
+        return { success: false, message: result.error };
       }
+      await this.updateVerificationStatus(userId, 'phone_verified', true);
+      return { success: true, message: 'Phone number verified successfully' };
     } catch (error) {
       console.error('Error verifying phone:', error);
       throw new Error('Failed to verify phone number');
     }
   }
 
-  // Verify email
+  // Request email OTP
+  async requestEmailOTP(userId, email) {
+    const code = this.storeOTP(userId, 'email');
+    // TODO: Integrate real email provider (e.g., SendGrid, SES)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEV] Email OTP for ${userId}: ${code}`);
+    }
+    return { success: true, message: 'OTP sent to your email address.' };
+  }
+
+  // Verify email with OTP
   async verifyEmail(userId, email, otpCode) {
     try {
-      // In a real implementation, you would verify the OTP
-      const isVerified = otpCode === '123456'; // Demo OTP
-
-      if (isVerified) {
-        await this.updateVerificationStatus(userId, 'email_verified', true);
-        return { success: true, message: 'Email verified successfully' };
-      } else {
-        return { success: false, message: 'Invalid OTP code' };
+      const result = this.validateOTP(userId, 'email', otpCode);
+      if (!result.valid) {
+        return { success: false, message: result.error };
       }
+      await this.updateVerificationStatus(userId, 'email_verified', true);
+      return { success: true, message: 'Email verified successfully' };
     } catch (error) {
       console.error('Error verifying email:', error);
       throw new Error('Failed to verify email');
@@ -204,15 +270,16 @@ class VerificationManager {
     }
   }
 
-  // Simulate ID verification (demo purposes)
+  // ID verification - requires admin approval in production
   simulateIDVerification(idData) {
-    // Basic validation
+    // Basic validation - all fields required
     if (!idData.idType || !idData.idNumber || !idData.idImage || !idData.selfieImage) {
       return false;
     }
-    
-    // Simulate 95% success rate
-    return Math.random() > 0.05;
+    // In production, this should integrate with a real ID verification provider
+    // (e.g., Smile Identity for African markets, Jumio, Onfido)
+    // For now, queue for manual admin review
+    return false; // Always require admin approval
   }
 
   // Verify address
@@ -245,15 +312,13 @@ class VerificationManager {
     }
   }
 
-  // Simulate address verification (demo purposes)
+  // Address verification - requires admin approval in production
   simulateAddressVerification(addressData) {
-    // Basic validation
     if (!addressData.street || !addressData.city || !addressData.state || !addressData.zipCode) {
       return false;
     }
-    
-    // Simulate 90% success rate
-    return Math.random() > 0.1;
+    // In production, integrate with postal/geocoding verification service
+    return false; // Always require admin approval
   }
 
   // Verify behavioral biometrics
@@ -284,57 +349,42 @@ class VerificationManager {
     }
   }
 
-  // Simulate behavioral verification (demo purposes)
+  // Behavioral verification - requires admin approval in production
   simulateBehavioralVerification(behavioralData) {
-    // Simulate 85% success rate
-    return Math.random() > 0.15;
+    // In production, integrate with behavioral biometrics provider
+    return false; // Always require admin approval
   }
 
-  // Update verification status
+  // Update verification status (MongoDB)
   async updateVerificationStatus(userId, verificationType, status) {
     try {
-      // Check if verification record exists
-      const checkQuery = 'SELECT id FROM verification_tiers WHERE user_id = $1';
-      const existing = await this.pool.query(checkQuery, [userId]);
-
-      if (existing.rows.length > 0) {
-        // Update existing record
-        const updateQuery = `
-          UPDATE verification_tiers 
-          SET 
-            documents_verified = jsonb_set(
-              COALESCE(documents_verified, '{}'::jsonb),
-              '{${verificationType}}',
-              '${JSON.stringify(status)}'::jsonb
-            ),
-            updated_at = NOW()
-          WHERE user_id = $1
-          RETURNING *
-        `;
-
-        await this.pool.query(updateQuery, [userId]);
-      } else {
-        // Create new record
-        const insertQuery = `
-          INSERT INTO verification_tiers (
-            user_id, verification_tier, verification_score,
-            documents_verified, created_at
-          ) VALUES ($1, 0, 0, '{"${verificationType}": ${status}}'::jsonb, NOW())
-        `;
-
-        await this.pool.query(insertQuery, [userId]);
+      // Whitelist allowed verification types to prevent injection
+      const allowedTypes = [
+        'phone_verified', 'email_verified', 'age_verified',
+        'id_verified', 'facial_verified', 'address_verified',
+        'behavioral_verified', 'device_verified', 'social_verified',
+        'decentralized_id', 'zkp_verified', 'background_verified'
+      ];
+      if (!allowedTypes.includes(verificationType)) {
+        throw new Error(`Invalid verification type: ${verificationType}`);
       }
+
+      await User.findByIdAndUpdate(userId, {
+        $set: {
+          [`verification_data.documents.${verificationType}`]: status,
+          'verification_data.updated_at': new Date()
+        }
+      });
 
       // Check if user can advance to next tier
       await this.checkTierAdvancement(userId);
-      
     } catch (error) {
       console.error('Error updating verification status:', error);
       throw new Error('Failed to update verification status');
     }
   }
 
-  // Check if user can advance to next tier
+  // Check if user can advance to next tier (with cooldown)
   async checkTierAdvancement(userId) {
     try {
       const currentTier = await this.getUserVerificationTier(userId);
@@ -344,16 +394,28 @@ class VerificationManager {
         return; // Already at highest tier
       }
 
+      // Enforce cooldown between tier advancements
+      if (currentTier.verified_at) {
+        const timeSinceLastAdvance = Date.now() - new Date(currentTier.verified_at).getTime();
+        if (timeSinceLastAdvance < this.tierCooldownMs) {
+          return; // Too soon for next advancement
+        }
+      }
+
+      // Tiers >= 3 (Pro/Elite) require manual admin approval
+      if (nextTier.id >= 3) {
+        return; // Require admin approval for high tiers
+      }
+
       // Check if all requirements are met
       const allRequirementsMet = nextTier.requirements.every(req => {
-        if (req === 'basic_tier') {
-          return currentTier.tier >= 1;
-        }
+        if (req === 'basic_tier') return currentTier.tier >= 1;
+        if (req === 'advanced_tier') return currentTier.tier >= 2;
+        if (req === 'pro_tier') return currentTier.tier >= 3;
         return currentTier.documents[req] === true;
       });
 
       if (allRequirementsMet) {
-        // Advance to next tier
         await this.advanceToTier(userId, nextTier.id);
       }
     } catch (error) {
@@ -361,30 +423,19 @@ class VerificationManager {
     }
   }
 
-  // Advance user to specific tier
+  // Advance user to specific tier (MongoDB)
   async advanceToTier(userId, tierId) {
     try {
-      const updateQuery = `
-        UPDATE verification_tiers 
-        SET 
-          verification_tier = $2,
-          verification_score = verification_score + 25,
-          verified_at = NOW(),
-          updated_at = NOW()
-        WHERE user_id = $1
-      `;
-
-      await this.pool.query(updateQuery, [userId, tierId]);
+      await User.findByIdAndUpdate(userId, {
+        $set: {
+          verification_tier: tierId,
+          'verification_data.verified_at': new Date(),
+          'verification_data.updated_at': new Date()
+        },
+        $inc: { 'verification_data.score': 25 }
+      });
       
-      // Update user's verification tier in users table
-      const userUpdateQuery = `
-        UPDATE users 
-        SET verification_tier = $2, updated_at = NOW()
-        WHERE id = $1
-      `;
-
-      await this.pool.query(userUpdateQuery, [userId, tierId]);
-      
+      console.log(`✅ User ${userId} advanced to verification tier ${tierId}`);
     } catch (error) {
       console.error('Error advancing to tier:', error);
       throw new Error('Failed to advance to tier');
@@ -407,9 +458,9 @@ class VerificationManager {
       }
 
       const completedRequirements = nextTier.requirements.filter(req => {
-        if (req === 'basic_tier') {
-          return currentTier.tier >= 1;
-        }
+        if (req === 'basic_tier') return currentTier.tier >= 1;
+        if (req === 'advanced_tier') return currentTier.tier >= 2;
+        if (req === 'pro_tier') return currentTier.tier >= 3;
         return currentTier.documents[req] === true;
       }).length;
 

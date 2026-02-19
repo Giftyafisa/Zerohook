@@ -323,7 +323,7 @@ const subscriptionSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   currency: { type: String, required: true },
   country_code: String,
-  paystack_reference: String,
+  crypto_reference: String,
   status: { type: String, default: 'pending' },
   activated_at: Date,
   expires_at: Date
@@ -393,10 +393,10 @@ const sugarAccessPaymentSchema = new mongoose.Schema({
   paymentStatus: { type: String, enum: ['pending', 'completed', 'failed', 'refunded'], default: 'pending' },
   paymentReference: String,
   amount: { type: Number, required: true },
-  currency: { type: String, default: 'NGN' },
+  currency: { type: String, default: 'USD' },
   accessStartsAt: { type: Date },
   accessExpiresAt: { type: Date },
-  paymentGateway: { type: String, default: 'paystack' }
+  paymentGateway: { type: String, default: 'crypto' }
 }, { timestamps: true });
 
 sugarAccessPaymentSchema.index({ providerId: 1, accessExpiresAt: -1 });
@@ -454,7 +454,7 @@ const userPrivacySettingsSchema = new mongoose.Schema({
   contact_sharing: { type: Boolean, default: false }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
-userPrivacySettingsSchema.index({ user_id: 1 });
+// user_id already has unique: true which creates an index automatically
 
 // Privacy Consent Schema
 const privacyConsentSchema = new mongoose.Schema({
@@ -548,10 +548,16 @@ const query = async (text, params = []) => {
   }
   
   // Log the query for debugging during migration
-  console.log('🔄 SQL Query (needs MongoDB migration):', text.substring(0, 100) + '...');
-  
-  // Return empty result for now - routes need to be updated to use Mongoose models
-  return { rows: [], rowCount: 0 };
+  const preview = typeof text === 'string' ? text.substring(0, 120) : '[non-string query]';
+  console.error('❌ Legacy SQL query attempted after MongoDB migration:', preview + '...');
+
+  const migrationError = new Error(
+    'Legacy SQL query path is not supported after MongoDB migration. Migrate this route to Mongoose models.'
+  );
+  migrationError.code = 'LEGACY_SQL_NOT_MIGRATED';
+  migrationError.queryPreview = preview;
+  migrationError.paramsLength = Array.isArray(params) ? params.length : 0;
+  throw migrationError;
 };
 
 const getClient = async () => {

@@ -10,10 +10,13 @@
  * - Access both (discounted bundle)
  * 
  * Access is granted for 1 year from payment date
+ * 
+ * All payments use cryptocurrency via CryptoPaymentManager (fee-free).
  */
 
 const express = require('express');
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { User, SugarAccessPayment } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const router = express.Router();
 
@@ -58,17 +61,18 @@ router.get('/status', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    // Get user's account type
-    const userResult = await query(`
-      SELECT profile_data->>'accountType' as account_type
-      FROM users WHERE id = $1
-    `, [userId]);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
 
-    if (userResult.rows.length === 0) {
+    // Get user's account type
+    const user = await User.findById(userId).select('profile_data').lean();
+
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userResult.rows[0].account_type;
+    const accountType = user.profile_data?.accountType;
     
     // Only providers need to purchase sugar access
     if (accountType !== 'provider') {
@@ -81,44 +85,33 @@ router.get('/status', authMiddleware, async (req, res) => {
     }
 
     // Check for active sugar access payments
-    const accessResult = await query(`
-      SELECT 
-        id,
-        access_type,
-        amount,
-        currency,
-        payment_status,
-        access_starts_at,
-        access_expires_at,
-        created_at
-      FROM sugar_access_payments
-      WHERE provider_id = $1 
-        AND payment_status = 'completed'
-        AND access_expires_at > CURRENT_TIMESTAMP
-      ORDER BY access_expires_at DESC
-    `, [userId]);
+    const accessRecords = await SugarAccessPayment.find({
+      providerId: userId,
+      paymentStatus: 'completed',
+      accessExpiresAt: { $gt: new Date() }
+    }).sort({ accessExpiresAt: -1 }).lean();
 
     const activeAccess = {
       sugar_daddy: null,
       sugar_mommy: null
     };
 
-    accessResult.rows.forEach(row => {
-      if (row.access_type === 'sugar_daddy' || row.access_type === 'both') {
-        if (!activeAccess.sugar_daddy || new Date(row.access_expires_at) > new Date(activeAccess.sugar_daddy.expiresAt)) {
+    accessRecords.forEach(row => {
+      if (row.accessType === 'sugar_daddy' || row.accessType === 'both') {
+        if (!activeAccess.sugar_daddy || new Date(row.accessExpiresAt) > new Date(activeAccess.sugar_daddy.expiresAt)) {
           activeAccess.sugar_daddy = {
-            paymentId: row.id,
-            expiresAt: row.access_expires_at,
-            startedAt: row.access_starts_at
+            paymentId: row._id.toString(),
+            expiresAt: row.accessExpiresAt,
+            startedAt: row.accessStartsAt
           };
         }
       }
-      if (row.access_type === 'sugar_mommy' || row.access_type === 'both') {
-        if (!activeAccess.sugar_mommy || new Date(row.access_expires_at) > new Date(activeAccess.sugar_mommy.expiresAt)) {
+      if (row.accessType === 'sugar_mommy' || row.accessType === 'both') {
+        if (!activeAccess.sugar_mommy || new Date(row.accessExpiresAt) > new Date(activeAccess.sugar_mommy.expiresAt)) {
           activeAccess.sugar_mommy = {
-            paymentId: row.id,
-            expiresAt: row.access_expires_at,
-            startedAt: row.access_starts_at
+            paymentId: row._id.toString(),
+            expiresAt: row.accessExpiresAt,
+            startedAt: row.accessStartsAt
           };
         }
       }
@@ -145,13 +138,23 @@ router.get('/status', authMiddleware, async (req, res) => {
 
 /**
  * @route   POST /api/sugar-access/initialize
- * @desc    Initialize a sugar access payment
+ * @desc    Initialize a sugar access payment via crypto
  * @access  Private (Providers only)
  */
 router.post('/initialize', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { accessType } = req.body;
+    const { accessType, cryptoSymbol = 'USDT' } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    // Validate cryptoSymbol
+    const validCryptos = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'];
+    if (!validCryptos.includes(cryptoSymbol)) {
+      return res.status(400).json({ error: 'Invalid crypto symbol', validCryptos });
+    }
 
     // Validate access type
     if (!['sugar_daddy', 'sugar_mommy', 'both'].includes(accessType)) {
@@ -161,38 +164,29 @@ router.post('/initialize', authMiddleware, async (req, res) => {
       });
     }
 
-    // Get user's account type and email
-    const userResult = await query(`
-      SELECT 
-        profile_data->>'accountType' as account_type,
-        email,
-        username
-      FROM users WHERE id = $1
-    `, [userId]);
+    // Get user's account type
+    const user = await User.findById(userId).select('profile_data email username').lean();
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const { account_type: accountType, email, username } = userResult.rows[0];
+    const accountType = user.profile_data?.accountType;
     
     // Only providers can purchase sugar access
     if (accountType !== 'provider') {
-      return res.status(403).json({
-        error: 'Only providers can purchase sugar access'
-      });
+      return res.status(403).json({ error: 'Only providers can purchase sugar access' });
     }
 
     // Check if user already has active access for this type
-    const existingAccess = await query(`
-      SELECT id FROM sugar_access_payments
-      WHERE provider_id = $1 
-        AND (access_type = $2 OR access_type = 'both')
-        AND payment_status = 'completed'
-        AND access_expires_at > CURRENT_TIMESTAMP
-    `, [userId, accessType]);
+    const existingAccess = await SugarAccessPayment.findOne({
+      providerId: userId,
+      $or: [{ accessType }, { accessType: 'both' }],
+      paymentStatus: 'completed',
+      accessExpiresAt: { $gt: new Date() }
+    }).select('_id').lean();
 
-    if (existingAccess.rows.length > 0 && accessType !== 'both') {
+    if (existingAccess && accessType !== 'both') {
       return res.status(400).json({
         error: 'You already have active access for this type',
         existingAccess: true
@@ -204,38 +198,41 @@ router.post('/initialize', authMiddleware, async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + pricing.duration_days);
 
+    // Convert fiat to crypto using live rates
+    const conversion = await req.currencyManager.fiatToCrypto(pricing.price, pricing.currency, cryptoSymbol);
+
     // Create pending payment record
-    const paymentResult = await query(`
-      INSERT INTO sugar_access_payments (
-        provider_id, access_type, amount, currency, 
-        payment_status, access_expires_at
-      )
-      VALUES ($1, $2, $3, $4, 'pending', $5)
-      RETURNING id
-    `, [userId, accessType, pricing.price, pricing.currency, expiresAt]);
+    const payment = await SugarAccessPayment.create({
+      providerId: new mongoose.Types.ObjectId(userId),
+      accessType,
+      amount: pricing.price,
+      currency: pricing.currency,
+      paymentStatus: 'pending',
+      accessExpiresAt: expiresAt
+    });
 
-    const paymentId = paymentResult.rows[0].id;
+    const paymentId = payment._id.toString();
+    const reference = `sugar_${accessType}_${paymentId}`;
 
-    // Initialize Paystack payment (if PaystackManager is available)
-    let paystackResponse = null;
-    if (req.paystackManager) {
-      try {
-        paystackResponse = await req.paystackManager.initializePayment({
-          email,
-          amount: pricing.price * 100, // Paystack expects amount in kobo
-          reference: `sugar_${accessType}_${paymentId}`,
-          callback_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/sugar-access/callback`,
-          metadata: {
-            type: 'sugar_access',
-            access_type: accessType,
-            payment_id: paymentId,
-            user_id: userId
-          }
-        });
-      } catch (paystackError) {
-        console.error('Paystack initialization error:', paystackError);
+    // Create crypto payment invoice
+    const invoice = await req.cryptoPaymentManager.createPaymentInvoice({
+      cryptoAmount: parseFloat(conversion.cryptoAmount.toFixed(8)),
+      cryptoSymbol,
+      fiatAmount: pricing.price,
+      fiatCurrency: pricing.currency,
+      userId,
+      metadata: {
+        type: 'sugar_access',
+        accessType,
+        paymentId
       }
-    }
+    });
+
+    // Store the crypto reference on the payment record
+    payment.paymentReference = invoice.reference;
+    await payment.save();
+
+    console.log(`🪙 Sugar access crypto payment created: ${invoice.reference} - ${conversion.cryptoAmount} ${cryptoSymbol} for ${accessType}`);
 
     res.json({
       success: true,
@@ -245,9 +242,17 @@ router.post('/initialize', authMiddleware, async (req, res) => {
       currency: pricing.currency,
       expiresAt,
       durationDays: pricing.duration_days,
-      paystack: paystackResponse,
-      // Fallback for manual verification
-      reference: `sugar_${accessType}_${paymentId}`
+      paymentData: {
+        reference: invoice.reference,
+        address: invoice.address,
+        cryptoAmount: conversion.cryptoAmount,
+        cryptoSymbol,
+        network: invoice.network,
+        qrData: invoice.qrData,
+        expiresAt: invoice.expiresAt,
+        rate: conversion.rate,
+        rateSource: conversion.rateSource
+      }
     });
 
   } catch (error) {
@@ -261,7 +266,7 @@ router.post('/initialize', authMiddleware, async (req, res) => {
 
 /**
  * @route   POST /api/sugar-access/verify
- * @desc    Verify a sugar access payment (after Paystack callback)
+ * @desc    Verify a sugar access crypto payment on blockchain
  * @access  Private
  */
 router.post('/verify', authMiddleware, async (req, res) => {
@@ -269,81 +274,91 @@ router.post('/verify', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { reference, paymentId } = req.body;
 
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
     if (!reference && !paymentId) {
-      return res.status(400).json({
-        error: 'Payment reference or payment ID is required'
-      });
+      return res.status(400).json({ error: 'Payment reference or payment ID is required' });
     }
 
     // Find the payment record
     let payment;
     if (paymentId) {
-      const result = await query(`
-        SELECT * FROM sugar_access_payments
-        WHERE id = $1 AND provider_id = $2
-      `, [paymentId, userId]);
-      payment = result.rows[0];
+      payment = await SugarAccessPayment.findOne({ _id: paymentId, providerId: userId });
     } else if (reference) {
-      // Extract payment ID from reference (format: sugar_type_uuid)
-      const parts = reference.split('_');
-      const extractedId = parts[parts.length - 1];
-      const result = await query(`
-        SELECT * FROM sugar_access_payments
-        WHERE id = $1 AND provider_id = $2
-      `, [extractedId, userId]);
-      payment = result.rows[0];
+      // Try finding by stored reference first
+      payment = await SugarAccessPayment.findOne({ paymentReference: reference, providerId: userId });
+      
+      if (!payment) {
+        // Fallback: extract payment ID from reference (format: sugar_type_uuid)
+        const parts = reference.split('_');
+        const extractedId = parts[parts.length - 1];
+        if (mongoose.Types.ObjectId.isValid(extractedId)) {
+          payment = await SugarAccessPayment.findOne({ _id: extractedId, providerId: userId });
+        }
+      }
     }
 
     if (!payment) {
       return res.status(404).json({ error: 'Payment not found' });
     }
 
-    if (payment.payment_status === 'completed') {
+    if (payment.paymentStatus === 'completed') {
       return res.json({
         success: true,
         message: 'Payment already verified',
-        payment
+        accessType: payment.accessType,
+        expiresAt: payment.accessExpiresAt
       });
     }
 
-    // Verify with Paystack if available
+    // Verify on blockchain via CryptoPaymentManager
+    const cryptoRef = payment.paymentReference || reference;
     let verified = false;
-    if (req.paystackManager && reference) {
+
+    if (cryptoRef) {
       try {
-        const verification = await req.paystackManager.verifyPayment(reference);
-        verified = verification.status === 'success';
+        const verification = await req.cryptoPaymentManager.checkPaymentStatus(cryptoRef);
+        verified = verification.success && verification.status === 'confirmed';
+        
+        if (!verified && verification.status === 'pending_confirmation') {
+          return res.json({
+            success: false,
+            error: 'Payment detected, waiting for blockchain confirmations',
+            status: 'pending_confirmation'
+          });
+        }
       } catch (verifyError) {
-        console.error('Paystack verification error:', verifyError);
+        console.error('Blockchain verification error:', verifyError);
       }
     }
 
     // For testing/development, allow manual verification
     if (!verified && process.env.NODE_ENV === 'development') {
-      console.log('⚠️ Development mode: Auto-verifying payment');
+      console.log('⚠️ Development mode: Auto-verifying sugar access payment');
       verified = true;
     }
 
     if (verified) {
-      // Update payment status
-      await query(`
-        UPDATE sugar_access_payments
-        SET payment_status = 'completed',
-            payment_reference = $1,
-            access_starts_at = CURRENT_TIMESTAMP,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-      `, [reference, payment.id]);
+      payment.paymentStatus = 'completed';
+      payment.paymentReference = cryptoRef;
+      payment.accessStartsAt = new Date();
+      await payment.save();
+
+      console.log(`✅ Sugar access verified: ${payment.accessType} for user ${userId}`);
 
       res.json({
         success: true,
         message: 'Payment verified successfully',
-        accessType: payment.access_type,
-        expiresAt: payment.access_expires_at
+        accessType: payment.accessType,
+        expiresAt: payment.accessExpiresAt
       });
     } else {
-      res.status(400).json({
+      res.json({
         success: false,
-        error: 'Payment verification failed'
+        error: 'Payment not yet confirmed on blockchain',
+        status: 'pending'
       });
     }
 
@@ -365,25 +380,27 @@ router.get('/history', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const result = await query(`
-      SELECT 
-        id,
-        access_type,
-        amount,
-        currency,
-        payment_status,
-        payment_reference,
-        access_starts_at,
-        access_expires_at,
-        created_at
-      FROM sugar_access_payments
-      WHERE provider_id = $1
-      ORDER BY created_at DESC
-    `, [userId]);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const payments = await SugarAccessPayment.find({ providerId: userId })
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.json({
       success: true,
-      payments: result.rows
+      payments: payments.map((row) => ({
+        id: row._id.toString(),
+        access_type: row.accessType,
+        amount: row.amount,
+        currency: row.currency,
+        payment_status: row.paymentStatus,
+        payment_reference: row.paymentReference,
+        access_starts_at: row.accessStartsAt,
+        access_expires_at: row.accessExpiresAt,
+        created_at: row.createdAt
+      }))
     });
 
   } catch (error) {

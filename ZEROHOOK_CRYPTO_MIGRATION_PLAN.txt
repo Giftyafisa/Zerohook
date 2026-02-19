@@ -1,0 +1,925 @@
+================================================================================
+  ZEROHOOK PLATFORM — CRYPTO-ONLY PAYMENT MIGRATION PLAN
+  Advanced Currency Detection + Live Conversion + Smart Location System
+  Document Date: February 19, 2026
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — WHAT IS BEING REMOVED AND WHY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REMOVING — Paystack
+  Reason: No valid production API documentation available.
+  Files affected:
+    server/services/PaystackManager.js         → DELETE
+    server/routes/subscriptions.js             → Remove Paystack block
+    server/routes/sugarAccess.js               → Remove req.paystackManager calls
+    server/routes/payments.js                  → Remove all Paystack routes
+    server/index.js                            → Remove PaystackManager import/init
+    server/.env                                → Remove PAYSTACK_SECRET_KEY / PUBLIC_KEY
+
+REMOVING — Bitnob (Ghana-only fiat-crypto bridge)
+  Reason: Replaced by NOWPayments which covers all countries natively.
+  Files affected:
+    server/services/BitnobManager.js           → DELETE
+    server/routes/payments.js                  → Remove Bitnob fallback block
+    server/index.js                            → Remove BitnobManager import/init
+    server/.env                                → Remove BITNOB_API_KEY / SECRET_KEY
+
+REMOVING — Stripe (international card payments)
+  Reason: Crypto-only system. Stripe is for fiat cards.
+  Files affected:
+    server/routes/payments.js                  → Remove createStripePayment / confirmStripePayment
+    server/.env                                → Remove STRIPE_SECRET_KEY / PUBLISHABLE_KEY
+
+REMOVING — Coinbase Commerce (current broken crypto handler)
+  Reason: Replaced by NOWPayments. Coinbase Commerce has no payout API.
+  Files affected:
+    server/services/CryptoPaymentManager.js    → Full REWRITE
+    server/.env                                → Remove COINBASE_COMMERCE_API_KEY / WEBHOOK_SECRET
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — THE NEW CRYPTO GATEWAY: NOWPAYMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Provider: NOWPayments (https://nowpayments.io)
+API Docs: https://documenter.getpostman.com/view/7907941/S1a32n38
+SDK:      npm install @nowpaymentsio/nowpayments-api-js
+
+WHY NOWPAYMENTS:
+  ✅ Supports 300+ cryptocurrencies — BTC, ETH, USDT, USDC, BNB, SOL, LTC all included
+  ✅ INCOMING payments — creates unique crypto address per invoice
+  ✅ OUTGOING payouts — POST /v1/payout directly to any wallet on-chain
+  ✅ Live exchange rates — GET /v1/estimate?amount=X&currency_from=usd&currency_to=btc
+  ✅ Webhook notifications — HMAC-SHA512 signed, same pattern as existing Paystack webhooks
+  ✅ Non-custodial option — funds go straight to your wallet
+  ✅ No KYC for merchants — live in minutes
+  ✅ Subscription invoices — recurring payment links
+  ✅ Status polling — GET /v1/payment/{payment_id}
+  ✅ Merchant dashboard at app.nowpayments.io — you see all money
+
+SIGN UP STEPS:
+  1. Go to https://nowpayments.io
+  2. Click "Get Started" → Create merchant account
+  3. Add your payout wallets (BTC address, ETH address, USDT address)
+  4. API Keys → Generate API Key (for creating payments)
+  5. IPN Secret → Set a secret string (for webhook signature verification)
+  6. Note: Sandbox available at https://sandbox.nowpayments.io for testing
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — SUPPORTED CRYPTOCURRENCIES (POPULAR + ACTIVE ONLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  RANK  SYMBOL  NAME           WHY INCLUDED
+  ────  ──────  ─────────────  ─────────────────────────────────────────────────────
+  1     BTC     Bitcoin        #1 globally. Universally recognised. Store of value.
+                               Widely used across Africa as savings + transfers.
+
+  2     ETH     Ethereum       #2 globally. Powers DeFi. Needed for USDT/USDC.
+                               Every major African crypto exchange lists it.
+
+  3     USDT    Tether (USD)   #1 STABLECOIN. DOMINANT in Nigeria, Ghana, Kenya.
+                               Users prefer USDT for payments — no price volatility.
+                               Most African P2P traders quote prices in USDT.
+
+  4     USDC    USD Coin       #2 stablecoin. Circle-issued, fully regulated.
+                               Preferred by users wanting regulated stable payments.
+
+  5     BNB     Binance Coin   Binance is the #1 exchange used across Africa.
+                               BNB holders are common in the African user base.
+                               Low fees on BSC chain.
+
+  6     SOL     Solana         Extremely fast (400ms finality). Near-zero fees.
+                               Good for small service payments and tips.
+                               Very popular with younger African crypto users.
+
+  7     LTC     Litecoin       Faster than Bitcoin. Very low fees.
+                               Long-established. Available on every exchange.
+                               Good alternative when BTC fees are high.
+
+  EXCLUDED (and why):
+    DOGE   — Meme coin, not suitable for serious marketplace payments.
+    XRP    — Ongoing regulatory/legal issues in multiple countries.
+    SHIB   — Meme token, extreme volatility, not suitable.
+    AVAX   — Limited adoption in African markets.
+    MATIC  — Rebranded to POL, too much name confusion for users.
+
+  DEFAULT for pricing: USD (universal base currency for display)
+  All prices shown to user: Converted to their LOCAL currency in real-time
+  All crypto amounts: Calculated at time of invoice creation using live rates
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — ADVANCED LOCATION & COUNTRY DETECTION SYSTEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CURRENT STATE (what exists):
+  - IPGeolocation.js: Uses ipgeolocation.io API (good start)
+  - CountryManager.js: Has getUserCountry(), detectUserCountry()
+  - Single IP-based lookup with basic caching
+  - Limitation: Fails silently for VPN users, no fallback chain, no browser signals
+
+REQUIRED IMPROVEMENTS:
+
+4.1 — MULTI-SOURCE DETECTION WATERFALL
+────────────────────────────────────────
+  The system should try each source in order, stopping at the first confident result.
+  This is called a "waterfall" or "confidence chain":
+
+  SOURCE 1: User's Saved Preference (highest priority if logged in)
+    → User.profile_data.location.country (saved in MongoDB)
+    → Confidence: DEFINITIVE — user explicitly set this
+    → When to use: Always check this first for logged-in users
+
+  SOURCE 2: Browser Geolocation API (GPS-level accuracy, needs permission)
+    → navigator.geolocation.getCurrentPosition()
+    → Returns lat/lng → Reverse geocode to country code via:
+      GET https://api.ipgeolocation.io/timezone?apiKey=KEY&lat=LAT&long=LNG
+    → Confidence: VERY HIGH — physical GPS coordinates
+    → When to use: When user grants location permission (ask on signup/wallet page)
+
+  SOURCE 3: Browser Language + Timezone Correlation
+    → navigator.language = "yo-NG", "ha-NG", "sw-KE", "zu-ZA", "tw-GH"
+    → Intl.DateTimeFormat().resolvedOptions().timeZone = "Africa/Lagos", "Africa/Nairobi"
+    → Correlation table maps language+timezone to country code
+    → Confidence: HIGH — hard to fake both together
+
+  SOURCE 4: IP Geolocation (ipgeolocation.io)
+    → Already implemented in IPGeolocation.js
+    → Improvements needed:
+      - Add security check (VPN/proxy detection) via &include=security parameter
+      - If VPN detected: flag user, do NOT auto-set currency, ask user to confirm
+      - Add 3 fallback IP geo providers (see below)
+    → Confidence: MEDIUM-HIGH for real IPs, LOW for VPN users
+
+  SOURCE 5: Phone Number Country Code (for registered users)
+    → Already implemented in CountryManager.js → detectCountryFromPhone()
+    → Improvement: Run this on registration completion automatically
+    → Confidence: HIGH
+
+  SOURCE 6: Payment History Pattern
+    → If user has previous transactions in NGN → they are likely Nigeria
+    → Transaction.find({ user_id }).distinct('currency') 
+    → Map currency to country as a hint
+    → Confidence: MEDIUM
+
+  SOURCE 7: Default Fallback
+    → Nigeria (NG) with explicit "Please confirm your country" prompt shown
+    → Never silently assume — always inform user when using fallback
+    → Confidence: LOW — user prompted to confirm
+
+4.2 — FALLBACK IP GEO PROVIDERS (resilience)
+──────────────────────────────────────────────
+  If ipgeolocation.io fails, try in order:
+  1. ipgeolocation.io          (primary — already integrated)
+  2. ip-api.com/json/{ip}      (free, no key needed, 45 req/min)
+  3. ipwhois.app/json/{ip}     (free, no key needed)
+  4. geoip2.maxmind.com        (paid but very accurate)
+
+  Implementation: IPGeolocation.js should have a lookupWithFallback(ip) method
+  that wraps all providers and returns the first successful result.
+
+4.3 — VPN / PROXY DETECTION
+──────────────────────────────────
+  The existing IPGeolocation.js already has getSecurityInfo() which checks:
+    - is_vpn, is_proxy, is_tor, is_bot, is_spam
+  
+  NEW BEHAVIOR when VPN detected:
+    - Do NOT auto-assign country/currency
+    - Show banner: "We detected a VPN. Please select your country manually."
+    - Store vpn_detected: true in session
+    - Do NOT restrict access — just ask for manual country selection
+    - Allow user to proceed after selection
+
+4.4 — LOCATION DATA CACHING STRATEGY
+───────────────────────────────────────
+  Current: Simple in-memory Map with 24-hour expiry
+  Needed:
+    Level 1: Request-level cache (per session, instant)
+    Level 2: Memory cache — IP → location (24h TTL, max 10,000 entries)
+    Level 3: MongoDB cache — store UserLocation document per userId
+      { userId, countryCode, city, lat, lng, detectionMethod,
+        confidence, lastUpdated, manualOverride }
+    Level 4: Revalidation — Background job re-checks IP every 7 days
+      to detect if user has moved to a new country
+
+4.5 — FRONTEND COUNTRY SELECTOR (smart UI)
+────────────────────────────────────────────
+  Component: SmartCountrySelector
+  Behavior:
+    1. On page load: Shows detected country with flag and "Is this correct?"
+    2. User can confirm (dismiss banner) or click to change
+    3. Dropdown shows ALL countries grouped by continent, not just Africa
+    4. Search box to type country name
+    5. Recently used countries shown first
+    6. When user changes: saves to User.profile_data.location.country
+    7. Currency selector updates INSTANTLY when country changes
+    8. All prices on page refresh in real-time to new currency
+
+4.6 — EXPANDED COUNTRY SUPPORT
+─────────────────────────────────
+  Current: 10 African countries only
+  New: ALL countries in the world (users travel, diaspora communities exist)
+
+  African countries (primary support, full crypto coverage):
+    NG, GH, KE, ZA, UG, TZ, RW, BW, ZM, MW, EG, ET, CM, CI, SN
+
+  Global countries (secondary support — crypto works everywhere):
+    US, GB, EU, CA, AU, JP, AE, SG + all others
+    (ISO 3166-1 alpha-2 codes — ~250 total)
+
+  For all countries: Show their local fiat currency as display currency
+  For payments: Always use crypto regardless of country
+  Currency display only — no fiat payment processed
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — ADVANCED CURRENCY & LIVE CONVERSION SYSTEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONCEPT: Every price on the platform has ONE source of truth (USD), but is
+DISPLAYED to the user in their LOCAL FIAT CURRENCY. When they pay, the system
+converts to whatever crypto they choose, at the LIVE RATE at that moment.
+
+5.1 — PRICING MODEL
+──────────────────────
+  Service providers set their prices in: USD (global baseline)
+  The system stores all prices in: USD
+  The system displays prices in: User's detected local currency
+  The system charges in: User's chosen cryptocurrency
+
+  Example:
+    Provider lists service at: $50 USD
+    Nigerian user sees:         ₦82,500 NGN  (live rate)
+    Kenyan user sees:           KSh 6,450     (live rate)
+    UK user sees:               £39.20        (live rate)
+    User pays in:               USDT 50.00    (stablecoin, 1:1 with USD)
+    User pays in:               0.000512 BTC  (live BTC/USD rate)
+
+5.2 — LIVE RATE PROVIDERS (3-tier with fallback)
+──────────────────────────────────────────────────
+  FIAT rates (NGN, GHS, KES, ZAR, EUR, GBP, etc.):
+    Primary:   ExchangeRate-API   https://v6.exchangerate-api.com/v6/{KEY}/latest/USD
+               Free tier: 1,500 requests/month | Paid: unlimited
+               Response: { "conversion_rates": { "NGN": 1650, "GHS": 15.2, ... } }
+
+    Fallback1: Open Exchange Rates  https://openexchangerates.org/api/latest.json?app_id={KEY}
+               Free tier: 1,000 requests/month
+
+    Fallback2: Frankfurter API     https://api.frankfurter.app/latest?from=USD
+               Completely FREE, no key needed, no rate limit
+               Limited to major currencies (no NGN/GHS but covers EUR/GBP/JPY etc.)
+
+  CRYPTO rates (BTC, ETH, USDT, USDC, BNB, SOL, LTC):
+    Primary:   CoinGecko API   https://api.coingecko.com/api/v3/simple/price
+               Free tier: 30 calls/min | Covers all major coins
+               GET /simple/price?ids=bitcoin,ethereum,tether,...&vs_currencies=usd
+
+    Fallback1: NOWPayments estimate endpoint (already integrated)
+               GET https://api.nowpayments.io/v1/estimate?amount=1&currency_from=usd&currency_to=btc
+
+    Fallback2: Binance public ticker (no key needed)
+               GET https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT
+
+5.3 — NEW SERVICE: CurrencyManager.js
+────────────────────────────────────────
+  File: server/services/CurrencyManager.js
+
+  Methods:
+
+  getLocalCurrencyForCountry(countryCode)
+    → Returns { code: 'NGN', symbol: '₦', name: 'Nigerian Naira', decimals: 2 }
+
+  async getLiveFiatRates(baseCurrency = 'USD')
+    → Calls ExchangeRate-API with fallback chain
+    → Caches result for 15 minutes (fiat rates don't move fast)
+    → Returns: { NGN: 1650, GHS: 15.2, KES: 129, ZAR: 18.3, EUR: 0.92, GBP: 0.79, ... }
+
+  async getLiveCryptoRates()
+    → Calls CoinGecko API with fallback chain
+    → Caches result for 60 SECONDS (crypto moves fast)
+    → Returns: { BTC: 97250, ETH: 3180, USDT: 1.00, USDC: 1.00, BNB: 680, SOL: 185, LTC: 112 }
+    → All rates in USD
+
+  async convertFiatToFiat(amount, fromCurrency, toCurrency)
+    → getLiveFiatRates() → calculate cross rate
+    → Example: convertFiatToFiat(1000, 'NGN', 'KES') → 78.18 KES
+
+  async convertUsdToFiat(amountUsd, targetCurrency)
+    → getLiveFiatRates() → multiply
+    → Example: convertUsdToFiat(50, 'NGN') → 82,500 NGN
+
+  async convertUsdToCrypto(amountUsd, cryptoSymbol)
+    → getLiveCryptoRates() → divide
+    → Example: convertUsdToCrypto(50, 'BTC') → 0.000514 BTC
+
+  async convertCryptoToUsd(amount, cryptoSymbol)
+    → getLiveCryptoRates() → multiply
+    → Example: convertCryptoToUsd(0.001, 'BTC') → 97.25 USD
+
+  async getDisplayPrice(amountUsd, userCountryCode)
+    → Gets local currency for country
+    → Converts USD to local fiat using live rate
+    → Returns: { localAmount: 82500, currency: 'NGN', symbol: '₦', rate: 1650, rateAge: '2 min ago' }
+
+  async getPaymentOptions(amountUsd)
+    → Returns all 7 crypto payment options with live amounts:
+    → [
+         { coin: 'BTC', amount: 0.000514, symbol: 'BTC', logo: '₿', network: 'Bitcoin' },
+         { coin: 'ETH', amount: 0.01572, symbol: 'ETH', logo: 'Ξ', network: 'Ethereum' },
+         { coin: 'USDT', amount: 50.00, symbol: 'USDT', logo: '₮', network: 'Tron/Ethereum' },
+         { coin: 'USDC', amount: 50.00, symbol: 'USDC', logo: 'USDC', network: 'Ethereum' },
+         { coin: 'BNB', amount: 0.0735, symbol: 'BNB', logo: 'BNB', network: 'BNB Smart Chain' },
+         { coin: 'SOL', amount: 0.2702, symbol: 'SOL', logo: 'SOL', network: 'Solana' },
+         { coin: 'LTC', amount: 0.4464, symbol: 'LTC', logo: 'Ł', network: 'Litecoin' }
+       ]
+
+  getCurrencyInfo(currencyCode)
+    → Returns full currency info for any ISO 4217 currency code
+    → Covers 180+ fiat currencies (not just African)
+
+5.4 — CACHING ARCHITECTURE FOR RATES
+───────────────────────────────────────
+  Fiat rates cache TTL:   15 minutes  (fiat doesn't move fast)
+  Crypto rates cache TTL: 60 seconds  (crypto moves fast — IMPORTANT)
+  Rate data stored in:    Memory cache (Map) + optionally Redis if available
+
+  Rate staleness indicator:
+    → Every displayed price includes "Rate from X seconds ago"
+    → If rate is >5 min old for crypto → show warning: "Rate may be outdated — refresh"
+    → Rates auto-refresh in browser every 30 seconds on wallet/checkout pages
+
+5.5 — RATE LOCK AT INVOICE CREATION
+──────────────────────────────────────
+  When a user initiates a payment:
+    - The exact crypto amount is calculated at that moment
+    - This rate is LOCKED for 20 minutes (NOWPayments invoice expiry)
+    - After 20 min the invoice expires and a new one must be created
+    - User sees countdown: "Rate locked for 18:42"
+    - This protects both user and platform from rate swings during payment
+
+5.6 — FRONTEND: CurrencyDisplay COMPONENT
+───────────────────────────────────────────
+  Displays: "$50.00 USD  ≈  ₦82,500 NGN"
+  Live update: Refreshes every 30 seconds
+  User interaction:
+    - Tap/click to toggle between fiat display and crypto display
+    - e.g., toggle shows: "≈ 0.000514 BTC" or "≈ 50.00 USDT"
+  Tooltip shows:
+    - "1 BTC = $97,250 (updated 45s ago)"
+    - "Rate source: CoinGecko"
+
+5.7 — PAYMENT FLOW UI (user selects crypto)
+─────────────────────────────────────────────
+  Step 1: User sees price in their local currency:   "₦82,500 NGN"
+  Step 2: User clicks "Pay Now"
+  Step 3: Modal/page shows all 7 crypto options with live amounts:
+           ┌─────────────────────────────────────────────────────┐
+           │  Choose how to pay ₦82,500 (~$50 USD)              │
+           │                                                      │
+           │  [₿ BTC]    0.000514 BTC    ← Tap to Select        │
+           │  [Ξ ETH]    0.01572 ETH                            │
+           │  [₮ USDT]   50.00 USDT     ← Recommended 🌟        │
+           │  [  USDC]   50.00 USDC                             │
+           │  [  BNB ]   0.0735 BNB                             │
+           │  [  SOL ]   0.2702 SOL                             │
+           │  [Ł LTC ]   0.4464 LTC                             │
+           │                                                      │
+           │  Rates update in 18:42  [Refresh rates]            │
+           └─────────────────────────────────────────────────────┘
+  Step 4: User selects coin → NOWPayments creates invoice
+  Step 5: QR code + wallet address shown with countdown timer
+  Step 6: Polling every 10 seconds to check payment status
+  Step 7: On confirmed → real-time socket update → wallet credited
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — HOW MONEY FLOWS (OWNER CONTROL ARCHITECTURE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  USER DEPOSITS                                                          │
+  │  User sends crypto → NOWPayments detects it on-chain                   │
+  │  → Webhook fires → MongoDB Transaction.status = 'completed'            │
+  │  → Virtual wallet balance increases                                     │
+  │  → Your NOWPayments wallet receives the actual crypto                  │
+  │  → You are the custodian of all user funds                             │
+  └─────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  SERVICE BOOKING (Escrow)                                               │
+  │  Client creates escrow → Deducted from virtual balance                 │
+  │  Money stays in YOUR crypto wallet — MongoDB just tracks the obligation │
+  └─────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  SERVICE COMPLETION (Provider enters PIN)                               │
+  │  EscrowManager.releaseEscrow() is called                               │
+  │                                                                         │
+  │  NEW: Before release, deduct platform fee:                             │
+  │    platformCut  = amount × PLATFORM_FEE_PERCENT (e.g., 10%)           │
+  │    providerPays = amount - platformCut                                  │
+  │                                                                         │
+  │  Transaction { type: 'platform_revenue', amount: platformCut }         │
+  │  Transaction { type: 'earning', amount: providerPays, provider_id }    │
+  │  → Provider virtual balance increases by providerPays                  │
+  │  → Platform virtual balance increases by platformCut                   │
+  └─────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  PROVIDER WITHDRAWAL                                                    │
+  │  Provider goes to Wallet → clicks Withdraw                             │
+  │  Enters their crypto wallet address + chooses currency                  │
+  │  POST /api/payments/withdraw                                            │
+  │    → Validates virtual balance >= requested amount                     │
+  │    → Creates withdrawal Transaction { status: 'pending' }             │
+  │    → Calls NOWPayments POST /v1/payout                                 │
+  │    → NOWPayments sends crypto ON-CHAIN to provider address             │
+  │    → Payout webhook confirms → Transaction.status = 'completed'        │
+  └─────────────────────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  OWNER (YOU) SEES MONEY VIA                                             │
+  │  1. NOWPayments Dashboard (app.nowpayments.io)                         │
+  │     → Total received, total paid out, net balance, transaction list    │
+  │  2. GET /api/admin/revenue (new admin-only endpoint)                   │
+  │     → Platform fees collected by currency and period                   │
+  │     → Total deposits, total payouts, active users, active escrows     │
+  │     → Net platform earnings after all payouts                         │
+  │  3. MongoDB Transaction collection (full audit trail)                  │
+  │     → Every single money movement recorded with timestamp, user, type │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — FILES TO CREATE (NEW)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  server/services/CurrencyManager.js
+    → Live fiat rates (ExchangeRate-API + 2 fallbacks)
+    → Live crypto rates (CoinGecko + 2 fallbacks)
+    → convert*() methods
+    → getPaymentOptions(amountUsd)
+    → Cache layer (memory + optional Redis)
+
+  server/services/NOWPaymentsManager.js
+    → createInvoice(priceAmountUsd, payCurrency, metadata)
+    → checkPaymentStatus(paymentId)
+    → createPayout(address, amount, currency, ipnCallbackUrl)
+    → getAvailableCurrencies()
+    → verifyWebhookSignature(body, signature)
+    → getMinimumPaymentAmount(currency)
+
+  server/services/PayoutManager.js
+    → sendPayout(userId, walletAddress, amount, currency)
+    → validateBalance(userId, amount, currency)
+    → getPendingPayouts()
+    → processPayoutWebhook(webhookData)
+
+  server/services/LocationIntelligence.js
+    → detectCountry(ip, browserHints, userId)  ← waterfall logic
+    → lookupIPWithFallback(ip)                 ← multi-provider
+    → reverseGeocode(lat, lng)                 ← GPS to country
+    → detectVPN(ip)
+    → cacheUserLocation(userId, locationData)
+    → getUserLocation(userId)
+
+  server/routes/admin.js (update existing or extend)
+    → GET /api/admin/revenue
+    → GET /api/admin/payouts/pending
+    → POST /api/admin/payouts/:id/approve
+    → GET /api/admin/transactions
+
+  client/src/services/CurrencyService.js (frontend)
+    → fetchLiveRates()
+    → formatPrice(amountUsd, userCurrency)
+    → formatCryptoAmount(amountUsd, cryptoSymbol)
+    → startAutoRefresh(intervalSeconds)
+
+  client/src/components/CryptoPaymentModal.js (frontend)
+    → Shows all 7 crypto options with live rates
+    → QR code display
+    → Countdown timer
+    → Status polling
+
+  client/src/components/SmartCurrencyDisplay.js (frontend)
+    → Displays price in local currency
+    → Live updating
+    → Toggle to crypto display
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8 — FILES TO MODIFY (EXISTING)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  server/services/CryptoPaymentManager.js
+    REWRITE to wrap NOWPaymentsManager.js
+    Remove: coinbase-commerce-node dependency
+    Remove: bitcoinjs-lib manual keypair generation
+    Remove: Math.random() fake verification
+    Add: All methods delegate to NOWPaymentsManager
+
+  server/services/CountryManager.js
+    MODIFY getSupportedAfricanCountries():
+      Remove: paystackSupport, cryptoPlatforms fields (no longer relevant)
+      Add: full country data for ALL world countries via ISO standard
+      Add: preferred crypto per region (USDT for Africa, ETH for Europe, etc.)
+    MODIFY getUserCountry():
+      Replace single-source IP check with LocationIntelligence.detectCountry()
+    ADD: getLocalCurrency(countryCode) method that calls CurrencyManager
+
+  server/services/IPGeolocation.js
+    ADD: lookupWithFallback(ip) method with 3-provider chain
+    ADD: Multi-provider result merger (returns most confident result)
+    IMPROVE: Smart local/private IP handling in production (use request headers)
+    ADD: X-Forwarded-For, CF-Connecting-IP, X-Real-IP header parsing for proxied apps
+
+  server/services/EscrowManager.js
+    MODIFY: releaseEscrow()
+      ADD platform fee deduction before releasing to provider
+      ADD platform_revenue Transaction creation
+      ADD optional auto-payout trigger if provider has wallet address on file
+
+  server/routes/payments.js
+    REMOVE: All Paystack routes (paystack/initialize, paystack/inline-initialize, verify-inline)
+    REMOVE: paystack-webhook handler
+    REMOVE: coinbase-webhook handler  
+    REMOVE: createStripePayment, confirmStripePayment helper functions
+    REMOVE: createPaystackPayment, confirmPaystackPayment helper functions
+    KEEP:   GET /currencies (update to use CurrencyManager)
+    KEEP:   GET /transactions
+    ADD:    POST /crypto/create-invoice
+    ADD:    GET  /crypto/status/:paymentId
+    ADD:    POST /nowpayments-webhook
+    ADD:    POST /withdraw
+    ADD:    GET  /rates (live rates endpoint for frontend)
+    ADD:    GET  /payment-options/:amountUsd (returns all 7 crypto options with live amounts)
+
+  server/routes/subscriptions.js
+    REMOVE: Paystack subscription block (lines 123-200)
+    ADD:    NOWPayments invoice creation for subscription payment
+    ADD:    nowpayments-webhook handles subscription activation
+
+  server/routes/sugarAccess.js
+    REMOVE: req.paystackManager.initializePayment() call
+    REMOVE: req.paystackManager.verifyPayment() call
+    ADD:    NOWPayments invoice for sugar access payments
+
+  server/index.js
+    REMOVE: PaystackManager import, instantiation, initialization
+    REMOVE: BitnobManager import, instantiation, initialization
+    ADD:    NOWPaymentsManager import, instantiation, initialization
+    ADD:    CurrencyManager import, instantiation, initialization
+    ADD:    PayoutManager import, instantiation, initialization
+    ADD:    LocationIntelligence import, instantiation, initialization
+    MODIFY: req injection middleware — add noWPaymentsManager, currencyManager, payoutManager
+    MODIFY: Service health check to include new services
+
+  server/.env
+    REMOVE: PAYSTACK_SECRET_KEY, PAYSTACK_PUBLIC_KEY
+    REMOVE: STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY
+    REMOVE: BITNOB_API_KEY, BITNOB_SECRET_KEY
+    REMOVE: COINBASE_COMMERCE_API_KEY, COINBASE_WEBHOOK_SECRET
+    ADD:    NOWPAYMENTS_API_KEY=your_key_from_nowpayments_io
+    ADD:    NOWPAYMENTS_IPN_SECRET=your_ipn_secret_string
+    ADD:    NOWPAYMENTS_BASE_URL=https://api.nowpayments.io
+    ADD:    EXCHANGE_RATE_API_KEY=your_key_from_exchangerate-api.com
+    ADD:    COINGECKO_API_KEY=  (optional - free tier works without key)
+    ADD:    PLATFORM_WALLET_BTC=bc1q...your_btc_address
+    ADD:    PLATFORM_WALLET_ETH=0x...your_eth_address
+    ADD:    PLATFORM_WALLET_USDT=0x...your_usdt_address (ERC-20)
+    ADD:    PLATFORM_FEE_PERCENT=10
+    ADD:    SUPPORTED_CRYPTO=BTC,ETH,USDT,USDC,BNB,SOL,LTC
+    ADD:    FIAT_RATE_CACHE_TTL_SECONDS=900
+    ADD:    CRYPTO_RATE_CACHE_TTL_SECONDS=60
+    ADD:    NOWPAYMENTS_SANDBOX=false (set true for testing)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9 — IMPLEMENTATION PHASES (BUILD ORDER)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1 — FOUNDATION (Backend services, no UI changes)
+────────────────────────────────────────────────────────
+  [1.1] Sign up on NOWPayments + ExchangeRate-API (both free tiers available)
+        Get: NOWPAYMENTS_API_KEY, NOWPAYMENTS_IPN_SECRET, EXCHANGE_RATE_API_KEY
+        Set up your payout wallet addresses in NOWPayments dashboard
+
+  [1.2] Create server/services/NOWPaymentsManager.js
+        Methods: createInvoice, checkStatus, createPayout, verifyWebhook, getCurrencies
+
+  [1.3] Create server/services/CurrencyManager.js
+        Methods: getLiveFiatRates, getLiveCryptoRates, convert*(), getPaymentOptions
+        Wire 3-provider fallback for fiat, 3-provider fallback for crypto
+
+  [1.4] Rewrite server/services/CryptoPaymentManager.js
+        Delegates all calls to NOWPaymentsManager — thin wrapper
+
+  [1.5] Update server/.env with new keys, remove old ones
+
+  [1.6] Inject new services in server/index.js
+        Add: req.nowPaymentsManager, req.currencyManager, req.payoutManager
+
+PHASE 2 — LOCATION INTELLIGENCE UPGRADE
+──────────────────────────────────────────
+  [2.1] Create server/services/LocationIntelligence.js
+        Waterfall: savedPreference → GPS → browserHints → IP → phone → fallback
+
+  [2.2] Upgrade server/services/IPGeolocation.js
+        Add lookupWithFallback(), improve header parsing, add VPN notification flag
+
+  [2.3] Update server/services/CountryManager.js
+        Replace getSupportedAfricanCountries with full world country list
+        Replace getUserCountry with LocationIntelligence.detectCountry
+        Add getLocalCurrency method
+
+  [2.4] Add new endpoint: GET /api/location/detect
+        Returns: { countryCode, currency, confidence, isVpnDetected }
+        Called by frontend on app load
+
+PHASE 3 — PAYMENT ROUTES MIGRATION
+────────────────────────────────────
+  [3.1] Rewrite server/routes/payments.js
+        Remove all Paystack/Stripe/Coinbase/Bitnob code
+        Add: POST /crypto/create-invoice
+        Add: GET /crypto/status/:paymentId
+        Add: POST /nowpayments-webhook (with HMAC-SHA512 verification)
+        Add: POST /withdraw
+        Add: GET /rates
+        Add: GET /payment-options/:amountUsd
+        Keep: GET /transactions, GET /currencies (updated)
+
+  [3.2] Update server/routes/subscriptions.js
+        Remove Paystack block, add NOWPayments invoice creation
+
+  [3.3] Update server/routes/sugarAccess.js
+        Remove paystackManager calls, add NOWPayments invoice
+
+  [3.4] Update server/services/EscrowManager.js
+        Add platform fee cut in releaseEscrow()
+        Create platform_revenue transaction record
+        Add optional auto-payout to provider
+
+  [3.5] Create server/services/PayoutManager.js
+        sendPayout(), validateBalance(), processPayoutWebhook()
+
+PHASE 4 — FRONTEND CURRENCY SYSTEM
+────────────────────────────────────
+  [4.1] Create client/src/services/CurrencyService.js
+        fetchLiveRates() polling every 30s
+        formatPrice(), formatCryptoAmount()
+        Redux store integration for rates state
+
+  [4.2] Create client/src/components/SmartCurrencyDisplay.js
+        Shows price in local currency + toggle to crypto
+        Live-updating, shows rate age
+
+  [4.3] Create client/src/components/CryptoPaymentModal.js
+        All 7 crypto options with live amounts
+        QR code, countdown, status polling via socket.io
+
+  [4.4] Update client/src/components/country/CountrySelector.js
+        Add smart detection banner ("Is this your country?")
+        Add global country list (not just Africa)
+        Real-time currency update on country change
+
+PHASE 5 — ADMIN REVENUE DASHBOARD
+────────────────────────────────────
+  [5.1] Update/extend server/routes/admin.js
+        GET /api/admin/revenue — total fees, deposits, payouts by period
+        GET /api/admin/payouts/pending — list of pending withdrawals
+        GET /api/admin/transactions — full audit trail with filters
+
+  [5.2] Optional: Admin frontend dashboard page
+        Shows owner: total platform revenue, pending payouts, crypto balances
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 10 — NEW npm PACKAGES NEEDED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  server/package.json — ADD:
+    "@nowpaymentsio/nowpayments-api-js": "^1.0.0"   NOWPayments SDK
+    "node-cache": "^5.1.2"                           Better in-memory caching for rates
+
+  server/package.json — REMOVE:
+    "paystack": "^2.0.1"                             No longer needed
+    "coinbase-commerce-node": (if present)            Replaced by NOWPayments
+    "stripe": (if present)                            Removed
+
+  client/package.json — ADD:
+    "qrcode.react": "^3.1.0"                         QR code display for crypto addresses
+    (no other new dependencies needed — axios already installed)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 11 — API KEYS TO OBTAIN (BEFORE CODING BEGINS)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  REQUIRED:
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │  1. NOWPayments API Key                                                     │
+  │     URL:  https://app.nowpayments.io/store/api-keys                        │
+  │     ENV:  NOWPAYMENTS_API_KEY                                               │
+  │     Cost: Free (they take a 0.5% fee per transaction — no monthly charge)  │
+  │                                                                             │
+  │  2. NOWPayments IPN Secret (for webhook verification)                      │
+  │     URL:  https://app.nowpayments.io/store/api-keys (same page)            │
+  │     ENV:  NOWPAYMENTS_IPN_SECRET                                           │
+  │     Note: Set this to any strong random string you choose                  │
+  │                                                                             │
+  │  3. ExchangeRate-API Key (for live fiat rates)                             │
+  │     URL:  https://app.exchangerate-api.com/sign-up                         │
+  │     ENV:  EXCHANGE_RATE_API_KEY                                             │
+  │     Cost: Free tier = 1,500 req/month (enough for development)             │
+  │           Paid = $10/month for unlimited                                   │
+  │                                                                             │
+  │  4. Your cryptocurrency wallet addresses (for receiving platform fees)     │
+  │     ENV:  PLATFORM_WALLET_BTC, PLATFORM_WALLET_ETH, PLATFORM_WALLET_USDT  │
+  │     Note: Use a hardware wallet (Ledger/Trezor) for production             │
+  └─────────────────────────────────────────────────────────────────────────────┘
+
+  OPTIONAL (already have or not needed):
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │  5. CoinGecko API Key                                                       │
+  │     URL:  https://www.coingecko.com/en/api/pricing                         │
+  │     ENV:  COINGECKO_API_KEY                                                │
+  │     Cost: Free tier works without a key at 30 calls/min                   │
+  │           Only needed if you exceed free limits                            │
+  │                                                                             │
+  │  6. ipgeolocation.io API Key (ALREADY HAVE in .env)                        │
+  │     ENV:  IP_GEOLOCATION_API_KEY = 1d24707d2a554ee697b852f28dd6533e        │
+  │     Note: Already integrated, just needs improvement to the service class  │
+  └─────────────────────────────────────────────────────────────────────────────┘
+
+  DELETE FROM .env (no longer needed):
+    PAYSTACK_SECRET_KEY
+    PAYSTACK_PUBLIC_KEY
+    STRIPE_SECRET_KEY
+    STRIPE_PUBLISHABLE_KEY
+    BITNOB_API_KEY
+    BITNOB_SECRET_KEY
+    COINBASE_COMMERCE_API_KEY
+    COINBASE_WEBHOOK_SECRET
+    BITCOIN_NETWORK (handled by NOWPayments)
+    ETHEREUM_RPC_URL (handled by NOWPayments)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 12 — CURRENCY DISPLAY LOGIC (COMPLETE USER EXPERIENCE FLOW)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SCENARIO A: NEW USER, FIRST VISIT
+  ───────────────────────────────────
+  User opens Zerohook from Nigeria (IP detected):
+    → LocationIntelligence detects: Nigeria (confidence: high, method: ipgeolocation_io)
+    → Currency auto-set to: NGN (₦)
+    → Banner shown: "📍 Showing prices in Nigerian Naira (₦). Not right? Change"
+    → User dismisses banner → preference saved
+    → All service prices shown in NGN with live rate applied
+
+  SCENARIO B: RETURNING USER, SAVED PREFERENCE
+  ──────────────────────────────────────────────
+  User logs in from Kenya:
+    → System checks User.profile_data.location.country → "NG" (saved Nigeria)
+    → Shows prices in NGN (their saved preference, even though now in Kenya)
+    → Optional banner: "Looks like you're in Kenya now. Update currency? [Yes] [Keep NGN]"
+
+  SCENARIO C: USER ON VPN
+  ─────────────────────────
+  User connects via VPN (US exit node detected):
+    → VPN detected via security check
+    → Do NOT auto-assign USD
+    → Show: "We can't detect your location accurately. Please select your country:"
+    → Country dropdown shown immediately
+    → User selects → saved to profile
+
+  SCENARIO D: USER MANUALLY CHANGES CURRENCY
+  ─────────────────────────────────────────────
+  User clicks currency selector in header:
+    → Dropdown shows:
+        LOCAL CURRENCIES (fiat - display only):
+          🇳🇬 Nigerian Naira (NGN ₦)
+          🇬🇭 Ghanaian Cedi (GHS ₵)
+          🇰🇪 Kenyan Shilling (KES KSh)
+          🇿🇦 South African Rand (ZAR R)
+          🇺🇸 US Dollar (USD $)
+          🇬🇧 British Pound (GBP £)
+          🇪🇺 Euro (EUR €)
+          ... all 180+ fiat currencies
+        CRYPTO DISPLAY (show prices in crypto):
+          ₿ Bitcoin (BTC)
+          ₮ Tether (USDT)
+          Ξ Ethereum (ETH)
+          ... all 7 supported coins
+    → Selection saved to User preferences
+    → All prices on page update immediately (no page reload)
+    → Note shown: "Prices shown in [selected currency] — you still pay with crypto"
+
+  SCENARIO E: PAYMENT MOMENT (user initiates payment)
+  ─────────────────────────────────────────────────────
+  User clicks "Pay ₦16,500 for service":
+    → CurrencyManager.getPaymentOptions(10) called (10 USD ≈ ₦16,500)
+    → CryptoPaymentModal opens showing 7 options
+    → User taps USDT → NOWPaymentsManager.createInvoice(10, 'usdt') called
+    → Invoice created: pay exactly 10.00 USDT to address TXxxx...
+    → QR code shown, countdown 20 minutes
+    → User scans QR with their wallet app, sends exactly 10.00 USDT
+    → NOWPayments detects payment on Tron network
+    → Webhook fires → MongoDB updated → socket event → UI shows "Payment Received ✅"
+    → User's Zerohook wallet credited
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 13 — PLATFORM FEE STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Service transaction:  PLATFORM_FEE_PERCENT (default 10%)
+  Subscription fee:     No platform cut (subscription is pure platform revenue)
+  Deposit:              No cut (users top up wallets)
+  Withdrawal:           Small flat fee in crypto (e.g., 1 USDT) to cover gas
+
+  Fee deduction happens in: EscrowManager.releaseEscrow()
+  Fee recorded as:          Transaction { type: 'platform_revenue' }
+  Fee currency:             Same as the escrow transaction's currency
+  Fee visibility to owner:  GET /api/admin/revenue
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 14 — TESTING CHECKLIST (per phase)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Phase 1 Tests:
+  [ ] NOWPaymentsManager.createInvoice() returns valid pay_address and amount
+  [ ] CurrencyManager.getLiveFiatRates() returns NGN, GHS, KES, ZAR, EUR, GBP
+  [ ] CurrencyManager.getLiveCryptoRates() returns BTC, ETH, USDT, USDC, BNB, SOL, LTC
+  [ ] CurrencyManager.getPaymentOptions(50) returns correct amounts for all 7 coins
+  [ ] Fallback triggers when primary rate provider is down
+  [ ] Server starts without Paystack/Bitnob errors
+
+  Phase 2 Tests:
+  [ ] Nigerian IP returns NG country, NGN currency
+  [ ] Ghanaian IP returns GH country, GHS currency
+  [ ] VPN IP returns vpnDetected: true, no auto-currency
+  [ ] Saved user preference overrides IP detection
+  [ ] GPS coordinates reverse-geocode to correct country
+
+  Phase 3 Tests:
+  [ ] POST /api/payments/crypto/create-invoice creates NOWPayments invoice
+  [ ] HMAC webhook signature verification works correctly
+  [ ] Webhook updates Transaction status to 'completed'
+  [ ] Socket.io event fires on payment confirmation
+  [ ] POST /api/payments/withdraw deducts virtual balance and creates payout
+  [ ] EscrowManager.releaseEscrow() now deducts 10% platform fee
+  [ ] platform_revenue Transaction is created correctly
+  [ ] Subscription payment creates NOWPayments invoice
+  [ ] Subscription activates when webhook confirms payment
+
+  Phase 4 Tests:
+  [ ] SmartCurrencyDisplay shows correct local currency
+  [ ] Display updates when country is changed
+  [ ] CryptoPaymentModal shows all 7 coins with correct amounts
+  [ ] QR code displays correct payment address
+  [ ] Countdown timer counts down correctly
+  [ ] Payment confirmed notification appears in UI
+
+  Phase 5 Tests:
+  [ ] GET /api/admin/revenue returns accurate totals
+  [ ] platform_revenue transactions are included in revenue report
+  [ ] Admin route requires authentication + admin role
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 15 — SUMMARY TABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FEATURE                    BEFORE                AFTER
+  ─────────────────────────  ────────────────────  ──────────────────────────────────
+  Payment gateway            Paystack (no docs)    NOWPayments (full API access)
+  Crypto deposit (BTC)       MOCKED (Math.random)  Real on-chain via NOWPayments
+  Crypto deposit (ETH/USDT)  Coinbase Commerce     NOWPayments (same + more coins)
+  Ghana payments             Bitnob only           USDT/USDC via NOWPayments
+  Fiat payments              Paystack + Stripe     REMOVED (crypto only)
+  Supported coins            BTC, ETH (broken)     BTC, ETH, USDT, USDC, BNB, SOL, LTC
+  Provider payout            Not implemented       NOWPayments /v1/payout (real on-chain)
+  Platform fee               0% (nothing taken)    10% deducted in releaseEscrow()
+  Price display currency     Hardcoded per country Auto-detected from location, user-switchable
+  Fiat rate source           None (hardcoded)      ExchangeRate-API live (15min cache)
+  Crypto rate source         Fake random numbers   CoinGecko live API (60sec cache)
+  Currency conversion        Not implemented       Full live conversion via CurrencyManager
+  Location detection         IP only (single src)  7-source waterfall + VPN detection
+  Country support            10 African countries  All countries worldwide (250+)
+  Payment options UI         No choice shown       7-coin selector with live amounts + QR
+  Owner revenue visibility   Paystack dashboard    NOWPayments + /api/admin/revenue
+  Webhook security           Paystack HMAC-SHA512  NOWPayments HMAC-SHA512 (same pattern)
+
+================================================================================
+END OF DOCUMENT
+================================================================================

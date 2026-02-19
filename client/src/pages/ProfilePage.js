@@ -79,7 +79,7 @@ const ProfilePage = () => {
     countryCode: '',
     age: 25,
     basePrice: '',
-    priceCurrency: 'NGN',
+    priceCurrency: 'USD',
     profilePicture: null,
     trustScore: 0,
     verificationTier: 1,
@@ -183,7 +183,7 @@ const ProfilePage = () => {
         countryCode: user.profile_data?.location?.countryCode || '',
         age: user.profile_data?.age || 25,
         basePrice: user.profile_data?.basePrice || '',
-        priceCurrency: user.profile_data?.priceCurrency || 'NGN',
+        priceCurrency: user.profile_data?.priceCurrency || 'USD',
         profilePicture: user.profile_data?.profile_picture?.url || user.profile_data?.profilePicture || null,
         trustScore: user.reputation_score || 75,
         verificationTier: user.verification_tier || 1,
@@ -721,11 +721,12 @@ const ProfilePage = () => {
                 <FormControl sx={{ minWidth: 120, ...styles.textField }}>
                   <InputLabel sx={{ color: 'rgba(255,255,255,0.7)' }}>Currency</InputLabel>
                   <Select
-                    value={editData.priceCurrency || 'NGN'}
+                    value={editData.priceCurrency || 'USD'}
                     onChange={(e) => setEditData({ ...editData, priceCurrency: e.target.value })}
                     label="Currency"
                     sx={{ color: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' } }}
                   >
+                    <MenuItem value="USD">🇺🇸 $ USD</MenuItem>
                     <MenuItem value="NGN">🇳🇬 ₦ NGN</MenuItem>
                     <MenuItem value="GHS">🇬🇭 GH₵ GHS</MenuItem>
                     <MenuItem value="KES">🇰🇪 KSh KES</MenuItem>
@@ -1045,7 +1046,11 @@ const styles = {
   },
   formRow: {
     display: 'flex',
-    gap: '12px'
+    gap: '12px',
+    flexWrap: 'wrap',
+    '@media (max-width: 600px)': {
+      flexDirection: 'column'
+    }
   },
   textField: {
     '& .MuiOutlinedInput-root': {

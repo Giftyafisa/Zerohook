@@ -11,9 +11,8 @@ const adminMiddleware = async (req, res, next) => {
     const { User } = require('../config/database');
     const user = await User.findById(req.user.userId);
     
-    // Check if user is admin (you can set this in profile_data.isAdmin or a dedicated field)
-    const isAdmin = user?.profile_data?.isAdmin === true || 
-                    user?.profile_data?.role === 'admin' ||
+    // Check if user is admin using dedicated field (not profile_data which users can modify)
+    const isAdmin = user?.is_admin === true || 
                     user?.verification_tier >= 5; // Or use high verification tier
     
     if (!isAdmin) {

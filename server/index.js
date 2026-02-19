@@ -10,6 +10,10 @@ const fs = require('fs');
 const envPath = process.env.NODE_ENV === 'production' ? './env.production' : './env.local';
 require('dotenv').config({ path: envPath });
 console.log(`🔧 Loading environment from: ${envPath}`);
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 32) {
+  console.error('❌ JWT_SECRET is missing or too weak. Set a strong secret (min 32 chars).');
+  process.exit(1);
+}
 const jwt = require('jsonwebtoken');
 
 const { router: authRoutes } = require('./routes/auth');
@@ -41,14 +45,13 @@ const adminRoutes = require('./routes/admin');
 const TrustEngine = require('./services/TrustEngine');
 const FraudDetection = require('./services/FraudDetection');
 const EscrowManager = require('./services/EscrowManager');
-const PaystackManager = require('./services/PaystackManager');
 const CryptoPaymentManager = require('./services/CryptoPaymentManager');
 const CountryManager = require('./services/CountryManager');
-const BitnobManager = require('./services/BitnobManager');
+const CurrencyManager = require('./services/CurrencyManager');
 const UserConnectionManager = require('./services/UserConnectionManager');
 const ConversationService = require('./services/ConversationService');
 const SystemHealthService = require('./services/SystemHealthService');
-const RecommendationEngine = require('./services/RecommendationEngine');
+const MongoRecommendationEngine = require('./services/MongoRecommendationEngine');
 const CloudinaryManager = require('./services/CloudinaryManager');
 const RealtimeLocationManager = require('./services/RealtimeLocationManager');
 const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
@@ -94,7 +97,7 @@ io.use((socket, next) => {
       return next(new Error('Authentication error'));
     }
 
-    const jwtSecret = process.env.JWT_SECRET || 'dev-secret';
+    const jwtSecret = process.env.JWT_SECRET;
     let payload;
     let tokenSource = tokenFromAuth ? 'auth.token' : 'authorization header';
     try {
@@ -178,46 +181,39 @@ const limiter = rateLimit({
   legacyHeaders: false,
   validate: { xForwardedForHeader: false }, // Disable X-Forwarded-For validation warning
   skip: (req) => {
-    // Skip rate limiting for essential endpoints that are called frequently on page load
+    // Skip rate limiting only for health checks and country/geo detection
     const p = req.path || '';
     return p === '/api/health' ||
            p.startsWith('/api/health/') ||
-           p === '/api/auth/login' ||
-           p === '/api/auth/register' ||
-           p.startsWith('/api/auth/') ||
-           p.startsWith('/api/subscriptions/') ||
-           p.startsWith('/api/countries') ||       // Country detection - called on every page load
-           p.startsWith('/api/geolocation/');      // IP detection - called on every page load
+           p.startsWith('/api/countries') ||
+           p.startsWith('/api/geolocation/');
   }
 });
 
 // Apply rate limiting to all routes EXCEPT the skipped ones
 app.use('/api/', (req, res, next) => {
   const p = req.path || '';
-  // Skip rate limiting for essential infrastructure routes
-  if (p.startsWith('/auth/') || 
-      p.startsWith('/subscriptions/') || 
+  // Skip rate limiting for infrastructure routes only
+  if (p === '/health' || p.startsWith('/health/') ||
       p.startsWith('/countries') ||
-      p.startsWith('/geolocation/') ||
-      p === '/health' || p.startsWith('/health/')) {
+      p.startsWith('/geolocation/')) {
     return next();
   }
   return limiter(req, res, next);
 });
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Initialize services
 const trustEngine = new TrustEngine();
 const fraudDetection = new FraudDetection();
 const escrowManager = new EscrowManager();
-const paystackManager = new PaystackManager();
 const cryptoPaymentManager = new CryptoPaymentManager();
 const countryManager = new CountryManager();
-const bitnobManager = new BitnobManager();
+const currencyManager = new CurrencyManager();
 const userConnectionManager = new UserConnectionManager();
-const recommendationEngine = new RecommendationEngine();
+const recommendationEngine = new MongoRecommendationEngine();
 const cloudinaryManager = new CloudinaryManager();
 const LocationTrackingService = require('./services/LocationTrackingService');
 const locationTrackingService = new LocationTrackingService();
@@ -294,17 +290,17 @@ const conversationService = new ConversationService();
   }
 
   try {
-    await paystackManager.initialize();
-    console.log('✅ Paystack Manager initialized');
-  } catch (error) {
-    console.error('❌ Paystack Manager initialization failed:', error);
-  }
-
-  try {
     await cryptoPaymentManager.initialize();
     console.log('✅ Crypto Payment Manager initialized');
   } catch (error) {
     console.error('❌ Crypto Payment Manager initialization failed:', error);
+  }
+
+  try {
+    await currencyManager.initialize();
+    console.log('✅ Currency Manager initialized');
+  } catch (error) {
+    console.error('❌ Currency Manager initialization failed:', error);
   }
 
   try {
@@ -335,12 +331,7 @@ const conversationService = new ConversationService();
     console.error('❌ TikTok Engagement Tracker initialization failed:', error);
   }
 
-  try {
-    await bitnobManager.initialize();
-    console.log('✅ Bitnob Manager initialized');
-  } catch (error) {
-    console.error('❌ Bitnob Manager initialization failed:', error);
-  }
+
 
   try {
     await userActivityMonitor.initialize();
@@ -362,10 +353,9 @@ app.use((req, res, next) => {
   req.trustEngine = trustEngine;
   req.fraudDetection = fraudDetection;
   req.escrowManager = escrowManager;
-  req.paystackManager = paystackManager;
   req.cryptoPaymentManager = cryptoPaymentManager;
   req.countryManager = countryManager;
-  req.bitnobManager = bitnobManager;
+  req.currencyManager = currencyManager;
   req.userActivityMonitor = userActivityMonitor;
   req.performanceMetrics = performanceMetrics;
   req.conversationService = conversationService;
@@ -579,6 +569,12 @@ io.on('connection', async (socket) => {
 
     // ===== CALL SYSTEM EVENTS =====
     
+    // Normalize call room ID so both parties always join the same room
+    function getCallRoomId(userId1, userId2) {
+      const sorted = [String(userId1), String(userId2)].sort();
+      return `call_${sorted[0]}_${sorted[1]}`;
+    }
+
     // Handle call requests
     socket.on('call_request', async (data) => {
       try {
@@ -593,8 +589,8 @@ io.on('connection', async (socket) => {
           timestamp: new Date().toISOString()
         });
         
-        // Join call room
-        const callRoomId = `call_${data.targetUserId}_${socket.userId}`;
+        // Join call room (normalized)
+        const callRoomId = getCallRoomId(socket.userId, data.targetUserId);
         socket.join(callRoomId);
         
       } catch (error) {
@@ -614,8 +610,8 @@ io.on('connection', async (socket) => {
           timestamp: new Date().toISOString()
         });
         
-        // Join call room
-        const callRoomId = `call_${socket.userId}_${data.targetUserId}`;
+        // Join call room (normalized)
+        const callRoomId = getCallRoomId(socket.userId, data.targetUserId);
         socket.join(callRoomId);
         
       } catch (error) {
@@ -653,8 +649,8 @@ io.on('connection', async (socket) => {
           timestamp: new Date().toISOString()
         });
         
-        // Leave call room
-        const callRoomId = `call_${socket.userId}_${otherUserId}`;
+        // Leave call room (normalized)
+        const callRoomId = getCallRoomId(socket.userId, otherUserId);
         socket.leave(callRoomId);
         
       } catch (error) {
@@ -976,3 +972,23 @@ server.listen(PORT, () => {
     setInterval(keepAlive, PING_INTERVAL);
   }
 });
+
+// Graceful shutdown handler
+function gracefulShutdown(signal) {
+  console.log(`\n⚠️  Received ${signal}. Shutting down gracefully...`);
+  server.close(() => {
+    console.log('✅ HTTP server closed.');
+    io.close(() => {
+      console.log('✅ Socket.IO connections closed.');
+      process.exit(0);
+    });
+  });
+  // Force exit after 10 seconds
+  setTimeout(() => {
+    console.error('❌ Forced shutdown after timeout.');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

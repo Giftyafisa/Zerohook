@@ -1,6 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { User, TrustEvent, FraudLog, Transaction } = require('../config/database');
 const router = express.Router();
 
 /**
@@ -12,17 +13,17 @@ router.get('/score', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    // Verify user exists
-    const userResult = await query(
-      'SELECT username, verification_tier, status, reputation_score FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userResult.rows.length === 0 || userResult.rows[0].status !== 'active') {
-      return res.status(404).json({ error: 'User not found' });
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
     }
 
-    const user = userResult.rows[0];
+    const user = await User.findById(userId)
+      .select('username verification_tier status reputation_score')
+      .lean();
+
+    if (!user || user.status !== 'active') {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     // Calculate trust score using TrustEngine if available
     let trustScoreData;
@@ -35,7 +36,7 @@ router.get('/score', authMiddleware, async (req, res) => {
         score: baseScore,
         level: baseScore >= 90 ? 'Elite' : baseScore >= 75 ? 'Pro' : baseScore >= 50 ? 'Advanced' : 'Basic',
         components: {
-          verification: user.verification_tier === 'verified' ? 100 : user.verification_tier === 'basic' ? 50 : 25,
+          verification: Number(user.verification_tier || 1) >= 3 ? 100 : Number(user.verification_tier || 1) >= 2 ? 70 : 40,
           transactions: 0,
           reviews: 0,
           behavior: 75
@@ -95,17 +96,15 @@ router.get('/score/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
 
-    // Verify user exists
-    const userResult = await query(
-      'SELECT username, verification_tier, status FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userResult.rows.length === 0 || userResult.rows[0].status !== 'active') {
-      return res.status(404).json({ error: 'User not found' });
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
     }
 
-    const user = userResult.rows[0];
+    const user = await User.findById(userId).select('username verification_tier status').lean();
+
+    if (!user || user.status !== 'active') {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     // Calculate trust score
     const trustScoreData = await req.trustEngine.calculateTrustScore(userId);
@@ -133,24 +132,23 @@ router.get('/events', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { page = 1, limit = 50 } = req.query;
-    const offset = (page - 1) * limit;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+    const offset = (pageNum - 1) * limitNum;
 
-    const eventsResult = await query(`
-      SELECT 
-        event_type, event_data, trust_delta, reputation_delta, 
-        created_at, transaction_id
-      FROM trust_events 
-      WHERE user_id = $1
-      ORDER BY created_at DESC
-      LIMIT $2 OFFSET $3
-    `, [userId, limit, offset]);
+    const events = await TrustEvent.find({ user_id: userId })
+      .select('event_type event_data trust_delta reputation_delta created_at transaction_id')
+      .sort({ created_at: -1 })
+      .skip(offset)
+      .limit(limitNum)
+      .lean();
 
     res.json({
-      events: eventsResult.rows,
+      events,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        hasMore: eventsResult.rows.length === parseInt(limit)
+        page: pageNum,
+        limit: limitNum,
+        hasMore: events.length === limitNum
       }
     });
 
@@ -246,23 +244,25 @@ router.post('/report-fraud', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Reported user ID and reason are required' });
     }
 
-    // Record fraud report
-    await query(`
-      INSERT INTO fraud_logs (user_id, transaction_id, fraud_type, confidence_score, evidence, action_taken)
-      VALUES ($1, $2, $3, $4, $5, $6)
-    `, [
-      reportedUserId,
-      transactionId || null,
-      `user_report_${reason}`,
-      0.8, // High confidence for user reports
-      JSON.stringify({
+    if (!mongoose.Types.ObjectId.isValid(reportedUserId)) {
+      return res.status(400).json({ error: 'Invalid reported user ID' });
+    }
+
+    await FraudLog.create({
+      user_id: new mongoose.Types.ObjectId(reportedUserId),
+      transaction_id: transactionId && mongoose.Types.ObjectId.isValid(transactionId)
+        ? new mongoose.Types.ObjectId(transactionId)
+        : undefined,
+      fraud_type: `user_report_${reason}`,
+      confidence_score: 0.8,
+      evidence: {
         reporter_id: reporterId,
         reason,
         evidence: evidence || {},
         timestamp: new Date().toISOString()
-      }),
-      'pending_review'
-    ]);
+      },
+      action_taken: 'pending_review'
+    });
 
     // Record trust event for reported user (negative impact)
     await req.trustEngine.recordTrustEvent(
@@ -297,24 +297,31 @@ router.post('/report-fraud', authMiddleware, async (req, res) => {
 router.get('/leaderboard', async (req, res) => {
   try {
     const { limit = 20 } = req.query;
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-    const leaderboardResult = await query(`
-      SELECT 
-        u.username, u.verification_tier, u.trust_score, u.reputation_score,
-        COUNT(t.id) as total_transactions
-      FROM users u
-      LEFT JOIN transactions t ON (u.id = t.provider_id OR u.id = t.client_id)
-      WHERE u.status = 'active' AND u.trust_score > 0
-      GROUP BY u.id, u.username, u.verification_tier, u.trust_score, u.reputation_score
-      ORDER BY u.trust_score DESC, u.reputation_score DESC
-      LIMIT $1
-    `, [parseInt(limit)]);
+    const users = await User.find({ status: 'active', trust_score: { $gt: 0 } })
+      .select('username verification_tier trust_score reputation_score')
+      .sort({ trust_score: -1, reputation_score: -1 })
+      .limit(limitNum)
+      .lean();
+
+    const leaderboard = await Promise.all(users.map(async (user, index) => {
+      const txCount = await Transaction.countDocuments({
+        $or: [{ provider_id: user._id }, { client_id: user._id }]
+      });
+
+      return {
+        rank: index + 1,
+        username: user.username,
+        verification_tier: user.verification_tier,
+        trust_score: user.trust_score,
+        reputation_score: user.reputation_score,
+        total_transactions: txCount
+      };
+    }));
 
     res.json({
-      leaderboard: leaderboardResult.rows.map((user, index) => ({
-        rank: index + 1,
-        ...user
-      }))
+      leaderboard
     });
 
   } catch (error) {

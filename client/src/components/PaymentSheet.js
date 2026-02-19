@@ -16,38 +16,20 @@ import {
 import {
   Close as CloseIcon,
   Lock as LockIcon,
-  CreditCard as CardIcon,
   AccountBalanceWallet as WalletIcon,
   CheckCircle as CheckIcon,
-  PhoneAndroid as MobileIcon,
-  AccountBalance as BankIcon
+  CurrencyBitcoin as CryptoIcon
 } from '@mui/icons-material';
-import PaystackPop from '@paystack/inline-js';
 import { API_BASE_URL } from '../config/constants';
 import useCurrency from '../hooks/useCurrency';
+import CryptoPayment from './payments/CryptoPayment';
 
-// Country-specific payment channels
-const PAYMENT_CHANNELS_BY_COUNTRY = {
-  NG: { channels: ['card', 'bank', 'ussd', 'bank_transfer'], name: 'Nigeria' },
-  GH: { channels: ['card', 'mobile_money'], name: 'Ghana' },
-  KE: { channels: ['card', 'mobile_money'], name: 'Kenya' },
-  ZA: { channels: ['card', 'eft', 'qr'], name: 'South Africa' },
-  DEFAULT: { channels: ['card'], name: 'International' }
-};
-
-const CHANNEL_NAMES = {
-  card: 'Card',
-  bank: 'Bank',
-  ussd: 'USSD',
-  bank_transfer: 'Transfer',
-  mobile_money: 'Mobile Money',
-  eft: 'EFT',
-  qr: 'QR'
-};
+// Supported crypto symbols
+const SUPPORTED_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'];
 
 /**
  * PaymentSheet - Simple bottom drawer for holding money (escrow)
- * Uses simple labels: "Hold Money", "Release", "Problem"
+ * Uses crypto payments - fee-free direct blockchain transactions
  * Mobile-first design for easy one-hand use
  * 
  * CURRENCY: Automatically uses user's detected country currency
@@ -65,13 +47,13 @@ const PaymentSheet = ({
   const { symbol, currencyCode, countryCode } = useCurrency();
   
   const [amount, setAmount] = useState(suggestedAmount);
-  const [payMethod, setPayMethod] = useState('paystack');
+  const [payMethod, setPayMethod] = useState('crypto');
+  const [cryptoSymbol, setCryptoSymbol] = useState('USDT');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
-
-  // Get country-specific payment channels
-  const countryData = PAYMENT_CHANNELS_BY_COUNTRY[countryCode] || PAYMENT_CHANNELS_BY_COUNTRY.DEFAULT;
+  const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
+  const [showCryptoPayment, setShowCryptoPayment] = useState(false);
   
   // Quick amount buttons - adjusted based on currency
   // These are local currency amounts (not USD)
@@ -112,9 +94,9 @@ const PaymentSheet = ({
           providerId,
           amount: parseFloat(amount),
           currency: currencyCode,
-          paymentMethod: payMethod,
+          paymentMethod: payMethod === 'crypto' ? 'crypto' : 'wallet',
+          cryptoSymbol: payMethod === 'crypto' ? cryptoSymbol : undefined,
           conversationId,
-          channels: countryData.channels,
           description: `Payment to ${providerName}`
         })
       });
@@ -122,46 +104,21 @@ const PaymentSheet = ({
       const data = await response.json();
 
       if (response.ok) {
-        // If Paystack payment with access_code, use inline popup
-        const accessCode = data.accessCode || data.access_code;
-        
-        if (payMethod === 'paystack' && accessCode) {
-          try {
-            const popup = new PaystackPop();
-            await popup.resumeTransaction(accessCode, {
-              onSuccess: (transaction) => {
-                console.log('Payment successful:', transaction);
-                setSuccess(true);
-                setTimeout(() => {
-                  onSuccess && onSuccess({
-                    escrowId: data.transaction?.id || data.escrowId,
-                    amount: parseFloat(amount),
-                    currency: currencyCode,
-                    symbol: symbol,
-                    status: 'held',
-                    reference: transaction.reference
-                  });
-                  onClose();
-                }, 1500);
-              },
-              onCancel: () => {
-                console.log('Payment cancelled');
-                setLoading(false);
-              },
-              onError: (error) => {
-                console.error('Payment error:', error);
-                setError('Payment failed. Please try again.');
-                setLoading(false);
-              }
-            });
-            return; // Popup handles the flow
-          } catch (popupError) {
-            console.error('Popup failed:', popupError);
-            // Continue with standard success flow
-          }
+        if (payMethod === 'crypto' && data.walletAddress) {
+          // Show crypto payment dialog
+          setCryptoPaymentData({
+            walletAddress: data.walletAddress,
+            cryptoAmount: data.cryptoAmount,
+            cryptoSymbol: data.cryptoSymbol || cryptoSymbol,
+            reference: data.reference,
+            expiresAt: data.expiresAt
+          });
+          setShowCryptoPayment(true);
+          setLoading(false);
+          return;
         }
 
-        // Standard success flow (wallet payment or popup fallback)
+        // Standard success flow (wallet payment)
         setSuccess(true);
         setTimeout(() => {
           onSuccess && onSuccess({
@@ -184,17 +141,37 @@ const PaymentSheet = ({
     }
   };
 
+  const handleCryptoPaymentConfirmed = (paymentResult) => {
+    setShowCryptoPayment(false);
+    setCryptoPaymentData(null);
+    setSuccess(true);
+    setTimeout(() => {
+      onSuccess && onSuccess({
+        escrowId: paymentResult?.escrowId,
+        amount: parseFloat(amount),
+        currency: currencyCode,
+        symbol: symbol,
+        status: 'held'
+      });
+      onClose();
+    }, 1500);
+  };
+
   const handleClose = () => {
     if (!loading) {
       setAmount(suggestedAmount);
-      setPayMethod('paystack');
+      setPayMethod('crypto');
+      setCryptoSymbol('USDT');
       setError(null);
       setSuccess(false);
+      setShowCryptoPayment(false);
+      setCryptoPaymentData(null);
       onClose();
     }
   };
 
   return (
+    <>
     <Drawer
       anchor="bottom"
       open={open}
@@ -292,22 +269,41 @@ const PaymentSheet = ({
                 value={payMethod}
                 onChange={(e) => setPayMethod(e.target.value)}
               >
-                <Box sx={styles.payOption(payMethod === 'paystack')}>
+                <Box sx={styles.payOption(payMethod === 'crypto')}>
                   <FormControlLabel
-                    value="paystack"
+                    value="crypto"
                     control={<Radio sx={{ color: '#00f2ea', '&.Mui-checked': { color: '#00f2ea' } }} />}
                     label={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <CardIcon sx={{ color: '#00f2ea' }} />
+                        <CryptoIcon sx={{ color: '#f7931a' }} />
                         <Box>
-                          <Typography sx={{ fontWeight: 500 }}>{countryData.name} Payment</Typography>
+                          <Typography sx={{ fontWeight: 500 }}>Crypto (Fee-Free)</Typography>
                           <Typography sx={{ fontSize: 12, color: '#888' }}>
-                            {countryData.channels.map(c => CHANNEL_NAMES[c]).join(' • ')}
+                            BTC • ETH • USDT • USDC • BNB • SOL • LTC
                           </Typography>
                         </Box>
                       </Box>
                     }
                   />
+                  {payMethod === 'crypto' && (
+                    <Box sx={{ pl: 4, pt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {SUPPORTED_CRYPTOS.map(sym => (
+                        <Chip
+                          key={sym}
+                          label={sym}
+                          size="small"
+                          onClick={() => setCryptoSymbol(sym)}
+                          sx={{
+                            bgcolor: cryptoSymbol === sym ? 'rgba(0,242,234,0.2)' : 'rgba(255,255,255,0.05)',
+                            color: cryptoSymbol === sym ? '#00f2ea' : '#aaa',
+                            border: cryptoSymbol === sym ? '1px solid #00f2ea' : '1px solid #333',
+                            cursor: 'pointer',
+                            fontWeight: cryptoSymbol === sym ? 600 : 400
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  )}
                 </Box>
                 
                 <Box sx={styles.payOption(payMethod === 'wallet')}>
@@ -354,6 +350,16 @@ const PaymentSheet = ({
         )}
       </Box>
     </Drawer>
+    
+    {/* Crypto Payment Dialog */}
+    <CryptoPayment
+      open={showCryptoPayment}
+      onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
+      paymentData={cryptoPaymentData}
+      onPaymentConfirmed={handleCryptoPaymentConfirmed}
+      title="Escrow Crypto Payment"
+    />
+    </>
   );
 };
 

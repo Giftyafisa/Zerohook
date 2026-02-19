@@ -347,7 +347,7 @@ function AppContent() {
         
         {/* Redirects for Legacy Routes */}
         <Route path="/services" element={<Navigate to="/adult-services" replace />} />
-        <Route path="/services/:id" element={<LegacyServiceRedirect />} />
+        <Route path="/services/:id" element={<ErrorBoundary><LegacyServiceRedirect /></ErrorBoundary>} />
         
         {/* Catch All - Redirect to Home */}
         <Route path="*" element={<Navigate to="/" replace />} />

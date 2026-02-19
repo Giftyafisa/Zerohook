@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import PaystackPop from '@paystack/inline-js';
+import CryptoPayment from '../components/payments/CryptoPayment';
 import {
   Box,
   Typography,
@@ -92,7 +92,10 @@ const MyMoneyPage = () => {
   const [withdrawDialog, setWithdrawDialog] = useState(false);
   const [addAmount, setAddAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('mobile'); // 'mobile', 'card'
+  const [paymentMethod, setPaymentMethod] = useState('crypto'); // 'crypto', 'wallet'
+  const [cryptoSymbol, setCryptoSymbol] = useState('USDT');
+  const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
+  const [showCryptoPayment, setShowCryptoPayment] = useState(false);
   
   // PIN Verification States
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
@@ -184,12 +187,12 @@ const MyMoneyPage = () => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Handle payment redirect callback - verify payment when user returns from Paystack
+  // Handle payment redirect callback - verify payment when user returns from payment gateway
   useEffect(() => {
     const handlePaymentCallback = async () => {
       const paymentStatus = searchParams.get('payment_status');
       const reference = searchParams.get('reference');
-      const trxref = searchParams.get('trxref'); // Paystack sometimes uses this
+      const trxref = searchParams.get('trxref'); // Legacy reference parameter
       
       const paymentRef = reference || trxref;
       
@@ -653,7 +656,7 @@ const MyMoneyPage = () => {
 
   // ==================== END PIN VERIFICATION SYSTEM ====================
 
-  // Add money via Paystack - Using Inline Popup
+  // Add money via Crypto - Fee-free blockchain deposit
   const handleAddMoney = async () => {
     const minAmount = symbol === '₵' ? 1 : 100; // GHS min is 1, NGN min is 100
     if (!addAmount || Number(addAmount) < minAmount) {
@@ -665,7 +668,6 @@ const MyMoneyPage = () => {
     try {
       const token = localStorage.getItem('token');
       
-      // Use the deposit endpoint which returns access_code for inline popup
       const response = await fetch(`${API_BASE_URL}/payments/deposit`, {
         method: 'POST',
         headers: {
@@ -673,72 +675,41 @@ const MyMoneyPage = () => {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          amount: Number(addAmount)
+          amount: Number(addAmount),
+          cryptoSymbol: cryptoSymbol
         })
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to initiate payment');
+        throw new Error(data.error || 'Failed to initiate deposit');
       }
 
-      // Check if we have access code for inline popup
-      if (data.accessCode || data.access_code) {
-        const accessCode = data.accessCode || data.access_code;
-        const paymentReference = data.reference;
-        
-        // Close the dialog first
+      // Show crypto payment dialog
+      if (data.walletAddress) {
         setAddMoneyDialog(false);
         setAddAmount('');
-        
-        // Launch Paystack inline popup
-        const popup = new PaystackPop();
-        popup.resumeTransaction(accessCode, {
-          onSuccess: async (response) => {
-            console.log('💳 Payment successful:', response);
-            toast.success(`Deposit of ${symbol}${Number(addAmount).toLocaleString()} successful!`);
-            setSuccessMessage(`${symbol}${Number(addAmount).toLocaleString()} added to wallet!`);
-            setActionLoading(false);
-            
-            // Verify the payment on backend
-            try {
-              const verifyRes = await fetch(`${API_BASE_URL}/payments/verify-inline`, {
-                method: 'POST',
-                headers: { 
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ reference: paymentReference })
-              });
-              const verifyData = await verifyRes.json();
-              console.log('✅ Payment verification:', verifyData);
-            } catch (verifyErr) {
-              console.error('Verification call failed:', verifyErr);
-            }
-            
-            // Refresh wallet data
-            setTimeout(() => {
-              fetchAllData();
-              setSuccessMessage(null);
-            }, 2000);
-          },
-          onCancel: () => {
-            console.log('Payment cancelled');
-            setActionLoading(false);
-            toast.info('Payment was cancelled');
-          },
-          onError: (error) => {
-            console.error('Payment error:', error);
-            setActionLoading(false);
-            toast.error(error.message || 'Payment failed. Please try again.');
-          }
+        setCryptoPaymentData({
+          walletAddress: data.walletAddress,
+          cryptoAmount: data.cryptoAmount,
+          cryptoSymbol: data.cryptoSymbol || cryptoSymbol,
+          reference: data.reference,
+          expiresAt: data.expiresAt
         });
-      } else if (data.authorizationUrl || data.authorization_url) {
-        // Fallback to redirect if no access code (shouldn't happen normally)
-        window.location.href = data.authorizationUrl || data.authorization_url;
+        setShowCryptoPayment(true);
+        setActionLoading(false);
       } else {
-        throw new Error('No payment authorization received');
+        // Wallet/balance payment succeeded directly
+        toast.success(`Deposit of ${symbol}${Number(addAmount).toLocaleString()} initiated!`);
+        setSuccessMessage(`${symbol}${Number(addAmount).toLocaleString()} deposit in progress!`);
+        setActionLoading(false);
+        setAddMoneyDialog(false);
+        setAddAmount('');
+        setTimeout(() => {
+          fetchAllData();
+          setSuccessMessage(null);
+        }, 2000);
       }
     } catch (error) {
       console.error('Payment error:', error);
@@ -746,6 +717,17 @@ const MyMoneyPage = () => {
       setActionLoading(false);
       setAddMoneyDialog(false);
     }
+  };
+
+  const handleCryptoDepositConfirmed = (result) => {
+    setShowCryptoPayment(false);
+    setCryptoPaymentData(null);
+    toast.success('Deposit confirmed!');
+    setSuccessMessage('Deposit confirmed and added to wallet!');
+    setTimeout(() => {
+      fetchAllData();
+      setSuccessMessage(null);
+    }, 2000);
   };
 
   // Withdraw money
@@ -1357,9 +1339,7 @@ const MyMoneyPage = () => {
           <Box sx={styles.infoBanner}>
             <InfoIcon sx={{ color: '#ffa726', fontSize: 20 }} />
             <Typography sx={styles.infoBannerText}>
-              {paymentMethod === 'mobile' 
-                ? 'Mobile Money deposits are processed instantly via Paystack.'
-                : 'Card payments are secure and processed via Paystack.'}
+              Crypto deposits are fee-free and powered by blockchain.
             </Typography>
           </Box>
 
@@ -1424,7 +1404,7 @@ const MyMoneyPage = () => {
             <Typography sx={styles.infoItem}>1. Maximum per transaction is {symbol}50,000.00</Typography>
             <Typography sx={styles.infoItem}>2. Minimum per transaction is {symbol}1.00</Typography>
             <Typography sx={styles.infoItem}>3. Deposit is free, no transaction fees.</Typography>
-            <Typography sx={styles.infoItem}>4. Powered by Paystack - secure & instant.</Typography>
+            <Typography sx={styles.infoItem}>4. Powered by blockchain - secure & fee-free.</Typography>
           </Box>
         </Box>
       </Dialog>
@@ -1786,6 +1766,15 @@ const MyMoneyPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Crypto Payment Dialog for deposits */}
+      <CryptoPayment
+        open={showCryptoPayment}
+        onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
+        paymentData={cryptoPaymentData}
+        onPaymentConfirmed={handleCryptoDepositConfirmed}
+        title="Crypto Deposit"
+      />
     </Box>
   );
 };

@@ -110,8 +110,20 @@ const RegisterPage = () => {
       setLocalError('Passwords do not match');
       return false;
     }
-    if (formData.password.length < 6) {
-      setLocalError('Password must be at least 6 characters long');
+    if (formData.password.length < 8) {
+      setLocalError('Password must be at least 8 characters long');
+      return false;
+    }
+    if (!/[A-Z]/.test(formData.password)) {
+      setLocalError('Password must contain at least one uppercase letter');
+      return false;
+    }
+    if (!/[a-z]/.test(formData.password)) {
+      setLocalError('Password must contain at least one lowercase letter');
+      return false;
+    }
+    if (!/\d/.test(formData.password)) {
+      setLocalError('Password must contain at least one number');
       return false;
     }
     if (!formData.gender) {
@@ -401,7 +413,9 @@ const RegisterPage = () => {
                       value={formData.dateOfBirth}
                       onChange={handleChange}
                       required
+                      min="1940-01-01"
                       max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
+                      placeholder="YYYY-MM-DD"
                       style={{
                         flex: 1,
                         background: 'transparent',
@@ -411,8 +425,8 @@ const RegisterPage = () => {
                         fontSize: '16px',
                         fontFamily: '"Outfit", sans-serif',
                         height: '100%',
-                        WebkitBoxShadow: '0 0 0 1000px transparent inset',
-                        WebkitTextFillColor: '#fff',
+                        WebkitAppearance: 'none',
+                        MozAppearance: 'none',
                         colorScheme: 'dark'
                       }}
                     />
@@ -788,8 +802,65 @@ const RegisterPage = () => {
                 onChange={handleChange}
                 required
                 startIcon={<Lock sx={{ color: '#00f2ea' }} />}
-                placeholder="Create password"
+                placeholder="Min 8 chars, A-Z, a-z, 0-9"
               />
+              {/* Password Strength Indicator */}
+              {formData.password && (
+                <Box sx={{ mt: 0.5, px: 1 }}>
+                  <Box sx={{ 
+                    height: 4, 
+                    borderRadius: 2, 
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                    overflow: 'hidden'
+                  }}>
+                    <Box sx={{ 
+                      height: '100%', 
+                      borderRadius: 2,
+                      transition: 'all 0.3s',
+                      width: `${Math.min(100, (
+                        (formData.password.length >= 8 ? 25 : formData.password.length * 3) +
+                        (/[A-Z]/.test(formData.password) ? 25 : 0) +
+                        (/[a-z]/.test(formData.password) ? 25 : 0) +
+                        (/\d/.test(formData.password) ? 25 : 0)
+                      ))}%`,
+                      bgcolor: (() => {
+                        const score = (formData.password.length >= 8 ? 1 : 0) + 
+                          (/[A-Z]/.test(formData.password) ? 1 : 0) + 
+                          (/[a-z]/.test(formData.password) ? 1 : 0) + 
+                          (/\d/.test(formData.password) ? 1 : 0);
+                        if (score <= 1) return '#ff4444';
+                        if (score === 2) return '#ffaa00';
+                        if (score === 3) return '#ffdd00';
+                        return '#00f2ea';
+                      })()
+                    }} />
+                  </Box>
+                  <Typography variant="caption" sx={{ 
+                    color: (() => {
+                      const score = (formData.password.length >= 8 ? 1 : 0) + 
+                        (/[A-Z]/.test(formData.password) ? 1 : 0) + 
+                        (/[a-z]/.test(formData.password) ? 1 : 0) + 
+                        (/\d/.test(formData.password) ? 1 : 0);
+                      if (score <= 1) return '#ff4444';
+                      if (score === 2) return '#ffaa00';
+                      if (score === 3) return '#ffdd00';
+                      return '#00f2ea';
+                    })(),
+                    fontSize: '0.7rem'
+                  }}>
+                    {(() => {
+                      const score = (formData.password.length >= 8 ? 1 : 0) + 
+                        (/[A-Z]/.test(formData.password) ? 1 : 0) + 
+                        (/[a-z]/.test(formData.password) ? 1 : 0) + 
+                        (/\d/.test(formData.password) ? 1 : 0);
+                      if (score <= 1) return 'Weak';
+                      if (score === 2) return 'Fair';
+                      if (score === 3) return 'Good';
+                      return 'Strong';
+                    })()}
+                  </Typography>
+                </Box>
+              )}
             </Grid>
 
             <Grid item xs={12} sm={6}>

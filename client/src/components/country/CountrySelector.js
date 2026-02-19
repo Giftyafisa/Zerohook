@@ -107,24 +107,21 @@ const CountrySelector = ({
   const getCountryFeatures = (country) => {
     const features = [];
     
-    if (country.paystackSupport) features.push('Paystack Payments');
+    if (country.cryptoPlatforms?.length > 0) features.push('Crypto Payments');
     if (country.localBanks) features.push('Local Banks');
     if (country.mobileMoney) features.push('Mobile Money');
-    if (country.cryptoPlatforms?.length > 0) features.push('Crypto Support');
     
     return features;
   };
 
   const getFeatureIcon = (feature) => {
     switch (feature) {
-      case 'Paystack Payments':
+      case 'Crypto Payments':
         return <Payment sx={{ color: colors.primary }} />;
       case 'Local Banks':
         return <AccountBalance sx={{ color: colors.success }} />;
       case 'Mobile Money':
         return <Smartphone sx={{ color: colors.warning }} />;
-      case 'Crypto Support':
-        return <Public sx={{ color: colors.info }} />;
       default:
         return <CheckCircle />;
     }

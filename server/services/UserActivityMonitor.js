@@ -407,6 +407,16 @@ class UserActivityMonitor {
    */
   async cleanupExpiredSessions() {
     try {
+      // Clean up in-memory session map (prevent memory leak from abandoned sessions)
+      const now = Date.now();
+      for (const [token, session] of this.activeSessions) {
+        if (session.expiresAt && now > new Date(session.expiresAt).getTime()) {
+          this.activeSessions.delete(token);
+        } else if (session.lastActivity && now - session.lastActivity > this.sessionTimeout) {
+          this.activeSessions.delete(token);
+        }
+      }
+      
       if (!isDatabaseAvailable()) {
         console.log('⚠️ Database not available for cleanupExpiredSessions');
         return;

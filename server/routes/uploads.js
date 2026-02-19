@@ -21,19 +21,26 @@ const localStorage = multer.diskStorage({
   }
 });
 
-// Enhanced file filter for images and videos
+// Enhanced file filter for images and videos with MIME type validation
+const ALLOWED_IMAGE_EXTS = /^\.(jpeg|jpg|png|gif|webp)$/;
+const ALLOWED_VIDEO_EXTS = /^\.(mp4|avi|mov|wmv|flv|webm|mkv)$/;
+const ALLOWED_IMAGE_MIMES = /^image\/(jpeg|png|gif|webp)$/;
+const ALLOWED_VIDEO_MIMES = /^video\/(mp4|x-msvideo|quicktime|x-ms-wmv|x-flv|webm|x-matroska)$/;
+
 const fileFilter = (req, file, cb) => {
-  const allowedImageTypes = /jpeg|jpg|png|gif|webp/;
-  const allowedVideoTypes = /mp4|avi|mov|wmv|flv|webm|mkv/;
-  
   const extname = path.extname(file.originalname).toLowerCase();
-  const isImage = allowedImageTypes.test(extname);
-  const isVideo = allowedVideoTypes.test(extname);
+  const mimetype = (file.mimetype || '').toLowerCase();
   
-  if (isImage || isVideo) {
+  const extImage = ALLOWED_IMAGE_EXTS.test(extname);
+  const extVideo = ALLOWED_VIDEO_EXTS.test(extname);
+  const mimeImage = ALLOWED_IMAGE_MIMES.test(mimetype);
+  const mimeVideo = ALLOWED_VIDEO_MIMES.test(mimetype);
+  
+  // Both extension AND MIME type must match the same category
+  if ((extImage && mimeImage) || (extVideo && mimeVideo)) {
     return cb(null, true);
   } else {
-    cb(new Error('Only image and video files are allowed!'));
+    cb(new Error('Only image and video files are allowed! Extension and content type must match.'));
   }
 };
 

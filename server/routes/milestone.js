@@ -1,7 +1,22 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { User, Transaction } = require('../config/database');
 const router = express.Router();
+
+const milestoneRequestSchema = new mongoose.Schema({
+  sender_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  recipient_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  amount: { type: Number, required: true },
+  description: { type: String, default: '' },
+  request_type: { type: String, enum: ['provider_request', 'client_request'], default: 'provider_request' },
+  status: { type: String, enum: ['pending', 'accepted', 'declined', 'paid'], default: 'pending' },
+  escrow_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+const MilestoneRequest = mongoose.models.MilestoneRequest || mongoose.model('MilestoneRequest', milestoneRequestSchema);
+
+const getAvatar = (user) => user?.profile_data?.profilePicture || user?.profile_data?.avatar || null;
 
 /**
  * Milestone Request System
@@ -37,29 +52,28 @@ router.post('/request', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Minimum amount is ₦500' });
     }
 
-    // Create milestone request
-    const result = await query(`
-      INSERT INTO milestone_requests 
-        (sender_id, recipient_id, amount, description, request_type, status, created_at)
-      VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-      RETURNING *
-    `, [senderId, recipientId, amount, description || '', requestType || 'provider_request']);
+    if (!mongoose.Types.ObjectId.isValid(senderId) || !mongoose.Types.ObjectId.isValid(recipientId)) {
+      return res.status(400).json({ error: 'Invalid sender or recipient' });
+    }
 
-    const request = result.rows[0];
+    const request = await MilestoneRequest.create({
+      sender_id: new mongoose.Types.ObjectId(senderId),
+      recipient_id: new mongoose.Types.ObjectId(recipientId),
+      amount: Number(amount),
+      description: description || '',
+      request_type: requestType || 'provider_request',
+      status: 'pending'
+    });
 
-    // Get sender info
-    const senderInfo = await query(`
-      SELECT username, profile_data->>'profilePicture' as avatar 
-      FROM users WHERE id = $1
-    `, [senderId]);
+    const senderInfo = await User.findById(senderId).select('username profile_data').lean();
 
     // Notify recipient via socket
     if (req.io) {
       req.io.to(`user_${recipientId}`).emit('milestone_request', {
-        id: request.id,
+        id: request._id.toString(),
         senderId,
-        senderName: senderInfo.rows[0]?.username || 'User',
-        senderAvatar: senderInfo.rows[0]?.avatar,
+        senderName: senderInfo?.username || 'User',
+        senderAvatar: getAvatar(senderInfo),
         amount,
         description,
         requestType,
@@ -71,10 +85,10 @@ router.post('/request', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       request: {
-        id: request.id,
+        id: request._id.toString(),
         senderId,
         recipientId,
-        amount: parseFloat(request.amount),
+        amount: Number(request.amount),
         description: request.description,
         requestType: request.request_type,
         status: request.status,
@@ -105,29 +119,28 @@ router.post('/respond', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid request' });
     }
 
-    // Verify user is recipient
-    const requestResult = await query(`
-      SELECT * FROM milestone_requests 
-      WHERE id = $1 AND recipient_id = $2 AND status = 'pending'
-    `, [requestId, userId]);
+    if (!mongoose.Types.ObjectId.isValid(requestId) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid request or user ID' });
+    }
 
-    if (requestResult.rows.length === 0) {
+    const request = await MilestoneRequest.findOne({
+      _id: requestId,
+      recipient_id: userId,
+      status: 'pending'
+    });
+
+    if (!request) {
       return res.status(404).json({ error: 'Request not found or already processed' });
     }
 
-    const request = requestResult.rows[0];
     const newStatus = action === 'accept' ? 'accepted' : 'declined';
 
-    // Update status
-    await query(`
-      UPDATE milestone_requests 
-      SET status = $1, updated_at = NOW()
-      WHERE id = $2
-    `, [newStatus, requestId]);
+    request.status = newStatus;
+    await request.save();
 
     // Notify sender via socket
     if (req.io) {
-      req.io.to(`user_${request.sender_id}`).emit('milestone_response', {
+      req.io.to(`user_${request.sender_id.toString()}`).emit('milestone_response', {
         requestId,
         status: newStatus,
         responderId: userId
@@ -158,39 +171,44 @@ router.post('/pay', authMiddleware, async (req, res) => {
     const clientId = req.user.userId;
     const { requestId, paymentMethod } = req.body;
 
-    // Get the accepted request
-    const requestResult = await query(`
-      SELECT * FROM milestone_requests 
-      WHERE id = $1 AND recipient_id = $2 AND status = 'accepted'
-    `, [requestId, clientId]);
+    if (!mongoose.Types.ObjectId.isValid(requestId) || !mongoose.Types.ObjectId.isValid(clientId)) {
+      return res.status(400).json({ error: 'Invalid request or client ID' });
+    }
 
-    if (requestResult.rows.length === 0) {
+    const request = await MilestoneRequest.findOne({
+      _id: requestId,
+      recipient_id: clientId,
+      status: 'accepted'
+    });
+
+    if (!request) {
       return res.status(404).json({ error: 'Request not found or not accepted' });
     }
 
-    const request = requestResult.rows[0];
-    const providerId = request.sender_id;
-    const amount = parseFloat(request.amount);
+    const providerId = request.sender_id.toString();
+    const amount = Number(request.amount);
 
-    // Create escrow transaction
-    const escrowResult = await query(`
-      INSERT INTO transactions 
-        (client_id, provider_id, amount, status, description, created_at)
-      VALUES ($1, $2, $3, 'held', $4, NOW())
-      RETURNING *
-    `, [clientId, providerId, amount, request.description || 'Service payment']);
+    const escrowTransaction = await Transaction.create({
+      client_id: new mongoose.Types.ObjectId(clientId),
+      provider_id: new mongoose.Types.ObjectId(providerId),
+      amount,
+      status: 'held',
+      type: 'escrow_hold',
+      metadata: {
+        description: request.description || 'Service payment',
+        request_id: request._id.toString(),
+        payment_method: paymentMethod || 'unknown'
+      }
+    });
 
-    // Update milestone request status
-    await query(`
-      UPDATE milestone_requests 
-      SET status = 'paid', escrow_id = $1, updated_at = NOW()
-      WHERE id = $2
-    `, [escrowResult.rows[0].id, requestId]);
+    request.status = 'paid';
+    request.escrow_id = escrowTransaction._id;
+    await request.save();
 
     // Notify provider
     if (req.io) {
       req.io.to(`user_${providerId}`).emit('escrow_created', {
-        escrowId: escrowResult.rows[0].id,
+        escrowId: escrowTransaction._id.toString(),
         amount,
         clientId,
         message: `₦${amount.toLocaleString()} has been held for your service!`
@@ -200,7 +218,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       escrow: {
-        id: escrowResult.rows[0].id,
+        id: escrowTransaction._id.toString(),
         amount,
         status: 'held'
       }
@@ -225,34 +243,32 @@ router.get('/pending/:otherUserId', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { otherUserId } = req.params;
 
-    // Get pending requests between these two users
-    const result = await query(`
-      SELECT 
-        mr.*,
-        sender.username as sender_name,
-        sender.profile_data->>'profilePicture' as sender_avatar,
-        recipient.username as recipient_name
-      FROM milestone_requests mr
-      LEFT JOIN users sender ON mr.sender_id = sender.id
-      LEFT JOIN users recipient ON mr.recipient_id = recipient.id
-      WHERE (
-        (mr.sender_id = $1 AND mr.recipient_id = $2) OR
-        (mr.sender_id = $2 AND mr.recipient_id = $1)
-      )
-      AND mr.status IN ('pending', 'accepted')
-      ORDER BY mr.created_at DESC
-    `, [userId, otherUserId]);
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(otherUserId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const requests = await MilestoneRequest.find({
+      $or: [
+        { sender_id: userId, recipient_id: otherUserId },
+        { sender_id: otherUserId, recipient_id: userId }
+      ],
+      status: { $in: ['pending', 'accepted'] }
+    })
+      .populate({ path: 'sender_id', select: 'username profile_data' })
+      .populate({ path: 'recipient_id', select: 'username profile_data' })
+      .sort({ created_at: -1 })
+      .lean();
 
     res.json({
       success: true,
-      requests: result.rows.map(r => ({
-        id: r.id,
-        senderId: r.sender_id,
-        senderName: r.sender_name,
-        senderAvatar: r.sender_avatar,
-        recipientId: r.recipient_id,
-        recipientName: r.recipient_name,
-        amount: parseFloat(r.amount),
+      requests: requests.map(r => ({
+        id: r._id.toString(),
+        senderId: r.sender_id?._id?.toString() || null,
+        senderName: r.sender_id?.username || 'User',
+        senderAvatar: getAvatar(r.sender_id),
+        recipientId: r.recipient_id?._id?.toString() || null,
+        recipientName: r.recipient_id?.username || 'User',
+        amount: Number(r.amount),
         description: r.description,
         requestType: r.request_type,
         status: r.status,
@@ -278,36 +294,34 @@ router.get('/list', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const result = await query(`
-      SELECT 
-        mr.*,
-        sender.username as sender_name,
-        sender.profile_data->>'profilePicture' as sender_avatar,
-        recipient.username as recipient_name,
-        recipient.profile_data->>'profilePicture' as recipient_avatar
-      FROM milestone_requests mr
-      LEFT JOIN users sender ON mr.sender_id = sender.id
-      LEFT JOIN users recipient ON mr.recipient_id = recipient.id
-      WHERE mr.sender_id = $1 OR mr.recipient_id = $1
-      ORDER BY mr.created_at DESC
-      LIMIT 50
-    `, [userId]);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const requests = await MilestoneRequest.find({
+      $or: [{ sender_id: userId }, { recipient_id: userId }]
+    })
+      .populate({ path: 'sender_id', select: 'username profile_data' })
+      .populate({ path: 'recipient_id', select: 'username profile_data' })
+      .sort({ created_at: -1 })
+      .limit(50)
+      .lean();
 
     res.json({
       success: true,
-      requests: result.rows.map(r => ({
-        id: r.id,
-        senderId: r.sender_id,
-        senderName: r.sender_name,
-        senderAvatar: r.sender_avatar,
-        recipientId: r.recipient_id,
-        recipientName: r.recipient_name,
-        recipientAvatar: r.recipient_avatar,
-        amount: parseFloat(r.amount),
+      requests: requests.map(r => ({
+        id: r._id.toString(),
+        senderId: r.sender_id?._id?.toString() || null,
+        senderName: r.sender_id?.username || 'User',
+        senderAvatar: getAvatar(r.sender_id),
+        recipientId: r.recipient_id?._id?.toString() || null,
+        recipientName: r.recipient_id?.username || 'User',
+        recipientAvatar: getAvatar(r.recipient_id),
+        amount: Number(r.amount),
         description: r.description,
         requestType: r.request_type,
         status: r.status,
-        escrowId: r.escrow_id,
+        escrowId: r.escrow_id?.toString() || null,
         createdAt: r.created_at,
         updatedAt: r.updated_at
       }))

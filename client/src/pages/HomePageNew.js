@@ -17,6 +17,7 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { selectIsAuthenticated, selectIsSubscribed } from '../store/slices/authSlice';
 import { GlassCard, GlassButton } from '../components/ui';
+import useCurrency from '../hooks/useCurrency';
 import MobileHomePage from '../components/MobileHomePage';
 import VideoShowcase from '../components/VideoShowcase';
 
@@ -155,6 +156,7 @@ const HomePage = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const isSubscribed = useSelector(selectIsSubscribed);
+  const { formatFromUSD } = useCurrency();
 
   // Mobile: Use TikTok-style immersive home page
   if (isMobile) {
@@ -181,21 +183,21 @@ const HomePage = () => {
       icon: '💕',
       description: 'Premium long-term companionship',
       color: '#ff0055',
-      price: 'From ₦250,000'
+      price: `From ${formatFromUSD(150)}`
     },
     {
       name: 'Short Term',
       icon: '🔥',
       description: 'Quality short-term encounters',
       color: '#ff6600',
-      price: 'From ₦150,000'
+      price: `From ${formatFromUSD(100)}`
     },
     {
       name: 'VIP Services',
       icon: '⭐',
       description: 'Exclusive premium experiences',
       color: '#00f2ea',
-      price: 'From ₦500,000'
+      price: `From ${formatFromUSD(300)}`
     },
     {
       name: 'Special',

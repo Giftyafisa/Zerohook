@@ -55,7 +55,7 @@ import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
 import { isProvider, ACCOUNT_TYPES } from '../utils/accountTypeUtils';
 import { selectUserCountry, selectDetectedCountry, selectExchangeRates } from '../store/slices/countrySlice';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
-import { LOCATIONS } from '../config/locations';
+import { LOCATIONS, calculateDistance } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
 import { VERIFICATION_TIERS, getVerificationTierConfig, VerificationBadge, TrustScoreBreakdown } from '../components/ui/StatusBadge';
 import ProfileCompletionReminder from '../components/ProfileCompletionReminder';
@@ -110,20 +110,6 @@ const getAllLocations = (countryCode) => {
 const findNearestCity = (latitude, longitude, countryCode) => {
   const availableLocations = getAllLocations(countryCode);
   
-  // Haversine formula for accurate distance calculation
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Earth's radius in km
-    const toRad = (deg) => deg * (Math.PI / 180);
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = 
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in km
-  };
-  
   let nearestLocation = null;
   let minDistance = Infinity;
   
@@ -176,20 +162,6 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
       });
       
       const { latitude, longitude } = position.coords;
-      
-      // Haversine formula for accurate distance calculation
-      const calculateDistance = (lat1, lon1, lat2, lon2) => {
-        const R = 6371; // Earth's radius in km
-        const toRad = (deg) => deg * (Math.PI / 180);
-        const dLat = toRad(lat2 - lat1);
-        const dLon = toRad(lon2 - lon1);
-        const a = 
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-          Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c; // Distance in km
-      };
       
       // Find nearest location from available locations
       let nearestLocation = null;
@@ -537,7 +509,7 @@ const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
 // With TikTok-style engagement tracking
 // ============================================
 
-const ProfileCard = ({ 
+const ProfileCard = React.memo(({ 
   profile, 
   onLike, 
   onMessage, 
@@ -708,6 +680,7 @@ const ProfileCard = ({
               component="img"
               src={profileImage}
               alt={displayName}
+              loading="lazy"
               sx={{
                 position: 'absolute',
                 top: 0,
@@ -1054,7 +1027,8 @@ const ProfileCard = ({
       </Card>
     </Fade>
   );
-};
+});
+ProfileCard.displayName = 'ProfileCard';
 
 // ============================================
 // SKELETON LOADER
@@ -1594,8 +1568,8 @@ const ProfileFeed = () => {
       const processedProfiles = data.users
         .filter(user => {
           // Exclude current user
-          if (isAuthenticated && currentUser?.id === user.id) return false;
-          if (reduxUser?.id === user.id) return false;
+          if (isAuthenticated && String(currentUser?.id) === String(user.id)) return false;
+          if (String(reduxUser?.id) === String(user.id)) return false;
           // Backend already filters by visibility, but double-check
           // 'hidden' is legacy, 'authenticated' means logged-in users only
           if (user.profile_visibility === 'hidden') return false;
@@ -1896,7 +1870,7 @@ const ProfileFeed = () => {
             ),
             endAdornment: searchQuery && (
               <InputAdornment position="end">
-                <IconButton size="small" onClick={() => handleSearchChange('')}>
+                <IconButton size="small" onClick={() => handleSearchChange('')} aria-label="Clear search">
                   <Close sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
                 </IconButton>
               </InputAdornment>

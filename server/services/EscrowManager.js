@@ -1,8 +1,6 @@
-const { query, Transaction, User, EscrowTransaction } = require('../config/database');
+const { Transaction, User } = require('../config/database');
 const mongoose = require('mongoose');
 const crypto = require('crypto');
-// const { ethers } = require('ethers'); // Commented out for now - blockchain features disabled
-// const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Using Paystack instead
 
 // Configuration constants
 const CONFIRMATION_WINDOW_HOURS = 48; // Client has 48 hours to confirm or dispute after PIN entered
@@ -16,11 +14,18 @@ class EscrowManager {
     this.provider = null;
     this.escrowContract = null;
     this.wallet = null;
+    this.autoReleaseInterval = null;
+    this.MAX_PIN_ATTEMPTS = 5;
   }
 
   async initialize() {
     try {
       console.log('💰 Initializing Escrow Manager (PIN Verification Mode)...');
+      
+      // Clear any existing interval before starting a new one
+      if (this.autoReleaseInterval) {
+        clearInterval(this.autoReleaseInterval);
+      }
       
       // Start auto-release checker (runs every hour)
       this.startAutoReleaseChecker();
@@ -56,10 +61,10 @@ class EscrowManager {
         providerId, 
         serviceId, 
         amount, 
-        currency = 'NGN',
+        currency = 'USD',
         scheduledTime,
         locationData,
-        paymentMethod = 'wallet' // 'wallet' uses user's wallet balance, 'paystack' uses Paystack
+        paymentMethod = 'wallet' // 'wallet' uses user's wallet balance, 'crypto' uses crypto payment
       } = transactionData;
 
       // Convert IDs to ObjectId
@@ -203,13 +208,28 @@ class EscrowManager {
         throw new Error(`Cannot enter PIN. Transaction status: ${transaction.status}`);
       }
 
-      // Verify PIN matches
+      // Verify PIN matches with brute-force protection
+      const pinAttempts = transaction.pin_attempts || 0;
+      if (pinAttempts >= this.MAX_PIN_ATTEMPTS) {
+        console.log(`🚫 PIN attempts exhausted for escrow ${transactionId}`);
+        return {
+          success: false,
+          error: 'Too many invalid PIN attempts. Please contact support.',
+          attemptsRemaining: 0
+        };
+      }
+
       if (transaction.completion_pin !== pin) {
-        console.log(`❌ Invalid PIN attempt for escrow ${transactionId} by provider ${providerId}`);
+        // Increment attempts atomically
+        await Transaction.findByIdAndUpdate(transactionObjId, {
+          $inc: { pin_attempts: 1 }
+        });
+        const remaining = this.MAX_PIN_ATTEMPTS - pinAttempts - 1;
+        console.log(`❌ Invalid PIN attempt for escrow ${transactionId} by provider ${providerId} (${remaining} left)`);
         return {
           success: false,
           error: 'Invalid PIN. Please ask the client for the correct PIN.',
-          attemptsRemaining: 3 // In production, track attempts
+          attemptsRemaining: remaining
         };
       }
 
@@ -362,20 +382,37 @@ class EscrowManager {
   }
 
   /**
-   * Release funds to provider (internal method)
+   * Release funds to provider (internal method) - with idempotency guard
    */
   async releaseFundsToProvider(transaction, releaseType = 'confirmed') {
     try {
       const { Transaction, User } = require('../config/database');
 
-      // Update escrow transaction to released
-      transaction.status = 'released';
-      transaction.completion_proof = {
-        type: releaseType,
-        releasedAt: new Date().toISOString()
-      };
-      transaction.completed_at = new Date();
-      await transaction.save();
+      // Atomic status update to prevent double-release
+      const updated = await Transaction.findOneAndUpdate(
+        { _id: transaction._id, status: { $ne: 'released' } },
+        {
+          $set: {
+            status: 'released',
+            completion_proof: {
+              type: releaseType,
+              releasedAt: new Date().toISOString()
+            },
+            completed_at: new Date()
+          }
+        },
+        { new: true }
+      );
+
+      if (!updated) {
+        console.log(`⚠️ Escrow ${transaction.reference} already released, skipping duplicate`);
+        return {
+          success: true,
+          transactionId: transaction._id.toString(),
+          status: 'released',
+          message: 'Funds already released'
+        };
+      }
 
       // Create a new transaction for the provider showing they earned the money
       const platformFee = transaction.amount * 0.05; // 5% platform fee
@@ -427,8 +464,9 @@ class EscrowManager {
 
   /**
    * Confirm service completion and release funds - MongoDB version
+   * REQUIRES caller authorization (must be client or admin)
    */
-  async confirmCompletion(transactionId, completionProof) {
+  async confirmCompletion(transactionId, completionProof, callerUserId) {
     try {
       const { Transaction } = require('../config/database');
       
@@ -441,49 +479,25 @@ class EscrowManager {
       if (!transaction) {
         throw new Error('Transaction not found');
       }
+
+      // Authorization check: only the client or an admin can confirm
+      if (callerUserId) {
+        const callerObjId = typeof callerUserId === 'string' ?
+          mongoose.Types.ObjectId.createFromHexString(callerUserId) : callerUserId;
+        const isClient = transaction.client_id.toString() === callerObjId.toString();
+        if (!isClient) {
+          throw new Error('Only the client can confirm service completion');
+        }
+      } else {
+        throw new Error('Caller user ID is required for authorization');
+      }
       
-      if (transaction.status !== 'held' && transaction.status !== 'escrowed') {
+      if (transaction.status !== 'held' && transaction.status !== 'escrowed' && transaction.status !== 'pin_entered') {
         throw new Error(`Transaction not in escrow status. Current status: ${transaction.status}`);
       }
 
-      // Update escrow transaction to released
-      transaction.status = 'released';
-      transaction.completion_proof = completionProof || {};
-      transaction.completed_at = new Date();
-      await transaction.save();
-
-      // Create a new transaction for the provider showing they earned the money
-      const platformFee = transaction.amount * 0.05; // 5% platform fee
-      const providerAmount = transaction.amount - platformFee;
-
-      await Transaction.create({
-        provider_id: transaction.provider_id,
-        user_id: transaction.provider_id, // For wallet calculations
-        client_id: transaction.client_id,
-        amount: providerAmount,
-        currency: transaction.currency,
-        payment_method: 'escrow_release',
-        reference: `REL_${transaction.reference}`,
-        status: 'completed',
-        type: 'escrow_release',
-        metadata: {
-          originalEscrowId: transaction._id.toString(),
-          originalAmount: transaction.amount,
-          platformFee: platformFee,
-          description: 'Escrow funds released'
-        }
-      });
-
-      console.log(`✅ Escrow released: ${transaction.reference} - ${transaction.currency}${providerAmount} to provider`);
-
-      return {
-        success: true,
-        transactionId: transactionId,
-        status: 'completed',
-        amount: providerAmount,
-        platformFee: platformFee,
-        completedAt: new Date().toISOString()
-      };
+      // Use the idempotent releaseFundsToProvider
+      return await this.releaseFundsToProvider(transaction, 'client_confirmed');
 
     } catch (error) {
       console.error('Completion confirmation failed:', error);

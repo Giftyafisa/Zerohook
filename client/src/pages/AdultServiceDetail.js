@@ -58,6 +58,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
 import VideoSystem from '../components/video/VideoSystem';
 import { useAuth } from '../contexts/AuthContext';
+import useCurrency from '../hooks/useCurrency';
 
 const AdultServiceDetail = () => {
   const theme = useTheme();
@@ -66,6 +67,7 @@ const AdultServiceDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { symbol: currencySymbol } = useCurrency();
   
   const [service, setService] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -79,7 +81,7 @@ const AdultServiceDetail = () => {
     location: '',
     specialRequests: '',
     contactMethod: 'chat',
-    paymentMethod: 'paystack'
+    paymentMethod: 'crypto'
   });
   const [isFavorite, setIsFavorite] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -250,7 +252,7 @@ const AdultServiceDetail = () => {
       location: '',
       specialRequests: '',
       contactMethod: 'chat',
-      paymentMethod: 'paystack'
+      paymentMethod: 'crypto'
     });
   };
 
@@ -640,7 +642,7 @@ const AdultServiceDetail = () => {
                  gutterBottom 
                  sx={{ fontWeight: 'bold' }}
                >
-                  ₦{(service?.price || 0).toLocaleString()}
+                  {currencySymbol}{(service?.price || 0).toLocaleString()}
                 </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 per {service?.duration || 'session'}
@@ -924,14 +926,14 @@ const AdultServiceDetail = () => {
                   value={bookingData.paymentMethod}
                   onChange={(e) => handleBookingChange('paymentMethod', e.target.value)}
                 >
-                  <Paper sx={{ p: 2, mb: 1, border: bookingData.paymentMethod === 'paystack' ? '2px solid #00f2ea' : '1px solid #333' }}>
+                  <Paper sx={{ p: 2, mb: 1, border: bookingData.paymentMethod === 'crypto' ? '2px solid #00f2ea' : '1px solid #333' }}>
                     <FormControlLabel 
-                      value="paystack" 
+                      value="crypto" 
                       control={<Radio />} 
                       label={
                         <Box>
-                          <Typography fontWeight="bold">Pay with Card (Paystack)</Typography>
-                          <Typography variant="body2" color="text.secondary">Debit/Credit card, Bank transfer</Typography>
+                          <Typography fontWeight="bold">Pay with Crypto (Fee-Free)</Typography>
+                          <Typography variant="body2" color="text.secondary">BTC, ETH, USDT, USDC, BNB, SOL, LTC</Typography>
                         </Box>
                       }
                     />
@@ -969,7 +971,7 @@ const AdultServiceDetail = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="h6">Total to Pay:</Typography>
                   <Typography variant="h5" color="primary" fontWeight="bold">
-                    ₦{(service?.price || 0).toLocaleString()}
+                    {currencySymbol}{(service?.price || 0).toLocaleString()}
                   </Typography>
                 </Box>
               </Grid>
@@ -998,7 +1000,7 @@ const AdultServiceDetail = () => {
                       <strong>Time:</strong> {bookingData.time}
                     </Typography>
                     <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                      <strong>Amount Held:</strong> ₦{(service?.price || 0).toLocaleString()}
+                      <strong>Amount Held:</strong> {currencySymbol}{(service?.price || 0).toLocaleString()}
                     </Typography>
                   </Paper>
                   
@@ -1038,7 +1040,7 @@ const AdultServiceDetail = () => {
                       <strong>Location:</strong> {bookingData.location}
                     </Typography>
                     <Typography variant={isMobile ? "body2" : "body1"} gutterBottom>
-                         <strong>Total Price:</strong> ₦{(service?.price || 0).toLocaleString()}
+                         <strong>Total Price:</strong> {currencySymbol}{(service?.price || 0).toLocaleString()}
                     </Typography>
                   </Paper>
                   

@@ -1,4 +1,13 @@
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const {
+  User,
+  UserSession,
+  Service,
+  ServiceCategory,
+  TrustEvent,
+  Transaction,
+  FraudLog
+} = require('../config/database');
 const IPGeolocation = require('./IPGeolocation');
 
 class FraudDetection {
@@ -70,7 +79,7 @@ class FraudDetection {
       let totalRiskScore = 0;
       
       // Get user profile and history
-      const user = await this.getUserProfile(userId);
+      const user = userId ? await this.getUserProfile(userId) : null;
       
       switch (actionType) {
         case 'registration':
@@ -169,7 +178,11 @@ class FraudDetection {
     const factors = [];
     let score = 0;
     
-    const message = messageData.content.toLowerCase();
+    const message = String(messageData?.content || '').toLowerCase();
+
+    if (!message) {
+      return { factors: ['empty_message'], score: 0.1 };
+    }
     
     // Check for urgency indicators
     const urgencyWords = this.fraudPatterns.communication_patterns.urgencyKeywords;
@@ -252,15 +265,14 @@ class FraudDetection {
     
     // Check for rapid registrations from same IP
     if (context.ip) {
-      const recentRegistrations = await query(`
-        SELECT COUNT(*) as count 
-        FROM users u 
-        JOIN user_sessions s ON u.id = s.user_id 
-        WHERE s.ip_address = $1 
-        AND u.created_at > NOW() - INTERVAL '24 hours'
-      `, [context.ip]);
-      
-      const count = parseInt(recentRegistrations.rows[0]?.count || 0);
+      const registrationsWindowStart = new Date(Date.now() - (24 * 60 * 60 * 1000));
+
+      const distinctRecentUsers = await UserSession.distinct('userId', {
+        ipAddress: context.ip,
+        createdAt: { $gte: registrationsWindowStart }
+      });
+
+      const count = distinctRecentUsers.length;
       if (count > this.fraudPatterns.rapid_account_creation.threshold) {
         factors.push('rapid_account_creation');
         score += this.fraudPatterns.rapid_account_creation.riskScore;
@@ -295,14 +307,15 @@ class FraudDetection {
     }
     
     // Check for new account creating high-value services
-    const accountAge = (Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24);
+    const accountCreatedAt = user?.created_at ? new Date(user.created_at) : new Date();
+    const accountAge = (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24);
     if (accountAge < 7 && serviceData.price > 200) {
       factors.push('new_account_high_value_service');
       score += 0.5;
     }
     
     // Check for suspicious descriptions
-    const description = serviceData.description.toLowerCase();
+    const description = String(serviceData?.description || '').toLowerCase();
     const suspiciousTerms = ['no questions asked', 'discrete', 'cash only', 'quick money'];
     const matchedTerms = suspiciousTerms.filter(term => description.includes(term));
     if (matchedTerms.length > 0) {
@@ -311,14 +324,11 @@ class FraudDetection {
     }
     
     // Check for excessive service creation
-    const recentServices = await query(`
-      SELECT COUNT(*) as count 
-      FROM services 
-      WHERE provider_id = $1 
-      AND created_at > NOW() - INTERVAL '24 hours'
-    `, [userId]);
-    
-    const serviceCount = parseInt(recentServices.rows[0]?.count || 0);
+    const serviceWindowStart = new Date(Date.now() - (24 * 60 * 60 * 1000));
+    const serviceCount = await Service.countDocuments({
+      provider_id: this.toObjectId(userId),
+      created_at: { $gte: serviceWindowStart }
+    });
     if (serviceCount > 5) {
       factors.push('excessive_service_creation');
       score += 0.4;
@@ -335,21 +345,19 @@ class FraudDetection {
     let score = 0;
     
     // Check for new account making expensive bookings
-    const accountAge = (Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24);
+    const accountCreatedAt = user?.created_at ? new Date(user.created_at) : new Date();
+    const accountAge = (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24);
     if (accountAge < 3 && bookingData.amount > 300) {
       factors.push('new_account_expensive_booking');
       score += 0.6;
     }
     
     // Check for unusual booking patterns
-    const recentBookings = await query(`
-      SELECT COUNT(*) as count 
-      FROM transactions 
-      WHERE client_id = $1 
-      AND created_at > NOW() - INTERVAL '1 hour'
-    `, [userId]);
-    
-    const bookingCount = parseInt(recentBookings.rows[0]?.count || 0);
+    const bookingWindowStart = new Date(Date.now() - (60 * 60 * 1000));
+    const bookingCount = await Transaction.countDocuments({
+      client_id: this.toObjectId(userId),
+      created_at: { $gte: bookingWindowStart }
+    });
     if (bookingCount > 3) {
       factors.push('rapid_booking_pattern');
       score += 0.5;
@@ -373,10 +381,9 @@ class FraudDetection {
   // Helper methods
 
   async getUserProfile(userId) {
-    const result = await query(`
-      SELECT * FROM users WHERE id = $1
-    `, [userId]);
-    return result.rows[0] || null;
+    const userObjId = this.toObjectId(userId);
+    if (!userObjId) return null;
+    return await User.findById(userObjId).lean();
   }
 
   async checkIPReputation(ip) {
@@ -402,18 +409,28 @@ class FraudDetection {
   }
 
   async getMarketPrice(category, duration) {
-    // Get average price for similar services
-    const result = await query(`
-      SELECT AVG(price) as avg_price 
-      FROM services s
-      JOIN service_categories c ON s.category_id = c.id
-      WHERE c.name = $1 
-      AND s.duration_minutes = $2
-      AND s.created_at > NOW() - INTERVAL '30 days'
-      AND s.status = 'active'
-    `, [category, duration]);
-    
-    return parseFloat(result.rows[0]?.avg_price) || null;
+    const categoryDoc = await ServiceCategory.findOne({ name: category }).select('_id').lean();
+    if (!categoryDoc) return null;
+
+    const marketWindowStart = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+    const result = await Service.aggregate([
+      {
+        $match: {
+          category_id: categoryDoc._id,
+          duration_minutes: Number(duration),
+          status: 'active',
+          created_at: { $gte: marketWindowStart }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          avg_price: { $avg: '$price' }
+        }
+      }
+    ]);
+
+    return parseFloat(result[0]?.avg_price) || null;
   }
 
   async checkLocationAnomaly(currentLocation, typicalLocations) {
@@ -458,15 +475,12 @@ class FraudDetection {
     let score = 0;
     
     // Check for frequent profile updates
-    const recentUpdates = await query(`
-      SELECT COUNT(*) as count 
-      FROM trust_events 
-      WHERE user_id = $1 
-      AND event_type = 'profile_update'
-      AND created_at > NOW() - INTERVAL '24 hours'
-    `, [userId]);
-    
-    const updateCount = parseInt(recentUpdates.rows[0]?.count || 0);
+    const updateWindowStart = new Date(Date.now() - (24 * 60 * 60 * 1000));
+    const updateCount = await TrustEvent.countDocuments({
+      user_id: this.toObjectId(userId),
+      event_type: 'profile_update',
+      created_at: { $gte: updateWindowStart }
+    });
     if (updateCount > 5) {
       factors.push('frequent_profile_updates');
       score += 0.3;
@@ -481,15 +495,13 @@ class FraudDetection {
     
     try {
       // Check for multiple failed login attempts
-      const failedLogins = await query(`
-        SELECT COUNT(*) as count 
-        FROM trust_events 
-        WHERE user_id = $1 
-        AND event_type = 'login_failed'
-        AND created_at > NOW() - INTERVAL '1 hour'
-      `, [userId]);
-      
-      const failedCount = parseInt(failedLogins.rows[0]?.count || 0);
+      const userObjId = this.toObjectId(userId);
+      const failedWindowStart = new Date(Date.now() - (60 * 60 * 1000));
+      const failedCount = await TrustEvent.countDocuments({
+        user_id: userObjId,
+        event_type: 'login_failed',
+        created_at: { $gte: failedWindowStart }
+      });
       if (failedCount > 3) {
         factors.push('multiple_failed_logins');
         score += 0.4;
@@ -510,18 +522,19 @@ class FraudDetection {
         }
         
         // Check for impossible travel (if we have previous login IP)
-        const lastLogin = await query(`
-          SELECT ip_address, created_at 
-          FROM user_sessions 
-          WHERE user_id = $1 
-          AND ip_address IS NOT NULL
-          ORDER BY created_at DESC 
-          LIMIT 1 OFFSET 1
-        `, [userId]);
-        
-        if (lastLogin.rows.length > 0 && lastLogin.rows[0].ip_address) {
-          const previousIP = lastLogin.rows[0].ip_address;
-          const timeDiff = Date.now() - new Date(lastLogin.rows[0].created_at).getTime();
+        const lastLogin = await UserSession.find({
+          userId: userObjId,
+          ipAddress: { $exists: true, $ne: null }
+        })
+          .select('ipAddress createdAt')
+          .sort({ createdAt: -1 })
+          .skip(1)
+          .limit(1)
+          .lean();
+
+        if (lastLogin.length > 0 && lastLogin[0].ipAddress) {
+          const previousIP = lastLogin[0].ipAddress;
+          const timeDiff = Date.now() - new Date(lastLogin[0].createdAt).getTime();
           
           // Only check if the IPs are different
           if (previousIP !== context.ip) {
@@ -543,15 +556,12 @@ class FraudDetection {
       }
       
       // Check for rapid successive logins
-      const recentLogins = await query(`
-        SELECT COUNT(*) as count 
-        FROM trust_events 
-        WHERE user_id = $1 
-        AND event_type = 'login'
-        AND created_at > NOW() - INTERVAL '5 minutes'
-      `, [userId]);
-      
-      const recentCount = parseInt(recentLogins.rows[0]?.count || 0);
+      const rapidLoginWindowStart = new Date(Date.now() - (5 * 60 * 1000));
+      const recentCount = await TrustEvent.countDocuments({
+        user_id: userObjId,
+        event_type: 'login',
+        created_at: { $gte: rapidLoginWindowStart }
+      });
       if (recentCount > 2) {
         factors.push('rapid_successive_logins');
         score += 0.2;
@@ -588,23 +598,29 @@ class FraudDetection {
 
   async logFraudAnalysis(userId, actionType, analysisResult) {
     try {
-      await query(`
-        INSERT INTO fraud_logs (
-          user_id, fraud_type, confidence_score, evidence, action_taken
-        ) VALUES ($1, $2, $3, $4, $5)
-      `, [
-        userId,
-        actionType,
-        analysisResult.riskScore,
-        JSON.stringify({
+      const userObjId = this.toObjectId(userId);
+      if (!userObjId) return;
+
+      await FraudLog.create({
+        user_id: userObjId,
+        fraud_type: actionType,
+        confidence_score: analysisResult.riskScore,
+        evidence: {
           riskFactors: analysisResult.riskFactors,
           riskLevel: analysisResult.riskLevel
-        }),
-        analysisResult.recommendation
-      ]);
+        },
+        action_taken: analysisResult.recommendation
+      });
     } catch (error) {
       console.error('Failed to log fraud analysis:', error);
     }
+  }
+
+  toObjectId(value) {
+    if (!value || !mongoose.Types.ObjectId.isValid(value)) {
+      return null;
+    }
+    return new mongoose.Types.ObjectId(value);
   }
 }
 

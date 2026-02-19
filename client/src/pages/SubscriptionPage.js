@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import PaystackPop from '@paystack/inline-js';
+import CryptoPayment from '../components/payments/CryptoPayment';
 import {
   Box,
   Container,
@@ -34,9 +34,6 @@ import {
   OpenInNew, 
   LocationOn, 
   Lock, 
-  CreditCard, 
-  PhoneAndroid, 
-  AccountBalance,
   Shield,
   Verified,
   Message,
@@ -60,31 +57,23 @@ const MotionCard = motion(Card);
 // Base price in USD - $20 for 6-month subscription
 const BASE_PRICE_USD = 20;
 
-// Supported countries with pricing and payment channels
+// Supported countries with pricing
 // Prices calculated based on $20 USD base price using current exchange rates
 const SUPPORTED_COUNTRIES = [
-  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', price: 32000, phoneCode: '+234', channels: ['card', 'bank', 'ussd', 'bank_transfer'] },  // $20 * 1580
-  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', price: 300, phoneCode: '+233', channels: ['card', 'mobile_money'] },  // $20 * 15.2
-  { code: 'KE', name: 'Kenya', flag: '🇰🇪', currency: 'KES', symbol: 'KSh', price: 3100, phoneCode: '+254', channels: ['card', 'mobile_money'] },  // $20 * 154
-  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', symbol: 'R', price: 380, phoneCode: '+27', channels: ['card', 'eft', 'qr'] },  // $20 * 18.8
-  { code: 'UG', name: 'Uganda', flag: '🇺🇬', currency: 'UGX', symbol: 'USh', price: 76000, phoneCode: '+256', channels: ['card'] },  // $20 * 3780
-  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', currency: 'TZS', symbol: 'TSh', price: 52000, phoneCode: '+255', channels: ['card'] },  // $20 * 2580
-  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', currency: 'RWF', symbol: 'FRw', price: 26500, phoneCode: '+250', channels: ['card'] },  // $20 * 1320
-  { code: 'BW', name: 'Botswana', flag: '🇧🇼', currency: 'BWP', symbol: 'P', price: 280, phoneCode: '+267', channels: ['card'] },  // $20 * 13.8
-  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', currency: 'ZMW', symbol: 'ZK', price: 550, phoneCode: '+260', channels: ['card'] },  // $20 * 27.5
-  { code: 'MW', name: 'Malawi', flag: '🇲🇼', currency: 'MWK', symbol: 'MK', price: 35000, phoneCode: '+265', channels: ['card'] }  // $20 * 1750
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', price: 32000, phoneCode: '+234' },  // $20 * 1580
+  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', price: 300, phoneCode: '+233' },  // $20 * 15.2
+  { code: 'KE', name: 'Kenya', flag: '🇰🇪', currency: 'KES', symbol: 'KSh', price: 3100, phoneCode: '+254' },  // $20 * 154
+  { code: 'ZA', name: 'South Africa', flag: '🇿🇦', currency: 'ZAR', symbol: 'R', price: 380, phoneCode: '+27' },  // $20 * 18.8
+  { code: 'UG', name: 'Uganda', flag: '🇺🇬', currency: 'UGX', symbol: 'USh', price: 76000, phoneCode: '+256' },  // $20 * 3780
+  { code: 'TZ', name: 'Tanzania', flag: '🇹🇿', currency: 'TZS', symbol: 'TSh', price: 52000, phoneCode: '+255' },  // $20 * 2580
+  { code: 'RW', name: 'Rwanda', flag: '🇷🇼', currency: 'RWF', symbol: 'FRw', price: 26500, phoneCode: '+250' },  // $20 * 1320
+  { code: 'BW', name: 'Botswana', flag: '🇧🇼', currency: 'BWP', symbol: 'P', price: 280, phoneCode: '+267' },  // $20 * 13.8
+  { code: 'ZM', name: 'Zambia', flag: '🇿🇲', currency: 'ZMW', symbol: 'ZK', price: 550, phoneCode: '+260' },  // $20 * 27.5
+  { code: 'MW', name: 'Malawi', flag: '🇲🇼', currency: 'MWK', symbol: 'MK', price: 35000, phoneCode: '+265' }  // $20 * 1750
 ];
 
-// Payment channel display names
-const CHANNEL_NAMES = {
-  card: { name: 'Card', icon: CreditCard },
-  bank: { name: 'Pay with Bank', icon: AccountBalance },
-  ussd: { name: 'USSD', icon: PhoneAndroid },
-  bank_transfer: { name: 'Bank Transfer', icon: AccountBalance },
-  mobile_money: { name: 'Mobile Money', icon: PhoneAndroid },
-  eft: { name: 'EFT / Ozow', icon: AccountBalance },
-  qr: { name: 'QR Code', icon: CreditCard }
-};
+// Supported crypto payment methods
+const SUPPORTED_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'];
 
 const SubscriptionPage = () => {
   const navigate = useNavigate();
@@ -159,75 +148,20 @@ const SubscriptionPage = () => {
       setPaymentLoading(true);
       setError('');
 
-      // Use the selected country for the subscription with local pricing
+      // Create crypto subscription
       const response = await subscriptionAPI.createSubscription({
         planId: 'Basic Access',
         amount: selectedCountry.price,
         currency: selectedCountry.currency,
-        countryCode: selectedCountry.code
+        countryCode: selectedCountry.code,
+        cryptoSymbol: 'USDT'
       });
 
-      if (response.success) {
-        // Store the payment reference for verification
-        const paymentDataWithRef = {
-          ...response.paymentData,
-          paystackReference: response.paymentData.reference || response.paymentData.paystackReference
-        };
-        setPaymentData(paymentDataWithRef);
-        
-        // Check if we have access code for inline popup
-        const accessCode = response.paymentData.accessCode || response.paymentData.access_code;
-        
-        if (accessCode) {
-          // Use Paystack inline popup (no redirect!)
-          toast.info('Opening secure payment...');
-          
-          const popup = new PaystackPop();
-          popup.resumeTransaction(accessCode, {
-            onSuccess: async (response) => {
-              console.log('Payment successful:', response);
-              toast.success('🎉 Payment completed! Activating subscription...');
-              
-              // Verify payment and activate subscription
-              try {
-                const verifyResponse = await subscriptionAPI.verifyPaymentByReference(paymentDataWithRef.paystackReference);
-                if (verifyResponse.success && verifyResponse.isSubscribed) {
-                  dispatch(setSubscriptionStatus(true));
-                  toast.success('🎉 Subscription activated successfully!');
-                  setTimeout(() => navigate('/dashboard'), 2000);
-                }
-              } catch (verifyErr) {
-                console.error('Verification error:', verifyErr);
-                // Still navigate - webhook will handle activation
-                dispatch(setSubscriptionStatus(true));
-                setTimeout(() => navigate('/dashboard'), 2000);
-              }
-              
-              setPaymentLoading(false);
-            },
-            onCancel: () => {
-              console.log('Payment cancelled');
-              toast.warning('Payment was cancelled');
-              setPaymentLoading(false);
-            },
-            onError: (error) => {
-              console.error('Payment error:', error);
-              toast.error('Payment failed. Please try again.');
-              setPaymentLoading(false);
-            }
-          });
-        } else if (response.paymentData.authorizationUrl) {
-          // Fallback to redirect dialog if no access code
-          setShowPaymentDialog(true);
-          
-          if (response.paymentData.isTestMode) {
-            toast.info('Test Mode: Using fallback payment method');
-          } else {
-            toast.success('Subscription created! Click to proceed to payment...');
-          }
-        } else {
-          throw new Error('No payment method available');
-        }
+      if (response.success && response.paymentData) {
+        // Store payment data for the CryptoPayment dialog
+        setPaymentData(response.paymentData);
+        setShowPaymentDialog(true);
+        toast.info('Crypto payment invoice created. Send the exact amount to the address shown.');
       } else {
         setError(response.error || 'Failed to create subscription');
         toast.error('Failed to create subscription');
@@ -242,77 +176,16 @@ const SubscriptionPage = () => {
     }
   };
 
+  const handlePaymentSuccess = async (data) => {
+    // Payment confirmed on blockchain
+    dispatch(setSubscriptionStatus(true));
+    toast.success('🎉 Subscription activated successfully!');
+    setTimeout(() => navigate('/dashboard'), 2000);
+  };
+
   const handlePaymentClose = () => {
     setShowPaymentDialog(false);
     setPaymentData(null);
-  };
-
-  const handlePaymentRedirect = () => {
-    if (paymentData?.authorizationUrl) {
-      // For Paystack, open in new window/tab for better user experience
-      const paymentWindow = window.open(paymentData.authorizationUrl, '_blank', 'width=800,height=600');
-      
-      if (paymentWindow) {
-        // Check if payment window was blocked
-        toast.info('Payment window opened. Please complete your payment.');
-        
-        // Monitor payment completion with status polling
-        const checkPayment = setInterval(async () => {
-          if (paymentWindow.closed) {
-            clearInterval(checkPayment);
-            
-            // Poll for payment status every 2 seconds for up to 30 seconds
-            let attempts = 0;
-            const maxAttempts = 15;
-            
-            const pollPaymentStatus = async () => {
-              try {
-                // First try to verify the specific payment
-                if (paymentData?.paystackReference) {
-                  const verifyResponse = await subscriptionAPI.verifyPaymentByReference(paymentData.paystackReference);
-                  if (verifyResponse.success && verifyResponse.isSubscribed) {
-                    // Update Redux state
-                    dispatch(setSubscriptionStatus(true));
-                    toast.success('🎉 Payment completed! Subscription activated successfully!');
-                    setTimeout(() => navigate('/dashboard'), 2000);
-                    return;
-                  }
-                }
-                
-                // Fallback to general status check
-                const statusResponse = await subscriptionAPI.checkStatus();
-                if (statusResponse.success && statusResponse.isSubscribed) {
-                  // Update Redux state
-                  dispatch(setSubscriptionStatus(true));
-                  toast.success('🎉 Payment completed! Subscription activated successfully!');
-                  setTimeout(() => navigate('/dashboard'), 2000);
-                  return;
-                }
-              } catch (error) {
-                console.error('Error checking subscription status:', error);
-              }
-              
-              attempts++;
-              if (attempts < maxAttempts) {
-                setTimeout(pollPaymentStatus, 2000);
-              } else {
-                toast.warning('Payment completed but subscription not yet activated. Please wait a moment and refresh the page.');
-                setTimeout(() => navigate('/dashboard'), 3000);
-              }
-            };
-            
-            // Start polling
-            pollPaymentStatus();
-          }
-        }, 1000);
-      } else {
-        // Fallback if popup was blocked
-        toast.warning('Popup blocked. Please allow popups and try again, or click the link below.');
-        // Show manual link
-        setShowPaymentDialog(false);
-        setPaymentData({ ...paymentData, showManualLink: true });
-      }
-    }
   };
 
   if (loading || detectingLocation) {
@@ -578,39 +451,36 @@ const SubscriptionPage = () => {
                   ))}
                 </List>
 
-                {/* Payment Methods */}
-                {selectedCountry?.channels && (
-                  <Box sx={{ 
-                    mt: 3, 
-                    p: 2, 
-                    borderRadius: 2,
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.08)'
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                      <Lock sx={{ fontSize: 16, color: '#00ff88' }} />
-                      <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem' }}>
-                        Secure payment options:
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      {selectedCountry.channels.map((channel) => (
-                        <Chip
-                          key={channel}
-                          label={CHANNEL_NAMES[channel]?.name || channel}
-                          size="small"
-                          sx={{ 
-                            bgcolor: 'rgba(255,255,255,0.08)',
-                            color: 'rgba(255,255,255,0.7)',
-                            fontSize: '0.7rem',
-                            height: 26,
-                            '& .MuiChip-icon': { color: 'rgba(255,255,255,0.5)' }
-                          }}
-                        />
-                      ))}
-                    </Box>
+                {/* Crypto Payment Methods */}
+                <Box sx={{ 
+                  mt: 3, 
+                  p: 2, 
+                  borderRadius: 2,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.08)'
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Lock sx={{ fontSize: 16, color: '#00ff88' }} />
+                    <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem' }}>
+                      Fee-free crypto payment:
+                    </Typography>
                   </Box>
-                )}
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {SUPPORTED_CRYPTOS.map((crypto) => (
+                      <Chip
+                        key={crypto}
+                        label={crypto}
+                        size="small"
+                        sx={{ 
+                          bgcolor: 'rgba(255,255,255,0.08)',
+                          color: 'rgba(255,255,255,0.7)',
+                          fontSize: '0.7rem',
+                          height: 26,
+                        }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
               </CardContent>
 
               <CardActions sx={{ p: { xs: 3, md: 4 }, pt: 0 }}>
@@ -786,130 +656,16 @@ const SubscriptionPage = () => {
         </MotionBox>
       </Container>
 
-      {/* Payment Dialog */}
-      <Dialog 
-        open={showPaymentDialog} 
-        onClose={handlePaymentClose}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box display="flex" alignItems="center">
-            <Payment sx={{ mr: 1, color: 'primary.main' }} />
-            {paymentData?.isTestMode ? 'Test Payment Mode' : 'Complete Payment'}
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          {paymentData && selectedCountry && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                Subscription: Basic Access
-              </Typography>
-              <Typography variant="body1" color="text.secondary" gutterBottom>
-                Amount: {selectedCountry.symbol}{formatPrice(selectedCountry.price)} {selectedCountry.currency}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Country: {selectedCountry.flag} {selectedCountry.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {paymentData.isTestMode 
-                  ? 'This is a test payment. Click the button below to simulate a successful payment.'
-                  : 'You will be redirected to Paystack to complete your payment securely.'
-                }
-              </Typography>
-              
-              {paymentData.isTestMode ? (
-                <Button
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  onClick={async () => {
-                    try {
-                      // Simulate successful payment for test mode
-                      // Update Redux state immediately for test mode
-                      dispatch(setSubscriptionStatus(true));
-                      toast.success('Test payment successful! Subscription activated successfully!');
-                      setTimeout(() => navigate('/dashboard'), 2000);
-                    } catch (error) {
-                      console.error('Error updating subscription status:', error);
-                      toast.success('Test payment successful! Redirecting to dashboard...');
-                      setTimeout(() => navigate('/dashboard'), 2000);
-                    }
-                  }}
-                  startIcon={<Star />}
-                  sx={{
-                    py: 1.5,
-                    fontSize: '1.1rem',
-                    fontWeight: 'bold',
-                    bgcolor: 'success.main'
-                  }}
-                >
-                  Complete Test Payment
-                </Button>
-              ) : (
-                <Button
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  onClick={handlePaymentRedirect}
-                  startIcon={<OpenInNew />}
-                  sx={{
-                    py: 1.5,
-                    fontSize: '1.1rem',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  Pay with Paystack
-                </Button>
-              )}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handlePaymentClose} color="inherit">
-            Cancel
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Manual Payment Link Dialog */}
-      <Dialog 
-        open={paymentData?.showManualLink || false} 
-        onClose={() => setPaymentData(null)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box display="flex" alignItems="center">
-            <Payment sx={{ mr: 1, color: 'warning.main' }} />
-            Manual Payment Link
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" gutterBottom>
-            Popup was blocked. Please click the link below to complete your payment:
-          </Typography>
-          <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-            <Typography variant="body2" component="a" 
-              href={paymentData?.authorizationUrl} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              sx={{ 
-                color: 'primary.main', 
-                textDecoration: 'none',
-                wordBreak: 'break-all'
-              }}
-            >
-              {paymentData?.authorizationUrl}
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentData(null)} color="inherit">
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Crypto Payment Dialog */}
+      {paymentData && (
+        <CryptoPayment
+          open={showPaymentDialog}
+          paymentData={paymentData}
+          onSuccess={handlePaymentSuccess}
+          onClose={handlePaymentClose}
+          title="Subscription Payment"
+        />
+      )}
     </Box>
   );
 };

@@ -1,12 +1,22 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
 const UserConnectionManager = require('../services/UserConnectionManager');
 const NotificationService = require('../services/NotificationService');
 
 const router = express.Router();
 const connectionManager = new UserConnectionManager();
+
+const userConnectionSchema = new mongoose.Schema({
+  from_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  to_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  connection_type: { type: String, default: 'contact_request' },
+  message: { type: String, default: '' },
+  status: { type: String, default: 'pending' }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+const UserConnection = mongoose.models.UserConnection || mongoose.model('UserConnection', userConnectionSchema);
 
 /**
  * @route   GET /api/connections/check-status/:otherUserId
@@ -309,14 +319,17 @@ router.delete('/:connectionId', authMiddleware, async (req, res) => {
     const { connectionId } = req.params;
     const userId = req.user.userId;
 
-    // Verify ownership and delete connection
-    const result = await query(`
-      DELETE FROM user_connections 
-      WHERE id = $1 AND (from_user_id = $2 OR to_user_id = $2)
-      RETURNING id
-    `, [connectionId, userId]);
+    if (!mongoose.Types.ObjectId.isValid(connectionId) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid connection or user ID' });
+    }
 
-    if (result.rows.length === 0) {
+    // Verify ownership and delete connection
+    const result = await UserConnection.findOneAndDelete({
+      _id: connectionId,
+      $or: [{ from_user_id: userId }, { to_user_id: userId }]
+    }).select('_id').lean();
+
+    if (!result) {
       return res.status(404).json({ error: 'Connection not found or access denied' });
     }
 

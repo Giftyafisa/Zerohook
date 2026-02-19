@@ -273,7 +273,7 @@ const PrivacySettings = () => {
     // Pricing
     showPriceOnProfile: true,
     basePrice: '',
-    priceCurrency: 'NGN',
+    priceCurrency: 'USD',
     
     // Location
     locationPrecision: 'city',
@@ -651,11 +651,11 @@ const PrivacySettings = () => {
                     '& .MuiSvgIcon-root': { color: '#fff' },
                   }}
                 >
+                  <MenuItem value="USD">🇺🇸 USD</MenuItem>
                   <MenuItem value="NGN">🇳🇬 NGN</MenuItem>
                   <MenuItem value="GHS">🇬🇭 GHS</MenuItem>
                   <MenuItem value="KES">🇰🇪 KES</MenuItem>
                   <MenuItem value="ZAR">🇿🇦 ZAR</MenuItem>
-                  <MenuItem value="USD">🇺🇸 USD</MenuItem>
                 </Select>
               </FormControl>
               <TextField

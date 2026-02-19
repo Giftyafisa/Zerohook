@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { GlassCard, GlassButton } from '../components/ui';
 import { API_BASE_URL } from '../config/constants';
+import CryptoPayment from '../components/payments/CryptoPayment';
 
 const SugarProfilesPage = () => {
   const navigate = useNavigate();
@@ -36,6 +37,8 @@ const SugarProfilesPage = () => {
   const [activeTab, setActiveTab] = useState('sugar_daddy');
   const [error, setError] = useState(null);
   const [pricing, setPricing] = useState(null);
+  const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
+  const [showCryptoPayment, setShowCryptoPayment] = useState(false);
 
   // Check if user is a provider
   const isProvider = user?.profile_data?.accountType === 'provider';
@@ -102,7 +105,7 @@ const SugarProfilesPage = () => {
     }
   }, [token, accessStatus]);
 
-  // Initialize payment
+  // Initialize payment via crypto
   const initializePayment = async (accessType) => {
     try {
       const response = await fetch(`${API_BASE_URL}/sugar-access/initialize`, {
@@ -111,17 +114,24 @@ const SugarProfilesPage = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ accessType })
+        body: JSON.stringify({ accessType, cryptoSymbol: 'USDT' })
       });
       
       if (response.ok) {
         const data = await response.json();
-        // If Paystack URL is available, redirect
-        if (data.paystack?.authorization_url) {
-          window.location.href = data.paystack.authorization_url;
-        } else {
-          // For development, auto-verify
-          await verifyPayment(data.reference);
+        if (data.paymentData?.address) {
+          setCryptoPaymentData({
+            walletAddress: data.paymentData.address,
+            cryptoAmount: data.paymentData.cryptoAmount,
+            cryptoSymbol: data.paymentData.cryptoSymbol,
+            network: data.paymentData.network,
+            qrData: data.paymentData.qrData,
+            reference: data.paymentData.reference,
+            expiresAt: data.paymentData.expiresAt,
+            fiatAmount: data.amount,
+            fiatCurrency: data.currency
+          });
+          setShowCryptoPayment(true);
         }
       } else {
         const errorData = await response.json();
@@ -131,6 +141,14 @@ const SugarProfilesPage = () => {
       console.error('Payment initialization error:', err);
       setError('Failed to initialize payment');
     }
+  };
+
+  // Handle crypto payment confirmed
+  const handleCryptoPaymentConfirmed = async () => {
+    setShowCryptoPayment(false);
+    setCryptoPaymentData(null);
+    // Refresh access status after payment
+    await fetchAccessStatus();
   };
 
   // Verify payment (for development/testing)
@@ -180,8 +198,8 @@ const SugarProfilesPage = () => {
   };
 
   // Format currency
-  const formatCurrency = (amount, currency = 'NGN') => {
-    return new Intl.NumberFormat('en-NG', {
+  const formatCurrency = (amount, currency = 'USD') => {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency
     }).format(amount);
@@ -557,6 +575,23 @@ const SugarProfilesPage = () => {
             </Box>
           </Box>
         </Box>
+      )}
+
+      {/* Crypto Payment Dialog */}
+      {showCryptoPayment && cryptoPaymentData && (
+        <CryptoPayment
+          open={showCryptoPayment}
+          onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
+          walletAddress={cryptoPaymentData.walletAddress}
+          cryptoAmount={cryptoPaymentData.cryptoAmount}
+          cryptoSymbol={cryptoPaymentData.cryptoSymbol}
+          network={cryptoPaymentData.network}
+          qrData={cryptoPaymentData.qrData}
+          reference={cryptoPaymentData.reference}
+          fiatAmount={cryptoPaymentData.fiatAmount}
+          fiatCurrency={cryptoPaymentData.fiatCurrency}
+          onPaymentConfirmed={handleCryptoPaymentConfirmed}
+        />
       )}
     </Container>
   );

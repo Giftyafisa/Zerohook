@@ -23,14 +23,17 @@ class TikTokEngagementTracker {
   constructor() {
     // In-memory session state (for real-time learning during browsing)
     this.sessionEngagement = new Map(); // sessionId -> engagement data
+    this.maxSessionCacheSize = 5000;
     
     // User preference models (cached from DB)
     this.userPreferenceModels = new Map(); // userId -> preference model
     this.modelCacheTTL = 15 * 60 * 1000; // 15 minutes
+    this.maxPreferenceCacheSize = 2000;
     
     // Profile engagement scores (for ranking)
     this.profileEngagementScores = new Map(); // profileId -> engagement score
     this.engagementCacheTTL = 5 * 60 * 1000; // 5 minutes
+    this.maxEngagementCacheSize = 5000;
     
     // Collaborative filtering matrix
     this.similarityMatrix = new Map(); // profileId -> [similar profiles]
@@ -70,6 +73,10 @@ class TikTokEngagementTracker {
     
     // Periodically recalculate collaborative filtering matrix
     setInterval(() => this.updateSimilarityMatrix(), 60 * 60 * 1000); // Every hour
+    
+    // Periodically clean up expired sessions and caches
+    setInterval(() => this.cleanupSessions(), 10 * 60 * 1000); // Every 10 minutes
+    setInterval(() => this.cleanupExpiredCaches(), 5 * 60 * 1000); // Every 5 minutes
     
     return this;
   }
@@ -561,6 +568,52 @@ class TikTokEngagementTracker {
     for (const [sessionId, session] of this.sessionEngagement) {
       if (now - session.startTime > maxAge) {
         this.sessionEngagement.delete(sessionId);
+      }
+    }
+    
+    // Hard cap: evict oldest entries if over max size
+    if (this.sessionEngagement.size > this.maxSessionCacheSize) {
+      const excess = this.sessionEngagement.size - this.maxSessionCacheSize;
+      const keys = this.sessionEngagement.keys();
+      for (let i = 0; i < excess; i++) {
+        this.sessionEngagement.delete(keys.next().value);
+      }
+    }
+  }
+
+  /**
+   * Clean up expired preference models and engagement scores
+   */
+  cleanupExpiredCaches() {
+    const now = Date.now();
+    
+    // Clean preference models older than TTL
+    for (const [userId, model] of this.userPreferenceModels) {
+      if (model.cachedAt && now - model.cachedAt > this.modelCacheTTL) {
+        this.userPreferenceModels.delete(userId);
+      }
+    }
+    // Hard cap
+    if (this.userPreferenceModels.size > this.maxPreferenceCacheSize) {
+      const excess = this.userPreferenceModels.size - this.maxPreferenceCacheSize;
+      const keys = this.userPreferenceModels.keys();
+      for (let i = 0; i < excess; i++) {
+        this.userPreferenceModels.delete(keys.next().value);
+      }
+    }
+    
+    // Clean engagement scores older than TTL
+    for (const [profileId, score] of this.profileEngagementScores) {
+      if (score.cachedAt && now - score.cachedAt > this.engagementCacheTTL) {
+        this.profileEngagementScores.delete(profileId);
+      }
+    }
+    // Hard cap
+    if (this.profileEngagementScores.size > this.maxEngagementCacheSize) {
+      const excess = this.profileEngagementScores.size - this.maxEngagementCacheSize;
+      const keys = this.profileEngagementScores.keys();
+      for (let i = 0; i < excess; i++) {
+        this.profileEngagementScores.delete(keys.next().value);
       }
     }
   }

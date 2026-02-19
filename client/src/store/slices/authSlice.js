@@ -87,9 +87,10 @@ export const verifyTier = createAsyncThunk(
 const initialState = {
   user: null,
   token: localStorage.getItem('token'),
-  isAuthenticated: !!localStorage.getItem('token'),
+  isAuthenticated: false, // Start false, set true only after validation
   isSubscribed: false,
   loading: false,
+  initialized: false, // Tracks whether initial token validation is complete
   error: null,
   verificationStatus: {
     loading: false,
@@ -131,6 +132,9 @@ const authSlice = createSlice({
     },
     clearSubscriptionError: (state) => {
       state.subscriptionStatus.error = null;
+    },
+    setInitialized: (state) => {
+      state.initialized = true;
     }
   },
   extraReducers: (builder) => {
@@ -142,6 +146,7 @@ const authSlice = createSlice({
       })
       .addCase(loginUser.fulfilled, (state, action) => {
         state.loading = false;
+        state.initialized = true;
         state.user = action.payload.user;
         state.token = action.payload.token;
         state.isAuthenticated = true;
@@ -165,6 +170,7 @@ const authSlice = createSlice({
       })
       .addCase(registerUser.fulfilled, (state, action) => {
         state.loading = false;
+        state.initialized = true;
         state.user = action.payload.user;
         state.token = action.payload.token;
         state.isAuthenticated = true;
@@ -229,6 +235,7 @@ const authSlice = createSlice({
       })
       .addCase(validateStoredToken.fulfilled, (state, action) => {
         state.loading = false;
+        state.initialized = true;
         state.user = action.payload.user;
         state.token = localStorage.getItem('token');
         state.isAuthenticated = true;
@@ -237,6 +244,7 @@ const authSlice = createSlice({
       })
       .addCase(validateStoredToken.rejected, (state, action) => {
         state.loading = false;
+        state.initialized = true;
         state.error = action.payload || 'Token validation failed';
         state.isAuthenticated = false;
         state.token = null;
@@ -246,7 +254,7 @@ const authSlice = createSlice({
   },
 });
 
-export const { logout, clearError, updateUser, setVerificationSuccess, setSubscriptionStatus, clearSubscriptionError } = authSlice.actions;
+export const { logout, clearError, updateUser, setVerificationSuccess, setSubscriptionStatus, clearSubscriptionError, setInitialized } = authSlice.actions;
 
 // Selectors
 export const selectAuth = (state) => state.auth;
@@ -254,6 +262,7 @@ export const selectUser = (state) => state.auth.user;
 export const selectIsAuthenticated = (state) => state.auth.isAuthenticated;
 export const selectIsSubscribed = (state) => state.auth.isSubscribed;
 export const selectAuthLoading = (state) => state.auth.loading;
+export const selectAuthInitialized = (state) => state.auth.initialized;
 export const selectAuthError = (state) => state.auth.error;
 export const selectVerificationStatus = (state) => state.auth.verificationStatus;
 

@@ -170,7 +170,7 @@ const ProfileCard = ({
   rating,
   reviewCount,
   price,
-  currency = 'NGN',
+  currency = 'USD',
   image,
   isOnline = false,
   isVerified = false,

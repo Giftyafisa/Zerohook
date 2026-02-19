@@ -266,7 +266,7 @@ const CallSystem = () => {
   const [callType, setCallType] = useState('video');
   const [isInCall, setIsInCall] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
-  const [callTimer, setCallTimer] = useState(null);
+  const callTimerRef = useRef(null);
   
   // Media state
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -285,7 +285,7 @@ const CallSystem = () => {
   useEffect(() => {
     return () => {
       cleanupMediaStreams();
-      if (callTimer) clearInterval(callTimer);
+      if (callTimerRef.current) clearInterval(callTimerRef.current);
     };
   }, []);
 
@@ -477,18 +477,19 @@ const CallSystem = () => {
     setOutgoingCall(null);
     setCallDuration(0);
     if (callTimer) {
-      clearInterval(callTimer);
-      setCallTimer(null);
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
     }
     cleanupMediaStreams();
-  }, [activeCall, socket, callTimer]);
+  }, [activeCall, socket]);
 
   // Timer
   const startCallTimer = () => {
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
     const timer = setInterval(() => {
       setCallDuration(prev => prev + 1);
     }, 1000);
-    setCallTimer(timer);
+    callTimerRef.current = timer;
   };
 
   // Create peer connection with ICE handling
@@ -497,7 +498,14 @@ const CallSystem = () => {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
+        { urls: 'stun:stun2.l.google.com:19302' },
+        // TURN server for users behind symmetric NATs (common on African mobile networks)
+        // Configure these via environment variables in production
+        ...(process.env.REACT_APP_TURN_URL ? [{
+          urls: process.env.REACT_APP_TURN_URL,
+          username: process.env.REACT_APP_TURN_USERNAME || '',
+          credential: process.env.REACT_APP_TURN_CREDENTIAL || ''
+        }] : [])
       ]
     });
     peerConnectionRef.current = pc;

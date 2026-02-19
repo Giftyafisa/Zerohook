@@ -25,10 +25,9 @@ router.get('/', async (req, res) => {
         currencySymbol: country.currencySymbol,
         timezone: country.timezone,
         phoneCode: country.phoneCode,
-        paystackSupport: country.paystackSupport,
+        paymentMethod: country.paymentMethod || 'crypto',
         localBanks: country.localBanks,
-        mobileMoney: country.mobileMoney,
-        cryptoPlatforms: country.cryptoPlatforms
+        mobileMoney: country.mobileMoney
       }))
     });
   } catch (error) {
@@ -308,10 +307,9 @@ router.get('/:code', async (req, res) => {
         currencySymbol: country.currencySymbol,
         timezone: country.timezone,
         phoneCode: country.phoneCode,
-        paystackSupport: country.paystackSupport,
+        paymentMethod: country.paymentMethod || 'crypto',
         localBanks: country.localBanks,
-        mobileMoney: country.mobileMoney,
-        cryptoPlatforms: country.cryptoPlatforms
+        mobileMoney: country.mobileMoney
       }
     });
   } catch (error) {
@@ -339,7 +337,7 @@ router.post('/detect', async (req, res) => {
     if (token && isDatabaseAvailable()) {
       try {
         const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'zerohook-secret-key-2024');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.userId;
         
         // Get user's phone number from database
@@ -635,19 +633,19 @@ router.get('/ghana/crypto-platforms', async (req, res) => {
     const CountryManager = require('../services/CountryManager');
     const countryManager = new CountryManager();
     
-    const ghanaianPlatforms = countryManager.getGhanaianCryptoPlatforms();
+    const paymentOptions = countryManager.getPaymentOptions('GH');
     
     res.json({
       success: true,
       country: 'Ghana',
       flag: '🇬🇭',
       currency: 'GHS',
-      cryptoPlatforms: ghanaianPlatforms,
+      paymentMethod: 'crypto',
+      supportedCryptos: paymentOptions.supportedCryptos,
       specialFeatures: {
-        bitnob: 'Ghanaian crypto platform with local bank integration',
         mobileMoney: 'MTN, Vodafone, AirtelTigo support',
         localBanks: 'All major Ghanaian banks supported',
-        localSupport: '24/7 Ghanaian customer support'
+        cryptoPayments: 'Fee-free direct blockchain payments'
       }
     });
   } catch (error) {
@@ -683,54 +681,6 @@ router.get('/features/:feature', async (req, res) => {
   } catch (error) {
     console.error('Get countries by feature error:', error);
     res.status(500).json({ error: 'Failed to fetch countries by feature' });
-  }
-});
-
-/**
- * @route   GET /api/countries/ghana/bitnob/features
- * @desc    Get Bitnob Ghanaian-specific features
- * @access  Public
- */
-router.get('/ghana/bitnob/features', async (req, res) => {
-  try {
-    const BitnobManager = require('../services/BitnobManager');
-    const bitnob = new BitnobManager();
-    
-    const features = bitnob.getGhanaianFeatures();
-    
-    res.json({
-      success: true,
-      platform: 'Bitnob',
-      country: 'Ghana',
-      features: features
-    });
-  } catch (error) {
-    console.error('Get Bitnob features error:', error);
-    res.status(500).json({ error: 'Failed to fetch Bitnob features' });
-  }
-});
-
-/**
- * @route   GET /api/countries/ghana/bitnob/banks
- * @desc    Get Ghanaian banks supported by Bitnob
- * @access  Public
- */
-router.get('/ghana/bitnob/banks', async (req, res) => {
-  try {
-    const BitnobManager = require('../services/BitnobManager');
-    const bitnob = new BitnobManager();
-    
-    const banks = await bitnob.getGhanaianBanks();
-    
-    res.json({
-      success: true,
-      country: 'Ghana',
-      platform: 'Bitnob',
-      banks: banks
-    });
-  } catch (error) {
-    console.error('Get Ghanaian banks error:', error);
-    res.status(500).json({ error: 'Failed to fetch Ghanaian banks' });
   }
 });
 

@@ -248,7 +248,7 @@ export const MilestoneRequestCard = ({
       </Box>
 
       <Typography sx={styles.requestAmount}>
-        ₦{Number(request.amount).toLocaleString()}
+        {symbol}{Number(request.amount).toLocaleString()}
       </Typography>
 
       {request.description && (

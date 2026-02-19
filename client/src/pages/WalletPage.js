@@ -10,7 +10,7 @@
  * - Minimal borders, use spacing and shadows instead
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import PaystackPop from '@paystack/inline-js';
+import CryptoPayment from '../components/payments/CryptoPayment';
 import {
   Box,
   Typography,
@@ -45,41 +45,12 @@ import {
   Refresh as RefreshIcon,
   ArrowBack as BackIcon,
   Warning as WarningIcon,
-  CreditCard as CardIcon,
-  PhoneAndroid as MobileIcon,
-  AccountBalance as BankIcon,
   CheckCircle as CheckIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useCurrency from '../hooks/useCurrency';
-
-// Payment channel display info by country
-const PAYMENT_CHANNELS_INFO = {
-  NG: [
-    { id: 'card', name: 'Card', icon: CardIcon },
-    { id: 'bank', name: 'Pay with Bank', icon: BankIcon },
-    { id: 'ussd', name: 'USSD', icon: MobileIcon },
-    { id: 'bank_transfer', name: 'Bank Transfer', icon: BankIcon },
-  ],
-  GH: [
-    { id: 'card', name: 'Card', icon: CardIcon },
-    { id: 'mobile_money', name: 'Mobile Money', icon: MobileIcon },
-  ],
-  KE: [
-    { id: 'card', name: 'Card', icon: CardIcon },
-    { id: 'mobile_money', name: 'M-PESA', icon: MobileIcon },
-  ],
-  ZA: [
-    { id: 'card', name: 'Card', icon: CardIcon },
-    { id: 'eft', name: 'EFT / Ozow', icon: BankIcon },
-    { id: 'qr', name: 'QR Code', icon: QrCode2 },
-  ],
-  DEFAULT: [
-    { id: 'card', name: 'Card', icon: CardIcon },
-  ],
-};
 
 const WalletPage = () => {
   const { isAuthenticated, user } = useAuth();
@@ -108,7 +79,6 @@ const WalletPage = () => {
   const [processingWithdraw, setProcessingWithdraw] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'escrow' ? 1 : 0);
-  const [paymentChannels, setPaymentChannels] = useState([]);
   const [walletData, setWalletData] = useState({
     balance: 0,
     escrowHeld: 0,
@@ -240,18 +210,12 @@ const WalletPage = () => {
     verifyAccount();
   }, [accountNumber, bankCode]);
 
-  // Set payment channels based on detected country
-  useEffect(() => {
-    const channels = PAYMENT_CHANNELS_INFO[countryCode] || PAYMENT_CHANNELS_INFO.DEFAULT;
-    setPaymentChannels(channels);
-  }, [countryCode]);
-
-  // Handle payment redirect callback - verify payment when user returns from Paystack
+  // Handle payment redirect callback - verify payment when user returns from payment gateway
   useEffect(() => {
     const handlePaymentCallback = async () => {
       const paymentStatus = searchParams.get('payment_status');
       const reference = searchParams.get('reference');
-      const trxref = searchParams.get('trxref'); // Paystack sometimes uses this
+      const trxref = searchParams.get('trxref'); // Legacy reference parameter
       
       const paymentRef = reference || trxref;
       
@@ -308,9 +272,12 @@ const WalletPage = () => {
   }, [isAuthenticated, searchParams, setSearchParams]);
 
   /**
-   * Handle deposit using Paystack Inline Popup
-   * This opens the payment form as a modal overlay on the site
+   * Handle deposit using Crypto Payment
+   * Creates a crypto deposit invoice and shows payment dialog
    */
+  const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
+  const [showCryptoPayment, setShowCryptoPayment] = useState(false);
+
   const handleDeposit = useCallback(async () => {
     if (!depositAmount || parseFloat(depositAmount) <= 0) {
       setError('Please enter a valid amount');
@@ -323,14 +290,14 @@ const WalletPage = () => {
     try {
       const token = localStorage.getItem('token');
       
-      // Initialize deposit and get access code from backend
+      // Create crypto deposit invoice
       const response = await fetch(`${API_BASE_URL}/payments/deposit`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ amount: parseFloat(depositAmount) })
+        body: JSON.stringify({ amount: parseFloat(depositAmount), cryptoSymbol: 'USDT' })
       });
       
       const data = await response.json();
@@ -339,64 +306,29 @@ const WalletPage = () => {
         throw new Error(data.error || 'Failed to initialize deposit');
       }
       
-      // Check if we have access code for inline popup
-      if (data.accessCode || data.access_code) {
-        const accessCode = data.accessCode || data.access_code;
-        
-        // Close the deposit dialog first
-        setDepositDialog(false);
-        
-        // Launch Paystack inline popup
-        const popup = new PaystackPop();
-        popup.resumeTransaction(accessCode, {
-          onSuccess: async (response) => {
-            console.log('Payment successful:', response);
-            setSuccessMessage(`Deposit of ${walletData.currencySymbol}${parseFloat(depositAmount).toLocaleString()} successful!`);
-            setDepositAmount('');
-            setProcessingDeposit(false);
-            
-            // Verify the payment on backend
-            try {
-              await fetch(`${API_BASE_URL}/payments/verify-inline`, {
-                method: 'POST',
-                headers: { 
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ reference: data.reference })
-              });
-            } catch (verifyErr) {
-              console.error('Verification call failed:', verifyErr);
-            }
-            
-            // Refresh wallet data
-            setTimeout(() => {
-              fetchWalletData();
-              setSuccessMessage(null);
-            }, 2000);
-          },
-          onCancel: () => {
-            console.log('Payment cancelled');
-            setProcessingDeposit(false);
-            setError('Payment was cancelled');
-          },
-          onError: (error) => {
-            console.error('Payment error:', error);
-            setProcessingDeposit(false);
-            setError(error.message || 'Payment failed. Please try again.');
-          }
-        });
-      } else if (data.authorizationUrl) {
-        // Fallback to redirect if no access code
-        window.location.href = data.authorizationUrl;
-      } else {
-        throw new Error('No payment authorization received');
-      }
+      // Close deposit dialog, show crypto payment
+      setDepositDialog(false);
+      setCryptoPaymentData(data);
+      setShowCryptoPayment(true);
+      setProcessingDeposit(false);
+      
     } catch (error) {
       console.error('Deposit error:', error);
       setError(error.message || 'Failed to process deposit');
       setProcessingDeposit(false);
     }
+  }, [depositAmount]);
+
+  const handleCryptoPaymentSuccess = useCallback((data) => {
+    setShowCryptoPayment(false);
+    setCryptoPaymentData(null);
+    setSuccessMessage(`Deposit of ${walletData.currencySymbol}${parseFloat(depositAmount).toLocaleString()} confirmed!`);
+    setDepositAmount('');
+    // Refresh wallet data
+    setTimeout(() => {
+      fetchWalletData();
+      setSuccessMessage(null);
+    }, 2000);
   }, [depositAmount, walletData.currencySymbol]);
 
   const handleWithdraw = async () => {
@@ -425,7 +357,9 @@ const WalletPage = () => {
         setBankCode('');
         setAccountNumber('');
         setAccountName('');
-        window.location.reload();
+        setSuccessMessage(data.message || 'Withdrawal requested successfully!');
+        fetchWalletData();
+        setTimeout(() => setSuccessMessage(null), 5000);
       }
     } catch (error) {
       console.error('Withdrawal error:', error);
@@ -495,6 +429,7 @@ const WalletPage = () => {
                 <IconButton 
                   onClick={() => setShowBalance(!showBalance)}
                   sx={styles.eyeButton}
+                  aria-label="Toggle balance visibility"
                 >
                   {showBalance ? <Visibility /> : <VisibilityOff />}
                 </IconButton>
@@ -563,7 +498,7 @@ const WalletPage = () => {
             <HistoryIcon sx={{ color: '#00f2ea', fontSize: 20 }} />
             <Typography sx={styles.sectionTitle}>Recent Activity</Typography>
           </Box>
-          <IconButton onClick={fetchWalletData} size="small" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+          <IconButton onClick={fetchWalletData} size="small" sx={{ color: 'rgba(255,255,255,0.5)' }} aria-label="Refresh transactions">
             <RefreshIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -632,24 +567,20 @@ const WalletPage = () => {
       >
         {/* Header */}
         <Box sx={styles.depositHeader}>
-          <IconButton onClick={() => setDepositDialog(false)} sx={{ color: '#fff' }}>
+          <IconButton onClick={() => setDepositDialog(false)} sx={{ color: '#fff' }} aria-label="Close deposit dialog">
             <BackIcon />
           </IconButton>
           <Typography sx={styles.depositHeaderTitle}>Deposit</Typography>
           <Box sx={{ width: 40 }} /> {/* Spacer */}
         </Box>
 
-        {/* Available Payment Methods for User's Country */}
+        {/* Supported Crypto Methods */}
         <Box sx={styles.paymentTabs}>
-          {paymentChannels.map((channel, index) => {
-            const IconComponent = channel.icon;
-            return (
-              <Box key={channel.id} sx={index === 0 ? styles.paymentTabActive : styles.paymentTab}>
-                <IconComponent sx={{ fontSize: 16, mr: 0.5 }} />
-                {channel.name}
-              </Box>
-            );
-          })}
+          {['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'].map((crypto, index) => (
+            <Box key={crypto} sx={index === 0 ? styles.paymentTabActive : styles.paymentTab}>
+              {crypto}
+            </Box>
+          ))}
         </Box>
 
         {/* Content */}
@@ -676,7 +607,7 @@ const WalletPage = () => {
           <Box sx={styles.infoBanner}>
             <LockIcon sx={{ color: '#00C853', mr: 1, fontSize: 20 }} />
             <Typography sx={styles.infoBannerText}>
-              Secure inline payment powered by Paystack. Complete payment without leaving this page.
+              Fee-free crypto payments. Send directly to blockchain address.
             </Typography>
           </Box>
 
@@ -758,11 +689,22 @@ const WalletPage = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mt: 3, gap: 1 }}>
             <LockIcon sx={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }} />
             <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
-              256-bit SSL Encrypted • Secured by Paystack
+              256-bit Encrypted • Direct Blockchain Payments
             </Typography>
           </Box>
         </Box>
       </Dialog>
+
+      {/* Crypto Payment Dialog */}
+      {cryptoPaymentData && (
+        <CryptoPayment
+          open={showCryptoPayment}
+          paymentData={cryptoPaymentData}
+          onSuccess={handleCryptoPaymentSuccess}
+          onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
+          title="Wallet Deposit"
+        />
+      )}
 
       {/* Withdraw Dialog */}
       <Dialog 

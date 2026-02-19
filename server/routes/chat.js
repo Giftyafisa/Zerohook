@@ -77,8 +77,8 @@ const checkMessagingLimit = async (userId, targetUserId) => {
     };
   } catch (error) {
     console.error('Error checking messaging limit:', error);
-    // Default to allowing message on error
-    return { canMessage: true, uniqueContacts: 0, maxContacts: FREE_TIER_MAX_CONTACTS, requiresSubscription: false };
+    // Fail closed: block messaging on error
+    return { canMessage: false, uniqueContacts: 0, maxContacts: FREE_TIER_MAX_CONTACTS, requiresSubscription: true, error: 'Unable to verify messaging limit' };
   }
 };
 
@@ -582,6 +582,19 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.userId;
+    
+    // Verify user is a participant of this conversation
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      $or: [
+        { participant1Id: userId },
+        { participant2Id: userId },
+        { 'participants': userId }
+      ]
+    });
+    if (!conversation) {
+      return res.status(403).json({ error: 'Not a participant of this conversation' });
+    }
     
     // Mark unread messages as read
     await Message.updateMany(

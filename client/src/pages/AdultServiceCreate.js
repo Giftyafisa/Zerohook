@@ -30,9 +30,11 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
+import useCurrency from '../hooks/useCurrency';
 
 const AdultServiceCreate = () => {
   const navigate = useNavigate();
+  const { symbol: currencySymbol } = useCurrency();
   
   const [activeStep, setActiveStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -42,7 +44,7 @@ const AdultServiceCreate = () => {
     category: '',
     subcategory: '',
     price: '',
-    currency: 'NGN',
+    currency: 'USD',
     
     // Service Details
     duration: '',
@@ -452,7 +454,7 @@ const AdultServiceCreate = () => {
                 error={!!errors.price}
                 helperText={errors.price}
                 InputProps={{
-                  startAdornment: <Typography>₦</Typography>
+                  startAdornment: <Typography>{currencySymbol}</Typography>
                 }}
                 required
               />
@@ -466,8 +468,10 @@ const AdultServiceCreate = () => {
                   onChange={(e) => handleInputChange('currency', e.target.value)}
                   label="Currency"
                 >
-                  <MenuItem value="NGN">Nigerian Naira (₦)</MenuItem>
                   <MenuItem value="USD">US Dollar ($)</MenuItem>
+                  <MenuItem value="NGN">Nigerian Naira (₦)</MenuItem>
+                  <MenuItem value="GHS">Ghanaian Cedi (₵)</MenuItem>
+                  <MenuItem value="KES">Kenyan Shilling (KSh)</MenuItem>
                   <MenuItem value="EUR">Euro (€)</MenuItem>
                   <MenuItem value="GBP">British Pound (£)</MenuItem>
                 </Select>

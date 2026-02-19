@@ -5,58 +5,73 @@ const { Subscription, SubscriptionPlan, User } = require('../config/database');
 const mongoose = require('mongoose');
 const router = express.Router();
 
-// Helper function to get country-specific currency
-async function getCountryCurrency(countryCode) {
+/**
+ * Zerohook Subscriptions - Crypto Only (Fee-Free Direct Blockchain)
+ * 
+ * All subscription payments use cryptocurrency via CryptoPaymentManager.
+ * Live rates via CurrencyManager (CoinGecko + Frankfurter).
+ * No Paystack, no Stripe.
+ */
+
+const adminMiddleware = async (req, res, next) => {
   try {
-    const countryResult = await query(`
-      SELECT currency FROM countries WHERE code = $1
-    `, [countryCode.toUpperCase()]);
-    
-    if (countryResult.rows.length > 0) {
-      return countryResult.rows[0].currency;
+    const user = await User.findById(req.user.userId).select('profile_data verification_tier is_admin');
+    const isAdmin = user?.is_admin === true ||
+      user?.verification_tier >= 5;
+
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
     }
-    
-    // Default to NGN (Nigerian Naira) for African countries
-    return 'NGN';
+
+    next();
   } catch (error) {
-    console.error('Error getting country currency:', error);
-    return 'NGN'; // Default fallback
+    return res.status(500).json({ success: false, error: 'Admin verification failed' });
   }
-}
+};
 
 // Check subscription status
 router.get('/status', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    
-    // Check subscription with expiration validation
-    const subscriptionResult = await query(`
-      SELECT s.*, u.subscription_tier, u.subscription_expires_at 
-      FROM subscriptions s
-      JOIN users u ON s.user_id = u.id
-      WHERE s.user_id = $1 AND s.status = 'active'
-      AND (u.subscription_expires_at IS NULL OR u.subscription_expires_at > CURRENT_TIMESTAMP)
-      ORDER BY s.created_at DESC LIMIT 1
-    `, [userId]);
+    const user = await User.findById(userId).select('is_subscribed subscription_tier subscription_expires_at');
 
-    const isSubscribed = subscriptionResult.rows.length > 0;
-    const subscription = isSubscribed ? subscriptionResult.rows[0] : null;
-    
-    // If subscription expired, update user status
-    if (!isSubscribed) {
-      await query(`
-        UPDATE users 
-        SET is_subscribed = false, subscription_tier = 'free', updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND is_subscribed = true AND subscription_expires_at < CURRENT_TIMESTAMP
-      `, [userId]);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
     }
+
+    const now = new Date();
+    const isExpired = user.subscription_expires_at && user.subscription_expires_at <= now;
+
+    if (isExpired || !user.is_subscribed) {
+      if (user.is_subscribed || user.subscription_tier !== 'free') {
+        user.is_subscribed = false;
+        user.subscription_tier = 'free';
+        await user.save();
+      }
+
+      return res.json({
+        success: true,
+        isSubscribed: false,
+        subscription_tier: 'free',
+        subscription_expires_at: null,
+        subscription: null
+      });
+    }
+
+    const activeSubscription = await Subscription.findOne({
+      user_id: user._id,
+      status: 'active'
+    }).sort({ created_at: -1 }).lean();
     
     res.json({
       success: true,
-      isSubscribed,
-      subscription_tier: subscription?.subscription_tier || 'free',
-      subscription_expires_at: subscription?.subscription_expires_at || null,
-      subscription: subscription
+      isSubscribed: true,
+      subscription_tier: user.subscription_tier || 'free',
+      subscription_expires_at: user.subscription_expires_at || null,
+      subscription: activeSubscription || null
     });
   } catch (error) {
     console.error('Check subscription status error:', error);
@@ -67,12 +82,13 @@ router.get('/status', authMiddleware, async (req, res) => {
   }
 });
 
-// Create subscription
+// Create subscription (Crypto Payment)
 router.post('/create', authMiddleware, [
   body('planId').isString().notEmpty(),
   body('amount').isNumeric(),
   body('currency').isString().isLength({ min: 3, max: 3 }),
-  body('countryCode').isString().isLength({ min: 2, max: 2 })
+  body('countryCode').isString().isLength({ min: 2, max: 2 }),
+  body('cryptoSymbol').optional().isIn(['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC']).withMessage('Invalid crypto')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -84,121 +100,68 @@ router.post('/create', authMiddleware, [
       });
     }
 
-    const { planId, amount, currency, countryCode } = req.body;
+    const { planId, amount, currency, countryCode, cryptoSymbol = 'USDT' } = req.body;
     const userId = req.user.userId;
 
     // Get the actual plan ID from the database if planId is a string identifier
     let actualPlanId = planId;
     if (typeof planId === 'string' && !planId.includes('-')) {
-      // If planId is not a UUID, look it up by name
-      const planResult = await query(`
-        SELECT id FROM subscription_plans WHERE plan_name = $1 AND is_active = true
-      `, [planId]);
-      
-      if (planResult.rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid subscription plan'
-        });
+      const plan = await SubscriptionPlan.findOne({ plan_name: planId, is_active: true }).select('_id').lean();
+      if (!plan) {
+        return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
       }
-      actualPlanId = planResult.rows[0].id;
+      actualPlanId = plan._id.toString();
     }
 
-    // Try Paystack first, fallback to simulation if it fails
-    let paystackResponse = null;
-    let paymentMethod = 'paystack';
-    
-    try {
-      // Use the currency sent from the frontend (local currency)
-      // Paystack supports: NGN, GHS, ZAR, KES
-      const supportedCurrencies = ['NGN', 'GHS', 'ZAR', 'KES'];
-      const paystackCurrency = supportedCurrencies.includes(currency) ? currency : 'USD';
-      
-      // Create Paystack transaction with the local currency amount
-      const paystackData = {
-        amount: amount, // Local currency amount from frontend
-        email: req.user.email || 'user@example.com',
-        currency: paystackCurrency,
-        reference: `SUB_${Date.now()}_${userId}`,
-        callback_url: `${process.env.BASE_URL || 'http://localhost:5000'}/api/subscriptions/paystack-callback`,
-        metadata: { 
-          userId, 
-          planId: actualPlanId, 
-          countryCode, 
-          originalAmount: amount,
-          originalCurrency: currency 
-        }
-      };
+    // Convert fiat amount to crypto using live rates
+    const conversion = await req.currencyManager.fiatToCrypto(amount, currency.toUpperCase(), cryptoSymbol);
 
-      console.log('🔄 Attempting Paystack transaction with:', paystackData);
-      paystackResponse = await req.paystackManager.initializeTransaction(paystackData);
-      console.log('✅ Paystack transaction successful:', paystackResponse);
-    } catch (paystackError) {
-      console.log('⚠️ Paystack failed, using fallback payment method:', paystackError.message);
-      console.log('📋 Paystack error details:', paystackError.response?.data || 'No response data');
-      paymentMethod = 'fallback';
-    }
+    // Create crypto payment invoice
+    const invoice = await req.cryptoPaymentManager.createPaymentInvoice({
+      cryptoAmount: parseFloat(conversion.cryptoAmount.toFixed(8)),
+      cryptoSymbol,
+      fiatAmount: amount,
+      fiatCurrency: currency.toUpperCase(),
+      userId,
+      metadata: {
+        type: 'subscription',
+        planId: actualPlanId,
+        countryCode
+      }
+    });
 
-    if (paystackResponse && paystackResponse.success) {
-      console.log('📋 Paystack response structure:', JSON.stringify(paystackResponse, null, 2));
+    // Create subscription record in MongoDB
+    const subscription = await Subscription.create({
+      user_id: mongoose.Types.ObjectId.createFromHexString(userId),
+      plan_id: actualPlanId ? mongoose.Types.ObjectId.createFromHexString(actualPlanId) : null,
+      amount: amount,
+      currency: currency.toUpperCase(),
+      country_code: countryCode,
+      crypto_reference: invoice.reference, // Reusing field name for backward compat
+      status: 'pending'
+    });
 
-      // Paystack succeeded - create subscription record using MongoDB
-      console.log(`📝 Creating MongoDB subscription record for user ${userId}, amount: ${amount} ${currency}, reference: ${paystackResponse.reference}`);
+    console.log(`🪙 Crypto subscription created: ${invoice.reference} - ${conversion.cryptoAmount} ${cryptoSymbol} (${currency} ${amount})`);
 
-      const subscription = await Subscription.create({
-        user_id: mongoose.Types.ObjectId.createFromHexString(userId),
-        plan_id: actualPlanId ? mongoose.Types.ObjectId.createFromHexString(actualPlanId) : null,
-        amount: amount,
-        currency: currency,
-        country_code: countryCode,
-        paystack_reference: paystackResponse.reference,
-        status: 'pending'
-      });
+    res.json({
+      success: true,
+      message: 'Subscription created - pay with crypto',
+      subscriptionId: subscription._id.toString(),
+      paymentData: {
+        reference: invoice.reference,
+        address: invoice.address,
+        cryptoAmount: conversion.cryptoAmount,
+        cryptoSymbol,
+        fiatAmount: amount,
+        fiatCurrency: currency.toUpperCase(),
+        network: invoice.network,
+        qrData: invoice.qrData,
+        expiresAt: invoice.expiresAt,
+        rate: conversion.rate,
+        rateSource: conversion.rateSource
+      }
+    });
 
-      console.log(`✅ MongoDB subscription created with ID: ${subscription._id.toString()}`);
-
-      res.json({
-        success: true,
-        message: 'Subscription created successfully via Paystack',
-        subscriptionId: subscription._id.toString(),
-        paymentData: {
-          reference: paystackResponse.reference,
-          authorizationUrl: paystackResponse.authorizationUrl,
-          // Include accessCode for inline popup payment
-          accessCode: paystackResponse.accessCode,
-          access_code: paystackResponse.accessCode
-        }
-      });
-    } else {
-      // Use fallback payment method (simulation for testing)
-      const fallbackReference = `FALLBACK_${Date.now()}_${userId}`;
-
-      // Create subscription record with fallback status using MongoDB
-      console.log(`📝 Creating MongoDB fallback subscription record for user ${userId}, amount: ${amount} ${currency}, reference: ${fallbackReference}`);
-
-      const fallbackSubscription = await Subscription.create({
-        user_id: mongoose.Types.ObjectId.createFromHexString(userId),
-        plan_id: actualPlanId ? mongoose.Types.ObjectId.createFromHexString(actualPlanId) : null,
-        amount: amount,
-        currency: currency,
-        country_code: countryCode,
-        paystack_reference: fallbackReference,
-        status: 'pending'
-      });
-
-      console.log(`✅ MongoDB fallback subscription created with ID: ${fallbackSubscription._id.toString()}`);
-
-      res.json({
-        success: true,
-        message: 'Subscription created successfully (Test Mode)',
-        subscriptionId: fallbackSubscription._id.toString(),
-        paymentData: {
-          reference: fallbackReference,
-          authorizationUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/test-payment`,
-          isTestMode: true
-        }
-      });
-    }
   } catch (error) {
     console.error('Create subscription error:', error);
     res.status(500).json({
@@ -208,7 +171,7 @@ router.post('/create', authMiddleware, [
   }
 });
 
-// Verify payment
+// Verify subscription payment (Crypto blockchain verification)
 router.post('/verify-payment', authMiddleware, [
   body('paymentReference').isString().notEmpty()
 ], async (req, res) => {
@@ -216,61 +179,66 @@ router.post('/verify-payment', authMiddleware, [
     const { paymentReference } = req.body;
     const userId = req.user.userId;
 
-    console.log(`🔄 Verifying payment: ${paymentReference} for user: ${userId}`);
+    console.log(`🔄 Verifying crypto subscription payment: ${paymentReference} for user: ${userId}`);
 
-    // Verify Paystack payment
-    const verificationResult = await req.paystackManager.verifyTransaction(paymentReference);
+    // Verify on blockchain via CryptoPaymentManager
+    const verificationResult = await req.cryptoPaymentManager.checkPaymentStatus(paymentReference);
     
-    console.log('📋 Verification result:', JSON.stringify(verificationResult, null, 2));
+    console.log('📋 Blockchain verification result:', JSON.stringify(verificationResult, null, 2));
     
-    if (!verificationResult.success || verificationResult.data.status !== 'success') {
-      return res.status(400).json({
+    if (!verificationResult.success || verificationResult.status !== 'confirmed') {
+      return res.json({
         success: false,
-        error: 'Payment verification failed'
+        error: verificationResult.status === 'pending_confirmation' 
+          ? 'Payment detected, waiting for blockchain confirmations' 
+          : 'Payment not yet detected on blockchain',
+        status: verificationResult.status || 'pending'
       });
     }
 
-    // Update subscription status
-    const subscriptionUpdate = await query(`
-      UPDATE subscriptions 
-      SET status = 'active', activated_at = CURRENT_TIMESTAMP
-      WHERE paystack_reference = $1 AND user_id = $2
-      RETURNING id
-    `, [paymentReference, userId]);
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : null;
 
-    if (subscriptionUpdate.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Subscription not found'
-      });
+    if (!userObjectId) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
-    // Update user subscription status with tier and expiration (6-month subscription)
+    const subscriptionUpdate = await Subscription.findOneAndUpdate(
+      { crypto_reference: paymentReference, user_id: userObjectId },
+      { status: 'active', activated_at: new Date() },
+      { new: true }
+    );
+
+    if (!subscriptionUpdate) {
+      return res.status(404).json({ success: false, error: 'Subscription not found' });
+    }
+
+    // Update user subscription status (6-month subscription)
     try {
-      await query(`
-        UPDATE users 
-        SET is_subscribed = true, 
-            subscription_tier = 'premium',
-            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [userId]);
-      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
+      const sixMonthsFromNow = new Date();
+      sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+
+      await User.findByIdAndUpdate(userObjectId, {
+        is_subscribed: true,
+        subscription_tier: 'premium',
+        subscription_expires_at: sixMonthsFromNow
+      });
+
+      console.log(`✅ User subscription updated: ${userId} (tier: premium, expires: 6 months)`);
     } catch (userUpdateError) {
-      console.log(`⚠️  User update failed: ${userUpdateError.message}`);
-      console.log(`   Subscription activated but user status not updated`);
+      console.log(`⚠️ User update failed: ${userUpdateError.message}`);
     }
     
-    console.log(`✅ Payment verified and subscription activated for user: ${userId}`);
+    console.log(`✅ Crypto payment verified and subscription activated for user: ${userId}`);
 
-    // Emit real-time subscription update to user
+    // Emit real-time subscription update
     if (req.io) {
       req.io.to(`user_${userId}`).emit('subscription_updated', {
         isSubscribed: true,
         status: 'active',
         timestamp: new Date().toISOString()
       });
-      console.log(`📡 Real-time subscription update sent to user: ${userId}`);
     }
 
     res.json({
@@ -280,15 +248,12 @@ router.post('/verify-payment', authMiddleware, [
     });
   } catch (error) {
     console.error('Verify payment error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to verify payment'
-    });
+    res.status(500).json({ success: false, error: 'Failed to verify payment' });
   }
 });
 
 // Manual payment verification (for development/testing)
-router.post('/verify-payment-manual', async (req, res) => {
+router.post('/verify-payment-manual', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { paymentReference, userId } = req.body;
     
@@ -301,15 +266,24 @@ router.post('/verify-payment-manual', async (req, res) => {
 
     console.log(`🔄 Manual payment verification: ${paymentReference} for user: ${userId}`);
 
-    // Update subscription status directly
-    const subscriptionUpdate = await query(`
-      UPDATE subscriptions 
-      SET status = 'active', activated_at = CURRENT_TIMESTAMP
-      WHERE paystack_reference = $1 AND user_id = $2
-      RETURNING id
-    `, [paymentReference, userId]);
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : null;
 
-    if (subscriptionUpdate.rows.length === 0) {
+    if (!userObjectId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    const subscriptionUpdate = await Subscription.findOneAndUpdate(
+      { crypto_reference: paymentReference, user_id: userObjectId },
+      { status: 'active', activated_at: new Date() },
+      { new: true }
+    );
+
+    if (!subscriptionUpdate) {
       return res.status(404).json({
         success: false,
         error: 'Subscription not found'
@@ -318,14 +292,15 @@ router.post('/verify-payment-manual', async (req, res) => {
 
     // Update user subscription status with tier and expiration (6-month subscription)
     try {
-      await query(`
-        UPDATE users 
-        SET is_subscribed = true, 
-            subscription_tier = 'premium',
-            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [userId]);
+      const sixMonthsFromNow = new Date();
+      sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+
+      await User.findByIdAndUpdate(userObjectId, {
+        is_subscribed: true,
+        subscription_tier: 'premium',
+        subscription_expires_at: sixMonthsFromNow
+      });
+
       console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
@@ -361,19 +336,23 @@ router.post('/verify-payment-manual', async (req, res) => {
 // Activate all pending subscriptions for a user (for fixing existing issues)
 router.post('/activate-all-pending', authMiddleware, async (req, res) => {
   try {
-    const { query } = require('../config/database');
-    const userId = req.user.id;
+    const userId = req.user.userId;
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : null;
+
+    if (!userObjectId) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
+    }
     
     console.log(`🔄 Activating all pending subscriptions for user: ${userId}`);
 
-    // Get all pending subscriptions for the user
-    const pendingSubs = await query(`
-      SELECT id, paystack_reference, amount, currency FROM subscriptions 
-      WHERE user_id = $1 AND status = 'pending'
-      ORDER BY created_at DESC
-    `, [userId]);
+    const pendingSubs = await Subscription.find({ user_id: userObjectId, status: 'pending' })
+      .select('_id crypto_reference amount currency')
+      .sort({ created_at: -1 })
+      .lean();
 
-    if (pendingSubs.rows.length === 0) {
+    if (pendingSubs.length === 0) {
       return res.json({
         success: true,
         message: 'No pending subscriptions found',
@@ -381,39 +360,38 @@ router.post('/activate-all-pending', authMiddleware, async (req, res) => {
       });
     }
 
-    console.log(`📋 Found ${pendingSubs.rows.length} pending subscriptions`);
+    console.log(`📋 Found ${pendingSubs.length} pending subscriptions`);
 
-    // Activate all pending subscriptions
-    for (const sub of pendingSubs.rows) {
-      await query(`
-        UPDATE subscriptions 
-        SET status = 'active', activated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [sub.id]);
-      console.log(`✅ Activated subscription ${sub.id} (${sub.paystack_reference})`);
+    await Subscription.updateMany(
+      { user_id: userObjectId, status: 'pending' },
+      { status: 'active', activated_at: new Date() }
+    );
+
+    for (const sub of pendingSubs) {
+      console.log(`✅ Activated subscription ${sub._id.toString()} (${sub.crypto_reference})`);
     }
 
     // Update user subscription status with tier and expiration (6-month subscription)
     try {
-      await query(`
-        UPDATE users 
-        SET is_subscribed = true, 
-            subscription_tier = 'premium',
-            subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `, [userId]);
+      const sixMonthsFromNow = new Date();
+      sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+
+      await User.findByIdAndUpdate(userObjectId, {
+        is_subscribed: true,
+        subscription_tier: 'premium',
+        subscription_expires_at: sixMonthsFromNow
+      });
       console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
     }
 
-    console.log(`✅ Successfully activated ${pendingSubs.rows.length} subscriptions for user: ${userId}`);
+    console.log(`✅ Successfully activated ${pendingSubs.length} subscriptions for user: ${userId}`);
 
     res.json({
       success: true,
-      message: `Successfully activated ${pendingSubs.rows.length} pending subscriptions`,
-      activatedCount: pendingSubs.rows.length,
+      message: `Successfully activated ${pendingSubs.length} pending subscriptions`,
+      activatedCount: pendingSubs.length,
       isSubscribed: true
     });
   } catch (error) {
@@ -425,120 +403,119 @@ router.post('/activate-all-pending', authMiddleware, async (req, res) => {
   }
 });
 
-// Verify payment by reference (for frontend polling)
-router.post('/verify-payment-by-reference', async (req, res) => {
+// Verify payment by reference (for frontend polling) - crypto blockchain check
+router.post('/verify-payment-by-reference', authMiddleware, async (req, res) => {
   try {
     const { paymentReference } = req.body;
+    const userId = req.user.userId;
     
     if (!paymentReference) {
-      return res.status(400).json({
-        success: false,
-        error: 'Payment reference is required'
-      });
+      return res.status(400).json({ success: false, error: 'Payment reference is required' });
     }
 
-    console.log(`🔄 Verifying payment by reference: ${paymentReference}`);
+    console.log(`🔄 Verifying crypto payment by reference: ${paymentReference}`);
 
-    // Check if payment exists and is active
-    const paymentResult = await query(`
-      SELECT s.id, s.status, s.user_id, u.is_subscribed
-      FROM subscriptions s
-      JOIN users u ON s.user_id = u.id
-      WHERE s.paystack_reference = $1
-    `, [paymentReference]);
+    const payment = await Subscription.findOne({ 
+      crypto_reference: paymentReference,
+      user_id: mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : null
+    }).select('_id status user_id').lean();
 
-    if (paymentResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Payment not found'
-      });
+    if (!payment) {
+      return res.status(404).json({ success: false, error: 'Payment not found' });
     }
 
-    const payment = paymentResult.rows[0];
+    const user = await User.findById(payment.user_id).select('is_subscribed').lean();
+    const isSubscribed = Boolean(user?.is_subscribed);
     
-    if (payment.status === 'active' && payment.is_subscribed) {
-      res.json({
+    if (payment.status === 'active' && isSubscribed) {
+      return res.json({
         success: true,
         message: 'Payment already verified and active',
         isSubscribed: true
       });
-    } else if (payment.status === 'pending') {
-      // Try to verify with Paystack
+    }
+
+    if (payment.status === 'pending') {
+      // Verify on blockchain
       try {
-        const verificationResult = await req.paystackManager.verifyTransaction(paymentReference);
+        const verificationResult = await req.cryptoPaymentManager.checkPaymentStatus(paymentReference);
         
-        if (verificationResult.success && verificationResult.data?.status === 'success') {
-          // Update subscription status
-          await query(`
-            UPDATE subscriptions 
-            SET status = 'active', activated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `, [payment.id]);
+        if (verificationResult.success && verificationResult.status === 'confirmed') {
+          await Subscription.findByIdAndUpdate(payment._id, {
+            status: 'active',
+            activated_at: new Date()
+          });
 
-          // Update user subscription status with tier and expiration (6-month subscription)
-          await query(`
-            UPDATE users 
-            SET is_subscribed = true, 
-                subscription_tier = 'premium',
-                subscription_expires_at = CURRENT_TIMESTAMP + INTERVAL '6 months',
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `, [payment.user_id]);
+          const sixMonthsFromNow = new Date();
+          sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
 
-          console.log(`✅ Payment verified and activated for user: ${payment.user_id} (tier: premium, expires: 6 months)`);
+          await User.findByIdAndUpdate(payment.user_id, {
+            is_subscribed: true,
+            subscription_tier: 'premium',
+            subscription_expires_at: sixMonthsFromNow
+          });
+
+          console.log(`✅ Crypto payment verified for user: ${payment.user_id.toString()}`);
           
-          res.json({
+          return res.json({
             success: true,
             message: 'Payment verified successfully',
             isSubscribed: true
           });
-        } else {
-          res.json({
-            success: false,
-            error: 'Payment not yet completed on Paystack',
-            isSubscribed: false
-          });
         }
+
+        return res.json({
+          success: false,
+          error: verificationResult.status === 'pending_confirmation'
+            ? 'Payment detected, waiting for confirmations'
+            : 'Payment not yet detected on blockchain',
+          status: verificationResult.status || 'pending',
+          isSubscribed: false
+        });
       } catch (verifyError) {
-        console.error('Paystack verification error:', verifyError.message);
-        res.json({
+        console.error('Blockchain verification error:', verifyError.message);
+        return res.json({
           success: false,
           error: 'Payment verification failed',
           isSubscribed: false
         });
       }
-    } else {
-      res.json({
-        success: false,
-        error: 'Payment status is not pending',
-        isSubscribed: payment.is_subscribed
-      });
     }
+
+    res.json({
+      success: false,
+      error: 'Payment status is not pending',
+      isSubscribed: false
+    });
     
   } catch (error) {
     console.error('Verify payment by reference error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to verify payment'
-    });
+    res.status(500).json({ success: false, error: 'Failed to verify payment' });
   }
 });
 
 // Get subscription plans
 router.get('/plans', async (req, res) => {
   try {
-    const { query } = require('../config/database');
-    
-    const plansResult = await query(`
-      SELECT id, plan_name, description, price, currency, features, is_active
-      FROM subscription_plans
-      WHERE is_active = true
-      ORDER BY price ASC
-    `);
+    const plansResult = await SubscriptionPlan
+      .find({ is_active: true })
+      .select('_id plan_name description price currency features is_active')
+      .sort({ price: 1 })
+      .lean();
+
+    const plans = plansResult.map((plan) => ({
+      id: plan._id.toString(),
+      plan_name: plan.plan_name,
+      description: plan.description,
+      price: plan.price,
+      currency: plan.currency,
+      features: plan.features,
+      is_active: plan.is_active
+    }));
 
     res.json({
       success: true,
-      plans: plansResult.rows
+      plans
     });
   } catch (error) {
     console.error('Get subscription plans error:', error);
@@ -549,199 +526,58 @@ router.get('/plans', async (req, res) => {
   }
 });
 
-// Handle Paystack callback
-router.get('/paystack-callback', async (req, res) => {
+// Crypto payment verification callback (replaces old Paystack callback)
+router.get('/payment-callback', async (req, res) => {
   try {
-    const { query } = require('../config/database');
-    const { reference, trxref } = req.query;
-    const paymentReference = reference || trxref;
+    const { reference } = req.query;
     
-    if (!paymentReference) {
-      console.log('❌ No payment reference provided in callback');
-      return res.status(400).json({
-        success: false,
-        error: 'Payment reference not provided'
-      });
+    if (!reference) {
+      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/failed?error=no_reference`);
     }
 
-    console.log(`🔄 Processing Paystack callback for: ${paymentReference}`);
+    console.log(`🔄 Processing crypto payment callback for: ${reference}`);
 
-    // Verify the payment with Paystack
-    let verificationResult;
-    try {
-      console.log(`🔍 Attempting Paystack verification for: ${paymentReference}`);
-      verificationResult = await req.paystackManager.verifyTransaction(paymentReference);
-      console.log('📋 Verification result:', JSON.stringify(verificationResult, null, 2));
-      
-      // Validate verification result structure
-      if (!verificationResult || typeof verificationResult !== 'object') {
-        throw new Error('Invalid verification result structure');
-      }
-      
-      if (!verificationResult.success) {
-        throw new Error(`Verification failed: ${verificationResult.error || 'Unknown error'}`);
-      }
-      
-      if (!verificationResult.data || verificationResult.data.status !== 'success') {
-        throw new Error(`Payment not successful: ${verificationResult.data?.status || 'Unknown status'}`);
-      }
-      
-      console.log('✅ Paystack verification successful');
-      
-    } catch (verifyError) {
-      console.error('❌ Paystack verification failed:', verifyError.message);
-      console.log('🔄 Falling back to database verification...');
-      
-      // Try to get the payment data from the database instead
-      const dbPayment = await query(`
-        SELECT * FROM subscriptions 
-        WHERE paystack_reference = $1
-      `, [paymentReference]);
-      
-      if (dbPayment.rows.length > 0) {
-        console.log('✅ Found payment in database, proceeding with activation');
-        verificationResult = { success: true, data: { status: 'success' } };
-      } else {
-        console.log('❌ Payment not found in database either');
-        throw new Error('Payment not found in database');
-      }
-    }
+    // Check blockchain verification
+    const verificationResult = await req.cryptoPaymentManager.checkPaymentStatus(reference);
     
-    if (verificationResult.success && verificationResult.data?.status === 'success') {
-      // Find the subscription for this payment
-      console.log(`🔍 Searching for subscription with reference: "${paymentReference}"`);
-      const subscriptionResult = await query(`
-        SELECT user_id, id, status FROM subscriptions 
-        WHERE paystack_reference = $1
-      `, [paymentReference]);
-      
-      console.log(`📋 Query result: ${subscriptionResult.rows.length} rows found`);
-      if (subscriptionResult.rows.length > 0) {
-        console.log(`📋 Found subscription:`, subscriptionResult.rows[0]);
-      }
+    if (verificationResult.success && verificationResult.status === 'confirmed') {
+      const subscriptionDoc = await Subscription.findOne({ crypto_reference: reference });
 
-      if (subscriptionResult.rows.length > 0) {
-        const { user_id, id } = subscriptionResult.rows[0];
-        
-        console.log(`✅ Found subscription for user: ${user_id}`);
-        
-        // Update subscription status
-        await query(`
-          UPDATE subscriptions 
-          SET status = 'active', activated_at = CURRENT_TIMESTAMP
-          WHERE id = $1
-        `, [id]);
-        console.log(`✅ Subscription ${id} activated`);
+      if (subscriptionDoc) {
+        const userId = subscriptionDoc.user_id?.toString();
 
-        // Update user subscription status
-        try {
-          await query(`
-            UPDATE users 
-            SET is_subscribed = true, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `, [user_id]);
-          console.log(`✅ User subscription status updated for: ${user_id}`);
-        } catch (userUpdateError) {
-          console.log(`⚠️  User update failed: ${userUpdateError.message}`);
-          console.log(`   Subscription activated but user status not updated`);
-        }
+        subscriptionDoc.status = 'active';
+        subscriptionDoc.activated_at = new Date();
+        await subscriptionDoc.save();
+        console.log(`✅ Subscription ${subscriptionDoc._id.toString()} activated via callback`);
 
-        console.log(`✅ Payment verified via callback for user: ${user_id}`);
-        
-        // Check if this is a webhook call or user redirect
-        const userAgent = req.headers['user-agent'] || '';
-        const isWebhook = userAgent.includes('Paystack') || req.headers['x-paystack-signature'];
-        
-        if (isWebhook) {
-          // This is a webhook call, return JSON
-          res.json({
-            success: true,
-            message: 'Payment verified successfully',
-            redirectUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`
-          });
-        } else {
-          // This is a user redirect, redirect to frontend
-          res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`);
-        }
-        return;
-      } else {
-        console.log(`❌ No subscription found for payment reference: ${paymentReference}`);
-        
-        // Try a case-insensitive search as fallback
-        console.log(`🔄 Trying case-insensitive search...`);
-        const fallbackResult = await query(`
-          SELECT user_id, id, status, paystack_reference FROM subscriptions 
-          WHERE LOWER(paystack_reference) = LOWER($1)
-        `, [paymentReference]);
-        
-        if (fallbackResult.rows.length > 0) {
-          console.log(`✅ Found subscription with case-insensitive search:`, fallbackResult.rows[0]);
-          console.log(`⚠️  Original reference: "${paymentReference}"`);
-          console.log(`⚠️  Stored reference: "${fallbackResult.rows[0].paystack_reference}"`);
-          
-          // Use the found subscription
-          const { user_id, id } = fallbackResult.rows[0];
-          
-          // Update subscription status
-          await query(`
-            UPDATE subscriptions 
-            SET status = 'active', activated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
-          `, [id]);
-          console.log(`✅ Subscription ${id} activated via fallback`);
-
-          // Update user subscription status
+        if (userId) {
           try {
-            await query(`
-              UPDATE users 
-              SET is_subscribed = true, updated_at = CURRENT_TIMESTAMP
-              WHERE id = $1
-            `, [user_id]);
-            console.log(`✅ User subscription status updated for: ${user_id}`);
-          } catch (userUpdateError) {
-            console.log(`⚠️  User update failed: ${userUpdateError.message}`);
-          }
+            const sixMonthsFromNow = new Date();
+            sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
 
-          console.log(`✅ Payment verified via fallback for user: ${user_id}`);
-          
-          // Check if this is a webhook call or user redirect
-          const userAgent = req.headers['user-agent'] || '';
-          const isWebhook = userAgent.includes('Paystack') || req.headers['x-paystack-signature'];
-          
-          if (isWebhook) {
-            res.json({
-              success: true,
-              message: 'Payment verified successfully via fallback',
-              redirectUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`
+            await User.findByIdAndUpdate(userId, { 
+              is_subscribed: true, 
+              subscription_tier: 'premium',
+              subscription_expires_at: sixMonthsFromNow
             });
-          } else {
-            res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`);
+          } catch (userUpdateError) {
+            console.log(`⚠️ User update failed: ${userUpdateError.message}`);
           }
-          return;
         }
-        
-        res.status(404).json({
-          success: false,
-          error: 'Subscription not found'
-        });
-        return;
+
+        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`);
       }
-    } else {
-      console.log(`❌ Payment verification failed for: ${paymentReference}`);
-      res.status(400).json({
-        success: false,
-        error: 'Payment verification failed'
-      });
-      return;
+
+      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/failed?error=not_found`);
     }
+
+    // Payment not yet confirmed - redirect to pending page
+    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/pending?reference=${reference}`);
     
   } catch (error) {
-    console.error('❌ Paystack callback error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Server error during payment verification',
-      details: error.message
-    });
+    console.error('Payment callback error:', error);
+    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/failed?error=server_error`);
   }
 });
 

@@ -61,7 +61,7 @@ const countryAPI = {
       // Return fallback country on error
       return {
         success: true,
-        detectedCountry: { code: 'NG', name: 'Nigeria', currency: 'NGN', currencySymbol: '₦', flag: '🇳🇬' },
+        detectedCountry: { code: 'US', name: 'United States', currency: 'USD', currencySymbol: '$', flag: '🇺🇸' },
         method: 'fallback',
         confidence: 'low'
       };

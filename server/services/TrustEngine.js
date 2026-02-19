@@ -1,4 +1,4 @@
-const { query, User } = require('../config/database');
+const { User, Transaction, TrustEvent } = require('../config/database');
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 
@@ -41,60 +41,96 @@ class TrustEngine {
    */
   async calculateTrustScore(userId) {
     try {
-      // Get user data
-      const userResult = await query(
-        'SELECT * FROM users WHERE id = $1',
-        [userId]
-      );
-      
-      if (userResult.rows.length === 0) {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
         throw new Error('User not found');
       }
-      
-      const user = userResult.rows[0];
-      
-      // Get transaction history
-      const transactionResult = await query(`
-        SELECT 
-          COUNT(*) as total_transactions,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_transactions,
-          AVG(CASE WHEN completed_at IS NOT NULL THEN 
-            EXTRACT(EPOCH FROM (completed_at - created_at))/3600 
-          END) as avg_completion_hours,
-          COUNT(CASE WHEN status = 'disputed' THEN 1 END) as disputes
-        FROM transactions 
-        WHERE provider_id = $1 OR client_id = $1
-      `, [userId]);
-      
-      const transactionStats = transactionResult.rows[0];
-      
-      // Get trust events
-      const trustEventsResult = await query(`
-        SELECT 
-          SUM(trust_delta) as total_trust_delta,
-          COUNT(*) as total_events
-        FROM trust_events 
-        WHERE user_id = $1 AND created_at > NOW() - INTERVAL '90 days'
-      `, [userId]);
-      
-      const trustEvents = trustEventsResult.rows[0];
+
+      const userObjId = new mongoose.Types.ObjectId(userId);
+      const user = await User.findById(userObjId).lean();
+
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const transactionAggregate = await Transaction.aggregate([
+        {
+          $match: {
+            $or: [{ provider_id: userObjId }, { client_id: userObjId }]
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total_transactions: { $sum: 1 },
+            successful_transactions: {
+              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+            },
+            avg_completion_hours: {
+              $avg: {
+                $cond: [
+                  { $and: [{ $ne: ['$completed_at', null] }, { $ne: ['$created_at', null] }] },
+                  { $divide: [{ $subtract: ['$completed_at', '$created_at'] }, 3600000] },
+                  null
+                ]
+              }
+            },
+            disputes: {
+              $sum: { $cond: [{ $eq: ['$status', 'disputed'] }, 1, 0] }
+            }
+          }
+        }
+      ]);
+
+      const transactionStats = transactionAggregate[0] || {
+        total_transactions: 0,
+        successful_transactions: 0,
+        avg_completion_hours: null,
+        disputes: 0
+      };
+
+      const ninetyDaysAgo = new Date(Date.now() - (90 * 24 * 60 * 60 * 1000));
+      const trustEventsAggregate = await TrustEvent.aggregate([
+        {
+          $match: {
+            user_id: userObjId,
+            created_at: { $gt: ninetyDaysAgo }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total_trust_delta: { $sum: '$trust_delta' },
+            total_events: { $sum: 1 }
+          }
+        }
+      ]);
+
+      const trustEvents = trustEventsAggregate[0] || {
+        total_trust_delta: 0,
+        total_events: 0
+      };
       
       // Calculate component scores
       const scores = {};
       
       // Transaction success rate (0-1)
-      scores.transaction_success = transactionStats.total_transactions > 0 
-        ? transactionStats.successful_transactions / transactionStats.total_transactions 
+      const totalTransactions = Number(transactionStats.total_transactions || 0);
+      const successfulTransactions = Number(transactionStats.successful_transactions || 0);
+      const disputes = Number(transactionStats.disputes || 0);
+      const avgCompletionHours = Number(transactionStats.avg_completion_hours || 0);
+
+      scores.transaction_success = totalTransactions > 0
+        ? successfulTransactions / totalTransactions
         : 0.5; // Default neutral score for new users
       
       // Response time score (faster = better, normalized 0-1)
-      scores.response_time = transactionStats.avg_completion_hours 
-        ? Math.max(0, 1 - (transactionStats.avg_completion_hours / 168)) // 168 hours = 1 week
+      scores.response_time = avgCompletionHours
+        ? Math.max(0, 1 - (avgCompletionHours / 168)) // 168 hours = 1 week
         : 0.5;
       
       // Dispute resolution (fewer disputes = better)
-      scores.dispute_resolution = transactionStats.total_transactions > 0
-        ? 1 - (transactionStats.disputes / transactionStats.total_transactions)
+      scores.dispute_resolution = totalTransactions > 0
+        ? 1 - (disputes / totalTransactions)
         : 0.5;
       
       // Longevity (account age in months, capped at 24 months)
@@ -102,7 +138,7 @@ class TrustEngine {
       scores.longevity = Math.min(accountAgeMonths / 24, 1);
       
       // Verification level (tier / 4)
-      scores.verification_level = user.verification_tier / 4;
+      scores.verification_level = Number(user.verification_tier || 1) / 4;
       
       // Calculate weighted score
       let finalScore = 0;
@@ -118,9 +154,9 @@ class TrustEngine {
       finalScore = Math.max(0, Math.min(1000, finalScore * 1000));
       
       // Update user's trust score
-      await query(
-        'UPDATE users SET trust_score = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        [finalScore, userId]
+      await User.updateOne(
+        { _id: userObjId },
+        { $set: { trust_score: finalScore, updated_at: new Date() } }
       );
       
       return {
@@ -141,6 +177,10 @@ class TrustEngine {
    */
   async verifyIdentity(userId, tier, verificationData) {
     try {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        throw new Error('User not found');
+      }
+
       const requirements = this.verificationTiers[tier]?.requirements || [];
       const results = {};
       
@@ -172,13 +212,16 @@ class TrustEngine {
       
       if (allPassed) {
         // Update user verification tier
-        await query(`
-          UPDATE users 
-          SET verification_tier = $1, 
-              verification_data = $2, 
-              updated_at = CURRENT_TIMESTAMP 
-          WHERE id = $3
-        `, [tier, JSON.stringify(results), userId]);
+        await User.updateOne(
+          { _id: new mongoose.Types.ObjectId(userId) },
+          {
+            $set: {
+              verification_tier: tier,
+              verification_data: results,
+              updated_at: new Date()
+            }
+          }
+        );
         
         // Record trust event
         await this.recordTrustEvent(userId, 'verification_upgrade', {
@@ -204,20 +247,43 @@ class TrustEngine {
    */
   async recordTrustEvent(userId, eventType, eventData, trustDelta = 0, reputationDelta = 0, transactionId = null) {
     try {
-      await query(`
-        INSERT INTO trust_events (user_id, event_type, event_data, trust_delta, reputation_delta, transaction_id)
-        VALUES ($1, $2, $3, $4, $5, $6)
-      `, [userId, eventType, JSON.stringify(eventData), trustDelta, reputationDelta, transactionId]);
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        throw new Error('Invalid user for trust event');
+      }
+
+      await TrustEvent.create({
+        user_id: new mongoose.Types.ObjectId(userId),
+        event_type: eventType,
+        event_data: eventData,
+        trust_delta: trustDelta,
+        reputation_delta: reputationDelta,
+        transaction_id: transactionId && mongoose.Types.ObjectId.isValid(transactionId)
+          ? new mongoose.Types.ObjectId(transactionId)
+          : undefined
+      });
       
       // Update user scores
       if (trustDelta !== 0 || reputationDelta !== 0) {
-        await query(`
-          UPDATE users 
-          SET trust_score = GREATEST(0, trust_score + $1),
-              reputation_score = GREATEST(0, reputation_score + $2),
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = $3
-        `, [trustDelta, reputationDelta, userId]);
+        const userObjId = new mongoose.Types.ObjectId(userId);
+        const user = await User.findById(userObjId)
+          .select('trust_score reputation_score')
+          .lean();
+
+        if (user) {
+          const nextTrustScore = Math.max(0, Number(user.trust_score || 0) + Number(trustDelta));
+          const nextReputationScore = Math.max(0, Number(user.reputation_score || 0) + Number(reputationDelta));
+
+          await User.updateOne(
+            { _id: userObjId },
+            {
+              $set: {
+                trust_score: nextTrustScore,
+                reputation_score: nextReputationScore,
+                updated_at: new Date()
+              }
+            }
+          );
+        }
       }
       
     } catch (error) {

@@ -1,6 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
-const { query, isDatabaseAvailable } = require('../config/database');
+const mongoose = require('mongoose');
+const { Service, ServiceCategory, User, isDatabaseAvailable } = require('../config/database');
 const router = express.Router();
 
 // Mock services for when database is unavailable
@@ -62,116 +63,76 @@ router.get('/', async (req, res) => {
       });
     }
 
-    const { category, location, minPrice, maxPrice, page = 1, limit = 20, userLat, userLng, sort = 'recommended' } = req.query;
-    const offset = (page - 1) * limit;
+    const { category, minPrice, maxPrice, page = 1, limit = 20, sort = 'recommended' } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
 
-    let whereClause = "WHERE s.status = 'active'";
-    const queryParams = [];
-    let paramCount = 0;
+    const filter = { status: 'active' };
 
     if (category && category !== 'all') {
-      paramCount++;
-      whereClause += ` AND c.name = $${paramCount}`;
-      queryParams.push(category);
-    }
-
-    if (minPrice) {
-      paramCount++;
-      whereClause += ` AND s.price >= $${paramCount}`;
-      queryParams.push(parseFloat(minPrice));
-    }
-
-    if (maxPrice) {
-      paramCount++;
-      whereClause += ` AND s.price <= $${paramCount}`;
-      queryParams.push(parseFloat(maxPrice));
-    }
-
-    // Calculate distance if user location is provided
-    let distanceField = 'NULL as distance';
-    let orderBy = 's.created_at DESC';
-
-    if (userLat && userLng) {
-      // Haversine formula for distance in km
-      // Assumes s.location_data has lat/lng or falls back to user profile location
-      distanceField = `
-        (
-          6371 * acos(
-            cos(radians(${parseFloat(userLat)})) * 
-            cos(radians(COALESCE(
-              (s.location_data->>'lat')::float, 
-              (u.profile_data->'location'->'coordinates'->>'lat')::float
-            ))) * 
-            cos(radians(COALESCE(
-              (s.location_data->>'lng')::float, 
-              (u.profile_data->'location'->'coordinates'->>'lng')::float
-            )) - radians(${parseFloat(userLng)})) + 
-            sin(radians(${parseFloat(userLat)})) * 
-            sin(radians(COALESCE(
-              (s.location_data->>'lat')::float, 
-              (u.profile_data->'location'->'coordinates'->>'lat')::float
-            )))
-          )
-        ) as distance
-      `;
-    }
-
-    // Smart Sorting
-    if (sort === 'recommended') {
-      // Boost by: Online status (recent last_active), Reputation, Verification, and Distance (if available)
-      orderBy = `
-        (CASE WHEN u.last_active > NOW() - INTERVAL '15 minutes' THEN 1 ELSE 0 END) DESC,
-        u.verification_tier DESC,
-        u.reputation_score DESC,
-        s.created_at DESC
-      `;
-      if (userLat && userLng) {
-        // If location provided, prioritize distance slightly but keep quality
-        orderBy = `
-          (CASE WHEN u.last_active > NOW() - INTERVAL '15 minutes' THEN 1 ELSE 0 END) DESC,
-          distance ASC NULLS LAST,
-          u.reputation_score DESC
-        `;
+      const categoryDoc = await ServiceCategory.findOne({ name: category }).select('_id').lean();
+      if (categoryDoc) {
+        filter.category_id = categoryDoc._id;
+      } else {
+        return res.json({
+          services: [],
+          pagination: { page: pageNum, limit: limitNum, hasMore: false }
+        });
       }
-    } else if (sort === 'price_low') {
-      orderBy = 's.price ASC';
-    } else if (sort === 'price_high') {
-      orderBy = 's.price DESC';
-    } else if (sort === 'newest') {
-      orderBy = 's.created_at DESC';
     }
 
-    paramCount++;
-    queryParams.push(parseInt(limit));
-    paramCount++;
-    queryParams.push(offset);
+    if (minPrice || maxPrice) {
+      filter.price = {};
+      if (minPrice) filter.price.$gte = Number(minPrice);
+      if (maxPrice) filter.price.$lte = Number(maxPrice);
+    }
 
-    const servicesResult = await query(`
-      SELECT 
-        s.id, s.provider_id, s.title, s.description, s.price, s.duration_minutes,
-        s.location_type, s.location_data, s.media_urls, s.views, 
-        s.bookings, s.rating, s.created_at,
-        c.display_name as category_name,
-        u.username as provider_username,
-        u.profile_data->>'avatar' as provider_avatar,
-        u.verification_tier, u.reputation_score,
-        u.last_active,
-        (u.last_active > NOW() - INTERVAL '15 minutes') as is_online,
-        ${distanceField}
-      FROM services s
-      LEFT JOIN service_categories c ON s.category_id = c.id
-      LEFT JOIN users u ON s.provider_id = u.id
-      ${whereClause}
-      ORDER BY ${orderBy}
-      LIMIT $${paramCount - 1} OFFSET $${paramCount}
-    `, queryParams);
+    let sortBy = { created_at: -1 };
+    if (sort === 'price_low') sortBy = { price: 1 };
+    if (sort === 'price_high') sortBy = { price: -1 };
+    if (sort === 'newest') sortBy = { created_at: -1 };
+
+    const services = await Service.find(filter)
+      .populate({ path: 'category_id', select: 'display_name name' })
+      .populate({ path: 'provider_id', select: 'username profile_data verification_tier reputation_score last_active' })
+      .sort(sortBy)
+      .skip(offset)
+      .limit(limitNum)
+      .lean();
+
+    const formattedServices = services.map((service) => ({
+      id: service._id.toString(),
+      provider_id: service.provider_id?._id?.toString() || null,
+      title: service.title,
+      description: service.description,
+      price: service.price,
+      duration_minutes: service.duration_minutes,
+      location_type: service.location_type,
+      location_data: service.location_data,
+      media_urls: service.media_urls,
+      views: service.views,
+      bookings: service.bookings,
+      rating: service.rating,
+      created_at: service.created_at,
+      category_name: service.category_id?.display_name || null,
+      provider_username: service.provider_id?.username || null,
+      provider_avatar: service.provider_id?.profile_data?.avatar || null,
+      verification_tier: service.provider_id?.verification_tier || 1,
+      reputation_score: service.provider_id?.reputation_score || 0,
+      last_active: service.provider_id?.last_active || null,
+      is_online: service.provider_id?.last_active
+        ? (Date.now() - new Date(service.provider_id.last_active).getTime()) <= 15 * 60 * 1000
+        : false,
+      distance: null
+    }));
 
     res.json({
-      services: servicesResult.rows,
+      services: formattedServices,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        hasMore: servicesResult.rows.length === parseInt(limit)
+        page: pageNum,
+        limit: limitNum,
+        hasMore: formattedServices.length === limitNum
       }
     });
 
@@ -210,15 +171,23 @@ router.get('/categories', async (req, res) => {
       });
     }
 
-    const categoriesResult = await query(`
-      SELECT id, name, display_name, description, base_price
-      FROM service_categories
-      ORDER BY display_name
-    `);
+    const categoriesResult = await ServiceCategory
+      .find({})
+      .select('_id name display_name description base_price')
+      .sort({ display_name: 1 })
+      .lean();
+
+    const categories = categoriesResult.map((category) => ({
+      id: category._id.toString(),
+      name: category.name,
+      display_name: category.display_name,
+      description: category.description,
+      base_price: category.base_price
+    }));
 
     res.json({
       success: true,
-      categories: categoriesResult.rows
+      categories
     });
 
   } catch (error) {
@@ -245,24 +214,38 @@ router.get('/categories', async (req, res) => {
 router.get('/user-services', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
     
-    const servicesResult = await query(`
-      SELECT 
-        s.id, s.title, s.description, s.price, s.duration_minutes,
-        s.location_type, s.location_data, s.media_urls, s.views, 
-        s.bookings, s.rating, s.status, s.created_at,
-        c.display_name as category_name,
-        u.username as provider_username,
-        u.verification_tier, u.reputation_score
-      FROM services s
-      LEFT JOIN service_categories c ON s.category_id = c.id
-      LEFT JOIN users u ON s.provider_id = u.id
-      WHERE s.provider_id = $1
-      ORDER BY s.created_at DESC
-    `, [userId]);
+    const servicesResult = await Service.find({ provider_id: userId })
+      .populate({ path: 'category_id', select: 'display_name' })
+      .populate({ path: 'provider_id', select: 'username verification_tier reputation_score' })
+      .sort({ created_at: -1 })
+      .lean();
+
+    const services = servicesResult.map((service) => ({
+      id: service._id.toString(),
+      title: service.title,
+      description: service.description,
+      price: service.price,
+      duration_minutes: service.duration_minutes,
+      location_type: service.location_type,
+      location_data: service.location_data,
+      media_urls: service.media_urls,
+      views: service.views,
+      bookings: service.bookings,
+      rating: service.rating,
+      status: service.status,
+      created_at: service.created_at,
+      category_name: service.category_id?.display_name || null,
+      provider_username: service.provider_id?.username || null,
+      verification_tier: service.provider_id?.verification_tier || 1,
+      reputation_score: service.provider_id?.reputation_score || 0
+    }));
 
     res.json({
-      services: servicesResult.rows
+      services
     });
 
   } catch (error) {
@@ -284,44 +267,33 @@ router.get('/:id', async (req, res) => {
     
     console.log('🔍 Fetching service with ID:', serviceId);
 
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(serviceId)) {
+    if (!mongoose.Types.ObjectId.isValid(serviceId)) {
       console.log('❌ Invalid service ID format:', serviceId);
       return res.status(400).json({ 
         success: false,
-        error: 'Invalid service ID format. Service ID must be a valid UUID.' 
+        error: 'Invalid service ID format. Service ID must be a valid ObjectId.' 
       });
     }
 
-    const serviceResult = await query(`
-      SELECT 
-        s.*,
-        c.display_name as category_name,
-        u.username as provider_username,
-        u.verification_tier, u.reputation_score, u.created_at as provider_joined,
-        u.profile_data
-      FROM services s
-      LEFT JOIN service_categories c ON s.category_id = c.id
-      LEFT JOIN users u ON s.provider_id = u.id
-      WHERE s.id = $1 AND s.status = 'active'
-    `, [serviceId]);
+    const service = await Service.findOne({ _id: serviceId, status: 'active' })
+      .populate({ path: 'category_id', select: 'display_name' })
+      .populate({ path: 'provider_id', select: 'username verification_tier reputation_score created_at profile_data' })
+      .lean();
 
-    if (serviceResult.rows.length === 0) {
+    if (!service) {
       console.log('❌ Service not found:', serviceId);
       return res.status(404).json({ error: 'Service not found' });
     }
 
-    const service = serviceResult.rows[0];
     console.log('✅ Service found:', service.title);
 
     // Parse profile data - handle both JSON string and object
     let profileData = {};
     try {
-      if (typeof service.profile_data === 'string') {
-        profileData = JSON.parse(service.profile_data || '{}');
-      } else if (typeof service.profile_data === 'object' && service.profile_data !== null) {
-        profileData = service.profile_data;
+      if (typeof service.provider_id?.profile_data === 'string') {
+        profileData = JSON.parse(service.provider_id.profile_data || '{}');
+      } else if (typeof service.provider_id?.profile_data === 'object' && service.provider_id?.profile_data !== null) {
+        profileData = service.provider_id.profile_data;
       }
     } catch (e) {
       console.error('Error parsing profile data:', e.message);
@@ -358,13 +330,13 @@ router.get('/:id', async (req, res) => {
 
     // Format response to match frontend expectations
     const formattedService = {
-      id: service.id,
+      id: service._id.toString(),
       title: service.title || 'Untitled Service',
       description: service.description || 'No description available',
       longDescription: service.description || '',
       price: parseFloat(service.price) || 0,
       duration: service.duration_minutes ? `${service.duration_minutes} minutes` : 'session',
-      category: service.category_name || 'General',
+      category: service.category_id?.display_name || 'General',
       subcategory: 'Standard',
       location: service.location_type || 'Location not specified',
       availableHours: 'Hours not specified',
@@ -377,28 +349,25 @@ router.get('/:id', async (req, res) => {
       available: service.status === 'active',
       rating: parseFloat(service.rating) || 0,
       reviews: parseInt(service.bookings) || 0,
-      verificationTier: service.verification_tier || 'Basic',
-      trustScore: parseInt(service.reputation_score) || 0,
+      verificationTier: service.provider_id?.verification_tier || 'Basic',
+      trustScore: parseInt(service.provider_id?.reputation_score) || 0,
       privacyLevel: 'standard',
       provider: {
-        id: service.provider_id,
-        name: profileData.firstName || profileData.username || service.provider_username || 'Provider',
+        id: service.provider_id?._id?.toString() || null,
+        name: profileData.firstName || profileData.username || service.provider_id?.username || 'Provider',
         age: profileData.age || 'N/A',
         height: profileData.height || 'N/A',
         bodyType: profileData.bodyType || 'N/A',
         languages: Array.isArray(profileData.languages) ? profileData.languages : [],
         responseTime: profileData.responseTime || '24 hours',
-        memberSince: service.provider_joined ? new Date(service.provider_joined).toLocaleDateString() : 'Recently',
+        memberSince: service.provider_id?.created_at ? new Date(service.provider_id.created_at).toLocaleDateString() : 'Recently',
         totalBookings: parseInt(service.bookings) || 0,
         completionRate: 95
       }
     };
 
     // Increment view count
-    await query(
-      'UPDATE services SET views = views + 1 WHERE id = $1',
-      [serviceId]
-    );
+    await Service.updateOne({ _id: serviceId }, { $inc: { views: 1 } });
 
     console.log('✅ Service formatted successfully');
 
@@ -424,6 +393,9 @@ router.get('/:id', async (req, res) => {
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(category_id)) {
+      return res.status(400).json({ error: 'Invalid user or category ID' });
+    }
     const { 
       title, 
       description, 
@@ -445,42 +417,30 @@ router.post('/', authMiddleware, async (req, res) => {
     }
 
     // Create new service
-    const serviceResult = await query(`
-      INSERT INTO services (
-        provider_id, category_id, title, description, price, 
-        duration_minutes, location_type, location_data, 
-        availability, requirements, media_urls, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
-      RETURNING *
-    `, [
-      userId, category_id, title, description, price,
-      duration_minutes || null, location_type || 'local',
-      JSON.stringify(location_data || {}),
-      JSON.stringify(availability || {}),
-      JSON.stringify(requirements || []),
-      JSON.stringify(media_urls || [])
-    ]);
+    const newService = await Service.create({
+      provider_id: new mongoose.Types.ObjectId(userId),
+      category_id: new mongoose.Types.ObjectId(category_id),
+      title,
+      description,
+      price: Number(price),
+      duration_minutes: duration_minutes || 60,
+      location_type: location_type || 'local',
+      location_data: location_data || {},
+      availability: availability || {},
+      requirements: requirements || [],
+      media_urls: media_urls || [],
+      status: 'active'
+    });
 
-    const newService = serviceResult.rows[0];
-
-    // Get category and user info for response
-    const detailsResult = await query(`
-      SELECT 
-        s.*,
-        c.display_name as category_name,
-        u.username as provider_username,
-        u.verification_tier,
-        u.reputation_score
-      FROM services s
-      LEFT JOIN service_categories c ON s.category_id = c.id
-      LEFT JOIN users u ON s.provider_id = u.id
-      WHERE s.id = $1
-    `, [newService.id]);
+    const detailsResult = await Service.findById(newService._id)
+      .populate({ path: 'category_id', select: 'display_name' })
+      .populate({ path: 'provider_id', select: 'username verification_tier reputation_score' })
+      .lean();
 
     res.status(201).json({
       success: true,
       message: 'Service created successfully',
-      service: detailsResult.rows[0]
+      service: detailsResult
     });
 
   } catch (error) {

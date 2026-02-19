@@ -1,6 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { User, Review, Transaction } = require('../config/database');
 const router = express.Router();
 
 /**
@@ -13,45 +14,45 @@ router.post('/review', authMiddleware, async (req, res) => {
     const reviewerId = req.user.userId;
     const { transactionId, rating, comment, anonymous = false } = req.body;
 
-    // Validate transaction exists and reviewer was part of it
-    const transactionResult = await query(`
-      SELECT 
-        t.*,
-        CASE 
-          WHEN t.client_id = $1 THEN t.provider_id 
-          ELSE t.client_id 
-        END as reviewee_id
-      FROM transactions t
-      WHERE t.id = $2 
-      AND t.status = 'completed'
-      AND (t.client_id = $1 OR t.provider_id = $1)
-    `, [reviewerId, transactionId]);
+    if (!mongoose.Types.ObjectId.isValid(reviewerId) || !mongoose.Types.ObjectId.isValid(transactionId)) {
+      return res.status(400).json({ error: 'Invalid reviewer or transaction ID' });
+    }
 
-    if (transactionResult.rows.length === 0) {
+    // Validate transaction exists and reviewer was part of it
+    const transaction = await Transaction.findOne({
+      _id: transactionId,
+      status: 'completed',
+      $or: [{ client_id: reviewerId }, { provider_id: reviewerId }]
+    }).lean();
+
+    if (!transaction) {
       return res.status(404).json({ 
         error: 'Transaction not found or not eligible for review' 
       });
     }
 
-    const transaction = transactionResult.rows[0];
-    const revieweeId = transaction.reviewee_id;
+    const revieweeId = transaction.client_id?.toString() === reviewerId
+      ? transaction.provider_id?.toString()
+      : transaction.client_id?.toString();
 
     // Check if review already exists
-    const existingReview = await query(`
-      SELECT id FROM reviews 
-      WHERE transaction_id = $1 AND reviewer_id = $2
-    `, [transactionId, reviewerId]);
+    const existingReview = await Review.findOne({ transaction_id: transactionId, reviewer_id: reviewerId })
+      .select('_id')
+      .lean();
 
-    if (existingReview.rows.length > 0) {
+    if (existingReview) {
       return res.status(400).json({ error: 'Review already submitted' });
     }
 
     // Create review
-    const reviewResult = await query(`
-      INSERT INTO reviews (transaction_id, reviewer_id, reviewee_id, rating, comment, anonymous)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `, [transactionId, reviewerId, revieweeId, rating, comment, anonymous]);
+    const review = await Review.create({
+      transaction_id: new mongoose.Types.ObjectId(transactionId),
+      reviewer_id: new mongoose.Types.ObjectId(reviewerId),
+      reviewee_id: new mongoose.Types.ObjectId(revieweeId),
+      rating: Number(rating),
+      comment,
+      anonymous: Boolean(anonymous)
+    });
 
     // Update reviewee's reputation score
     const reputationDelta = rating >= 4 ? 5 : rating >= 3 ? 0 : -5;
@@ -68,7 +69,7 @@ router.post('/review', authMiddleware, async (req, res) => {
 
     res.json({
       message: 'Review submitted successfully',
-      review: reviewResult.rows[0]
+      review
     });
 
   } catch (error) {
@@ -84,55 +85,92 @@ router.post('/review', authMiddleware, async (req, res) => {
  * @desc    Get user reputation data
  * @access  Public
  */
-router.get('/:userId', async (req, res) => {
+router.get('/:userId', async (req, res, next) => {
   try {
     const userId = req.params.userId;
+    if (userId === 'reviews') {
+      return next();
+    }
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
 
     // Get user basic info
-    const userResult = await query(`
-      SELECT username, verification_tier, reputation_score, trust_score, created_at
-      FROM users WHERE id = $1 AND status = 'active'
-    `, [userId]);
+    const user = await User.findOne({ _id: userId, status: 'active' })
+      .select('username verification_tier reputation_score trust_score created_at')
+      .lean();
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Get review statistics
-    const reviewStats = await query(`
-      SELECT 
-        COUNT(*) as total_reviews,
-        AVG(rating) as average_rating,
-        COUNT(CASE WHEN rating = 5 THEN 1 END) as five_star,
-        COUNT(CASE WHEN rating = 4 THEN 1 END) as four_star,
-        COUNT(CASE WHEN rating = 3 THEN 1 END) as three_star,
-        COUNT(CASE WHEN rating = 2 THEN 1 END) as two_star,
-        COUNT(CASE WHEN rating = 1 THEN 1 END) as one_star
-      FROM reviews 
-      WHERE reviewee_id = $1
-    `, [userId]);
+    const reviewAgg = await Review.aggregate([
+      { $match: { reviewee_id: new mongoose.Types.ObjectId(userId) } },
+      {
+        $group: {
+          _id: null,
+          total_reviews: { $sum: 1 },
+          average_rating: { $avg: '$rating' },
+          five_star: { $sum: { $cond: [{ $eq: ['$rating', 5] }, 1, 0] } },
+          four_star: { $sum: { $cond: [{ $eq: ['$rating', 4] }, 1, 0] } },
+          three_star: { $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] } },
+          two_star: { $sum: { $cond: [{ $eq: ['$rating', 2] }, 1, 0] } },
+          one_star: { $sum: { $cond: [{ $eq: ['$rating', 1] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    const reviewStats = reviewAgg[0] || {
+      total_reviews: 0,
+      average_rating: 0,
+      five_star: 0,
+      four_star: 0,
+      three_star: 0,
+      two_star: 0,
+      one_star: 0
+    };
 
     // Get recent reviews (non-anonymous only for privacy)
-    const recentReviews = await query(`
-      SELECT 
-        r.rating, r.comment, r.created_at,
-        u.username as reviewer_username
-      FROM reviews r
-      LEFT JOIN users u ON r.reviewer_id = u.id
-      WHERE r.reviewee_id = $1 AND r.anonymous = false
-      ORDER BY r.created_at DESC
-      LIMIT 10
-    `, [userId]);
+    const recentReviewsRaw = await Review.find({ reviewee_id: userId, anonymous: false })
+      .populate({ path: 'reviewer_id', select: 'username' })
+      .sort({ created_at: -1 })
+      .limit(10)
+      .select('rating comment created_at reviewer_id')
+      .lean();
+
+    const recentReviews = recentReviewsRaw.map((review) => ({
+      rating: review.rating,
+      comment: review.comment,
+      created_at: review.created_at,
+      reviewer_username: review.reviewer_id?.username || null
+    }));
 
     // Get transaction statistics
-    const transactionStats = await query(`
-      SELECT 
-        COUNT(*) as total_transactions,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_transactions,
-        COUNT(CASE WHEN status = 'disputed' THEN 1 END) as disputed_transactions
-      FROM transactions 
-      WHERE provider_id = $1 OR client_id = $1
-    `, [userId]);
+    const txAgg = await Transaction.aggregate([
+      {
+        $match: {
+          $or: [
+            { provider_id: new mongoose.Types.ObjectId(userId) },
+            { client_id: new mongoose.Types.ObjectId(userId) }
+          ]
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total_transactions: { $sum: 1 },
+          completed_transactions: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          disputed_transactions: { $sum: { $cond: [{ $eq: ['$status', 'disputed'] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    const transactionStats = txAgg[0] || {
+      total_transactions: 0,
+      completed_transactions: 0,
+      disputed_transactions: 0
+    };
 
     // Get trust score breakdown
     let trustScoreBreakdown = null;
@@ -143,10 +181,10 @@ router.get('/:userId', async (req, res) => {
     }
 
     res.json({
-      user: userResult.rows[0],
-      reviewStats: reviewStats.rows[0],
-      recentReviews: recentReviews.rows,
-      transactionStats: transactionStats.rows[0],
+      user,
+      reviewStats,
+      recentReviews,
+      transactionStats,
       trustScoreBreakdown
     });
 
@@ -167,27 +205,30 @@ router.get('/reviews/received', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
 
-    const reviewsResult = await query(`
-      SELECT 
-        r.*, 
-        u.username as reviewer_username,
-        t.amount as transaction_amount
-      FROM reviews r
-      LEFT JOIN users u ON r.reviewer_id = u.id
-      JOIN transactions t ON r.transaction_id = t.id
-      WHERE r.reviewee_id = $1
-      ORDER BY r.created_at DESC
-      LIMIT $2 OFFSET $3
-    `, [userId, limit, offset]);
+    const reviewsRaw = await Review.find({ reviewee_id: userId })
+      .populate({ path: 'reviewer_id', select: 'username' })
+      .populate({ path: 'transaction_id', select: 'amount' })
+      .sort({ created_at: -1 })
+      .skip(offset)
+      .limit(limitNum)
+      .lean();
+
+    const reviews = reviewsRaw.map((review) => ({
+      ...review,
+      reviewer_username: review.reviewer_id?.username || null,
+      transaction_amount: review.transaction_id?.amount || 0
+    }));
 
     res.json({
-      reviews: reviewsResult.rows,
+      reviews,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        hasMore: reviewsResult.rows.length === parseInt(limit)
+        page: pageNum,
+        limit: limitNum,
+        hasMore: reviews.length === limitNum
       }
     });
 
@@ -208,27 +249,30 @@ router.get('/reviews/given', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
 
-    const reviewsResult = await query(`
-      SELECT 
-        r.*, 
-        u.username as reviewee_username,
-        t.amount as transaction_amount
-      FROM reviews r
-      LEFT JOIN users u ON r.reviewee_id = u.id
-      JOIN transactions t ON r.transaction_id = t.id
-      WHERE r.reviewer_id = $1
-      ORDER BY r.created_at DESC
-      LIMIT $2 OFFSET $3
-    `, [userId, limit, offset]);
+    const reviewsRaw = await Review.find({ reviewer_id: userId })
+      .populate({ path: 'reviewee_id', select: 'username' })
+      .populate({ path: 'transaction_id', select: 'amount' })
+      .sort({ created_at: -1 })
+      .skip(offset)
+      .limit(limitNum)
+      .lean();
+
+    const reviews = reviewsRaw.map((review) => ({
+      ...review,
+      reviewee_username: review.reviewee_id?.username || null,
+      transaction_amount: review.transaction_id?.amount || 0
+    }));
 
     res.json({
-      reviews: reviewsResult.rows,
+      reviews,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        hasMore: reviewsResult.rows.length === parseInt(limit)
+        page: pageNum,
+        limit: limitNum,
+        hasMore: reviews.length === limitNum
       }
     });
 

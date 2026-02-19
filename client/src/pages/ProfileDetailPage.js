@@ -95,7 +95,7 @@ const ProfileDetailPage = () => {
       setError(null);
       
       // CRITICAL: Prevent users from viewing their own profile
-      if (isAuthenticated && user && user.id === profileId) {
+      if (isAuthenticated && user && String(user.id) === String(profileId)) {
         setError('You cannot view your own profile in the marketplace. Use your dashboard instead.');
         setLoading(false);
         return;

@@ -20,6 +20,8 @@
 
 const IPGeolocation = require('./IPGeolocation');
 const { GLOBAL_CITIES } = require('../../shared/utils/globalCityData');
+const mongoose = require('mongoose');
+const { UserActivityLog } = require('../config/database');
 
 // Simple Levenshtein distance for fuzzy city matching
 function levenshtein(a, b) {
@@ -52,6 +54,7 @@ class LocationTrackingService {
     this.ipGeoService = new IPGeolocation();
     this.locationCache = new Map();
     this.cacheExpiry = 10 * 60 * 1000; // 10 minutes
+    this.maxCacheSize = 5000;
     
     // Global city coordinates database (expandable)
     this.cityCoordinates = this.loadGlobalCityCoordinates();
@@ -60,6 +63,10 @@ class LocationTrackingService {
   async initialize() {
     console.log('📍 Initializing Location Tracking Service...');
     await this.ipGeoService.initialize();
+    
+    // Periodic cache cleanup every 5 minutes
+    setInterval(() => this.cleanupExpiredCache(), 5 * 60 * 1000);
+    
     console.log('✅ Location Tracking Service initialized');
   }
 
@@ -379,26 +386,26 @@ class LocationTrackingService {
     if (!userId) return;
 
     try {
-      const { query } = require('../config/database');
-      
-      await query(`
-        INSERT INTO location_history (user_id, latitude, longitude, city, country, source, accuracy, timestamp)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-        ON CONFLICT (user_id, timestamp) DO NOTHING
-      `, [
-        userId,
-        location.lat,
-        location.lng,
-        location.city,
-        location.country,
-        source,
-        location.accuracy
-      ]);
+      if (!mongoose.Types.ObjectId.isValid(userId)) return;
+
+      await UserActivityLog.create({
+        userId: new mongoose.Types.ObjectId(userId),
+        actionType: 'location_update',
+        actionData: {
+          latitude: location.lat,
+          longitude: location.lng,
+          city: location.city,
+          country: location.country,
+          source,
+          accuracy: location.accuracy,
+          confidence: location.confidence,
+          detectedAt: new Date().toISOString()
+        },
+        success: true,
+        responseTimeMs: 0
+      });
     } catch (error) {
-      // Table might not exist, that's okay
-      if (!error.message.includes('does not exist')) {
-        console.error('Location history save error:', error.message);
-      }
+      console.error('Location history save error:', error.message);
     }
   }
 
@@ -416,6 +423,11 @@ class LocationTrackingService {
         source: cached.data?.source || 'cache'
       };
     }
+    
+    // Remove expired entry
+    if (cached) {
+      this.locationCache.delete(identifier);
+    }
 
     return null;
   }
@@ -425,11 +437,32 @@ class LocationTrackingService {
    */
   setCachedLocation(identifier, location) {
     if (!identifier) return;
+    
+    // Evict oldest entries if cache is full
+    if (this.locationCache.size >= this.maxCacheSize) {
+      const excess = this.locationCache.size - this.maxCacheSize + 1;
+      const keys = this.locationCache.keys();
+      for (let i = 0; i < excess; i++) {
+        this.locationCache.delete(keys.next().value);
+      }
+    }
 
     this.locationCache.set(identifier, {
       data: location,
       timestamp: Date.now()
     });
+  }
+
+  /**
+   * Clean up all expired cache entries
+   */
+  cleanupExpiredCache() {
+    const now = Date.now();
+    for (const [key, entry] of this.locationCache) {
+      if (now - entry.timestamp >= this.cacheExpiry) {
+        this.locationCache.delete(key);
+      }
+    }
   }
 
   /**

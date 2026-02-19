@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useCallback, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction, logout as logoutAction } from '../store/slices/authSlice';
+import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction, logout as logoutAction, setInitialized } from '../store/slices/authSlice';
 import { detectUserCountry, getSupportedCountries, fetchExchangeRates } from '../store/slices/countrySlice';
 
 const AuthContext = createContext({});
@@ -21,6 +21,9 @@ export const AuthProvider = ({ children }) => {
           console.error('Token validation failed:', error);
           localStorage.removeItem('token');
         }
+      } else {
+        // No token - mark as initialized immediately
+        dispatch(setInitialized());
       }
     };
     
@@ -70,8 +73,10 @@ export const AuthProvider = ({ children }) => {
   }, [isAuthenticated, user, dispatch]);
 
   // Re-detect country when user logs in (they may have phone number for better detection)
+  const countryDetectedForAuth = useRef(false);
   useEffect(() => {
-    if (isAuthenticated && user) {
+    if (isAuthenticated && user && !countryDetectedForAuth.current) {
+      countryDetectedForAuth.current = true;
       const redetectCountryForAuthUser = async () => {
         try {
           console.log('🌍 Re-detecting country for authenticated user...');
@@ -82,14 +87,20 @@ export const AuthProvider = ({ children }) => {
       };
       redetectCountryForAuthUser();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
-
-  const updateUser = (userData) => {
-    if (user) {
-      dispatch(updateUserAction({ ...user, ...userData }));
+    if (!isAuthenticated) {
+      countryDetectedForAuth.current = false;
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user]);
+
+  const updateUser = useCallback((userData) => {
+    dispatch((dispatch, getState) => {
+      const currentUser = getState().auth.user;
+      if (currentUser) {
+        dispatch(updateUserAction({ ...currentUser, ...userData }));
+      }
+    });
+  }, [dispatch]);
 
   // Logout function - clears auth state and localStorage
   const logout = useCallback(() => {

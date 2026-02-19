@@ -17,11 +17,14 @@ const rateLimitMiddleware = async (req, res, next) => {
     await authLimiter.consume(req.ip);
     next();
   } catch (rejRes) {
-    res.status(429).json({ error: 'Too many authentication attempts, please try again later.' });
+    res.status(429).json({ success: false, error: 'Too many authentication attempts, please try again later.' });
   }
 };
 
-const JWT_SECRET = process.env.JWT_SECRET || 'zerohook_secret_key_change_in_production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.trim().length < 32) {
+  throw new Error('JWT_SECRET is missing or too weak. Set a strong secret (min 32 chars).');
+}
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 
 /**
@@ -54,7 +57,10 @@ router.post('/register', rateLimitMiddleware, [
     .withMessage('Please provide a valid email'),
   body('password')
     .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters'),
+    .withMessage('Password must be at least 8 characters')
+    .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter')
+    .matches(/[a-z]/).withMessage('Password must contain at least one lowercase letter')
+    .matches(/\d/).withMessage('Password must contain at least one number'),
   body('phone')
     .optional(),
   body('firstName')
@@ -88,8 +94,7 @@ router.post('/register', rateLimitMiddleware, [
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       console.log('Registration validation errors:', errors.array());
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -112,8 +117,7 @@ router.post('/register', rateLimitMiddleware, [
         age--;
       }
       if (age < 18) {
-        return res.status(400).json({
-          error: 'You must be at least 18 years old to register'
+        return res.status(400).json({ success: false, error: 'You must be at least 18 years old to register'
         });
       }
     }
@@ -127,8 +131,7 @@ router.post('/register', rateLimitMiddleware, [
     });
 
     if (fraudAnalysis.shouldBlock) {
-      return res.status(403).json({
-        error: 'Registration blocked due to security concerns',
+      return res.status(403).json({ success: false, error: 'Registration blocked due to security concerns',
         riskFactors: fraudAnalysis.riskFactors
       });
     }
@@ -139,8 +142,7 @@ router.post('/register', rateLimitMiddleware, [
     });
 
     if (existingUser) {
-      return res.status(400).json({
-        error: 'User already exists with this email or username'
+      return res.status(400).json({ success: false, error: 'User already exists with this email or username'
       });
     }
 
@@ -270,15 +272,13 @@ router.post('/register', rateLimitMiddleware, [
         subscription_expires_at: null
       },
       fraudAnalysis: {
-        riskLevel: fraudAnalysis.riskLevel,
         requiresVerification: fraudAnalysis.requiresVerification
       }
     });
 
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({
-      error: 'Registration failed',
+    res.status(500).json({ success: false, error: 'Registration failed',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -304,8 +304,7 @@ router.post('/login', rateLimitMiddleware, [
     });
     
     if (filteredErrors.length > 0) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: filteredErrors
       });
     }
@@ -315,47 +314,7 @@ router.post('/login', rateLimitMiddleware, [
     const { password } = req.body;
     
     if (!loginIdentifier) {
-      return res.status(400).json({
-        error: 'Email or username is required'
-      });
-    }
-
-    // TEMPORARY FIX: Mock authentication for testing when database is unavailable
-    if ((loginIdentifier === 'akua.mensah@ghana.com' || loginIdentifier === 'akua_mensah') && password === 'AkuaPass123!') {
-      const mockUser = {
-        id: '00000000-0000-0000-0000-000000000001', // Valid UUID for mock user
-        username: 'akua_mensah',
-        email: 'akua.mensah@ghana.com',
-        phone: '+233241234567', // Ghanaian phone number for country detection
-        verificationTier: 1,
-        reputationScore: 100.0,
-        trustScore: 0.0,
-        status: 'active',
-        is_subscribed: false,
-        subscription_tier: 'free',
-        subscription_expires_at: null,
-        profile_data: {},
-        created_at: new Date().toISOString()
-      };
-
-      const token = jwt.sign(
-        { 
-          userId: mockUser.id,
-          username: mockUser.username,
-          verificationTier: mockUser.verificationTier
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRE }
-      );
-
-      return res.json({
-        message: 'Login successful (mock mode)',
-        token,
-        user: mockUser,
-        security: {
-          riskLevel: 'low',
-          requiresAdditionalAuth: false
-        }
+      return res.status(400).json({ success: false, error: 'Email or username is required'
       });
     }
 
@@ -367,30 +326,26 @@ router.post('/login', rateLimitMiddleware, [
       const searchField = isEmail ? { email: loginIdentifier } : { username: loginIdentifier };
       user = await User.findOne(searchField);
     } catch (dbError) {
-      console.log('⚠️ Database unavailable, using mock authentication');
-      return res.status(503).json({
-        error: 'Database temporarily unavailable',
-        message: 'Please try again later or use test credentials: akua.mensah@ghana.com / AkuaPass123!'
+      console.log('⚠️ Database unavailable during authentication');
+      return res.status(503).json({ success: false, error: 'Database temporarily unavailable',
+        message: 'Please try again later.'
       });
     }
 
     if (!user) {
-      return res.status(401).json({
-      });
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     // Check if account is suspended
     if (user.status === 'suspended') {
-      return res.status(403).json({
-        error: 'Account suspended. Please contact support.'
+      return res.status(403).json({ success: false, error: 'Account suspended. Please contact support.'
       });
     }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
-      return res.status(401).json({
-        error: 'Invalid credentials'
+      return res.status(401).json({ success: false, error: 'Invalid credentials'
       });
     }
 
@@ -406,9 +361,7 @@ router.post('/login', rateLimitMiddleware, [
     );
 
     if (fraudAnalysis.shouldBlock) {
-      return res.status(403).json({
-        error: 'Login blocked due to security concerns',
-        riskFactors: fraudAnalysis.riskFactors
+      return res.status(403).json({ success: false, error: 'Login blocked due to security concerns'
       });
     }
 
@@ -456,15 +409,13 @@ router.post('/login', rateLimitMiddleware, [
         created_at: user.created_at
       },
       security: {
-        riskLevel: fraudAnalysis.riskLevel,
         requiresAdditionalAuth: fraudAnalysis.requiresVerification
       }
     });
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
-      error: 'Login failed',
+    res.status(500).json({ success: false, error: 'Login failed',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -482,8 +433,7 @@ router.post('/verify-tier', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -494,14 +444,13 @@ router.post('/verify-tier', authMiddleware, [
     // Check current verification tier
     const userDoc = await User.findById(userId);
     if (!userDoc) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const currentTier = userDoc.verification_tier;
     
     if (tier <= currentTier) {
-      return res.status(400).json({
-        error: 'Cannot downgrade or stay at same verification tier'
+      return res.status(400).json({ success: false, error: 'Cannot downgrade or stay at same verification tier'
       });
     }
 
@@ -513,8 +462,7 @@ router.post('/verify-tier', authMiddleware, [
     );
 
     if (!verificationResult.success) {
-      return res.status(400).json({
-        error: 'Verification failed',
+      return res.status(400).json({ success: false, error: 'Verification failed',
         details: verificationResult.results
       });
     }
@@ -527,8 +475,7 @@ router.post('/verify-tier', authMiddleware, [
 
   } catch (error) {
     console.error('Tier verification error:', error);
-    res.status(500).json({
-      error: 'Verification failed',
+    res.status(500).json({ success: false, error: 'Verification failed',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -547,7 +494,7 @@ router.post('/refresh', authMiddleware, async (req, res) => {
     const user = await User.findById(userId);
 
     if (!user) {
-      return res.status(401).json({ error: 'User not found' });
+      return res.status(401).json({ success: false, error: 'User not found' });
     }
 
     // Generate new token
@@ -577,8 +524,7 @@ router.post('/refresh', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Token refresh error:', error);
-    res.status(500).json({
-      error: 'Token refresh failed'
+    res.status(500).json({ success: false, error: 'Token refresh failed'
     });
   }
 });
@@ -591,7 +537,7 @@ router.post('/refresh', authMiddleware, async (req, res) => {
 router.post('/logout', authMiddleware, (req, res) => {
   // In a more sophisticated setup, you might maintain a blacklist of tokens
   // For now, we rely on client-side token removal
-  res.json({ message: 'Logged out successfully' });
+  res.json({ success: true, message: 'Logged out successfully' });
 });
 
 /**
@@ -611,7 +557,7 @@ router.post('/validate-token', async (req, res) => {
     }
 
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
       
       // Verify user still exists
       const user = await User.findById(decoded.userId);
@@ -676,33 +622,10 @@ router.get('/me', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Check for mock user (testing purposes)
-    if (userId === '00000000-0000-0000-0000-000000000001') {
-      return res.json({
-        success: true,
-        user: {
-          id: '00000000-0000-0000-0000-000000000001',
-          username: 'akua_mensah',
-          email: 'akua.mensah@ghana.com',
-          phone: '+233241234567', // Ghanaian phone number for country detection
-          verificationTier: 1,
-          reputationScore: 100.0,
-          trustScore: 0.0,
-          is_subscribed: false,
-          subscription_tier: 'free',
-          subscription_expires_at: null,
-          profile_data: {},
-          status: 'active',
-          createdAt: new Date().toISOString(),
-          lastActive: new Date().toISOString()
-        }
-      });
-    }
-    
     const user = await User.findById(userId);
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
     
     res.json({
@@ -726,12 +649,35 @@ router.get('/me', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get current user error:', error);
-    res.status(500).json({
-      error: 'Failed to get user data',
+    res.status(500).json({ success: false, error: 'Failed to get user data',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
+
+// Auth user cache - short-lived to reduce DB lookups
+const AUTH_CACHE_TTL = 60 * 1000; // 60 seconds
+const AUTH_CACHE_MAX = 1000;
+const authUserCache = new Map();
+
+function getCachedUser(userId) {
+  const entry = authUserCache.get(userId);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > AUTH_CACHE_TTL) {
+    authUserCache.delete(userId);
+    return null;
+  }
+  return entry.user;
+}
+
+function setCachedUser(userId, user) {
+  // FIFO eviction if cache is full
+  if (authUserCache.size >= AUTH_CACHE_MAX) {
+    const firstKey = authUserCache.keys().next().value;
+    authUserCache.delete(firstKey);
+  }
+  authUserCache.set(userId, { user, timestamp: Date.now() });
+}
 
 // Auth middleware function
 async function authMiddleware(req, res, next) {
@@ -739,33 +685,30 @@ async function authMiddleware(req, res, next) {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+      return res.status(401).json({ success: false, error: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     
-    // Handle mock user for testing (bypass DB lookup)
-    if (decoded.userId === '00000000-0000-0000-0000-000000000001') {
-      req.user = {
-        ...decoded,
-        is_subscribed: false,
-        subscription_tier: 'free',
-        subscription_expires_at: null
-      };
-      return next();
+    // Check cache first
+    let user = getCachedUser(decoded.userId);
+    if (!user) {
+      // Verify user still exists using MongoDB
+      user = await User.findById(decoded.userId).select(
+        'username verification_tier status is_subscribed subscription_tier subscription_expires_at profile_data'
+      ).lean();
+      
+      if (user) {
+        setCachedUser(decoded.userId, user);
+      }
     }
-    
-    // Verify user still exists using MongoDB
-    const user = await User.findById(decoded.userId).select(
-      'username verification_tier status is_subscribed subscription_tier subscription_expires_at profile_data'
-    );
 
     if (!user) {
-      return res.status(401).json({ error: 'User not found' });
+      return res.status(401).json({ success: false, error: 'User not found' });
     }
 
     if (user.status === 'suspended') {
-      return res.status(403).json({ error: 'Account suspended' });
+      return res.status(403).json({ success: false, error: 'Account suspended' });
     }
 
     // Add subscription data to user object
@@ -778,10 +721,10 @@ async function authMiddleware(req, res, next) {
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired' });
+      return res.status(401).json({ success: false, error: 'Token expired' });
     }
     
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json({ success: false, error: 'Invalid token' });
   }
 }
 

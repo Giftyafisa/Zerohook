@@ -90,10 +90,10 @@ const DashboardPage = () => {
   }
 
   const quickActions = [
-    { icon: <MessageIcon />, label: 'Messages', badge: stats.unreadMessages, path: '/messages', color: '#00f2ea' },
-    { icon: <PeopleIcon />, label: 'Connections', badge: stats.pendingRequests, path: '/browse', color: '#ff0055' },
-    { icon: <WalletIcon />, label: 'Wallet', badge: null, path: '/transactions', color: '#8b5cf6' },
-    { icon: <StarIcon />, label: 'Trust Score', badge: null, path: '/trust', color: '#ffd700' }
+    { icon: <MessageIcon />, label: 'Messages', badge: stats.unreadMessages, path: '/chat', color: '#00f2ea' },
+    { icon: <PeopleIcon />, label: 'Connections', badge: stats.pendingRequests, path: '/profiles', color: '#ff0055' },
+    { icon: <WalletIcon />, label: 'Wallet', badge: null, path: '/wallet', color: '#8b5cf6' },
+    { icon: <StarIcon />, label: 'Trust Score', badge: null, path: '/trust-score', color: '#ffd700' }
   ];
 
   return (

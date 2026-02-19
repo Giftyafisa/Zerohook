@@ -90,7 +90,7 @@ const PrivacySettings = () => {
     // Price Display Settings (NEW)
     showPriceOnProfile: true,
     basePrice: '',
-    priceCurrency: 'NGN',
+    priceCurrency: 'USD',
     
     // Data Sharing
     allowDataAnalytics: true,
@@ -212,7 +212,7 @@ const PrivacySettings = () => {
             ...prev,
             ...savedSettings,
             basePrice: profileData.basePrice || '',
-            priceCurrency: profileData.priceCurrency || 'NGN',
+            priceCurrency: profileData.priceCurrency || 'USD',
             allowDirectMessages: commPrefs.allowDirectMessages ?? prev.allowDirectMessages,
             allowPhoneCalls: commPrefs.allowPhoneCalls ?? prev.allowPhoneCalls,
             allowWhatsApp: commPrefs.allowWhatsApp ?? prev.allowWhatsApp,
@@ -325,7 +325,7 @@ const PrivacySettings = () => {
       allowVerificationChecks: true,
       showPriceOnProfile: true,
       basePrice: '',
-      priceCurrency: 'NGN'
+      priceCurrency: 'USD'
     });
   };
 
@@ -805,11 +805,11 @@ const PrivacySettings = () => {
                       onChange={(e) => handlePrivacyChange('priceCurrency', e.target.value)}
                       label="Currency"
                     >
+                      <MenuItem value="USD">🇺🇸 US Dollar ($)</MenuItem>
                       <MenuItem value="NGN">🇳🇬 Nigerian Naira (₦)</MenuItem>
                       <MenuItem value="GHS">🇬🇭 Ghanaian Cedi (GH₵)</MenuItem>
                       <MenuItem value="KES">🇰🇪 Kenyan Shilling (KSh)</MenuItem>
                       <MenuItem value="ZAR">🇿🇦 South African Rand (R)</MenuItem>
-                      <MenuItem value="USD">🇺🇸 US Dollar ($)</MenuItem>
                       <MenuItem value="EUR">🇪🇺 Euro (€)</MenuItem>
                       <MenuItem value="GBP">🇬🇧 British Pound (£)</MenuItem>
                     </Select>

@@ -35,7 +35,7 @@ class CountryManager {
   }
 
   /**
-   * Get supported African countries with Paystack support
+   * Get supported African countries (crypto-only payments)
    */
   getSupportedAfricanCountries() {
     return [
@@ -47,8 +47,7 @@ class CountryManager {
         currencySymbol: '₦',
         timezone: 'Africa/Lagos',
         phoneCode: '+234',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: false
       },
@@ -60,8 +59,7 @@ class CountryManager {
         currencySymbol: '₵',
         timezone: 'Africa/Accra',
         phoneCode: '+233',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno', 'bitnob'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: true
       },
@@ -73,8 +71,7 @@ class CountryManager {
         currencySymbol: 'KSh',
         timezone: 'Africa/Nairobi',
         phoneCode: '+254',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno', 'pesaflow'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: true
       },
@@ -86,8 +83,7 @@ class CountryManager {
         currencySymbol: 'R',
         timezone: 'Africa/Johannesburg',
         phoneCode: '+27',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno', 'valr'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: false
       },
@@ -99,8 +95,7 @@ class CountryManager {
         currencySymbol: 'USh',
         timezone: 'Africa/Kampala',
         phoneCode: '+256',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: true
       },
@@ -112,8 +107,7 @@ class CountryManager {
         currencySymbol: 'TSh',
         timezone: 'Africa/Dar_es_Salaam',
         phoneCode: '+255',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: true
       },
@@ -125,8 +119,7 @@ class CountryManager {
         currencySymbol: 'FRw',
         timezone: 'Africa/Kigali',
         phoneCode: '+250',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: true
       },
@@ -138,8 +131,7 @@ class CountryManager {
         currencySymbol: 'P',
         timezone: 'Africa/Gaborone',
         phoneCode: '+267',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: false
       },
@@ -151,8 +143,7 @@ class CountryManager {
         currencySymbol: 'ZK',
         timezone: 'Africa/Lusaka',
         phoneCode: '+260',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: true
       },
@@ -164,8 +155,7 @@ class CountryManager {
         currencySymbol: 'MK',
         timezone: 'Africa/Blantyre',
         phoneCode: '+265',
-        paystackSupport: true,
-        cryptoPlatforms: ['coinbase', 'binance', 'luno'],
+        paymentMethod: 'crypto',
         localBanks: true,
         mobileMoney: true
       }
@@ -312,7 +302,7 @@ class CountryManager {
   }
 
   /**
-   * Get countries by region or feature
+   * Get countries by feature
    */
   getCountriesByFeature(feature) {
     switch (feature) {
@@ -320,97 +310,32 @@ class CountryManager {
         return this.supportedCountries.filter(c => c.mobileMoney);
       case 'local_banks':
         return this.supportedCountries.filter(c => c.localBanks);
-      case 'paystack':
-        return this.supportedCountries.filter(c => c.paystackSupport);
+      case 'crypto':
+        return this.supportedCountries; // All countries support crypto
       default:
         return this.supportedCountries;
     }
   }
 
   /**
-   * Get crypto platforms for a specific country
+   * Get country-specific payment methods (crypto-only)
    */
-  getCryptoPlatforms(countryCode) {
+  getCountryPaymentMethods(countryCode) {
     const country = this.getCountryByCode(countryCode);
     if (!country) return [];
-    
-    return country.cryptoPlatforms.map(platform => this.getCryptoPlatformInfo(platform));
-  }
 
-  /**
-   * Get crypto platform information
-   */
-  getCryptoPlatformInfo(platformCode) {
-    const platforms = {
-      coinbase: {
-        name: 'Coinbase',
+    const methods = [
+      {
+        id: 'crypto',
+        name: 'Cryptocurrency',
+        description: `Pay with BTC, ETH, USDT, USDC and more`,
         logo: '🪙',
-        description: 'Global cryptocurrency exchange',
-        website: 'https://coinbase.com',
-        supportedCountries: ['NG', 'GH', 'KE', 'ZA', 'UG', 'TZ', 'RW', 'BW', 'ZM', 'MW'],
-        features: ['Buy/Sell', 'Wallet', 'Staking', 'NFTs']
-      },
-      binance: {
-        name: 'Binance',
-        logo: '🟡',
-        description: 'World\'s largest crypto exchange',
-        website: 'https://binance.com',
-        supportedCountries: ['NG', 'GH', 'KE', 'ZA', 'UG', 'TZ', 'RW', 'BW', 'ZM', 'MW'],
-        features: ['Trading', 'P2P', 'Staking', 'Launchpad']
-      },
-      luno: {
-        name: 'Luno',
-        logo: '🌙',
-        description: 'African-focused crypto platform',
-        website: 'https://luno.com',
-        supportedCountries: ['NG', 'GH', 'KE', 'ZA', 'UG', 'TZ', 'RW', 'BW', 'ZM', 'MW'],
-        features: ['Buy/Sell', 'Wallet', 'Savings', 'Education']
-      },
-      bitnob: {
-        name: 'Bitnob',
-        logo: '💎',
-        description: 'Ghanaian crypto platform',
-        website: 'https://bitnob.com',
-        supportedCountries: ['GH', 'NG', 'KE'],
-        features: ['Buy/Sell', 'Wallet', 'Savings', 'Local Payments'],
-        localSupport: true,
-        africanFocused: true
-      },
-      pesaflow: {
-        name: 'PesaFlow',
-        logo: '💱',
-        description: 'Kenyan crypto and mobile money platform',
-        website: 'https://pesaflow.com',
-        supportedCountries: ['KE', 'UG', 'TZ'],
-        features: ['Mobile Money', 'Crypto', 'Remittances', 'Local Payments'],
-        localSupport: true,
-        africanFocused: true
-      },
-      valr: {
-        name: 'VALR',
-        logo: '🦁',
-        description: 'South African crypto exchange',
-        website: 'https://valr.com',
-        supportedCountries: ['ZA', 'BW'],
-        features: ['Trading', 'Staking', 'Institutional', 'Local Support'],
-        localSupport: true,
-        africanFocused: true
+        priority: 1,
+        features: ['Bitcoin', 'Ethereum', 'Stablecoins', 'No Fees']
       }
-    };
-    
-    return platforms[platformCode] || null;
-  }
+    ];
 
-  /**
-   * Get Ghanaian-specific crypto platforms
-   */
-  getGhanaianCryptoPlatforms() {
-    return [
-      this.getCryptoPlatformInfo('bitnob'),
-      this.getCryptoPlatformInfo('coinbase'),
-      this.getCryptoPlatformInfo('binance'),
-      this.getCryptoPlatformInfo('luno')
-    ].filter(Boolean);
+    return methods;
   }
 
   /**
@@ -550,40 +475,17 @@ class CountryManager {
   }
 
   /**
-   * Get country-specific payment methods
+   * Get country-specific payment options (crypto only, used by payment routes)
    */
-  getCountryPaymentMethods(countryCode) {
+  getPaymentOptions(countryCode) {
     const country = this.getCountryByCode(countryCode);
-    if (!country) return [];
-
-    const methods = [];
-
-    // Paystack is available for all supported countries
-    methods.push({
-      id: 'paystack',
-      name: 'Paystack',
-      description: `Local payments in ${country.currency}`,
-      logo: '💳',
-      priority: 1,
-      features: ['Local Banks', 'Mobile Money', 'Cards']
-    });
-
-    // Crypto platforms
-    const cryptoPlatforms = this.getCryptoPlatforms(countryCode);
-    cryptoPlatforms.forEach((platform, index) => {
-      methods.push({
-        id: `crypto_${platform.name.toLowerCase()}`,
-        name: platform.name,
-        description: platform.description,
-        logo: platform.logo,
-        priority: 2 + index,
-        features: platform.features,
-        localSupport: platform.localSupport,
-        africanFocused: platform.africanFocused
-      });
-    });
-
-    return methods.sort((a, b) => a.priority - b.priority);
+    return {
+      country: country || null,
+      methods: ['crypto'],
+      supportedCryptos: ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'],
+      localCurrency: country?.currency || 'USD',
+      localCurrencySymbol: country?.currencySymbol || '$'
+    };
   }
 }
 

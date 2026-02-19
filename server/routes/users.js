@@ -2,14 +2,10 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { authMiddleware } = require('./auth');
 const { User, BlockedUser, Conversation, SugarAccessPayment, isDatabaseAvailable } = require('../config/database');
-const RecommendationEngine = require('../services/RecommendationEngine');
 const MongoRecommendationEngine = require('../services/MongoRecommendationEngine');
 const router = express.Router();
 
-// Initialize recommendation engines
-// Legacy engine (PostgreSQL-based, for backward compat)
-const recommendationEngine = new RecommendationEngine();
-// New MongoDB-native engine with Uber/Bolt-style algorithm
+// Initialize MongoDB-native engine with Uber/Bolt-style algorithm
 const mongoRecommendationEngine = new MongoRecommendationEngine();
 
 // Mock profiles for when database is unavailable
@@ -170,17 +166,34 @@ router.put('/me', authMiddleware, async (req, res) => {
     const { profile_data, profileData: frontendProfileData, profile_visibility } = req.body;
     const incomingData = profile_data || frontendProfileData;
 
+    // Whitelist allowed profile_data fields to prevent privilege escalation
+    const ALLOWED_PROFILE_FIELDS = [
+      'firstName', 'lastName', 'bio', 'age', 'dateOfBirth', 'gender',
+      'location', 'photos', 'services', 'availability', 'specializations',
+      'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
+      'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
+      'profilePhoto', 'coverPhoto', 'gallery'
+    ];
+
     // Build the update object
     const updateObj = { updated_at: new Date() };
 
-    // Update profile_data if provided (merge with existing)
+    // Update profile_data if provided (merge with existing, whitelist fields)
     if (incomingData) {
       const existingUser = await User.findById(userId).lean();
       if (existingUser) {
         const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
-        updateObj.profile_data = { ...existingProfileData, ...incomingData };
+        const sanitizedData = {};
+        for (const key of ALLOWED_PROFILE_FIELDS) {
+          if (key in incomingData) sanitizedData[key] = incomingData[key];
+        }
+        updateObj.profile_data = { ...existingProfileData, ...sanitizedData };
       } else {
-        updateObj.profile_data = incomingData;
+        const sanitizedData = {};
+        for (const key of ALLOWED_PROFILE_FIELDS) {
+          if (key in incomingData) sanitizedData[key] = incomingData[key];
+        }
+        updateObj.profile_data = sanitizedData;
       }
     }
 
@@ -253,8 +266,20 @@ router.put('/profile', authMiddleware, async (req, res) => {
     }
 
     // Merge existing profile_data with new data (support both naming conventions)
+    // Apply whitelist to prevent privilege escalation
+    const ALLOWED_PROFILE_FIELDS = [
+      'firstName', 'lastName', 'bio', 'age', 'dateOfBirth', 'gender',
+      'location', 'photos', 'services', 'availability', 'specializations',
+      'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
+      'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
+      'profilePhoto', 'coverPhoto', 'gallery'
+    ];
     const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
-    const mergedProfileData = { ...existingProfileData, ...incomingData };
+    const sanitizedData = {};
+    for (const key of ALLOWED_PROFILE_FIELDS) {
+      if (key in incomingData) sanitizedData[key] = incomingData[key];
+    }
+    const mergedProfileData = { ...existingProfileData, ...sanitizedData };
 
     console.log('📝 Profile update:', { userId, incoming: Object.keys(incomingData), merged: Object.keys(mergedProfileData) });
 
@@ -540,7 +565,6 @@ const handleBrowseProfiles = async (req, res) => {
       return {
         id: profile._id || profile.id,
         username: profile.username,
-        email: profile.email,
         profile_data: profileData,
         profileData: profileData,
         verification_tier: verificationTier,
@@ -649,22 +673,24 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, account
   
   // Apply filters
   if (filters.country) {
+    const escapedCountry = filters.country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     mongoQuery.$and = mongoQuery.$and || [];
     mongoQuery.$and.push({
       $or: [
-        { 'profile_data.location.country': new RegExp(filters.country, 'i') },
-        { 'profileData.location.country': new RegExp(filters.country, 'i') }
+        { 'profile_data.location.country': new RegExp(escapedCountry, 'i') },
+        { 'profileData.location.country': new RegExp(escapedCountry, 'i') }
       ]
     });
   }
   
   if (filters.searchQuery) {
+    const escapedSearch = filters.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     mongoQuery.$and = mongoQuery.$and || [];
     mongoQuery.$and.push({
       $or: [
-        { username: new RegExp(filters.searchQuery, 'i') },
-        { 'profile_data.firstName': new RegExp(filters.searchQuery, 'i') },
-        { 'profileData.firstName': new RegExp(filters.searchQuery, 'i') }
+        { username: new RegExp(escapedSearch, 'i') },
+        { 'profile_data.firstName': new RegExp(escapedSearch, 'i') },
+        { 'profileData.firstName': new RegExp(escapedSearch, 'i') }
       ]
     });
   }
@@ -687,7 +713,7 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, account
   
   const [profiles, total] = await Promise.all([
     User.find(mongoQuery)
-      .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
+      .select('username verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
       .sort(sortOptions)
       .skip(offset)
       .limit(limitNum)
@@ -732,7 +758,7 @@ router.post('/engagement', async (req, res) => {
       try {
         const token = authHeader.split(' ')[1];
         const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.userId || decoded.id;
       } catch (e) {
         // Token invalid, continue as anonymous
@@ -792,9 +818,8 @@ router.post('/track-activity', authMiddleware, async (req, res) => {
     const { actionType, actionData } = req.body;
     const userId = req.user.userId;
 
-    // Track with both engines
+    // Track with MongoDB-native recommendation engine
     await mongoRecommendationEngine.trackActivity(userId, actionType, actionData);
-    await recommendationEngine.trackActivity(userId, actionType, actionData);
 
     res.json({ success: true });
   } catch (error) {
@@ -842,7 +867,7 @@ router.get('/:id', async (req, res) => {
 
     // Get user profile - don't require profileData to exist
     const user = await User.findById(userId)
-      .select('username email profileData profile_data verificationTier verification_tier reputationScore reputation_score isSubscribed is_subscribed subscriptionTier subscription_tier profileVisibility profile_visibility createdAt lastActive accountType');
+      .select('username profileData profile_data verificationTier verification_tier reputationScore reputation_score isSubscribed is_subscribed subscriptionTier subscription_tier profileVisibility profile_visibility createdAt lastActive accountType');
 
     if (!user) {
       console.log(`[GET /:id] User not found for ID: ${userId}`);
@@ -863,7 +888,6 @@ router.get('/:id', async (req, res) => {
     const userResponse = {
       id: user._id,
       username: user.username,
-      email: user.email,
       accountType: user.accountType,
       // Snake case (for backward compat)
       profile_data: profileData,

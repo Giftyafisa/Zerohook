@@ -307,6 +307,12 @@ const ChatSystem = ({
       }
       setRemoteTyping(false);
     }
+    // Cleanup: leave conversation room when switching or unmounting
+    return () => {
+      if (selectedConversation && socket && isConnected) {
+        socket.emit('leave_conversation', selectedConversation.id);
+      }
+    };
   }, [selectedConversation, socket, isConnected]);
 
   // Emit typing_stop when switching conversations or unmounting to avoid stuck indicators
@@ -692,10 +698,28 @@ const ChatSystem = ({
     await sendMessagePayload({ content: messageContent, messageType: 'text' });
   };
 
+  // File validation constants
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'audio/mpeg', 'audio/wav', 'application/pdf'];
+
   // Show preview before uploading attachment
   const handleFilePreview = (event) => {
     const file = event.target.files?.[0];
     if (!file || !selectedConversation) return;
+    
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      alert('File is too large. Maximum size is 10MB.');
+      event.target.value = '';
+      return;
+    }
+    
+    // Validate file type
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      alert('File type not supported. Allowed: images, video, audio, PDF.');
+      event.target.value = '';
+      return;
+    }
     
     // Store the file for later upload
     setPendingFile(file);
@@ -717,6 +741,19 @@ const ChatSystem = ({
   const handleFileSelect = async (event) => {
     const file = event.target.files?.[0];
     if (!file || !selectedConversation) return;
+    
+    // Validate file size and type
+    if (file.size > MAX_FILE_SIZE) {
+      alert('File is too large. Maximum size is 10MB.');
+      event.target.value = '';
+      return;
+    }
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      alert('File type not supported.');
+      event.target.value = '';
+      return;
+    }
+    
     try {
       const token = localStorage.getItem('token');
       const formData = new FormData();
@@ -1175,6 +1212,7 @@ const ChatSystem = ({
               <IconButton 
                 sx={{ ...styles.backBtn, display: { xs: 'flex', md: 'none' } }}
                 onClick={handleBackToList}
+                aria-label="Back to conversations"
               >
                 <BackIcon />
               </IconButton>
@@ -1265,7 +1303,7 @@ const ChatSystem = ({
               <Box sx={styles.escrowBar}>
                 <LockIcon sx={{ fontSize: 18 }} />
                 <Typography sx={{ fontWeight: 500 }}>
-                  Money Held: ₦{Number(activeEscrow.amount).toLocaleString()}
+                  Money Held: {activeEscrow.currency || ''}{Number(activeEscrow.amount).toLocaleString()}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, ml: 'auto' }}>
                   <Chip

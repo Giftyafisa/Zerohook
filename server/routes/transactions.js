@@ -1,6 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { Transaction } = require('../config/database');
 const router = express.Router();
 
 /**
@@ -11,75 +12,100 @@ const router = express.Router();
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
+    }
+
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     
-    // Get user transactions (as client or provider)
-    const transactionsResult = await query(`
-      SELECT 
-        t.id,
-        t.service_id,
-        t.client_id,
-        t.provider_id,
-        t.amount,
-        t.status,
-        t.scheduled_time,
-        t.location_data,
-        t.created_at,
-        t.updated_at,
-        t.completed_at,
-        s.title as service_title,
-        s.description as service_description,
-        c.display_name as category_name,
-        CASE 
-          WHEN t.client_id = $1 THEN 'client'
-          WHEN t.provider_id = $1 THEN 'provider'
-        END as user_role
-      FROM transactions t
-      JOIN services s ON t.service_id = s.id
-      JOIN service_categories c ON s.category_id = c.id
-      WHERE t.client_id = $1 OR t.provider_id = $1
-      ORDER BY t.created_at DESC
-    `, [userId]);
+    // Pagination params
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
+    const status = req.query.status; // optional filter
 
-    // Calculate summary statistics
-    const summaryResult = await query(`
-      SELECT 
-        COUNT(*) as total_transactions,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_transactions,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_transactions,
-        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_transactions,
-        COALESCE(SUM(CASE WHEN status = 'completed' AND provider_id = $1 THEN amount ELSE 0 END), 0) as total_earnings,
-        COALESCE(SUM(CASE WHEN status = 'completed' AND client_id = $1 THEN amount ELSE 0 END), 0) as total_spent
-      FROM transactions 
-      WHERE client_id = $1 OR provider_id = $1
-    `, [userId]);
+    const filter = {
+      $or: [{ client_id: userObjectId }, { provider_id: userObjectId }]
+    };
+    if (status && ['pending', 'completed', 'cancelled', 'in_progress', 'disputed'].includes(status)) {
+      filter.status = status;
+    }
 
-    const summary = summaryResult.rows[0] || {
+    const [transactions, totalCount] = await Promise.all([
+      Transaction.find(filter)
+        .populate({
+          path: 'service_id',
+          select: 'title description category_id',
+          populate: { path: 'category_id', model: 'ServiceCategory', select: 'display_name' }
+        })
+        .sort({ created_at: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Transaction.countDocuments(filter)
+    ]);
+
+    const formattedTransactions = transactions.map((transaction) => ({
+      id: transaction._id.toString(),
+      service_id: transaction.service_id?._id?.toString() || null,
+      client_id: transaction.client_id?.toString() || null,
+      provider_id: transaction.provider_id?.toString() || null,
+      amount: transaction.amount,
+      status: transaction.status,
+      scheduled_time: transaction.scheduled_time || null,
+      location_data: transaction.location_data || {},
+      created_at: transaction.created_at,
+      updated_at: transaction.updated_at,
+      completed_at: transaction.completed_at || null,
+      service_title: transaction.service_id?.title || null,
+      service_description: transaction.service_id?.description || null,
+      category_name: transaction.service_id?.category_id?.display_name || null,
+      user_role: transaction.client_id?.toString() === userId ? 'client' : 'provider'
+    }));
+
+    const summary = formattedTransactions.reduce((acc, transaction) => {
+      acc.total_transactions += 1;
+      if (transaction.status === 'completed') {
+        acc.completed_transactions += 1;
+        if (transaction.provider_id === userId) acc.total_earnings += Number(transaction.amount || 0);
+        if (transaction.client_id === userId) acc.total_spent += Number(transaction.amount || 0);
+      }
+      if (transaction.status === 'pending') acc.pending_transactions += 1;
+      if (transaction.status === 'cancelled') acc.cancelled_transactions += 1;
+      return acc;
+    }, {
       total_transactions: 0,
       completed_transactions: 0,
       pending_transactions: 0,
       cancelled_transactions: 0,
       total_earnings: 0,
       total_spent: 0
-    };
+    });
 
     res.json({
       success: true,
-      transactions: transactionsResult.rows,
+      transactions: formattedTransactions,
       summary: {
-        totalTransactions: parseInt(summary.total_transactions),
-        completedTransactions: parseInt(summary.completed_transactions),
-        pendingTransactions: parseInt(summary.pending_transactions),
-        cancelledTransactions: parseInt(summary.cancelled_transactions),
-        totalEarnings: parseFloat(summary.total_earnings),
-        totalSpent: parseFloat(summary.total_spent)
+        totalTransactions: summary.total_transactions,
+        completedTransactions: summary.completed_transactions,
+        pendingTransactions: summary.pending_transactions,
+        cancelledTransactions: summary.cancelled_transactions,
+        totalEarnings: summary.total_earnings,
+        totalSpent: summary.total_spent
       },
-      count: transactionsResult.rows.length
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        hasMore: page * limit < totalCount
+      },
+      count: formattedTransactions.length
     });
 
   } catch (error) {
     console.error('Get transactions error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch transactions',
+    res.status(500).json({ success: false, error: 'Failed to fetch transactions',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -94,36 +120,44 @@ router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const transactionId = req.params.id;
-    
-    const transactionResult = await query(`
-      SELECT 
-        t.*,
-        s.title as service_title,
-        s.description as service_description,
-        c.display_name as category_name,
-        u_client.username as client_username,
-        u_provider.username as provider_username
-      FROM transactions t
-      JOIN services s ON t.service_id = s.id
-      JOIN service_categories c ON s.category_id = c.id
-      JOIN users u_client ON t.client_id = u_client.id
-      JOIN users u_provider ON t.provider_id = u_provider.id
-      WHERE t.id = $1 AND (t.client_id = $2 OR t.provider_id = $2)
-    `, [transactionId, userId]);
+    if (!mongoose.Types.ObjectId.isValid(transactionId) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid transaction or user ID' });
+    }
 
-    if (transactionResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Transaction not found' });
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const transaction = await Transaction.findOne({
+      _id: new mongoose.Types.ObjectId(transactionId),
+      $or: [{ client_id: userObjectId }, { provider_id: userObjectId }]
+    })
+      .populate({
+        path: 'service_id',
+        select: 'title description category_id',
+        populate: { path: 'category_id', model: 'ServiceCategory', select: 'display_name' }
+      })
+      .populate({ path: 'client_id', select: 'username' })
+      .populate({ path: 'provider_id', select: 'username' })
+      .lean();
+
+    if (!transaction) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
     }
 
     res.json({
       success: true,
-      transaction: transactionResult.rows[0]
+      transaction: {
+        ...transaction,
+        id: transaction._id.toString(),
+        service_title: transaction.service_id?.title || null,
+        service_description: transaction.service_id?.description || null,
+        category_name: transaction.service_id?.category_id?.display_name || null,
+        client_username: transaction.client_id?.username || null,
+        provider_username: transaction.provider_id?.username || null
+      }
     });
 
   } catch (error) {
     console.error('Get transaction error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch transaction',
+    res.status(500).json({ success: false, error: 'Failed to fetch transaction',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

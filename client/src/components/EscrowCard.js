@@ -29,7 +29,7 @@ const EscrowCard = ({
   const {
     id,
     amount,
-    currency = 'NGN',
+    currency = 'USD',
     status = 'held', // held, released, disputed, done
     providerName,
     providerAvatar,

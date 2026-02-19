@@ -1,5 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
+const mongoose = require('mongoose');
+const { Transaction } = require('../config/database');
 const router = express.Router();
 
 /**
@@ -11,76 +13,66 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { status, page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-    const { query } = require('../config/database');
-    
-    let whereClause = 'WHERE (t.client_id = $1 OR t.provider_id = $1)';
-    let params = [userId];
-    let paramIndex = 2;
-    
-    if (status) {
-      whereClause += ` AND t.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
-    // Get bookings from transactions table
-    const result = await query(`
-      SELECT 
-        t.id,
-        t.service_id,
-        t.client_id,
-        t.provider_id,
-        t.amount as price,
-        t.status,
-        t.scheduled_time,
-        t.created_at,
-        t.updated_at,
-        COALESCE(s.title, 'Service') as service,
-        COALESCE(s.description, '') as description,
-        COALESCE(s.location_data->>'city', 'Not specified') as location,
-        CASE 
-          WHEN t.client_id = $1 THEN provider.username
-          ELSE client.username
-        END as other_party_name,
-        CASE 
-          WHEN t.client_id = $1 THEN 'client'
-          ELSE 'provider'
-        END as user_role,
-        TO_CHAR(t.scheduled_time, 'YYYY-MM-DD') as date,
-        TO_CHAR(t.scheduled_time, 'HH24:MI') as time
-      FROM transactions t
-      LEFT JOIN adult_services s ON t.service_id = s.id
-      LEFT JOIN users client ON t.client_id = client.id
-      LEFT JOIN users provider ON t.provider_id = provider.id
-      ${whereClause}
-      ORDER BY t.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `, [...params, limit, offset]);
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    const filter = { $or: [{ client_id: new mongoose.Types.ObjectId(userId) }, { provider_id: new mongoose.Types.ObjectId(userId) }] };
+    if (status) {
+      filter.status = status;
+    }
+
+    const transactions = await Transaction.find(filter)
+      .populate({ path: 'provider_id', select: 'username' })
+      .populate({ path: 'client_id', select: 'username' })
+      .populate({ path: 'service_id', select: 'title description location_data' })
+      .sort({ created_at: -1 })
+      .skip(offset)
+      .limit(limitNum)
+      .lean();
 
     // Transform to frontend format
-    const bookings = result.rows.map(row => ({
-      id: row.id,
-      service: row.service,
-      provider: row.other_party_name || 'Provider',
-      date: row.date || new Date().toISOString().split('T')[0],
-      time: row.time || '00:00',
-      price: parseFloat(row.price) || 0,
-      location: row.location,
-      status: mapStatus(row.status),
-      userRole: row.user_role
-    }));
+    const bookings = transactions.map((transaction) => {
+      const isClient = transaction.client_id?._id?.toString() === userId;
+      const scheduled = transaction.scheduled_time ? new Date(transaction.scheduled_time) : null;
+      return {
+        id: transaction._id.toString(),
+        service: transaction.service_id?.title || 'Service',
+        provider: isClient
+          ? (transaction.provider_id?.username || 'Provider')
+          : (transaction.client_id?.username || 'Client'),
+        date: scheduled ? scheduled.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        time: scheduled
+          ? `${String(scheduled.getHours()).padStart(2, '0')}:${String(scheduled.getMinutes()).padStart(2, '0')}`
+          : '00:00',
+        price: Number(transaction.amount) || 0,
+        location: transaction.service_id?.location_data?.city || 'Not specified',
+        status: mapStatus(transaction.status),
+        userRole: isClient ? 'client' : 'provider'
+      };
+    });
+
+    const total = await Transaction.countDocuments(filter);
 
     res.json({
       success: true,
       bookings,
-      count: bookings.length
+      count: bookings.length,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
     });
 
   } catch (error) {
     console.error('Get bookings error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch bookings',
+    res.status(500).json({ success: false, error: 'Failed to fetch bookings',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -95,34 +87,50 @@ router.post('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { serviceId, providerId, amount, scheduledTime, location, notes } = req.body;
-    const { query } = require('../config/database');
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(providerId)) {
+      return res.status(400).json({ success: false, error: 'Invalid user or provider ID' });
+    }
+
+    if (serviceId && !mongoose.Types.ObjectId.isValid(serviceId)) {
+      return res.status(400).json({ success: false, error: 'Invalid service ID' });
+    }
+
+    // Validate amount
+    const parsedAmount = Number(amount);
+    if (!parsedAmount || parsedAmount <= 0 || parsedAmount > 10000000) {
+      return res.status(400).json({ success: false, error: 'Amount must be between 0.01 and 10,000,000' });
+    }
+
+    // Get user's country for currency
+    let currency = 'NGN';
+    try {
+      const userCountry = await req.countryManager?.getUserCountry(userId);
+      if (userCountry?.success && userCountry?.country?.currency) {
+        currency = userCountry.country.currency;
+      }
+    } catch (e) { /* use default */ }
 
     // Create transaction/booking
-    const result = await query(`
-      INSERT INTO transactions (
-        client_id, provider_id, service_id, amount, currency,
-        status, scheduled_time, metadata, created_at
-      ) VALUES ($1, $2, $3, $4, 'NGN', 'pending', $5, $6, NOW())
-      RETURNING id
-    `, [
-      userId,
-      providerId,
-      serviceId,
-      amount,
-      scheduledTime,
-      JSON.stringify({ location, notes })
-    ]);
+    const booking = await Transaction.create({
+      client_id: new mongoose.Types.ObjectId(userId),
+      provider_id: new mongoose.Types.ObjectId(providerId),
+      service_id: serviceId ? new mongoose.Types.ObjectId(serviceId) : undefined,
+      amount: parsedAmount,
+      currency,
+      status: 'pending',
+      scheduled_time: scheduledTime ? new Date(scheduledTime) : undefined,
+      metadata: { location, notes }
+    });
 
     res.json({
       success: true,
-      bookingId: result.rows[0].id,
+      bookingId: booking._id.toString(),
       message: 'Booking created successfully'
     });
 
   } catch (error) {
     console.error('Create booking error:', error);
-    res.status(500).json({
-      error: 'Failed to create booking',
+    res.status(500).json({ success: false, error: 'Failed to create booking',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -137,23 +145,23 @@ router.put('/:id/cancel', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
-    const { query } = require('../config/database');
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid booking or user ID' });
+    }
 
     // Verify user is part of this booking
-    const checkResult = await query(`
-      SELECT * FROM transactions 
-      WHERE id = $1 AND (client_id = $2 OR provider_id = $2)
-    `, [id, userId]);
+    const booking = await Transaction.findOne({
+      _id: id,
+      $or: [{ client_id: new mongoose.Types.ObjectId(userId) }, { provider_id: new mongoose.Types.ObjectId(userId) }]
+    });
 
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Booking not found' });
+    if (!booking) {
+      return res.status(404).json({ success: false, error: 'Booking not found' });
     }
 
     // Update status to cancelled
-    await query(`
-      UPDATE transactions SET status = 'cancelled', updated_at = NOW()
-      WHERE id = $1
-    `, [id]);
+    booking.status = 'cancelled';
+    await booking.save();
 
     res.json({
       success: true,
@@ -162,7 +170,7 @@ router.put('/:id/cancel', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Cancel booking error:', error);
-    res.status(500).json({ error: 'Failed to cancel booking' });
+    res.status(500).json({ success: false, error: 'Failed to cancel booking' });
   }
 });
 

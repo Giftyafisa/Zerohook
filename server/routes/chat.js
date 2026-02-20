@@ -323,6 +323,20 @@ router.post('/send', authMiddleware, [
     }
     if (!isMember2) return res.status(403).json({ error: 'Access denied to this conversation' });
 
+    // Check if either user has blocked the other
+    try {
+      if (req.conversationService && typeof req.conversationService.isBlockedBetween === 'function') {
+        const isBlocked = await req.conversationService.isBlockedBetween(senderId, recipientId);
+        if (isBlocked) {
+          return res.status(403).json({ error: 'Cannot send messages in this conversation' });
+        }
+      }
+    } catch (blockErr) {
+      console.error('Block check error:', blockErr);
+      // Fail closed — if we can't verify block status, deny the message
+      return res.status(500).json({ error: 'Failed to verify messaging permissions' });
+    }
+
     // Content moderation / fraud detection
     try {
       if (req.fraudDetection && typeof req.fraudDetection.analyzeMessageRisk === 'function') {
@@ -467,15 +481,18 @@ router.post('/conversation', authMiddleware, [
     let conversationData;
     if (!existingConv) {
       // Create new conversation via service or direct insert
+      // Normalize participant order to prevent duplicates (lower ID always goes first)
+      const [p1, p2] = [userId, otherUserId].sort();
       if (req.conversationService && typeof req.conversationService.createOrGetConversation === 'function') {
-        conversationData = await req.conversationService.createOrGetConversation(userId, otherUserId);
+        conversationData = await req.conversationService.createOrGetConversation(p1, p2);
       } else {
-        // Fallback: direct insert
-        const newConv = await Conversation.create({
-          participant1Id: userId,
-          participant2Id: otherUserId
-        });
-        conversationData = { id: newConv._id, created_at: newConv.createdAt };
+        // Fallback: atomic upsert to prevent race condition duplicates
+        const conv = await Conversation.findOneAndUpdate(
+          { participant1Id: p1, participant2Id: p2 },
+          { $setOnInsert: { participant1Id: p1, participant2Id: p2 } },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        conversationData = { id: conv._id, created_at: conv.createdAt };
       }
     } else {
       conversationData = { id: existingConv._id, created_at: existingConv.createdAt };
@@ -549,11 +566,14 @@ router.post('/start', authMiddleware, [
     });
     
     if (!conversation) {
-      // Create new conversation
-      conversation = await Conversation.create({
-        participant1Id: userId,
-        participant2Id: otherUserId
-      });
+      // Normalize participant order to prevent duplicates (lower ID always goes first)
+      const [p1, p2] = [userId, otherUserId].sort();
+      // Atomic upsert to prevent race condition duplicates
+      conversation = await Conversation.findOneAndUpdate(
+        { participant1Id: p1, participant2Id: p2 },
+        { $setOnInsert: { participant1Id: p1, participant2Id: p2 } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
     }
     
     res.json({

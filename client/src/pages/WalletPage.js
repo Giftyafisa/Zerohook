@@ -69,12 +69,9 @@ const WalletPage = () => {
   const [escrowDialog, setEscrowDialog] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [bankCode, setBankCode] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [accountName, setAccountName] = useState('');
-  const [banks, setBanks] = useState([]);
-  const [loadingBanks, setLoadingBanks] = useState(false);
-  const [verifyingAccount, setVerifyingAccount] = useState(false);
+  const [withdrawAddress, setWithdrawAddress] = useState('');
+  const [withdrawCrypto, setWithdrawCrypto] = useState('USDT');
+  const [withdrawNetwork, setWithdrawNetwork] = useState('');
   const [processingDeposit, setProcessingDeposit] = useState(false);
   const [processingWithdraw, setProcessingWithdraw] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
@@ -88,8 +85,6 @@ const WalletPage = () => {
     currencySymbol: '', // Will be set from detected currency or API
     transactions: []
   });
-
-  const mockTransactions = [];
 
   // Update wallet currency when detected currency changes (before API response arrives)
   useEffect(() => {
@@ -158,59 +153,9 @@ const WalletPage = () => {
     }
   }, [isAuthenticated]);
 
-  // Fetch banks when withdraw dialog opens
-  useEffect(() => {
-    const fetchBanks = async () => {
-      if (!withdrawDialog) return;
-      setLoadingBanks(true);
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/payments/banks`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setBanks(data.banks || []);
-        }
-      } catch (error) {
-        console.error('Failed to fetch banks:', error);
-      } finally {
-        setLoadingBanks(false);
-      }
-    };
-    fetchBanks();
-  }, [withdrawDialog]);
-
-  // Verify bank account
-  useEffect(() => {
-    const verifyAccount = async () => {
-      if (accountNumber.length === 10 && bankCode) {
-        setVerifyingAccount(true);
-        try {
-          const token = localStorage.getItem('token');
-          const response = await fetch(`${API_BASE_URL}/payments/verify-account`, {
-            method: 'POST',
-            headers: { 
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ accountNumber, bankCode })
-          });
-          if (response.ok) {
-            const data = await response.json();
-            setAccountName(data.accountName || '');
-          }
-        } catch (error) {
-          console.error('Failed to verify account:', error);
-        } finally {
-          setVerifyingAccount(false);
-        }
-      }
-    };
-    verifyAccount();
-  }, [accountNumber, bankCode]);
-
-  // Handle payment redirect callback - verify payment when user returns from payment gateway
+  // [LEGACY] Handle payment redirect callback - from Paystack era.
+  // Crypto payments use polling in CryptoPayment component instead.
+  // Kept as fallback in case any redirect-based flow is added later.
   useEffect(() => {
     const handlePaymentCallback = async () => {
       const paymentStatus = searchParams.get('payment_status');
@@ -277,6 +222,7 @@ const WalletPage = () => {
    */
   const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
   const [showCryptoPayment, setShowCryptoPayment] = useState(false);
+  const [depositCrypto, setDepositCrypto] = useState('USDT');
 
   const handleDeposit = useCallback(async () => {
     if (!depositAmount || parseFloat(depositAmount) <= 0) {
@@ -297,7 +243,7 @@ const WalletPage = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ amount: parseFloat(depositAmount), cryptoSymbol: 'USDT' })
+        body: JSON.stringify({ amount: parseFloat(depositAmount), cryptoSymbol: depositCrypto })
       });
       
       const data = await response.json();
@@ -332,9 +278,16 @@ const WalletPage = () => {
   }, [depositAmount, walletData.currencySymbol]);
 
   const handleWithdraw = async () => {
-    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) return;
-    if (!bankCode || !accountNumber || !accountName) return;
+    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
+      setError('Please enter a valid amount');
+      return;
+    }
+    if (!withdrawAddress || withdrawAddress.trim().length < 10) {
+      setError('Please enter a valid crypto wallet address');
+      return;
+    }
     setProcessingWithdraw(true);
+    setError(null);
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/payments/withdraw`, {
@@ -345,24 +298,26 @@ const WalletPage = () => {
         },
         body: JSON.stringify({ 
           amount: parseFloat(withdrawAmount),
-          bankCode,
-          accountNumber,
-          accountName
+          cryptoSymbol: withdrawCrypto,
+          network: withdrawNetwork || withdrawCrypto,
+          destinationAddress: withdrawAddress.trim()
         })
       });
       const data = await response.json();
       if (response.ok && data.success) {
         setWithdrawDialog(false);
         setWithdrawAmount('');
-        setBankCode('');
-        setAccountNumber('');
-        setAccountName('');
-        setSuccessMessage(data.message || 'Withdrawal requested successfully!');
+        setWithdrawAddress('');
+        setWithdrawCrypto('USDT');
+        setSuccessMessage(data.message || 'Withdrawal request submitted! Admin will process it shortly.');
         fetchWalletData();
         setTimeout(() => setSuccessMessage(null), 5000);
+      } else {
+        setError(data.error || 'Withdrawal failed. Please try again.');
       }
     } catch (error) {
       console.error('Withdrawal error:', error);
+      setError('Failed to submit withdrawal request.');
     } finally {
       setProcessingWithdraw(false);
     }
@@ -576,8 +531,12 @@ const WalletPage = () => {
 
         {/* Supported Crypto Methods */}
         <Box sx={styles.paymentTabs}>
-          {['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'].map((crypto, index) => (
-            <Box key={crypto} sx={index === 0 ? styles.paymentTabActive : styles.paymentTab}>
+          {['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'].map((crypto) => (
+            <Box 
+              key={crypto} 
+              sx={depositCrypto === crypto ? styles.paymentTabActive : styles.paymentTab}
+              onClick={() => setDepositCrypto(crypto)}
+            >
               {crypto}
             </Box>
           ))}
@@ -716,7 +675,7 @@ const WalletPage = () => {
       >
         <DialogTitle sx={styles.dialogTitle}>
           <WithdrawIcon sx={{ mr: 1, color: '#ff6b6b' }} />
-          Withdraw
+          Withdraw to Crypto Wallet
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           <Typography sx={styles.dialogSubtext}>
@@ -724,6 +683,13 @@ const WalletPage = () => {
               {walletData.currencySymbol}{formatAmount(walletData.balance)}
             </span>
           </Typography>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+
           <TextField
             fullWidth
             label="Amount"
@@ -743,39 +709,29 @@ const WalletPage = () => {
           <TextField
             select
             fullWidth
-            label="Select Bank"
-            value={bankCode}
-            onChange={(e) => setBankCode(e.target.value)}
+            label="Crypto Currency"
+            value={withdrawCrypto}
+            onChange={(e) => setWithdrawCrypto(e.target.value)}
             sx={{ ...styles.textField, mb: 2 }}
-            disabled={loadingBanks}
           >
-            {loadingBanks ? (
-              <MenuItem disabled>Loading banks...</MenuItem>
-            ) : banks.map((bank) => (
-              <MenuItem key={bank.code} value={bank.code}>{bank.name}</MenuItem>
+            {['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'SOL', 'LTC'].map((sym) => (
+              <MenuItem key={sym} value={sym}>{sym}</MenuItem>
             ))}
           </TextField>
           <TextField
             fullWidth
-            label="Account Number"
-            value={accountNumber}
-            onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-            placeholder="10 digits"
-            sx={styles.textField}
+            label="Destination Wallet Address"
+            value={withdrawAddress}
+            onChange={(e) => setWithdrawAddress(e.target.value)}
+            placeholder="Enter your crypto wallet address"
+            sx={{ ...styles.textField, mb: 2 }}
+            InputProps={{
+              sx: { fontFamily: 'monospace', fontSize: '0.9rem' }
+            }}
           />
-          {verifyingAccount && (
-            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, gap: 1 }}>
-              <CircularProgress size={16} sx={{ color: '#00f2ea' }} />
-              <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>
-                Verifying account...
-              </Typography>
-            </Box>
-          )}
-          {accountName && (
-            <Alert severity="success" sx={{ mt: 2, background: 'rgba(0,255,136,0.1)' }}>
-              Account: {accountName}
-            </Alert>
-          )}
+          <Alert severity="info" sx={{ mt: 1, bgcolor: 'rgba(0,242,234,0.1)', border: '1px solid rgba(0,242,234,0.2)' }}>
+            Withdrawals are processed by admin within 24 hours. Ensure the wallet address matches the selected crypto network.
+          </Alert>
         </DialogContent>
         <DialogActions sx={styles.dialogActions}>
           <Button onClick={() => setWithdrawDialog(false)} sx={styles.cancelButton}>
@@ -784,10 +740,10 @@ const WalletPage = () => {
           <Button 
             variant="contained" 
             onClick={handleWithdraw}
-            disabled={processingWithdraw || !withdrawAmount || !accountName}
+            disabled={processingWithdraw || !withdrawAmount || !withdrawAddress}
             sx={styles.withdrawButton}
           >
-            {processingWithdraw ? <CircularProgress size={20} /> : 'Withdraw'}
+            {processingWithdraw ? <CircularProgress size={20} /> : 'Request Withdrawal'}
           </Button>
         </DialogActions>
       </Dialog>

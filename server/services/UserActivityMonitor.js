@@ -437,11 +437,24 @@ class UserActivityMonitor {
       if (result.modifiedCount > 0) {
         console.log(`🧹 Cleaned up ${result.modifiedCount} expired sessions`);
         
-        // Update user presence to offline for users with no active sessions
-        for (const session of expiredSessions) {
-          const activeSessions = await this.getUserSessions(session.userId);
-          if (activeSessions.length === 0) {
-            await this.updateUserPresence(session.userId, 'offline');
+        // Batch check: collect unique user IDs and check active sessions in bulk
+        const uniqueUserIds = [...new Set(expiredSessions.map(s => s.userId?.toString()).filter(Boolean))];
+        if (uniqueUserIds.length > 0) {
+          // Single aggregation query to find users who still have active sessions
+          const usersWithActive = await UserSession.aggregate([
+            { $match: { userId: { $in: uniqueUserIds.map(id => new (require('mongoose').Types.ObjectId)(id)) }, isActive: true } },
+            { $group: { _id: '$userId' } }
+          ]);
+          const activeUserIdSet = new Set(usersWithActive.map(u => u._id.toString()));
+          
+          // Only update presence for users with NO remaining active sessions
+          const offlineUserIds = uniqueUserIds.filter(id => !activeUserIdSet.has(id));
+          if (offlineUserIds.length > 0) {
+            await User.updateMany(
+              { _id: { $in: offlineUserIds } },
+              { $set: { is_online: false, last_active: new Date() } }
+            );
+            console.log(`📴 Set ${offlineUserIds.length} users offline after session cleanup`);
           }
         }
       }

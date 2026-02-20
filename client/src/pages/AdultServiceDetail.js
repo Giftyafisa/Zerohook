@@ -57,6 +57,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
 import VideoSystem from '../components/video/VideoSystem';
+import CryptoPayment from '../components/payments/CryptoPayment';
 import { useAuth } from '../contexts/AuthContext';
 import useCurrency from '../hooks/useCurrency';
 
@@ -87,6 +88,8 @@ const AdultServiceDetail = () => {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
+  const [showCryptoPayment, setShowCryptoPayment] = useState(false);
 
   useEffect(() => {
     // Fetch real service data from API
@@ -226,6 +229,22 @@ const AdultServiceDetail = () => {
       const data = await response.json();
 
       if (response.ok) {
+        // If the backend returned crypto payment details, show payment dialog
+        if (data.walletAddress) {
+          setCryptoPaymentData({
+            walletAddress: data.walletAddress,
+            cryptoAmount: data.cryptoAmount,
+            cryptoSymbol: data.cryptoSymbol || 'USDT',
+            reference: data.reference,
+            expiresAt: data.expiresAt,
+            fiatAmount: service.price,
+            fiatCurrency: 'USD',
+            network: data.network
+          });
+          setShowCryptoPayment(true);
+          setBookingLoading(false);
+          return;
+        }
         setBookingSuccess(true);
         // Move to confirmation step
         setBookingStep(2);
@@ -254,6 +273,13 @@ const AdultServiceDetail = () => {
       contactMethod: 'chat',
       paymentMethod: 'crypto'
     });
+  };
+
+  const handleCryptoPaymentSuccess = (result) => {
+    setShowCryptoPayment(false);
+    setCryptoPaymentData(null);
+    setBookingSuccess(true);
+    setBookingStep(2);
   };
 
   const getVerificationColor = (tier) => {
@@ -1104,6 +1130,17 @@ const AdultServiceDetail = () => {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Crypto Payment Dialog */}
+      {showCryptoPayment && cryptoPaymentData && (
+        <CryptoPayment
+          open={showCryptoPayment}
+          paymentData={cryptoPaymentData}
+          onSuccess={handleCryptoPaymentSuccess}
+          onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
+          title="Service Payment"
+        />
+      )}
     </Container>
   );
 };

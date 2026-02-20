@@ -44,7 +44,15 @@ const showNotification = (title, message, type = 'info') => {
     text-align: center;
     pointer-events: auto;
   `;
-  toast.innerHTML = `<div style="font-size:14px;font-weight:700">${title}</div><div style="font-size:13px;margin-top:4px">${message}</div>`;
+  // SECURITY: Use textContent instead of innerHTML to prevent XSS from server payloads
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText = 'font-size:14px;font-weight:700';
+  titleEl.textContent = title;
+  const msgEl = document.createElement('div');
+  msgEl.style.cssText = 'font-size:13px;margin-top:4px';
+  msgEl.textContent = message;
+  toast.appendChild(titleEl);
+  toast.appendChild(msgEl);
   document.body.appendChild(toast);
   
   setTimeout(() => {

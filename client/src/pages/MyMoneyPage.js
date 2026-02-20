@@ -92,6 +92,8 @@ const MyMoneyPage = () => {
   const [withdrawDialog, setWithdrawDialog] = useState(false);
   const [addAmount, setAddAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawAddress, setWithdrawAddress] = useState('');
+  const [withdrawCrypto, setWithdrawCrypto] = useState('USDT');
   const [paymentMethod, setPaymentMethod] = useState('crypto'); // 'crypto', 'wallet'
   const [cryptoSymbol, setCryptoSymbol] = useState('USDT');
   const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
@@ -187,7 +189,9 @@ const MyMoneyPage = () => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Handle payment redirect callback - verify payment when user returns from payment gateway
+  // [LEGACY] Handle payment redirect callback - from Paystack era.
+  // Crypto payments use polling in CryptoPayment component instead.
+  // Kept as fallback in case any redirect-based flow is added later.
   useEffect(() => {
     const handlePaymentCallback = async () => {
       const paymentStatus = searchParams.get('payment_status');
@@ -730,10 +734,14 @@ const MyMoneyPage = () => {
     }, 2000);
   };
 
-  // Withdraw money
+  // Withdraw money to crypto wallet
   const handleWithdraw = async () => {
     if (!withdrawAmount || Number(withdrawAmount) > walletData.balance) {
       toast.warning('Invalid amount or insufficient balance');
+      return;
+    }
+    if (!withdrawAddress || withdrawAddress.trim().length < 10) {
+      toast.warning('Please enter a valid crypto wallet address');
       return;
     }
     
@@ -746,11 +754,16 @@ const MyMoneyPage = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ amount: Number(withdrawAmount) })
+        body: JSON.stringify({ 
+          amount: Number(withdrawAmount),
+          cryptoSymbol: withdrawCrypto,
+          network: withdrawCrypto,
+          destinationAddress: withdrawAddress.trim()
+        })
       });
 
       if (response.ok) {
-        toast.success('Withdrawal initiated! You will receive it within 24 hours.');
+        toast.success('Withdrawal request submitted! Admin will process within 24 hours.');
         setWalletData(prev => ({
           ...prev,
           balance: prev.balance - Number(withdrawAmount),
@@ -767,6 +780,7 @@ const MyMoneyPage = () => {
       setActionLoading(false);
       setWithdrawDialog(false);
       setWithdrawAmount('');
+      setWithdrawAddress('');
     }
   };
 
@@ -1308,29 +1322,20 @@ const MyMoneyPage = () => {
           </Box>
         </Box>
 
-        {/* Payment Method Tabs */}
+        {/* Crypto Method Tabs */}
         <Box sx={styles.paymentTabs}>
-          <Box 
-            sx={{ 
-              ...styles.paymentTab, 
-              ...(paymentMethod === 'mobile' && styles.activePaymentTab) 
-            }}
-            onClick={() => setPaymentMethod('mobile')}
-          >
-            <MobileIcon sx={{ fontSize: 18 }} />
-            <Typography>Mobile Money</Typography>
-          </Box>
-          <Box 
-            sx={{ 
-              ...styles.paymentTab, 
-              ...(paymentMethod === 'card' && styles.activePaymentTab) 
-            }}
-            onClick={() => setPaymentMethod('card')}
-          >
-            <CardIcon sx={{ fontSize: 18 }} />
-            <Typography>Card</Typography>
-            <Chip label="NEW" size="small" sx={styles.newBadge} />
-          </Box>
+          {['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'].map((crypto) => (
+            <Box 
+              key={crypto}
+              sx={{ 
+                ...styles.paymentTab, 
+                ...(cryptoSymbol === crypto && styles.activePaymentTab) 
+              }}
+              onClick={() => setCryptoSymbol(crypto)}
+            >
+              <Typography>{crypto}</Typography>
+            </Box>
+          ))}
         </Box>
 
         {/* Content */}
@@ -1483,22 +1488,58 @@ const MyMoneyPage = () => {
             ))}
           </Box>
 
+          {/* Crypto Selection */}
+          <Box sx={{ ...styles.amountInputSection, mt: 2 }}>
+            <Typography sx={styles.amountLabel}>Crypto Currency</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'SOL', 'LTC'].map((sym) => (
+                <Chip
+                  key={sym}
+                  label={sym}
+                  onClick={() => setWithdrawCrypto(sym)}
+                  sx={{
+                    bgcolor: withdrawCrypto === sym ? 'rgba(124, 77, 255, 0.3)' : 'rgba(255,255,255,0.05)',
+                    color: withdrawCrypto === sym ? '#b388ff' : '#aaa',
+                    border: withdrawCrypto === sym ? '1px solid #7c4dff' : '1px solid #333',
+                    cursor: 'pointer',
+                    fontWeight: withdrawCrypto === sym ? 600 : 400
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+
+          {/* Destination Address */}
+          <Box sx={{ ...styles.amountInputSection, mt: 2 }}>
+            <Typography sx={styles.amountLabel}>Destination Wallet Address</Typography>
+            <TextField
+              fullWidth
+              value={withdrawAddress}
+              onChange={(e) => setWithdrawAddress(e.target.value)}
+              placeholder="Enter your crypto wallet address"
+              sx={styles.amountTextField}
+              InputProps={{
+                sx: { fontFamily: 'monospace', fontSize: '0.9rem' }
+              }}
+            />
+          </Box>
+
           {/* Withdraw Button */}
           <Button
             fullWidth
             variant="contained"
             onClick={handleWithdraw}
-            disabled={actionLoading || !withdrawAmount || Number(withdrawAmount) > walletData.balance}
-            sx={{ ...styles.topUpButton, bgcolor: '#7c4dff', '&:hover': { bgcolor: '#651fff' } }}
+            disabled={actionLoading || !withdrawAmount || !withdrawAddress || Number(withdrawAmount) > walletData.balance}
+            sx={{ ...styles.topUpButton, bgcolor: '#7c4dff', '&:hover': { bgcolor: '#651fff' }, mt: 2 }}
           >
-            {actionLoading ? <CircularProgress size={24} sx={{ color: '#fff' }} /> : 'Withdraw Now'}
+            {actionLoading ? <CircularProgress size={24} sx={{ color: '#fff' }} /> : 'Request Withdrawal'}
           </Button>
 
           {/* Info */}
           <Box sx={styles.infoList}>
-            <Typography sx={styles.infoItem}>• Withdrawals are processed within 24 hours</Typography>
-            <Typography sx={styles.infoItem}>• Funds will be sent to your registered bank account</Typography>
-            <Typography sx={styles.infoItem}>• Minimum withdrawal is {symbol}100</Typography>
+            <Typography sx={styles.infoItem}>• Withdrawals are reviewed and processed within 24 hours</Typography>
+            <Typography sx={styles.infoItem}>• Funds will be sent to the crypto address you provide</Typography>
+            <Typography sx={styles.infoItem}>• Ensure the address matches the selected crypto network</Typography>
           </Box>
         </Box>
       </Dialog>

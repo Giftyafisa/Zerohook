@@ -93,7 +93,8 @@ class LocationTrackingService {
       const preferredProfileLocation = await this.processProfileLocation(userProfile);
       if (preferredProfileLocation) {
         console.log(`✅ Profile-first Location: ${preferredProfileLocation.city}, ${preferredProfileLocation.country}`);
-        await this.saveLocationHistory(userId, preferredProfileLocation, 'profile_preferred');
+        // Fire-and-forget: don't block response on DB write
+        this.saveLocationHistory(userId, preferredProfileLocation, 'profile_preferred').catch(e => console.error('Location save error:', e));
         this.setCachedLocation(userId || sessionId, preferredProfileLocation);
         return preferredProfileLocation;
       }
@@ -104,7 +105,7 @@ class LocationTrackingService {
       const gpsLocation = await this.processGPSCoordinates(providedCoords);
       if (gpsLocation) {
         console.log(`✅ GPS Location: ${gpsLocation.city}, ${gpsLocation.country} (${gpsLocation.lat.toFixed(4)}, ${gpsLocation.lng.toFixed(4)})`);
-        await this.saveLocationHistory(userId, gpsLocation, 'gps');
+        this.saveLocationHistory(userId, gpsLocation, 'gps').catch(e => console.error('Location save error:', e));
         this.setCachedLocation(userId || sessionId, gpsLocation);
         return gpsLocation;
       }
@@ -115,7 +116,7 @@ class LocationTrackingService {
       const profileLocation = await this.processProfileLocation(userProfile);
       if (profileLocation) {
         console.log(`✅ Profile Location: ${profileLocation.city}, ${profileLocation.country}`);
-        await this.saveLocationHistory(userId, profileLocation, 'profile');
+        this.saveLocationHistory(userId, profileLocation, 'profile').catch(e => console.error('Location save error:', e));
         this.setCachedLocation(userId || sessionId, profileLocation);
         return profileLocation;
       }
@@ -126,7 +127,7 @@ class LocationTrackingService {
       const ipLocation = await this.processIPLocation(ipAddress);
       if (ipLocation) {
         console.log(`✅ IP Location: ${ipLocation.city}, ${ipLocation.country} (from IP: ${ipAddress})`);
-        await this.saveLocationHistory(userId, ipLocation, 'ip');
+        this.saveLocationHistory(userId, ipLocation, 'ip').catch(e => console.error('Location save error:', e));
         this.setCachedLocation(userId || sessionId, ipLocation);
         return ipLocation;
       }

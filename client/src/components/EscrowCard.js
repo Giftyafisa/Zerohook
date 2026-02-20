@@ -82,8 +82,8 @@ const EscrowCard = ({
   const otherParty = isProvider ? { name: clientName, avatar: clientAvatar } : { name: providerName, avatar: providerAvatar };
 
   const formatCurrency = (amount, currency) => {
-    const symbols = { NGN: '₦', USD: '$', GHS: '₵', KES: 'KSh' };
-    const symbol = symbols[currency] || currency;
+    const symbols = { USD: '$', NGN: '₦', GHS: '₵', KES: 'KSh', EUR: '€', GBP: '£' };
+    const symbol = symbols[currency] || '$';
     return `${symbol}${Number(amount).toLocaleString()}`;
   };
 

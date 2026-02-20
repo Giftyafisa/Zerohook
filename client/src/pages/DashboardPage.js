@@ -167,7 +167,10 @@ const DashboardPage = () => {
             transition={{ duration: 0.3, delay: index * 0.1 }}
           >
             <Box
-              sx={styles.quickActionCard}
+              component="button"
+              role="button"
+              tabIndex={0}
+              sx={{ ...styles.quickActionCard, border: 'none', font: 'inherit', outline: 'none', '&:focus-visible': { boxShadow: '0 0 0 2px #00f2ea' } }}
               onClick={() => navigate(action.path)}
             >
               <Badge badgeContent={action.badge} color="error" sx={styles.actionBadge}>
@@ -233,7 +236,7 @@ const DashboardPage = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.3 }}
       >
-        <Box sx={styles.viewProfileBtn} onClick={() => navigate('/profile')}>
+        <Box component="button" role="button" tabIndex={0} sx={{ ...styles.viewProfileBtn, border: 'none', font: 'inherit', outline: 'none', '&:focus-visible': { boxShadow: '0 0 0 2px #00f2ea' } }} onClick={() => navigate('/profile')}>
           <Typography>View My Profile</Typography>
           <ArrowForwardIcon />
         </Box>

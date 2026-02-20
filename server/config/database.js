@@ -144,9 +144,9 @@ const transactionSchema = new mongoose.Schema({
   provider_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // For wallet transactions
   amount: { type: Number, required: true },
-  currency: { type: String, default: 'NGN' },
+  currency: { type: String, default: 'USD' },
   country_code: String,
-  payment_method: { type: String, default: 'paystack' },
+  payment_method: { type: String, default: 'crypto' },
   reference: String,
   escrow_address: String,
   status: { type: String, default: 'pending' },
@@ -233,6 +233,10 @@ const conversationSchema = new mongoose.Schema({
   lastMessageTime: Date,
   status: { type: String, default: 'active' }
 }, { timestamps: true });
+
+// Compound index prevents duplicate conversations between same pair of users
+conversationSchema.index({ participant1Id: 1, participant2Id: 1 }, { unique: true });
+conversationSchema.index({ participant2Id: 1, participant1Id: 1 });
 
 const messageSchema = new mongoose.Schema({
   conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
@@ -496,6 +500,35 @@ const AdultService = mongoose.model('AdultService', adultServiceSchema);
 const UserPrivacySettings = mongoose.model('UserPrivacySettings', userPrivacySettingsSchema);
 const PrivacyConsent = mongoose.model('PrivacyConsent', privacyConsentSchema);
 
+// Crypto payment invoice schema - persists pending/expired invoices across server restarts
+const cryptoInvoiceSchema = new mongoose.Schema({
+  reference: { type: String, required: true, unique: true, index: true },
+  address: { type: String, required: true },
+  cryptoAmount: { type: Number, required: true },
+  cryptoSymbol: { type: String, required: true },
+  fiatAmount: Number,
+  fiatCurrency: String,
+  transactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  derivationIndex: Number,
+  addressMethod: String,
+  status: { type: String, default: 'pending', index: true }, // pending, confirmed, expired
+  createdAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date, required: true },
+  metadata: { type: mongoose.Schema.Types.Mixed, default: {} }
+}, { timestamps: true });
+cryptoInvoiceSchema.index({ status: 1, expiresAt: 1 });
+
+const CryptoInvoice = mongoose.model('CryptoInvoice', cryptoInvoiceSchema);
+
+// System counter schema - for persistent derivation index etc.
+const systemCounterSchema = new mongoose.Schema({
+  _id: { type: String, required: true }, // counter name, e.g. 'crypto_deriv_index'
+  value: { type: Number, default: 0 }
+});
+
+const SystemCounter = mongoose.model('SystemCounter', systemCounterSchema);
+
 const initializeCollections = async () => {
   try {
     // Create indexes
@@ -606,5 +639,7 @@ module.exports = {
   UserEngagementEvent,
   AdultService,
   UserPrivacySettings,
-  PrivacyConsent
+  PrivacyConsent,
+  CryptoInvoice,
+  SystemCounter
 };

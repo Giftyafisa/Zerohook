@@ -1,9 +1,8 @@
-const { Transaction } = require('../config/database');
+const { Transaction, CryptoInvoice, SystemCounter } = require('../config/database');
 const bitcoin = require('bitcoinjs-lib');
 const { ethers } = require('ethers');
 const axios = require('axios');
 const crypto = require('crypto');
-const NodeCache = require('node-cache');
 
 // HD wallet support
 const bip39 = require('bip39');
@@ -32,11 +31,8 @@ class CryptoPaymentManager {
     this.btcRoot = null;
     this.ethRoot = null;
     
-    // Address derivation index tracking (per-session, persistent via DB)
-    this.addressIndex = new NodeCache({ stdTTL: 0 }); // no expiry
-    
-    // Payment monitoring cache
-    this.pendingPayments = new NodeCache({ stdTTL: 3600 }); // 1 hour expiry
+    // Address derivation index tracked via SystemCounter in MongoDB (persistent across restarts)
+    // Payment invoices tracked via CryptoInvoice in MongoDB (persistent across restarts)
     
     // Platform wallet addresses (where fees/revenue goes)
     this.platformWallets = {};
@@ -149,13 +145,13 @@ class CryptoPaymentManager {
         return { address, index: derivationIndex, method: 'hd_wallet' };
       }
 
-      // Fallback: random keypair (not recoverable without saving private key)
-      const keyPair = bitcoin.ECPair.makeRandom({ network: this.bitcoinNetwork });
+      // Fallback: random keypair from random bytes (bitcoinjs-lib v6 compatible)
+      const randomPrivKey = crypto.randomBytes(32);
       const { address } = bitcoin.payments.p2wpkh({
-        pubkey: keyPair.publicKey,
+        pubkey: Buffer.from(ecc.pointFromScalar(randomPrivKey)),
         network: this.bitcoinNetwork
       });
-      return { address, privateKey: keyPair.toWIF(), method: 'random' };
+      return { address, method: 'random' };
     } catch (error) {
       console.error('BTC address generation failed:', error);
       throw new Error('Failed to generate Bitcoin payment address');
@@ -186,15 +182,16 @@ class CryptoPaymentManager {
   }
 
   /**
-   * Get next derivation index from DB
+   * Get next derivation index from MongoDB (atomic increment, survives restarts)
    */
   async getNextDerivationIndex() {
     try {
-      // Use a simple counter stored in cache, persisted via transaction metadata
-      const cached = this.addressIndex.get('deriv_index');
-      const nextIndex = (cached || 0) + 1;
-      this.addressIndex.set('deriv_index', nextIndex);
-      return nextIndex;
+      const counter = await SystemCounter.findOneAndUpdate(
+        { _id: 'crypto_deriv_index' },
+        { $inc: { value: 1 } },
+        { upsert: true, new: true }
+      );
+      return counter.value;
     } catch {
       return Math.floor(Date.now() / 1000) % 2147483647; // safe fallback
     }
@@ -263,7 +260,8 @@ class CryptoPaymentManager {
         metadata
       };
 
-      this.pendingPayments.set(reference, invoice);
+      // Persist invoice to MongoDB (survives server restarts — critical for fund safety)
+      await CryptoInvoice.create(invoice);
 
       return {
         success: true,
@@ -512,14 +510,14 @@ class CryptoPaymentManager {
    * Check payment status by reference
    */
   async checkPaymentStatus(reference) {
-    const invoice = this.pendingPayments.get(reference);
+    const invoice = await CryptoInvoice.findOne({ reference });
     if (!invoice) {
       return { success: false, error: 'Invoice not found or expired' };
     }
 
     // Check if expired
     if (new Date() > new Date(invoice.expiresAt)) {
-      this.pendingPayments.del(reference);
+      await CryptoInvoice.updateOne({ reference }, { $set: { status: 'expired' } });
       return { success: false, error: 'Payment invoice has expired', status: 'expired' };
     }
 
@@ -531,11 +529,11 @@ class CryptoPaymentManager {
     );
 
     if (verification.confirmed) {
+      await CryptoInvoice.updateOne({ reference }, { $set: { status: 'confirmed' } });
       invoice.status = 'confirmed';
-      this.pendingPayments.set(reference, invoice);
     } else if (verification.pendingConfirmation) {
+      await CryptoInvoice.updateOne({ reference }, { $set: { status: 'pending_confirmation' } });
       invoice.status = 'pending_confirmation';
-      this.pendingPayments.set(reference, invoice);
     }
 
     return {

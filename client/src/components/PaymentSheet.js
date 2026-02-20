@@ -356,7 +356,7 @@ const PaymentSheet = ({
       open={showCryptoPayment}
       onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
       paymentData={cryptoPaymentData}
-      onPaymentConfirmed={handleCryptoPaymentConfirmed}
+      onSuccess={handleCryptoPaymentConfirmed}
       title="Escrow Crypto Payment"
     />
     </>

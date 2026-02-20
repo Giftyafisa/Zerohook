@@ -877,7 +877,9 @@ router.get('/:id', async (req, res) => {
     console.log(`[GET /:id] Found user: ${user.username}, accountType: ${user.accountType}`);
 
     // Handle both camelCase and snake_case field names
-    const profileData = user.profileData || user.profile_data || {};
+    const rawProfileData = user.profileData || user.profile_data || {};
+    // Sanitize: strip sensitive metadata that should never be exposed to clients
+    const { registration_ip, registration_user_agent, registrationIp, registrationUserAgent, ip_address, ipAddress, ...profileData } = rawProfileData.toObject ? rawProfileData.toObject() : { ...rawProfileData };
     const verificationTier = user.verificationTier ?? user.verification_tier ?? 1;
     const reputationScore = user.reputationScore ?? user.reputation_score ?? 50;
     const isSubscribed = user.isSubscribed ?? user.is_subscribed ?? false;

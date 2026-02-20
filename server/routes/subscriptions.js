@@ -214,21 +214,23 @@ router.post('/verify-payment', authMiddleware, [
       return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
 
-    // Update user subscription status (6-month subscription)
-    try {
-      const sixMonthsFromNow = new Date();
-      sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+    // Update user subscription status (6-month subscription) — fail loudly if user update breaks
+    const sixMonthsFromNow = new Date();
+    sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
 
-      await User.findByIdAndUpdate(userObjectId, {
-        is_subscribed: true,
-        subscription_tier: 'premium',
-        subscription_expires_at: sixMonthsFromNow
-      });
+    const userUpdate = await User.findByIdAndUpdate(userObjectId, {
+      is_subscribed: true,
+      subscription_tier: 'premium',
+      subscription_expires_at: sixMonthsFromNow
+    }, { new: true });
 
-      console.log(`✅ User subscription updated: ${userId} (tier: premium, expires: 6 months)`);
-    } catch (userUpdateError) {
-      console.log(`⚠️ User update failed: ${userUpdateError.message}`);
+    if (!userUpdate) {
+      // Rollback subscription activation since user update failed
+      await Subscription.findByIdAndUpdate(subscriptionUpdate._id, { status: 'pending', activated_at: null });
+      return res.status(500).json({ success: false, error: 'Failed to update user subscription status' });
     }
+
+    console.log(`✅ User subscription updated: ${userId} (tier: premium, expires: 6 months)`);
     
     console.log(`✅ Crypto payment verified and subscription activated for user: ${userId}`);
 
@@ -333,19 +335,28 @@ router.post('/verify-payment-manual', authMiddleware, adminMiddleware, async (re
   }
 });
 
-// Activate all pending subscriptions for a user (for fixing existing issues)
+// Activate all pending subscriptions for a user (ADMIN ONLY - for fixing existing issues)
 router.post('/activate-all-pending', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
-      ? new mongoose.Types.ObjectId(userId)
+
+    // SECURITY: Only allow admin users to activate pending subscriptions
+    const callingUser = await User.findById(userId).select('role').lean();
+    if (!callingUser || callingUser.role !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    // Admin specifies which user to activate for (not self-service)
+    const targetUserId = req.body.targetUserId || userId;
+    const userObjectId = mongoose.Types.ObjectId.isValid(targetUserId)
+      ? new mongoose.Types.ObjectId(targetUserId)
       : null;
 
     if (!userObjectId) {
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
     
-    console.log(`🔄 Activating all pending subscriptions for user: ${userId}`);
+    console.log(`🔄 [ADMIN] Activating all pending subscriptions for user: ${targetUserId} (by admin: ${userId})`);
 
     const pendingSubs = await Subscription.find({ user_id: userObjectId, status: 'pending' })
       .select('_id crypto_reference amount currency')

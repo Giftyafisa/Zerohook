@@ -11,9 +11,8 @@ const adminMiddleware = async (req, res, next) => {
     const { User } = require('../config/database');
     const user = await User.findById(req.user.userId);
     
-    // Check if user is admin using dedicated field (not profile_data which users can modify)
-    const isAdmin = user?.is_admin === true || 
-                    user?.verification_tier >= 5; // Or use high verification tier
+    // Check if user is admin using dedicated field ONLY (not verification_tier which users could potentially manipulate)
+    const isAdmin = user?.is_admin === true || user?.role === 'admin';
     
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -490,6 +489,282 @@ router.get('/stats', authMiddleware, adminMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Get admin stats error:', error);
     res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ============ PLATFORM FEE & REVENUE DASHBOARD ============
+
+/**
+ * @route   GET /api/admin/revenue
+ * @desc    Platform revenue dashboard - shows fees collected, subscription revenue, totals
+ * @access  Admin only
+ */
+router.get('/revenue', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction, Subscription } = require('../config/database');
+
+    // 1. Platform fees from escrow releases (5% stored in metadata.platformFee)
+    const feeResult = await Transaction.aggregate([
+      { $match: { type: 'escrow_release', status: 'completed' } },
+      { $group: { 
+        _id: null, 
+        totalFees: { $sum: { $ifNull: ['$metadata.platformFee', 0] } },
+        totalReleased: { $sum: '$amount' },
+        count: { $sum: 1 }
+      }}
+    ]);
+
+    // 2. Subscription revenue
+    const subscriptionResult = await Transaction.aggregate([
+      { $match: { type: 'subscription', status: { $in: ['completed', 'confirmed'] } } },
+      { $group: { 
+        _id: null, 
+        total: { $sum: '$amount' },
+        count: { $sum: 1 }
+      }}
+    ]);
+
+    // 3. Active subscriptions count
+    const activeSubscriptions = await Subscription.countDocuments({
+      status: 'active',
+      end_date: { $gt: new Date() }
+    });
+
+    // 4. Pending user withdrawals (need admin approval)
+    const pendingWithdrawals = await Transaction.find({
+      type: 'withdrawal',
+      status: 'pending'
+    }).sort({ created_at: -1 }).limit(50);
+
+    const pendingWithdrawalTotal = pendingWithdrawals.reduce((sum, tx) => sum + tx.amount, 0);
+
+    // 5. Total platform volume
+    const volumeResult = await Transaction.aggregate([
+      { $match: { status: { $in: ['completed', 'confirmed', 'released'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+    ]);
+
+    // 6. Fee breakdown by time period (last 30 days vs all-time)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const recentFeeResult = await Transaction.aggregate([
+      { $match: { type: 'escrow_release', status: 'completed', created_at: { $gte: thirtyDaysAgo } } },
+      { $group: { _id: null, totalFees: { $sum: { $ifNull: ['$metadata.platformFee', 0] } }, count: { $sum: 1 } } }
+    ]);
+
+    const fees = feeResult[0] || { totalFees: 0, totalReleased: 0, count: 0 };
+    const subs = subscriptionResult[0] || { total: 0, count: 0 };
+    const volume = volumeResult[0] || { total: 0, count: 0 };
+    const recentFees = recentFeeResult[0] || { totalFees: 0, count: 0 };
+
+    res.json({
+      success: true,
+      revenue: {
+        platformFees: {
+          allTime: fees.totalFees,
+          last30Days: recentFees.totalFees,
+          escrowsReleased: fees.count,
+          totalReleasedToProviders: fees.totalReleased
+        },
+        subscriptions: {
+          totalRevenue: subs.total,
+          totalPurchased: subs.count,
+          activeCount: activeSubscriptions
+        },
+        totalRevenue: fees.totalFees + subs.total,
+        totalVolume: volume.total,
+        totalTransactions: volume.count,
+        pendingWithdrawals: {
+          count: pendingWithdrawals.length,
+          totalAmount: pendingWithdrawalTotal,
+          items: pendingWithdrawals.map(w => ({
+            id: w._id.toString(),
+            userId: w.user_id?.toString(),
+            amount: w.amount,
+            currency: w.currency,
+            destinationAddress: w.metadata?.destinationAddress,
+            cryptoSymbol: w.metadata?.cryptoSymbol,
+            createdAt: w.created_at,
+            reference: w.reference
+          }))
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Revenue dashboard error:', error);
+    res.status(500).json({ error: 'Failed to fetch revenue data' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/withdrawals/:id/approve
+ * @desc    Approve and mark a user withdrawal as processing/completed
+ * @access  Admin only
+ */
+router.post('/withdrawals/:id/approve', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction } = require('../config/database');
+    const { id } = req.params;
+    const { txHash, notes } = req.body; // txHash = blockchain transaction hash after admin sends funds
+
+    const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
+    
+    const withdrawal = await Transaction.findOneAndUpdate(
+      { _id: txObjId, type: 'withdrawal', status: 'pending' },
+      { 
+        $set: { 
+          status: txHash ? 'completed' : 'processing',
+          'metadata.approvedBy': req.user.userId,
+          'metadata.approvedAt': new Date().toISOString(),
+          'metadata.txHash': txHash || null,
+          'metadata.adminNotes': notes || '',
+          completed_at: txHash ? new Date() : null
+        } 
+      },
+      { new: true }
+    );
+
+    if (!withdrawal) {
+      return res.status(404).json({ error: 'Pending withdrawal not found' });
+    }
+
+    res.json({
+      success: true,
+      message: txHash ? 'Withdrawal completed and marked with tx hash' : 'Withdrawal approved and being processed',
+      withdrawal: {
+        id: withdrawal._id.toString(),
+        amount: withdrawal.amount,
+        status: withdrawal.status,
+        destinationAddress: withdrawal.metadata?.destinationAddress,
+        txHash: withdrawal.metadata?.txHash
+      }
+    });
+
+  } catch (error) {
+    console.error('Withdrawal approval error:', error);
+    res.status(500).json({ error: 'Failed to approve withdrawal' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/withdrawals/:id/reject
+ * @desc    Reject a user withdrawal and refund to wallet balance
+ * @access  Admin only
+ */
+router.post('/withdrawals/:id/reject', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction } = require('../config/database');
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
+
+    const withdrawal = await Transaction.findOneAndUpdate(
+      { _id: txObjId, type: 'withdrawal', status: 'pending' },
+      { 
+        $set: { 
+          status: 'rejected',
+          'metadata.rejectedBy': req.user.userId,
+          'metadata.rejectedAt': new Date().toISOString(),
+          'metadata.rejectionReason': reason || 'Rejected by admin'
+        } 
+      },
+      { new: true }
+    );
+
+    if (!withdrawal) {
+      return res.status(404).json({ error: 'Pending withdrawal not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Withdrawal rejected. Funds returned to user wallet balance.',
+      withdrawal: {
+        id: withdrawal._id.toString(),
+        amount: withdrawal.amount,
+        userId: withdrawal.user_id?.toString()
+      }
+    });
+
+  } catch (error) {
+    console.error('Withdrawal rejection error:', error);
+    res.status(500).json({ error: 'Failed to reject withdrawal' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/withdraw-fees
+ * @desc    Admin withdraws platform fees to their own crypto wallet
+ * @access  Admin only
+ */
+router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction } = require('../config/database');
+    const { amount, destinationAddress, cryptoSymbol = 'USDT', notes } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+    if (!destinationAddress) {
+      return res.status(400).json({ error: 'Destination address required' });
+    }
+
+    // Calculate total available platform fees
+    const feeResult = await Transaction.aggregate([
+      { $match: { type: 'escrow_release', status: 'completed' } },
+      { $group: { _id: null, totalFees: { $sum: { $ifNull: ['$metadata.platformFee', 0] } } } }
+    ]);
+
+    const adminWithdrawnResult = await Transaction.aggregate([
+      { $match: { type: 'admin_fee_withdrawal', status: { $in: ['completed', 'pending'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+
+    const totalFees = feeResult[0]?.totalFees || 0;
+    const alreadyWithdrawn = adminWithdrawnResult[0]?.total || 0;
+    const availableFees = totalFees - alreadyWithdrawn;
+
+    if (amount > availableFees) {
+      return res.status(400).json({ 
+        error: `Insufficient fee balance. Available: $${availableFees.toFixed(2)}, Requested: $${amount}` 
+      });
+    }
+
+    // Create admin fee withdrawal transaction
+    const reference = `ADMIN_FEE_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const withdrawal = await Transaction.create({
+      user_id: mongoose.Types.ObjectId.createFromHexString(req.user.userId),
+      amount,
+      currency: 'USD',
+      type: 'admin_fee_withdrawal',
+      payment_method: 'crypto',
+      reference,
+      status: 'pending',
+      metadata: {
+        destinationAddress,
+        cryptoSymbol,
+        notes,
+        requestedBy: req.user.userId,
+        requestedAt: new Date().toISOString(),
+        availableAtTime: availableFees
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Fee withdrawal of $${amount} requested. Send ${cryptoSymbol} to your wallet manually from the platform hot wallet.`,
+      withdrawal: {
+        id: withdrawal._id.toString(),
+        amount,
+        reference,
+        destinationAddress,
+        availableFeeBalance: availableFees - amount
+      }
+    });
+
+  } catch (error) {
+    console.error('Admin fee withdrawal error:', error);
+    res.status(500).json({ error: 'Failed to process fee withdrawal' });
   }
 });
 

@@ -1683,12 +1683,10 @@ const ProfileFeed = () => {
     }
   }, [searchParams]); // Only run when URL params change
 
-  // Debounced search
+  // Debounced search — also reset when clearing search
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (searchQuery !== '') {
-        fetchProfiles(1);
-      }
+      fetchProfiles(1);
     }, 500);
     return () => clearTimeout(timer);
   }, [searchQuery, fetchProfiles]);

@@ -412,7 +412,7 @@ const SubscriptionPage = () => {
                       for 6 months
                     </Typography>
                     <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', mt: 1 }}>
-                      ≈ ${BASE_PRICE_USD} USD • Auto-renews every 6 months
+                      ≈ ${BASE_PRICE_USD} USD • Manual renewal required (crypto)
                     </Typography>
                   </Box>
                 )}

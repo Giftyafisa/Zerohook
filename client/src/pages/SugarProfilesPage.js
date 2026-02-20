@@ -582,15 +582,8 @@ const SugarProfilesPage = () => {
         <CryptoPayment
           open={showCryptoPayment}
           onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
-          walletAddress={cryptoPaymentData.walletAddress}
-          cryptoAmount={cryptoPaymentData.cryptoAmount}
-          cryptoSymbol={cryptoPaymentData.cryptoSymbol}
-          network={cryptoPaymentData.network}
-          qrData={cryptoPaymentData.qrData}
-          reference={cryptoPaymentData.reference}
-          fiatAmount={cryptoPaymentData.fiatAmount}
-          fiatCurrency={cryptoPaymentData.fiatCurrency}
-          onPaymentConfirmed={handleCryptoPaymentConfirmed}
+          paymentData={cryptoPaymentData}
+          onSuccess={handleCryptoPaymentConfirmed}
         />
       )}
     </Container>

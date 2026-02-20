@@ -117,6 +117,7 @@ const styles = {
     left: 0,
     right: 0,
     padding: '24px',
+    paddingBottom: 'max(24px, env(safe-area-inset-bottom))',
     background: 'linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent)',
   },
 
@@ -220,6 +221,7 @@ const styles = {
     left: 0,
     right: 0,
     padding: '20px',
+    paddingTop: 'max(20px, env(safe-area-inset-top))',
     background: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.6), transparent)',
     display: 'flex',
     justifyContent: 'space-between',
@@ -262,6 +264,7 @@ const CallSystem = () => {
   // Call state
   const [incomingCall, setIncomingCall] = useState(null);
   const [outgoingCall, setOutgoingCall] = useState(null);
+  const outgoingCallRef = useRef(null);
   const [activeCall, setActiveCall] = useState(null);
   const [callType, setCallType] = useState('video');
   const [isInCall, setIsInCall] = useState(false);
@@ -412,12 +415,14 @@ const CallSystem = () => {
 
     await initializeMedia(type === 'video');
     setCallType(type);
-    setOutgoingCall({
+    const callData = {
       id: Date.now().toString(),
       targetUserId,
       type,
       status: 'calling'
-    });
+    };
+    setOutgoingCall(callData);
+    outgoingCallRef.current = callData;
 
     socket.emit('call_request', {
       targetUserId,
@@ -426,14 +431,15 @@ const CallSystem = () => {
       callerName: user.username || 'User'
     });
 
-    // Timeout after 30s
+    // Timeout after 30s — use ref to avoid stale closure
     setTimeout(() => {
-      if (outgoingCall?.status === 'calling') {
+      if (outgoingCallRef.current?.status === 'calling') {
         socket.emit('call_timeout', { targetUserId });
         setOutgoingCall(null);
+        outgoingCallRef.current = null;
       }
     }, 30000);
-  }, [socket, isConnected, user, outgoingCall]);
+  }, [socket, isConnected, user]);
 
   // Accept call
   const acceptCall = useCallback(async () => {

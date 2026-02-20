@@ -150,8 +150,9 @@ function App() {
     };
 
     // Monitor long tasks (development only, high threshold)
+    let perfObserver;
     if ('PerformanceObserver' in window && process.env.NODE_ENV === 'development') {
-      const observer = new PerformanceObserver((list) => {
+      perfObserver = new PerformanceObserver((list) => {
         list.getEntries().forEach((entry) => {
           if (entry.duration > 500) { // Only log tasks longer than 500ms (very long tasks)
             console.warn('⚠️ Long task detected:', {
@@ -162,7 +163,7 @@ function App() {
           }
         });
       });
-      observer.observe({ entryTypes: ['longtask'] });
+      perfObserver.observe({ entryTypes: ['longtask'] });
     }
 
     window.addEventListener('error', handleGlobalError);
@@ -170,6 +171,7 @@ function App() {
     window.addEventListener('load', handlePerformanceMetrics);
 
     return () => {
+      perfObserver?.disconnect();
       window.removeEventListener('error', handleGlobalError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
       window.removeEventListener('load', handlePerformanceMetrics);

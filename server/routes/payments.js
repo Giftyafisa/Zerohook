@@ -668,7 +668,8 @@ router.post('/deposit', authMiddleware, async (req, res) => {
 router.post('/withdraw', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { amount, cryptoSymbol = 'USDT', walletAddress } = req.body;
+    const { amount, cryptoSymbol = 'USDT', walletAddress, destinationAddress, network } = req.body;
+    const destAddr = walletAddress || destinationAddress; // Accept both field names
 
     // Get user's country for currency
     const userCountry = await req.countryManager.getUserCountry(userId);
@@ -678,7 +679,7 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
     const currencySymbol = country ? country.currencySymbol : '₦';
 
     // Validate
-    if (!amount || !walletAddress) {
+    if (!amount || !destAddr) {
       return res.status(400).json({ success: false, error: 'Amount and wallet address are required' });
     }
 
@@ -741,13 +742,15 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
         type: 'withdrawal',
         cryptoSymbol,
         cryptoAmount: conversion.cryptoAmount,
-        walletAddress,
+        walletAddress: destAddr,
+        destinationAddress: destAddr,
+        network: network || cryptoSymbol,
         rate: conversion.rate,
         description: `Withdrawal - ${currencySymbol}${amount.toLocaleString()}`
       }
     });
 
-    console.log(`📤 Crypto withdrawal requested: ${reference} - ${conversion.cryptoAmount} ${cryptoSymbol} to ${walletAddress}`);
+    console.log(`📤 Crypto withdrawal requested: ${reference} - ${conversion.cryptoAmount} ${cryptoSymbol} to ${destAddr}`);
 
     res.json({
       success: true,
@@ -755,7 +758,7 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       reference,
       cryptoAmount: conversion.cryptoAmount,
       cryptoSymbol,
-      walletAddress,
+      walletAddress: destAddr,
       status: 'pending',
       currency, currencySymbol,
       note: 'Withdrawal will be processed within 24 hours after admin review'

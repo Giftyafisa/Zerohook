@@ -174,7 +174,8 @@ const CryptoPayment = ({
 
   if (!paymentData) return null;
 
-  const { reference, address, cryptoAmount, cryptoSymbol, network, fiatAmount, fiatCurrency, rate, rateSource } = paymentData;
+  const { reference, address: rawAddress, walletAddress, cryptoAmount, cryptoSymbol, network, fiatAmount, fiatCurrency, rate, rateSource } = paymentData;
+  const address = rawAddress || walletAddress; // Support both field names from different callers
   const logo = CRYPTO_LOGOS[cryptoSymbol] || '🪙';
 
   return (

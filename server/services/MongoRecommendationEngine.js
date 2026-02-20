@@ -453,11 +453,12 @@ class MongoRecommendationEngine {
 
       // Apply country filter (UBER-STYLE: prioritize same country)
       if (filters.country && filters.country !== 'all') {
+        const escapedCountry = this.escapeRegExp(filters.country);
         mongoQuery.$and = mongoQuery.$and || [];
         mongoQuery.$and.push({
           $or: [
-            { 'profile_data.location.country': new RegExp(filters.country, 'i') },
-            { 'profileData.location.country': new RegExp(filters.country, 'i') }
+            { 'profile_data.location.country': new RegExp(escapedCountry, 'i') },
+            { 'profileData.location.country': new RegExp(escapedCountry, 'i') }
           ]
         });
       }

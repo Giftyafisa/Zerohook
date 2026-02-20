@@ -523,7 +523,8 @@ const Navbar = () => {
             <IconButton
               size="large"
               edge="start"
-              aria-label="menu"
+              aria-label="Open navigation menu"
+              aria-haspopup="true"
               onClick={handleMobileMenuOpen}
               sx={{ 
                 mr: 2,
@@ -556,7 +557,7 @@ const Navbar = () => {
 
           {/* Desktop Navigation */}
           {!isMobile && (
-            <Box sx={{ flexGrow: 1, display: 'flex', gap: 1 }}>
+            <Box component="nav" aria-label="Main navigation" sx={{ flexGrow: 1, display: 'flex', gap: 1 }}>
               <NavButton
                 component={Link}
                 to="/profiles"
@@ -664,6 +665,8 @@ const Navbar = () => {
                   )}
                   <IconButton
                     onClick={handleProfileMenuOpen}
+                    aria-label="Open user menu"
+                    aria-haspopup="true"
                     sx={{ p: 0 }}
                   >
                     <GlassAvatar

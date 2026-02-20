@@ -589,7 +589,8 @@ class TikTokEngagementTracker {
     
     // Clean preference models older than TTL
     for (const [userId, model] of this.userPreferenceModels) {
-      if (model.cachedAt && now - model.cachedAt > this.modelCacheTTL) {
+      const modelTime = model.timestamp || model.cachedAt;
+      if (modelTime && now - modelTime > this.modelCacheTTL) {
         this.userPreferenceModels.delete(userId);
       }
     }
@@ -604,7 +605,8 @@ class TikTokEngagementTracker {
     
     // Clean engagement scores older than TTL
     for (const [profileId, score] of this.profileEngagementScores) {
-      if (score.cachedAt && now - score.cachedAt > this.engagementCacheTTL) {
+      const scoreTime = score.timestamp || score.cachedAt;
+      if (scoreTime && now - scoreTime > this.engagementCacheTTL) {
         this.profileEngagementScores.delete(profileId);
       }
     }

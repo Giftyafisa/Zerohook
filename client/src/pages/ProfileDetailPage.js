@@ -504,7 +504,7 @@ const ProfileDetailPage = () => {
           {/* About Tab */}
           {activeTab === 0 && (
             <Box>
-              <Typography variant="body1" color="text.secondary" paragraph sx={{ lineHeight: 1.8 }}>
+              <Typography variant="body1" color="text.secondary" paragraph sx={{ lineHeight: 1.8, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                 {profileData.bio || 'No bio available'}
               </Typography>
 

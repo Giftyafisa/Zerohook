@@ -94,7 +94,7 @@ class EscrowManager {
           { 
             $match: { 
               user_id: clientObjId, 
-              type: { $in: ['deposit', 'wallet_topup'] }, 
+              type: { $in: ['deposit', 'wallet_topup', 'escrow_release'] }, 
               status: { $in: ['completed', 'confirmed'] } 
             } 
           },
@@ -661,11 +661,7 @@ class EscrowManager {
         
         console.log(`✅ Dispute resolved in favor of client - Escrow refunded: ${transaction.reference}`);
       } else {
-        // Release to provider
-        transaction.status = 'released';
-        await transaction.save();
-        
-        // Release funds
+        // Release to provider — do NOT pre-set status; releaseFundsToProvider handles it atomically
         await this.releaseFundsToProvider(transaction, 'dispute_resolved_provider');
         
         // Update reputation
@@ -916,8 +912,12 @@ class EscrowManager {
    * Start the auto-release checker (runs periodically)
    */
   startAutoReleaseChecker() {
+    // Clear any existing interval to prevent duplicates on re-init
+    if (this.autoReleaseInterval) {
+      clearInterval(this.autoReleaseInterval);
+    }
     // Check every hour for escrows that need auto-release
-    setInterval(async () => {
+    this.autoReleaseInterval = setInterval(async () => {
       try {
         await this.processAutoReleases();
       } catch (error) {

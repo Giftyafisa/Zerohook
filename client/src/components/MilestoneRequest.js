@@ -48,7 +48,7 @@ export const MilestoneRequestDialog = ({
   const [error, setError] = useState(null);
   
   // Use currency hook for country-specific currency
-  const { symbol, code: currencyCode, minAmount, quickAmounts: defaultQuickAmounts } = useCurrency();
+  const { symbol, currencyCode, minAmount, quickAmounts: defaultQuickAmounts } = useCurrency();
   
   // Dynamic quick amounts based on currency
   const quickAmounts = defaultQuickAmounts || 

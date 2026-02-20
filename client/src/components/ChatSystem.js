@@ -276,6 +276,10 @@ const ChatSystem = ({
   // Mobile action drawer for input buttons
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   
+  // Dispute dialog state
+  const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  
   // Message long-press menu state
   const [messageMenuAnchor, setMessageMenuAnchor] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
@@ -605,7 +609,7 @@ const ChatSystem = ({
         // Handle subscription limit error - redirect to subscribe page
         if (response.status === 403 && errorData.error === 'subscription_required') {
           toast.warning('You have reached your free messaging limit. Subscribe to message unlimited people! 🌟');
-          navigate('/subscribe');
+          navigate('/subscription');
           return null;
         }
         
@@ -1053,11 +1057,17 @@ const ChatSystem = ({
     }
   };
 
-  // Report a problem with the escrow
-  const handleReportProblem = async () => {
+  // Report a problem with the escrow — opens dispute dialog
+  const handleReportProblem = () => {
     if (!activeEscrow) return;
-    const reason = prompt('What went wrong? Briefly describe the issue:');
-    if (!reason) return;
+    setDisputeReason('');
+    setDisputeDialogOpen(true);
+  };
+
+  // Submit dispute after dialog confirmation
+  const handleSubmitDispute = async () => {
+    if (!activeEscrow || !disputeReason.trim()) return;
+    setDisputeDialogOpen(false);
     
     setEscrowLoading(true);
     try {
@@ -1068,7 +1078,7 @@ const ChatSystem = ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ escrowId: activeEscrow.id, reason })
+        body: JSON.stringify({ escrowId: activeEscrow.id, reason: disputeReason.trim() })
       });
       if (response.ok) {
         setActiveEscrow(prev => prev ? { ...prev, status: 'disputed' } : null);
@@ -1387,7 +1397,35 @@ const ChatSystem = ({
                         }
                       }}
                     >
-                      <Typography sx={styles.messageText}>{message.content}</Typography>
+                      {message.messageType === 'image' ? (
+                        <Box
+                          component="img"
+                          src={message.content}
+                          alt="Shared image"
+                          sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1, cursor: 'pointer' }}
+                          onClick={() => window.open(message.content, '_blank')}
+                        />
+                      ) : message.messageType === 'video' ? (
+                        <Box
+                          component="video"
+                          src={message.content}
+                          controls
+                          sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1 }}
+                        />
+                      ) : message.messageType === 'file' ? (
+                        <Box
+                          component="a"
+                          href={message.content}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ color: 'inherit', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: 0.5 }}
+                        >
+                          <AttachIcon sx={{ fontSize: 16 }} />
+                          <Typography sx={styles.messageText}>{message.metadata?.fileName || 'Download file'}</Typography>
+                        </Box>
+                      ) : (
+                        <Typography sx={styles.messageText}>{message.content}</Typography>
+                      )}
                       <Box sx={styles.messageFooter}>
                         <Typography sx={styles.messageTime}>
                           {formatTime(message.createdAt)}
@@ -1874,6 +1912,7 @@ const ChatSystem = ({
         onClose={() => setPaymentSheetOpen(false)}
         providerId={selectedConversation?.participantId}
         providerName={selectedConversation?.participantName}
+        conversationId={selectedConversation?.id}
         onSuccess={handlePaymentSuccess}
       />
 
@@ -1886,6 +1925,52 @@ const ChatSystem = ({
         isProvider={isProvider}
         onSuccess={handleMilestoneRequestSuccess}
       />
+
+      {/* Dispute Report Dialog */}
+      <Dialog
+        open={disputeDialogOpen}
+        onClose={() => setDisputeDialogOpen(false)}
+        PaperProps={{ sx: { background: 'rgba(20, 20, 30, 0.98)', color: '#fff', borderRadius: '16px', minWidth: 320 } }}
+      >
+        <DialogTitle sx={{ color: '#fff' }}>Report a Problem</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2, color: 'rgba(255,255,255,0.7)' }}>
+            Briefly describe what went wrong with this escrow transaction.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={3}
+            maxRows={6}
+            value={disputeReason}
+            onChange={(e) => setDisputeReason(e.target.value)}
+            placeholder="What went wrong?"
+            inputProps={{ maxLength: 1000 }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                color: '#fff',
+                '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                '&.Mui-focused fieldset': { borderColor: '#00f2ea' },
+              },
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDisputeDialogOpen(false)} sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmitDispute}
+            disabled={!disputeReason.trim()}
+            variant="contained"
+            sx={{ bgcolor: '#ff4444', '&:hover': { bgcolor: '#cc0000' } }}
+          >
+            Submit Report
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Mobile Actions Drawer */}
       <Drawer

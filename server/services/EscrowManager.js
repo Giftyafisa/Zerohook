@@ -16,6 +16,15 @@ class EscrowManager {
     this.wallet = null;
     this.autoReleaseInterval = null;
     this.MAX_PIN_ATTEMPTS = 5;
+    this.io = null; // Socket.io instance for auto-release notifications
+  }
+
+  /**
+   * Set the Socket.io instance for emitting auto-release notifications
+   * @param {object} io - Socket.io server instance
+   */
+  setIO(io) {
+    this.io = io;
   }
 
   async initialize() {
@@ -951,6 +960,27 @@ class EscrowManager {
         try {
           await this.releaseFundsToProvider(escrow, 'auto_released_pin_timeout');
           console.log(`✅ Auto-released escrow (PIN timeout): ${escrow.reference}`);
+          
+          // Notify both parties about auto-release
+          if (this.io) {
+            const NotificationService = require('./NotificationService');
+            const provId = escrow.provider_id?.toString();
+            const cliId = escrow.client_id?.toString();
+            if (provId) {
+              this.io.to(`user_${provId}`).emit('escrow_released', {
+                escrowId: escrow._id.toString(), amount: escrow.amount, currency: escrow.currency,
+                message: `Payment of ${escrow.currency}${escrow.amount} auto-released to your wallet (client did not confirm within 48h).`
+              });
+              try { await NotificationService.createAndEmit(this.io, { userId: provId, type: 'payment', title: 'Payment Auto-Released', message: `${escrow.currency}${escrow.amount} auto-released to your wallet.`, data: { escrowId: escrow._id.toString() } }); } catch (e) {}
+            }
+            if (cliId) {
+              this.io.to(`user_${cliId}`).emit('escrow_released', {
+                escrowId: escrow._id.toString(), amount: escrow.amount, currency: escrow.currency,
+                message: `Payment of ${escrow.currency}${escrow.amount} auto-released to provider (confirmation deadline passed).`
+              });
+              try { await NotificationService.createAndEmit(this.io, { userId: cliId, type: 'escrow', title: 'Escrow Auto-Released', message: `${escrow.currency}${escrow.amount} was auto-released to the provider because you did not confirm within 48 hours.`, data: { escrowId: escrow._id.toString() } }); } catch (e) {}
+            }
+          }
         } catch (error) {
           console.error(`Failed to auto-release escrow ${escrow.reference}:`, error);
         }
@@ -988,6 +1018,23 @@ class EscrowManager {
           }
           
           console.log(`✅ Auto-released escrow (client unresponsive to claim): ${escrow.reference}`);
+          
+          // Notify both parties about auto-release due to client unresponsiveness
+          if (this.io) {
+            const NotificationService = require('./NotificationService');
+            const provId = escrow.provider_id?.toString();
+            const cliId = escrow.client_id?.toString();
+            if (provId) {
+              this.io.to(`user_${provId}`).emit('escrow_released', {
+                escrowId: escrow._id.toString(), amount: escrow.amount, currency: escrow.currency,
+                message: `Payment of ${escrow.currency}${escrow.amount} auto-released (client did not respond to your claim within 24h).`
+              });
+              try { await NotificationService.createAndEmit(this.io, { userId: provId, type: 'payment', title: 'Payment Auto-Released', message: `${escrow.currency}${escrow.amount} auto-released to your wallet (client unresponsive).`, data: { escrowId: escrow._id.toString() } }); } catch (e) {}
+            }
+            if (cliId) {
+              try { await NotificationService.createAndEmit(this.io, { userId: cliId, type: 'escrow', title: 'Escrow Auto-Released', message: `${escrow.currency}${escrow.amount} was auto-released to the provider because you did not respond to their service claim within 24 hours.`, data: { escrowId: escrow._id.toString() } }); } catch (e) {}
+            }
+          }
         } catch (error) {
           console.error(`Failed to process provider claim auto-release ${escrow.reference}:`, error);
         }

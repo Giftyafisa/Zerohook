@@ -238,7 +238,7 @@ const AdultServiceDetail = () => {
             reference: data.reference,
             expiresAt: data.expiresAt,
             fiatAmount: service.price,
-            fiatCurrency: 'USD',
+            fiatCurrency: data.transaction?.currency || 'USD',
             network: data.network
           });
           setShowCryptoPayment(true);

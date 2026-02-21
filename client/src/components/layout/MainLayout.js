@@ -122,8 +122,8 @@ const MainLayout = ({ children, showNavigation = true }) => {
         sx={{
           position: 'fixed',
           inset: 0,
-          width: '100vw',
-          maxWidth: '100vw',
+          width: '100%',
+          maxWidth: '100%',
           height: '100vh',
           bgcolor: '#000',
           display: 'flex',

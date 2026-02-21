@@ -94,14 +94,10 @@ const SafetyBanner = ({
           fontWeight: 500,
           color: 'rgba(255, 255, 255, 0.8)',
           fontFamily: '"Outfit", sans-serif',
-          
-          '& strong': {
-            color: variant === 'escrow' ? '#00f2ea' : '#ffffff',
-            fontWeight: 700,
-          },
         }}
-        dangerouslySetInnerHTML={{ __html: getMessage() }}
-      />
+      >
+        {getMessage()}
+      </Typography>
     </BannerContainer>
   );
 };

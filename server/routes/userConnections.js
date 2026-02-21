@@ -56,7 +56,7 @@ router.get('/check-status/:otherUserId', authMiddleware, async (req, res) => {
  * @access  Private
  */
 router.post('/contact-request', authMiddleware, [
-  body('toUserId').isUUID(),
+  body('toUserId').isString().matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid user ID format'),
   body('message').optional().isLength({ max: 500 }),
   body('connectionType').optional().isIn(['contact_request', 'service_inquiry', 'video_call'])
 ], async (req, res) => {
@@ -142,7 +142,7 @@ router.post('/contact-request', authMiddleware, [
  * @access  Private
  */
 router.post('/respond', authMiddleware, [
-  body('connectionId').isUUID(),
+  body('connectionId').isString().matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid connection ID format'),
   body('action').isIn(['accept', 'reject'])
 ], async (req, res) => {
   try {
@@ -200,8 +200,8 @@ router.get('/user-connections', authMiddleware, async (req, res) => {
  * @access  Private
  */
 router.post('/service-inquiry', authMiddleware, [
-  body('toUserId').isUUID(),
-  body('serviceId').isUUID(),
+  body('toUserId').isString().matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid user ID format'),
+  body('serviceId').isString().matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid service ID format'),
   body('message').isLength({ min: 1, max: 1000 })
 ], async (req, res) => {
   try {
@@ -279,7 +279,7 @@ router.get('/pending-requests', authMiddleware, async (req, res) => {
  * @access  Private
  */
 router.post('/block-user', authMiddleware, [
-  body('userId').isUUID()
+  body('userId').isString().matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid user ID format')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

@@ -24,6 +24,10 @@ const { User, UserActivityLog, SugarAccessPayment } = require('../config/databas
 const ProfileCompletenessService = require('./ProfileCompletenessService');
 const LocationVerificationService = require('./LocationVerificationService');
 
+// Environment-gated debug logger
+const isDev = (process.env.NODE_ENV || 'development') === 'development';
+const debugLog = isDev ? (...args) => console.log(...args) : () => {};
+
 class MongoRecommendationEngine {
   constructor() {
     // Initialize helper services
@@ -211,11 +215,11 @@ class MongoRecommendationEngine {
       this._debugLogged = 0;
     }
     if (this._debugLogged < 5) {
-      console.log(`🔍 DEBUG Profile ${profile.username}:`);
-      console.log(`   userLocation: lat=${userLocation?.lat}, lng=${userLocation?.lng}, country=${userLocation?.country}`);
-      console.log(`   profileLocation: city=${profileLocation.city}, country=${profileLocation.country}`);
-      console.log(`   profileCoords: lat=${profileLat}, lng=${profileLng} (source: ${coordinateSource})`);
-      console.log(`   completeness: ${completeness.score}% (${completeness.level}), penalty: ${completenessPenalty}`);
+      debugLog(`🔍 DEBUG Profile ${profile.username}:`);
+      debugLog(`   userLocation: lat=${userLocation?.lat}, lng=${userLocation?.lng}, country=${userLocation?.country}`);
+      debugLog(`   profileLocation: city=${profileLocation.city}, country=${profileLocation.country}`);
+      debugLog(`   profileCoords: lat=${profileLat}, lng=${profileLng} (source: ${coordinateSource})`);
+      debugLog(`   completeness: ${completeness.score}% (${completeness.level}), penalty: ${completenessPenalty}`);
       this._debugLogged++;
     }
 
@@ -432,10 +436,10 @@ class MongoRecommendationEngine {
     } = options;
 
     try {
-      console.log('🔍 MongoRecommendationEngine.getRecommendedProfiles called');
-      console.log('   User location:', userLocation);
-      console.log('   Account type filter:', accountTypeFilter);
-      console.log('   Filters:', filters);
+      debugLog('🔍 MongoRecommendationEngine.getRecommendedProfiles called');
+      debugLog('   User location:', userLocation);
+      debugLog('   Account type filter:', accountTypeFilter);
+      debugLog('   Filters:', filters);
 
       // Build MongoDB query
       const mongoQuery = {
@@ -517,10 +521,10 @@ class MongoRecommendationEngine {
       const profiles = await User.find(mongoQuery)
         .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
         .sort({ last_active: -1, lastActive: -1 })
-        .limit(200)
+        .limit(Math.max(limit * 10, 200))
         .lean();
 
-      console.log(`   Found ${profiles.length} raw profiles`);
+      debugLog(`   Found ${profiles.length} raw profiles`);
 
       // Reset debug counter for each request
       this._debugLogged = 0;
@@ -545,16 +549,16 @@ class MongoRecommendationEngine {
       };
 
       // Log sorting results
-      console.log(`📊 Recommendation Stats:`);
-      console.log(`   Same country: ${sameCountryCount}/${scoredProfiles.length}`);
-      console.log(`   Online: ${onlineCount}/${scoredProfiles.length}`);
-      console.log(`   Within 5km: ${nearbyCount.within5km}, 10km: ${nearbyCount.within10km}, 25km: ${nearbyCount.within25km}`);
+      debugLog(`📊 Recommendation Stats:`);
+      debugLog(`   Same country: ${sameCountryCount}/${scoredProfiles.length}`);
+      debugLog(`   Online: ${onlineCount}/${scoredProfiles.length}`);
+      debugLog(`   Within 5km: ${nearbyCount.within5km}, 10km: ${nearbyCount.within10km}, 25km: ${nearbyCount.within25km}`);
       
       if (scoredProfiles.length > 0) {
-        console.log(`   Top 5 profiles:`);
+        debugLog(`   Top 5 profiles:`);
         scoredProfiles.slice(0, 5).forEach((p, i) => {
           const city = (p.profile_data?.location?.city || p.profileData?.location?.city || 'Unknown');
-          console.log(`      ${i+1}. ${p.username} - ${city} - ${p.distance?.toFixed(1) || '?'}km - Score: ${p.recommendationScore}`);
+          debugLog(`      ${i+1}. ${p.username} - ${city} - ${p.distance?.toFixed(1) || '?'}km - Score: ${p.recommendationScore}`);
         });
       }
 
@@ -617,7 +621,7 @@ class MongoRecommendationEngine {
   async getAccountTypeAwareRecommendations(options = {}) {
     const { userId, viewerAccountType, ...restOptions } = options;
 
-    console.log(`🎯 Account-type-aware recommendations for: ${viewerAccountType || 'anonymous'}`);
+    debugLog(`🎯 Account-type-aware recommendations for: ${viewerAccountType || 'anonymous'}`);
 
     if (!userId || !viewerAccountType) {
       // Unauthenticated - show public providers only
@@ -679,7 +683,7 @@ class MongoRecommendationEngine {
         (viewerAccountType === 'sugar_daddy' ? 'female' : 'male');
       const preferredAgeRange = sugarSettings.preferredAgeRange || { min: 18, max: 30 };
 
-      console.log(`👑 Sugar recommendations - Gender: ${preferredGender}, Age: ${preferredAgeRange.min}-${preferredAgeRange.max}`);
+      debugLog(`👑 Sugar recommendations - Gender: ${preferredGender}, Age: ${preferredAgeRange.min}-${preferredAgeRange.max}`);
 
       // Build query for verified providers
       const mongoQuery = {

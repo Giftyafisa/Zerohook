@@ -284,6 +284,7 @@ const conversationService = new ConversationService();
 
   try {
     await escrowManager.initialize();
+    escrowManager.setIO(io); // Pass socket.io for auto-release notifications
     console.log('✅ Escrow Manager initialized');
   } catch (error) {
     console.error('❌ Escrow Manager initialization failed:', error);

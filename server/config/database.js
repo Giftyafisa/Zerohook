@@ -40,7 +40,12 @@ const connectDB = async () => {
     dbAvailable = true;
     
     // Initialize collections and indexes
-    await initializeCollections();
+    try {
+      await initializeCollections();
+    } catch (initErr) {
+      // Index conflicts are non-fatal — the DB is still connected and usable
+      console.warn('⚠️  Collection initialization had errors (non-fatal):', initErr.message);
+    }
     
     return true;
   } catch (error) {
@@ -160,8 +165,10 @@ const transactionSchema = new mongoose.Schema({
   completed_at: Date,
   // PIN Verification System (Uber-style)
   completion_pin: { type: String }, // 6-digit PIN only visible to client
+  pin_attempts: { type: Number, default: 0 }, // Brute-force protection counter
   pin_entered_at: Date, // When provider entered the PIN
   pin_entered_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  confirmed_at: Date, // When payment was confirmed/completed
   // Dual Confirmation System
   client_confirmed: { type: Boolean, default: false },
   client_confirmed_at: Date,
@@ -246,6 +253,12 @@ const messageSchema = new mongoose.Schema({
   metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   readAt: Date
 }, { timestamps: true });
+
+// Compound indexes for chat performance
+// 1. Fast message listing per conversation (sorted by time)
+messageSchema.index({ conversationId: 1, createdAt: 1 });
+// 2. Fast unread count + mark-as-read bulk update
+messageSchema.index({ conversationId: 1, senderId: 1, readAt: 1 });
 
 const fileUploadSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -531,6 +544,19 @@ const SystemCounter = mongoose.model('SystemCounter', systemCounterSchema);
 
 const initializeCollections = async () => {
   try {
+    // Drop stale conflicting index before creating new ones
+    try {
+      const msgCollection = mongoose.connection.collection('messages');
+      const existingIndexes = await msgCollection.indexes();
+      const staleIndex = existingIndexes.find(i => i.name === 'idx_mark_read');
+      if (staleIndex) {
+        await msgCollection.dropIndex('idx_mark_read');
+        console.log('🗑️ Dropped stale index: idx_mark_read');
+      }
+    } catch (dropErr) {
+      // Non-fatal — index may not exist
+    }
+
     // Create indexes
     await User.createIndexes();
     await Service.createIndexes();

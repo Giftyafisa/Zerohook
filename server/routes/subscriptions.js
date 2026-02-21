@@ -3,7 +3,15 @@ const { body, validationResult } = require('express-validator');
 const { authMiddleware } = require('./auth');
 const { Subscription, SubscriptionPlan, User } = require('../config/database');
 const mongoose = require('mongoose');
+const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
+
+// Per-route rate limiter: 5 subscription creations per 15 min per IP
+const subLimiter = new RateLimiterMemory({ points: 5, duration: 900 });
+const subRateLimit = async (req, res, next) => {
+  try { await subLimiter.consume(req.ip); next(); }
+  catch { res.status(429).json({ success: false, error: 'Too many subscription requests, please try again later.' }); }
+};
 
 /**
  * Zerohook Subscriptions - Crypto Only (Fee-Free Direct Blockchain)
@@ -83,7 +91,7 @@ router.get('/status', authMiddleware, async (req, res) => {
 });
 
 // Create subscription (Crypto Payment)
-router.post('/create', authMiddleware, [
+router.post('/create', authMiddleware, subRateLimit, [
   body('planId').isString().notEmpty(),
   body('amount').isNumeric(),
   body('currency').isString().isLength({ min: 3, max: 3 }),
@@ -130,6 +138,14 @@ router.post('/create', authMiddleware, [
       }
     });
 
+    // Validate ObjectId format before conversion
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+    if (actualPlanId && !mongoose.Types.ObjectId.isValid(actualPlanId)) {
+      return res.status(400).json({ success: false, error: 'Invalid plan ID format' });
+    }
+
     // Create subscription record in MongoDB
     const subscription = await Subscription.create({
       user_id: mongoose.Types.ObjectId.createFromHexString(userId),
@@ -172,7 +188,7 @@ router.post('/create', authMiddleware, [
 });
 
 // Verify subscription payment (Crypto blockchain verification)
-router.post('/verify-payment', authMiddleware, [
+router.post('/verify-payment', authMiddleware, subRateLimit, [
   body('paymentReference').isString().notEmpty()
 ], async (req, res) => {
   try {

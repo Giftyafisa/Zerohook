@@ -5,7 +5,15 @@ const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const { Transaction } = require('../config/database');
 const NotificationService = require('../services/NotificationService');
+const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
+
+// Per-route rate limiter: 10 payment creations per 15 min per IP
+const paymentLimiter = new RateLimiterMemory({ points: 10, duration: 900 });
+const paymentRateLimit = async (req, res, next) => {
+  try { await paymentLimiter.consume(req.ip); next(); }
+  catch { res.status(429).json({ success: false, error: 'Too many payment requests, please try again later.' }); }
+};
 
 /**
  * Zerohook Payments - Crypto Only (Fee-Free Direct Blockchain)
@@ -22,7 +30,7 @@ const router = express.Router();
  * @desc    Create a crypto payment invoice with live rate conversion
  * @access  Private
  */
-router.post('/create-payment-intent', authMiddleware, [
+router.post('/create-payment-intent', authMiddleware, paymentRateLimit, [
   body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
   body('currency').optional().isString().withMessage('Currency must be a string'),
   body('cryptoSymbol').optional().isIn(['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC']).withMessage('Invalid crypto symbol'),
@@ -57,6 +65,14 @@ router.post('/create-payment-intent', authMiddleware, [
       userId,
       metadata: { serviceId, description, countryCode }
     });
+
+    // Validate ObjectId format before conversion
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+    if (serviceId && !mongoose.Types.ObjectId.isValid(serviceId)) {
+      return res.status(400).json({ success: false, error: 'Invalid service ID format' });
+    }
 
     // Create transaction record in MongoDB
     const transaction = await Transaction.create({
@@ -113,7 +129,7 @@ router.post('/create-payment-intent', authMiddleware, [
  * @desc    Check/confirm a crypto payment by verifying blockchain
  * @access  Private
  */
-router.post('/confirm', authMiddleware, [
+router.post('/confirm', authMiddleware, paymentRateLimit, [
   body('reference').isString().withMessage('Payment reference is required')
 ], async (req, res) => {
   try {

@@ -175,6 +175,24 @@ export const SocketProvider = ({ children }) => {
         showNotification('⚠️ Dispute Opened', data.message || 'A dispute has been opened on a payment', 'warning');
       });
 
+      // PIN entered - client needs to confirm service delivery
+      newSocket.on('pin_entered', (data) => {
+        dispatch(incrementUnreadNotifications());
+        showNotification('🔑 PIN Entered', data.message || 'Provider entered completion PIN. Please confirm service delivery.', 'info');
+      });
+
+      // Provider claimed service complete - client needs to respond urgently
+      newSocket.on('provider_claimed_complete', (data) => {
+        dispatch(incrementUnreadNotifications());
+        showNotification('⚠️ Service Claim', data.message || 'Provider claims the service was delivered. Please respond within 24 hours.', 'warning');
+      });
+
+      // Escrow completed (from /:id/complete route)
+      newSocket.on('escrow_completed', (data) => {
+        dispatch(incrementUnreadNotifications());
+        showNotification('✅ Payment Completed', data.message || 'Service completed and payment released!', 'success');
+      });
+
       // Milestone request notification handlers
       newSocket.on('milestone_request', (data) => {
         dispatch(incrementUnreadNotifications());

@@ -56,8 +56,8 @@ router.post('/register', rateLimitMiddleware, [
     .normalizeEmail()
     .withMessage('Please provide a valid email'),
   body('password')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 8 characters')
+    .isLength({ min: 8, max: 128 })
+    .withMessage('Password must be between 8 and 128 characters')
     .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter')
     .matches(/[a-z]/).withMessage('Password must contain at least one lowercase letter')
     .matches(/\d/).withMessage('Password must contain at least one number'),
@@ -679,6 +679,10 @@ function setCachedUser(userId, user) {
   authUserCache.set(userId, { user, timestamp: Date.now() });
 }
 
+function invalidateCachedUser(userId) {
+  authUserCache.delete(userId);
+}
+
 // Auth middleware function
 async function authMiddleware(req, res, next) {
   try {
@@ -728,4 +732,81 @@ async function authMiddleware(req, res, next) {
   }
 }
 
-module.exports = { router, authMiddleware };
+/**
+ * Optional auth middleware — enriches req.user if a valid Bearer token is
+ * present, otherwise proceeds as unauthenticated (req.user = null).
+ * Use for public routes that show extra data to logged-in users.
+ */
+async function optionalAuthMiddleware(req, res, next) {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    let user = getCachedUser(decoded.userId);
+    if (!user) {
+      user = await User.findById(decoded.userId).select(
+        'username verification_tier status is_subscribed subscription_tier subscription_expires_at profile_data'
+      ).lean();
+      if (user) setCachedUser(decoded.userId, user);
+    }
+
+    if (!user || user.status === 'suspended') {
+      req.user = null;
+      return next();
+    }
+
+    req.user = {
+      ...decoded,
+      is_subscribed: user.is_subscribed,
+      subscription_tier: user.subscription_tier,
+      subscription_expires_at: user.subscription_expires_at
+    };
+    next();
+  } catch (_) {
+    // Invalid / expired token → treat as unauthenticated
+    req.user = null;
+    next();
+  }
+}
+
+/**
+ * @route   DELETE /api/auth/account
+ * @desc    Delete user account (soft-delete: sets status to 'deleted')
+ * @access  Private
+ */
+router.delete('/account', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Soft-delete: mark account as deleted rather than destroying data
+    user.status = 'deleted';
+    user.email = `deleted_${userId}_${user.email}`; // Free up the email
+    user.deletedAt = new Date();
+    await user.save();
+
+    // Invalidate cache
+    invalidateCachedUser(userId);
+
+    res.json({ success: true, message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+module.exports = { router, authMiddleware, optionalAuthMiddleware };

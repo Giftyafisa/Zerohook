@@ -1,9 +1,13 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const { authMiddleware } = require('./auth');
+const { authMiddleware, optionalAuthMiddleware } = require('./auth');
 const { User, BlockedUser, Conversation, SugarAccessPayment, isDatabaseAvailable } = require('../config/database');
 const MongoRecommendationEngine = require('../services/MongoRecommendationEngine');
 const router = express.Router();
+
+// Environment-gated debug logger
+const isDev = (process.env.NODE_ENV || 'development') === 'development';
+const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
 // Initialize MongoDB-native engine with Uber/Bolt-style algorithm
 const mongoRecommendationEngine = new MongoRecommendationEngine();
@@ -281,7 +285,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
     }
     const mergedProfileData = { ...existingProfileData, ...sanitizedData };
 
-    console.log('📝 Profile update:', { userId, incoming: Object.keys(incomingData), merged: Object.keys(mergedProfileData) });
+    debugLog('📝 Profile update:', { userId, incoming: Object.keys(incomingData), merged: Object.keys(mergedProfileData) });
 
     // Update user profile - use snake_case for MongoDB
     const updatedUser = await User.findByIdAndUpdate(
@@ -349,46 +353,37 @@ router.put('/profile', authMiddleware, async (req, res) => {
 // Shared handler for /profiles and /browse routes - MongoDB Native Implementation
 const handleBrowseProfiles = async (req, res) => {
   try {
-    console.log('🚀 ProfileFeed API called - Using UBER/BOLT-STYLE Algorithm');
+    debugLog('🚀 ProfileFeed API called - Using UBER/BOLT-STYLE Algorithm');
     
     // ============================================
-    // STEP 1: AUTHENTICATION CHECK
+    // STEP 1: AUTHENTICATION CHECK (via optionalAuthMiddleware)
     // ============================================
-    const authHeader = req.headers.authorization;
     let currentUserId = null;
     let currentUser = null;
     let currentUserDoc = null;
     let isAuthenticated = false;
     
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.substring(7);
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        currentUserId = decoded.userId;
-        isAuthenticated = true;
-        
-        currentUserDoc = await User.findById(currentUserId).select('username is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt profile_data profileData');
-        
-        if (currentUserDoc) {
-          const profileData = currentUserDoc.profile_data || currentUserDoc.profileData || {};
-          currentUser = {
-            id: currentUserDoc._id,
-            username: currentUserDoc.username,
-            is_subscribed: currentUserDoc.is_subscribed || currentUserDoc.isSubscribed || false,
-            subscription_tier: currentUserDoc.subscription_tier || currentUserDoc.subscriptionTier || 'free',
-            subscription_expires_at: currentUserDoc.subscription_expires_at || currentUserDoc.subscriptionExpiresAt,
-            accountType: profileData.accountType || 'client',
-            location: profileData.location || null
-          };
-          console.log(`🔒 Authenticated: ${currentUser.username} (${currentUser.accountType})`);
-        }
-      } catch (tokenError) {
-        console.log('⚠️ Invalid token, showing public profiles only');
-        isAuthenticated = false;
-        currentUserId = null;
+    if (req.user) {
+      currentUserId = req.user.userId;
+      isAuthenticated = true;
+
+      currentUserDoc = await User.findById(currentUserId).select('username is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt profile_data profileData');
+      
+      if (currentUserDoc) {
+        const profileData = currentUserDoc.profile_data || currentUserDoc.profileData || {};
+        currentUser = {
+          id: currentUserDoc._id,
+          username: currentUserDoc.username,
+          is_subscribed: currentUserDoc.is_subscribed || currentUserDoc.isSubscribed || false,
+          subscription_tier: currentUserDoc.subscription_tier || currentUserDoc.subscriptionTier || 'free',
+          subscription_expires_at: currentUserDoc.subscription_expires_at || currentUserDoc.subscriptionExpiresAt,
+          accountType: profileData.accountType || 'client',
+          location: profileData.location || null
+        };
+        debugLog(`🔒 Authenticated: ${currentUser.username} (${currentUser.accountType})`);
       }
     } else {
-      console.log('👁️ Unauthenticated user browsing public profiles');
+      debugLog('👁️ Unauthenticated user browsing public profiles');
     }
 
     // ============================================
@@ -443,7 +438,7 @@ const handleBrowseProfiles = async (req, res) => {
         confidence: locationConfidence ? parseFloat(locationConfidence) : 1.0,
         accuracy: locationAccuracy ? parseFloat(locationAccuracy) : null
       };
-      console.log(`📍 Location from client GPS: ${providedLat.toFixed(4)}, ${providedLng.toFixed(4)} (${providedCity || 'unknown city'}, ${providedCountry || 'unknown country'})`);
+      debugLog(`📍 Location from client GPS: ${providedLat.toFixed(4)}, ${providedLng.toFixed(4)} (${providedCity || 'unknown city'}, ${providedCountry || 'unknown country'})`);
     }
     
     // Priority 2: Use LocationTrackingService if available
@@ -462,10 +457,10 @@ const handleBrowseProfiles = async (req, res) => {
         });
         
         if (userLocation) {
-          console.log(`📍 Location from service: ${userLocation.city || 'Unknown'}, ${userLocation.country || 'Unknown'} (${userLocation.source || 'unknown'})`);
+          debugLog(`📍 Location from service: ${userLocation.city || 'Unknown'}, ${userLocation.country || 'Unknown'} (${userLocation.source || 'unknown'})`);
         }
       } catch (locError) {
-        console.log('⚠️ Location detection failed:', locError.message);
+        debugLog('⚠️ Location detection failed:', locError.message);
       }
     }
     
@@ -478,13 +473,13 @@ const handleBrowseProfiles = async (req, res) => {
         lng: currentUser.location.coordinates?.lng,
         source: 'profile'
       };
-      console.log(`📍 Location from profile: ${userLocation.city || 'Unknown'}, ${userLocation.country || 'Unknown'}`);
+      debugLog(`📍 Location from profile: ${userLocation.city || 'Unknown'}, ${userLocation.country || 'Unknown'}`);
     }
     
     // Priority 4: Use country filter if provided
     if (!userLocation && country && country !== 'all') {
       userLocation = { country, source: 'filter' };
-      console.log(`📍 Location from filter: ${country}`);
+      debugLog(`📍 Location from filter: ${country}`);
     }
 
     // ============================================
@@ -495,12 +490,12 @@ const handleBrowseProfiles = async (req, res) => {
     
     if (viewerAccountType === 'provider') {
       accountTypeFilter = 'client'; // Providers see clients
-      console.log('🔍 Provider viewing: showing CLIENTS');
+      debugLog('🔍 Provider viewing: showing CLIENTS');
     } else if (viewerAccountType === 'sugar_daddy' || viewerAccountType === 'sugar_mommy') {
       accountTypeFilter = 'provider'; // Sugar accounts see providers
-      console.log(`🔍 Sugar ${viewerAccountType} viewing: showing verified PROVIDERS`);
+      debugLog(`🔍 Sugar ${viewerAccountType} viewing: showing verified PROVIDERS`);
     } else {
-      console.log('🔍 Client/Anonymous viewing: showing PROVIDERS');
+      debugLog('🔍 Client/Anonymous viewing: showing PROVIDERS');
     }
 
     // ============================================
@@ -522,7 +517,7 @@ const handleBrowseProfiles = async (req, res) => {
     
     if (sort === 'recommendation' || sort === 'forYou' || !sort) {
       // Use the Uber/Bolt-style algorithm
-      console.log('🎯 Using UBER/BOLT-STYLE recommendation algorithm');
+      debugLog('🎯 Using UBER/BOLT-STYLE recommendation algorithm');
       
       result = await mongoRecommendationEngine.getAccountTypeAwareRecommendations({
         userId: currentUserId,
@@ -596,9 +591,9 @@ const handleBrowseProfiles = async (req, res) => {
 
     const totalPages = Math.ceil((result.total || 0) / limitNum);
     
-    console.log(`📊 Returning ${enhancedProfiles.length} profiles (page ${pageNum}/${totalPages})`);
+    debugLog(`📊 Returning ${enhancedProfiles.length} profiles (page ${pageNum}/${totalPages})`);
     if (enhancedProfiles.length > 0 && enhancedProfiles[0].distance !== undefined) {
-      console.log(`   Top result: ${enhancedProfiles[0].username} - ${enhancedProfiles[0].distance?.toFixed(1) || '?'}km - Score: ${enhancedProfiles[0].recommendationScore || 'N/A'}`);
+      debugLog(`   Top result: ${enhancedProfiles[0].username} - ${enhancedProfiles[0].distance?.toFixed(1) || '?'}km - Score: ${enhancedProfiles[0].recommendationScore || 'N/A'}`);
     }
 
     res.json({
@@ -624,13 +619,20 @@ const handleBrowseProfiles = async (req, res) => {
   } catch (error) {
     console.error('❌ Get profiles error:', error);
     
-    // Return mock data on database error
+    // Return mock data only in development; never in production
     if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
-      return res.json({
-        success: true,
-        users: mockProfiles,
-        pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
-        metadata: { mockData: true, message: 'Database temporarily unavailable' }
+      if ((process.env.NODE_ENV || 'development') === 'development') {
+        return res.json({
+          success: true,
+          users: mockProfiles,
+          pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
+          metadata: { mockData: true, message: 'Database temporarily unavailable' }
+        });
+      }
+
+      return res.status(503).json({
+        success: false,
+        error: 'Profile service temporarily unavailable'
       });
     }
     
@@ -724,16 +726,29 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, account
   return { profiles, total };
 }
 
-// Register both routes with the same handler
-router.get('/profiles', handleBrowseProfiles);
-router.get('/browse', handleBrowseProfiles);
+// Register both routes with the same handler — optionalAuth populates req.user without requiring login
+router.get('/profiles', optionalAuthMiddleware, handleBrowseProfiles);
+router.get('/browse', optionalAuthMiddleware, handleBrowseProfiles);
+
+/**
+ * @route   GET /api/users/search
+ * @desc    Search profiles (alias for browse with search param for mobile clients)
+ * @access  Public / Optional auth
+ */
+router.get('/search', optionalAuthMiddleware, (req, res, next) => {
+  // Map ?q= to ?search= for backward compat with mobile clients
+  if (req.query.q && !req.query.search) {
+    req.query.search = req.query.q;
+  }
+  return handleBrowseProfiles(req, res, next);
+});
 
 /**
  * @route   POST /api/users/engagement
  * @desc    Track TikTok-style profile engagement for algorithm learning
- * @access  Public (works for anonymous users too)
+ * @access  Semi-public (optional auth, rate-limited)
  */
-router.post('/engagement', async (req, res) => {
+router.post('/engagement', optionalAuthMiddleware, async (req, res) => {
   try {
     const {
       profileId,
@@ -747,23 +762,24 @@ router.post('/engagement', async (req, res) => {
       swipeDirection
     } = req.body;
 
-    if (!profileId) {
-      return res.status(400).json({ error: 'profileId is required' });
+    // Input validation
+    if (!profileId || typeof profileId !== 'string' || profileId.length > 50) {
+      return res.status(400).json({ error: 'Valid profileId is required' });
     }
 
-    // Get user ID from token if available (optional auth)
-    let userId = null;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        userId = decoded.userId || decoded.id;
-      } catch (e) {
-        // Token invalid, continue as anonymous
-      }
+    const VALID_ACTIONS = ['view', 'contact', 'favorite', 'skip', 'exit'];
+    if (action && !VALID_ACTIONS.includes(action)) {
+      return res.status(400).json({ error: `action must be one of: ${VALID_ACTIONS.join(', ')}` });
     }
+
+    // Sanitise numeric inputs
+    const safeViewDuration = Math.min(Math.max(parseInt(viewDuration) || 0, 0), 3600000);
+    const safePhotoViews  = Math.min(Math.max(parseInt(photoViews)  || 0, 0), 1000);
+    const safeScrollDepth = Math.min(Math.max(parseInt(scrollDepth) || 0, 0), 100);
+    const safeBioReadTime = Math.min(Math.max(parseInt(bioReadTime)  || 0, 0), 600000);
+
+    // Get user ID from middleware (set by optionalAuthMiddleware)
+    const userId = req.user?.userId || req.user?.id || null;
 
     // Use the TikTok engagement tracker if available
     if (req.tiktokEngagementTracker) {
@@ -771,11 +787,11 @@ router.post('/engagement', async (req, res) => {
         userId: userId || 'anonymous',
         sessionId: req.headers['x-session-id'] || `anon_${Date.now()}`,
         profileId,
-        viewDuration: parseInt(viewDuration) || 0,
-        photoViews: parseInt(photoViews) || 0,
-        scrollDepth: parseInt(scrollDepth) || 0,
+        viewDuration: safeViewDuration,
+        photoViews: safePhotoViews,
+        scrollDepth: safeScrollDepth,
         bioExpanded: Boolean(bioExpanded),
-        bioReadTime: parseInt(bioReadTime) || 0,
+        bioReadTime: safeBioReadTime,
         isReturnVisit: Boolean(isReturnVisit),
         action: action || 'view'
       });
@@ -786,13 +802,13 @@ router.post('/engagement', async (req, res) => {
     // Fallback: Track with recommendation engine
     const actionData = {
       profileId,
-      viewDuration,
-      photoViews,
-      scrollDepth,
-      bioExpanded,
-      bioReadTime,
-      isReturnVisit,
-      action,
+      viewDuration: safeViewDuration,
+      photoViews: safePhotoViews,
+      scrollDepth: safeScrollDepth,
+      bioExpanded: Boolean(bioExpanded),
+      bioReadTime: safeBioReadTime,
+      isReturnVisit: Boolean(isReturnVisit),
+      action: action || 'view',
       swipeDirection,
       timestamp: new Date().toISOString()
     };
@@ -833,7 +849,7 @@ router.post('/track-activity', authMiddleware, async (req, res) => {
  * @desc    Get individual user profile by ID (visibility-aware)
  * @access  Public/Private depending on profile visibility setting
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', optionalAuthMiddleware, async (req, res) => {
   try {
     const userId = req.params.id;
     
@@ -851,30 +867,19 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    // Check if requester is authenticated
-    let isAuthenticated = false;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.substring(7);
-        jwt.verify(token, process.env.JWT_SECRET);
-        isAuthenticated = true;
-      } catch (tokenError) {
-        // Token invalid, treat as unauthenticated
-        isAuthenticated = false;
-      }
-    }
+    // Authentication already handled by optionalAuthMiddleware
+    const isAuthenticated = !!req.user;
 
     // Get user profile - don't require profileData to exist
     const user = await User.findById(userId)
       .select('username profileData profile_data verificationTier verification_tier reputationScore reputation_score isSubscribed is_subscribed subscriptionTier subscription_tier profileVisibility profile_visibility createdAt lastActive accountType');
 
     if (!user) {
-      console.log(`[GET /:id] User not found for ID: ${userId}`);
+      debugLog(`[GET /:id] User not found for ID: ${userId}`);
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    console.log(`[GET /:id] Found user: ${user.username}, accountType: ${user.accountType}`);
+    debugLog(`[GET /:id] Found user: ${user.username}, accountType: ${user.accountType}`);
 
     // Handle both camelCase and snake_case field names
     const rawProfileData = user.profileData || user.profile_data || {};

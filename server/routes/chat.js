@@ -2,8 +2,20 @@ const express = require('express');
 const { Message, Conversation, User, isDatabaseAvailable } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
+const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
 const NotificationService = require('../services/NotificationService');
+
+// Per-route rate limiter: 30 messages per minute per IP
+const chatSendLimiter = new RateLimiterMemory({ points: 30, duration: 60 });
+const chatSendRateLimit = async (req, res, next) => {
+  try { await chatSendLimiter.consume(req.ip); next(); }
+  catch { res.status(429).json({ success: false, error: 'Message rate limit reached, please slow down.' }); }
+};
+
+// Environment-gated debug logger
+const isDev = (process.env.NODE_ENV || 'development') === 'development';
+const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
 // Maximum unique contacts for non-subscribers
 const FREE_TIER_MAX_CONTACTS = 3;
@@ -105,22 +117,47 @@ router.get('/unread-count', authMiddleware, async (req, res) => {
       return res.json({ unreadCount: 0, success: false });
     }
 
-    // Get all conversations the user is part of
-    const conversations = await Conversation.find({
-      $or: [
-        { participant1Id: userId },
-        { participant2Id: userId }
-      ]
-    }).select('_id');
+    // Single aggregation pipeline — avoids a separate Conversation.find() round-trip.
+    // Uses the compound index { conversationId, senderId, readAt } for efficiency.
+    const pipeline = [
+      // 1. Find conversations the user is in
+      {
+        $match: {
+          $or: [
+            { participant1Id: new (require('mongoose').Types.ObjectId)(userId) },
+            { participant2Id: new (require('mongoose').Types.ObjectId)(userId) }
+          ]
+        }
+      },
+      // 2. Collect conversation IDs
+      { $group: { _id: null, ids: { $push: '$_id' } } },
+      // 3. Lookup unread messages across those conversations
+      {
+        $lookup: {
+          from: 'messages',
+          let: { convIds: '$ids' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$conversationId', '$$convIds'] },
+                    { $ne: ['$senderId', new (require('mongoose').Types.ObjectId)(userId)] },
+                    { $eq: [{ $ifNull: ['$readAt', null] }, null] }
+                  ]
+                }
+              }
+            },
+            { $count: 'n' }
+          ],
+          as: 'unread'
+        }
+      },
+      { $project: { count: { $ifNull: [{ $arrayElemAt: ['$unread.n', 0] }, 0] } } }
+    ];
 
-    const conversationIds = conversations.map(c => c._id);
-
-    // Count unread messages where user is recipient (not sender)
-    const unreadCount = await Message.countDocuments({
-      conversationId: { $in: conversationIds },
-      senderId: { $ne: userId },
-      readAt: null
-    });
+    const result = await Conversation.aggregate(pipeline);
+    const unreadCount = result.length > 0 ? result[0].count : 0;
     
     res.json({ 
       unreadCount,
@@ -161,7 +198,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
       .populate('participant2Id', 'username verification_tier profile_data')
       .sort({ lastMessageTime: -1 });
     } catch (dbError) {
-      console.log('Conversations query failed:', dbError.message);
+      debugLog('Conversations query failed:', dbError.message);
       return res.json({ conversations: [] });
     }
 
@@ -186,7 +223,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
           profilePicture = profileData.photos[0];
         }
         
-        console.log(`📸 Profile picture for ${otherParticipant?.username}:`, profilePicture);
+        debugLog(`📸 Profile picture for ${otherParticipant?.username}:`, profilePicture);
         
         return {
           id: conv._id,
@@ -220,7 +257,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     const { conversationId } = req.params;
     const userId = req.user.userId;
     
-    console.log(`📨 Fetching messages for conversation ${conversationId}, user ${userId}`);
+    debugLog(`📨 Fetching messages for conversation ${conversationId}, user ${userId}`);
     
     if (!isDatabaseAvailable()) {
       return res.status(503).json({ error: 'Database not available' });
@@ -239,7 +276,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
         const p1 = conv.participant1Id?.toString();
         const p2 = conv.participant2Id?.toString();
         isMember = (p1 === userIdStr || p2 === userIdStr);
-        console.log(`🔍 Member check: user=${userIdStr}, p1=${p1}, p2=${p2}, isMember=${isMember}`);
+        debugLog(`🔍 Member check: user=${userIdStr}, p1=${p1}, p2=${p2}, isMember=${isMember}`);
       }
     } catch (memberErr) {
       console.error('Member check error:', memberErr);
@@ -248,13 +285,40 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     }
     
     if (!isMember) {
-      console.log(`⛔ User ${userId} not member of conversation ${conversationId}`);
+      debugLog(`⛔ User ${userId} not member of conversation ${conversationId}`);
       return res.status(403).json({ error: 'Access denied to this conversation' });
     }
     
-    const messages = await Message.find({ conversationId })
+    // Cursor-based pagination for efficient message loading
+    // ?before=<messageId>  → load older messages (scroll up)
+    // ?after=<messageId>   → load newer messages (real-time catch-up)
+    // ?limit=N             → max messages per page (default 50, max 100)
+    const { before, after, limit: rawLimit } = req.query;
+    const pageLimit = Math.min(parseInt(rawLimit) || 50, 100);
+
+    const query = { conversationId };
+    let sortOrder = 1; // ascending by default (oldest → newest)
+
+    if (before) {
+      // Loading older messages — get messages created before the cursor
+      query._id = { $lt: before };
+      sortOrder = -1; // fetch newest-first, then reverse on client
+    } else if (after) {
+      // Loading newer messages — get messages created after the cursor
+      query._id = { $gt: after };
+    }
+
+    let messages = await Message.find(query)
       .populate('senderId', 'username verificationTier')
-      .sort({ createdAt: 1 });
+      .sort({ createdAt: sortOrder })
+      .limit(pageLimit);
+
+    // When loading older messages (before cursor), reverse so messages arrive oldest→newest
+    if (before) {
+      messages = messages.reverse();
+    }
+
+    const hasMore = messages.length === pageLimit;
     
     res.json({
       messages: messages.map(msg => ({
@@ -268,7 +332,13 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
         createdAt: msg.createdAt,
         readAt: msg.readAt,
         isOwn: msg.senderId?._id?.toString() === userId
-      }))
+      })),
+      pagination: {
+        hasMore,
+        limit: pageLimit,
+        oldestId: messages.length > 0 ? messages[0]._id : null,
+        newestId: messages.length > 0 ? messages[messages.length - 1]._id : null
+      }
     });
 
   } catch (error) {
@@ -286,7 +356,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
  * @desc    Send a message
  * @access  Private
  */
-router.post('/send', authMiddleware, [
+router.post('/send', authMiddleware, chatSendRateLimit, [
   body('conversationId').custom(isMongoIdOrUUID).withMessage('Invalid conversation ID format'),
   body('content').isLength({ min: 1, max: 2000 }),
   body('messageType').optional().isIn(['text', 'image', 'video', 'file', 'location', 'contact'])
@@ -315,7 +385,7 @@ router.post('/send', authMiddleware, [
         isMember2 = (p1 === senderIdStr || p2 === senderIdStr);
         // Also get recipient ID for later use
         recipientId = (p1 === senderIdStr) ? p2 : p1;
-        console.log(`📤 Send member check: sender=${senderIdStr}, p1=${p1}, p2=${p2}, isMember=${isMember2}`);
+        debugLog(`📤 Send member check: sender=${senderIdStr}, p1=${p1}, p2=${p2}, isMember=${isMember2}`);
       }
     } catch (memberErr) {
       console.error('Member check error:', memberErr);

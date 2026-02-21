@@ -337,7 +337,7 @@ router.post('/detect', async (req, res) => {
     if (token && isDatabaseAvailable()) {
       try {
         const jwt = require('jsonwebtoken');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
         userId = decoded.userId;
         
         // Get user's phone number from database

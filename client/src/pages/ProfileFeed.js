@@ -63,6 +63,12 @@ import useCurrency from '../hooks/useCurrency';
 import useProfileEngagement from '../hooks/useProfileEngagement';
 import TikTokProfileFeed from '../components/TikTokProfileFeed';
 
+// Environment-gated debug logger — no logs in production builds
+const isDev = process.env.NODE_ENV === 'development';
+const debugLog = isDev ? (...args) => console.log(...args) : () => {};
+const debugWarn = isDev ? (...args) => console.warn(...args) : () => {};
+const debugError = isDev ? (...args) => console.error(...args) : () => {};
+
 // Get all locations from user's country (or default to Ghana/Nigeria)
 const getAllLocations = (countryCode) => {
   // Handle various input formats:
@@ -91,7 +97,7 @@ const getAllLocations = (countryCode) => {
   const countryData = LOCATIONS[countryKey];
   
   if (!countryData) {
-    console.log('⚠️ getAllLocations: No data for country:', countryKey, 'input:', countryCode);
+    debugLog('⚠️ getAllLocations: No data for country:', countryKey, 'input:', countryCode);
     return [];
   }
   
@@ -187,14 +193,14 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
           method: 'gps',
           precision: 'exact'
         };
-        console.log(`📍 GPS Location Selected: ${nearestLocation.name}`, 
+        debugLog(`📍 GPS Location Selected: ${nearestLocation.name}`, 
           `\n   Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
           `\n   Nearest Location Distance: ${minDistance.toFixed(2)} km`);
         onSelectLocation(selectedLocation);
       }
       onClose();
     } catch (error) {
-      console.error('GPS Error:', error);
+      debugError('GPS Error:', error);
       toast.warning('Could not get GPS location. Please select manually.');
     } finally {
       setGpsLoading(false);
@@ -388,18 +394,26 @@ class ActivityTracker {
     this.pendingActivities = [];
 
     try {
-      for (const activity of activities) {
-        await fetch(`${API_BASE_URL}/users/track-activity`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify(activity),
-        });
+      const results = await Promise.allSettled(
+        activities.map(activity =>
+          fetch(`${API_BASE_URL}/users/track-activity`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(activity),
+          })
+        )
+      );
+
+      // Re-queue only the failed activities
+      const failed = activities.filter((_, i) => results[i].status === 'rejected');
+      if (failed.length > 0) {
+        this.pendingActivities.push(...failed);
       }
     } catch (error) {
-      console.error('Failed to track activities:', error);
+      debugError('Failed to track activities:', error);
       // Re-queue failed activities
       this.pendingActivities.push(...activities);
     }
@@ -1284,7 +1298,7 @@ const ProfileFeed = () => {
         if (cached) {
           const { data, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < IP_LOCATION_CACHE_TTL) {
-            console.log('📍 Using cached IP location');
+            debugLog('📍 Using cached IP location');
             return data;
           }
         }
@@ -1329,9 +1343,9 @@ const ProfileFeed = () => {
         }
       } catch (error) {
         if (error.name === 'AbortError') {
-          console.log('IP geolocation timed out');
+          debugLog('IP geolocation timed out');
         } else {
-          console.error('IP geolocation failed:', error);
+          debugError('IP geolocation failed:', error);
         }
       }
       return null;
@@ -1342,7 +1356,7 @@ const ProfileFeed = () => {
 
       // Set a maximum timeout to prevent infinite loading
       const locationTimeout = setTimeout(() => {
-        console.log('📍 Location detection timed out, proceeding without location');
+        debugLog('📍 Location detection timed out, proceeding without location');
         setLocationLoading(false);
       }, 10000); // 10 second max
 
@@ -1354,7 +1368,7 @@ const ProfileFeed = () => {
           setUserLocation({ ...parsed, source: 'manual' });
           setLocationLoading(false);
           clearTimeout(locationTimeout);
-          console.log('📍 Using saved manual location:', parsed.city);
+          debugLog('📍 Using saved manual location:', parsed.city);
           return;
         } catch (e) {
           localStorage.removeItem('userManualLocation');
@@ -1407,12 +1421,12 @@ const ProfileFeed = () => {
             };
             setUserLocation(gpsLocation);
             setLocationLoading(false);
-            console.log('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, 
+            debugLog('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, 
               `(accuracy: ${gpsLocation.accuracy}m, nearest city: ${gpsLocation.city}, country: ${gpsLocation.country}, ${gpsLocation.distanceToCity})`);
           },
           async (error) => {
             clearTimeout(locationTimeout);
-            console.log('Geolocation denied/blocked, using profile/IP detection:', error.message);
+            debugLog('Geolocation denied/blocked, using profile/IP detection:', error.message);
 
             if (profileLocation) {
               setUserLocation(profileLocation);
@@ -1423,7 +1437,7 @@ const ProfileFeed = () => {
             const ipLocation = await ipLocationPromise;
             if (ipLocation) {
               setUserLocation(ipLocation);
-              console.log('📍 IP-based location:', ipLocation.city, ipLocation.country);
+              debugLog('📍 IP-based location:', ipLocation.city, ipLocation.country);
             }
             setLocationLoading(false);
           },
@@ -1641,7 +1655,7 @@ const ProfileFeed = () => {
       if (err.name === 'AbortError') {
         return;
       }
-      console.error('Error fetching profiles:', err);
+      debugError('Error fetching profiles:', err);
       setError(err.message);
     } finally {
       // Only update loading state if this is still the current request
@@ -2066,7 +2080,7 @@ const ProfileFeed = () => {
         currentLocation={userLocation}
         countryCode={userCountry || detectedCountry || 'ghana'}
         onSelectLocation={async (location) => {
-          console.log('📍 Location selected:', location.name, location.lat, location.lng);
+          debugLog('📍 Location selected:', location.name, location.lat, location.lng);
           
           // Determine country from location data or user country
           const selectedCountry = location.country || userCountry || detectedCountry || 'Unknown';
@@ -2090,7 +2104,7 @@ const ProfileFeed = () => {
           const token = localStorage.getItem('token');
           if (token) {
             try {
-              const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/users/me`, {
+              const response = await fetch(`${API_BASE_URL}/api/users/me`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
@@ -2103,11 +2117,11 @@ const ProfileFeed = () => {
                 })
               });
               if (response.ok) {
-                console.log('✅ Location saved to profile');
+                debugLog('✅ Location saved to profile');
                 toast.success('Location updated successfully!');
               }
             } catch (error) {
-              console.error('Failed to save location to backend:', error);
+              debugError('Failed to save location to backend:', error);
               // Still update locally even if backend fails
             }
           }

@@ -166,7 +166,9 @@ class CurrencyManager {
     if (cached) return cached;
 
     try {
-      // Frankfurter uses ECB rates - base EUR, convert to USD-based
+      // Frankfurter uses ECB rates - only supports ~30 major currencies
+      // It does NOT support African currencies (NGN, GHS, KES, UGX, TZS, RWF, BWP, ZMW, MWK)
+      // So we fetch what we can, then fill gaps with fallback rates
       const symbols = Object.keys(this.fiatCurrencies).filter(c => c !== 'EUR').join(',');
       const response = await axios.get(`${this.frankfurterBase}/latest`, {
         params: {
@@ -176,8 +178,9 @@ class CurrencyManager {
         timeout: 10000
       });
 
-      const rates = { USD: 1, ...response.data.rates };
-      const result = { rates, timestamp: Date.now(), source: 'frankfurter' };
+      // Merge: fallback first (all African currencies), then API data overrides what it supports
+      const rates = { ...this.fallbackFiatRatesUSD, USD: 1, ...response.data.rates };
+      const result = { rates, timestamp: Date.now(), source: 'frankfurter+fallback' };
       this.fiatCache.set(cacheKey, result);
       return result;
     } catch (error) {

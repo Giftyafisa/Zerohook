@@ -60,6 +60,10 @@ import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { useDispatch } from 'react-redux';
 import { decrementUnreadMessages } from '../store/slices/uiSlice';
 
+// Environment-gated debug logger — no-ops in production builds
+const isDev = process.env.NODE_ENV === 'development';
+const debugLog = isDev ? (...args) => console.log(...args) : () => {};
+
 // Helper to resolve avatar URL from backend profilePicture (might be string, object, or JSON string)
 const resolveAvatarUrl = (profilePicture) => {
   if (!profilePicture) return null;
@@ -443,7 +447,7 @@ const ChatSystem = ({
 
     // Handle user online/offline status updates
     const handleUserStatus = ({ userId, isOnline }) => {
-      console.log('👤 User status update:', userId, isOnline ? 'online' : 'offline');
+      debugLog('👤 User status update:', userId, isOnline ? 'online' : 'offline');
       setConversations((prev) =>
         prev.map((conv) =>
           conv.participantId === userId
@@ -470,14 +474,14 @@ const ChatSystem = ({
 
   // Bootstrap target recipient or conversation from props / navigation state
   useEffect(() => {
-    console.log('💬 Bootstrap effect:', { user: !!user, loading, hasBootstrapped: hasBootstrappedRef.current, targetRecipientId, initialConversationId });
+    debugLog('💬 Bootstrap effect:', { user: !!user, loading, hasBootstrapped: hasBootstrappedRef.current, targetRecipientId, initialConversationId });
     
     if (!user || loading || hasBootstrappedRef.current) return;
 
     const tryBootstrap = async () => {
       try {
         if (targetRecipientId) {
-          console.log('💬 Bootstrapping with targetRecipientId:', targetRecipientId);
+          debugLog('💬 Bootstrapping with targetRecipientId:', targetRecipientId);
           hasBootstrappedRef.current = true;
           await startConversationWithRecipient(targetRecipientId);
         } else if (initialConversationId) {
@@ -506,16 +510,16 @@ const ChatSystem = ({
 
   const loadConversations = async ({ silent = false } = {}) => {
     try {
-      console.log('🔄 Loading conversations...');
+      debugLog('🔄 Loading conversations...');
       if (!silent) setLoading(true);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      console.log('📡 Conversations API response:', response.status, response.ok);
+      debugLog('📡 Conversations API response:', response.status, response.ok);
       if (response.ok) {
         const data = await response.json();
-        console.log('📋 Raw conversations data:', data);
+        debugLog('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
         const transformedConversations = (data.conversations || []).map(conv => ({
           id: conv.id,
@@ -530,10 +534,10 @@ const ChatSystem = ({
           hasActiveEscrow: conv.hasActiveEscrow || false,
           createdAt: conv.createdAt
         }));
-        console.log('🔄 Transformed conversations:', transformedConversations);
+        debugLog('🔄 Transformed conversations:', transformedConversations);
         const sorted = sortConversations(transformedConversations);
         setConversations(sorted);
-        console.log('✅ Conversations loaded successfully:', sorted.length, 'conversations');
+        debugLog('✅ Conversations loaded successfully:', sorted.length, 'conversations');
         return sorted;
       } else {
         console.error('❌ Conversations API failed:', response.status, response.statusText);
@@ -548,17 +552,17 @@ const ChatSystem = ({
 
   const loadMessages = async (conversationId) => {
     try {
-      console.log('📨 Loading messages for conversation:', conversationId);
+      debugLog('📨 Loading messages for conversation:', conversationId);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/chat/messages/${conversationId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      console.log('📨 Messages API response:', response.status, response.ok);
+      debugLog('📨 Messages API response:', response.status, response.ok);
       if (response.ok) {
         const data = await response.json();
-        console.log('💬 Messages data:', data);
+        debugLog('💬 Messages data:', data);
         setMessages(data.messages || []);
-        console.log('💬 Messages set to state:', data.messages?.length || 0);
+        debugLog('💬 Messages set to state:', data.messages?.length || 0);
         setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
         await markConversationRead(conversationId);
       }
@@ -569,16 +573,16 @@ const ChatSystem = ({
   };
 
   const startConversationWithRecipient = async (recipientId) => {
-    console.log('💬 startConversationWithRecipient called with:', recipientId, typeof recipientId);
+    debugLog('💬 startConversationWithRecipient called with:', recipientId, typeof recipientId);
     
     if (!recipientId || startingConversation) {
-      console.log('💬 Skipping - no recipientId or already starting:', { recipientId, startingConversation });
+      debugLog('💬 Skipping - no recipientId or already starting:', { recipientId, startingConversation });
       return null;
     }
     
     const existing = conversations.find(c => c.participantId === recipientId || String(c.participantId) === String(recipientId));
     if (existing) {
-      console.log('💬 Found existing conversation:', existing.id);
+      debugLog('💬 Found existing conversation:', existing.id);
       selectConversation(existing);
       return existing;
     }
@@ -590,8 +594,8 @@ const ChatSystem = ({
       // Ensure recipientId is sent correctly
       const payload = { otherUserId: recipientId };
       const apiUrl = `${API_BASE_URL}/chat/start`;
-      console.log('💬 Sending chat/start with payload:', payload);
-      console.log('💬 API URL:', apiUrl, '| API_BASE_URL:', API_BASE_URL);
+      debugLog('💬 Sending chat/start with payload:', payload);
+      debugLog('💬 API URL:', apiUrl, '| API_BASE_URL:', API_BASE_URL);
       
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -617,7 +621,7 @@ const ChatSystem = ({
       }
       
       const data = await response.json();
-      console.log('💬 Chat start success:', data);
+      debugLog('💬 Chat start success:', data);
       
       const convList = await loadConversations({ silent: true });
       const created = convList?.find(c => c.participantId === recipientId || String(c.participantId) === String(recipientId) || c.id === data.conversationId);
@@ -651,7 +655,7 @@ const ChatSystem = ({
     setMessages(prev => [...prev, tempMessage]);
 
     try {
-      console.log('📤 Sending message payload:', { content, messageType, metadata }, 'to conversation:', selectedConversation.id);
+      debugLog('📤 Sending message payload:', { content, messageType, metadata }, 'to conversation:', selectedConversation.id);
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/chat/send`, {
         method: 'POST',
@@ -667,10 +671,10 @@ const ChatSystem = ({
         })
       });
 
-      console.log('📤 Send API response:', response.status);
+      debugLog('📤 Send API response:', response.status);
       if (response.ok) {
         const data = await response.json();
-        console.log('📤 Message sent successfully, data:', data);
+        debugLog('📤 Message sent successfully, data:', data);
         const saved = data.message;
         if (saved) {
           setMessages(prev =>

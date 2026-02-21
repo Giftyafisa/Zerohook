@@ -1,5 +1,10 @@
 const { AdultService, User } = require('../config/database');
 
+// Escape special regex characters to prevent ReDoS
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 class AdultServiceManager {
   constructor() {
     // No pool needed - using Mongoose models
@@ -115,11 +120,12 @@ class AdultServiceManager {
         }
       }
 
-      // Add location filter
+      // Add location filter (escaped to prevent ReDoS)
       if (filters.location) {
+        const safeLoc = escapeRegExp(String(filters.location));
         query.$or = [
-          { 'location_data.city': { $regex: filters.location, $options: 'i' } },
-          { 'location_data.country': { $regex: filters.location, $options: 'i' } }
+          { 'location_data.city': { $regex: safeLoc, $options: 'i' } },
+          { 'location_data.country': { $regex: safeLoc, $options: 'i' } }
         ];
       }
 
@@ -249,13 +255,14 @@ class AdultServiceManager {
   // Search services
   async searchServices(searchTerm, filters = {}) {
     try {
+      const safeSearch = escapeRegExp(String(searchTerm));
       const query = {
         is_active: true,
         $or: [
-          { title: { $regex: searchTerm, $options: 'i' } },
-          { description: { $regex: searchTerm, $options: 'i' } },
-          { 'location_data.city': { $regex: searchTerm, $options: 'i' } },
-          { 'location_data.country': { $regex: searchTerm, $options: 'i' } }
+          { title: { $regex: safeSearch, $options: 'i' } },
+          { description: { $regex: safeSearch, $options: 'i' } },
+          { 'location_data.city': { $regex: safeSearch, $options: 'i' } },
+          { 'location_data.country': { $regex: safeSearch, $options: 'i' } }
         ]
       };
 

@@ -4,6 +4,7 @@ const { authMiddleware } = require('./auth');
 const mongoose = require('mongoose');
 const { Transaction, User } = require('../config/database');
 const EscrowManager = require('../services/EscrowManager');
+const NotificationService = require('../services/NotificationService');
 const router = express.Router();
 
 /**
@@ -14,7 +15,11 @@ const router = express.Router();
 router.post('/create', authMiddleware, async (req, res) => {
   try {
     const clientId = req.user.userId;
-    const { serviceId, providerId, amount, scheduledTime, locationData, paymentMethod = 'wallet' } = req.body;
+    const { 
+      serviceId, providerId, amount, scheduledTime, locationData, location,
+      paymentMethod = 'wallet', currency: requestedCurrency, cryptoSymbol,
+      conversationId, description, duration, specialRequests, contactMethod
+    } = req.body;
 
     // Validate required fields
     if (!providerId) {
@@ -24,9 +29,12 @@ router.post('/create', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Valid amount is required' });
     }
 
-    // Get client's country for currency
+    // Get client's country for currency (use requested currency if provided, else detect)
     const userCountry = await req.countryManager?.getUserCountry(clientId);
-    const currency = userCountry?.country?.currency || 'NGN';
+    const currency = requestedCurrency || userCountry?.country?.currency || 'NGN';
+
+    // Resolve locationData — accept both `location` (string) and `locationData` (object)
+    const resolvedLocationData = locationData || (location ? { address: location } : undefined);
 
     // Risk assessment (now using MongoDB)
     const riskAssessment = await req.trustEngine.assessTransactionRisk(
@@ -48,9 +56,56 @@ router.post('/create', authMiddleware, async (req, res) => {
       amount,
       currency,
       scheduledTime,
-      locationData,
-      paymentMethod
+      locationData: resolvedLocationData,
+      paymentMethod,
+      metadata: {
+        conversationId,
+        description,
+        duration,
+        specialRequests,
+        contactMethod
+      }
     });
+
+    // Build base response
+    const response = {
+      success: true,
+      message: 'Escrow created successfully. Share the PIN with provider ONLY after service is complete.',
+      transaction: escrowResult,
+      completionPin: escrowResult.completionPin, // Only sent to client
+      riskAssessment
+    };
+
+    // If crypto payment requested, generate a payment invoice with wallet address
+    if (paymentMethod === 'crypto' && req.cryptoPaymentManager) {
+      try {
+        const symbol = cryptoSymbol || 'USDT';
+        // Convert fiat amount to crypto
+        const cryptoAmount = await req.currencyManager?.fiatToCrypto(amount, currency, symbol);
+        
+        const invoice = await req.cryptoPaymentManager.createPaymentInvoice({
+          cryptoAmount: cryptoAmount || amount,
+          cryptoSymbol: symbol,
+          fiatAmount: amount,
+          fiatCurrency: currency,
+          transactionId: escrowResult.id || escrowResult.transactionId,
+          userId: clientId,
+          metadata: { escrowId: escrowResult.id || escrowResult.transactionId, conversationId }
+        });
+
+        // Attach crypto payment details to response for frontend
+        response.walletAddress = invoice.address;
+        response.cryptoAmount = invoice.cryptoAmount;
+        response.cryptoSymbol = invoice.cryptoSymbol;
+        response.reference = invoice.reference;
+        response.expiresAt = invoice.expiresAt;
+        response.network = invoice.network;
+      } catch (cryptoErr) {
+        console.error('Crypto invoice generation failed, falling back to wallet:', cryptoErr.message);
+        // Don't fail the escrow — it was created. Client can pay from wallet.
+        response.cryptoError = 'Could not generate crypto address. You can pay from your wallet balance instead.';
+      }
+    }
 
     // Notify provider via socket (but DON'T send PIN - only client sees PIN)
     if (req.io) {
@@ -61,15 +116,20 @@ router.post('/create', authMiddleware, async (req, res) => {
         clientId,
         message: `New payment of ${currency}${amount} held for your service! Ask client for completion PIN after service.`
       });
+
+      // Persist notification for provider (survives offline)
+      try {
+        await NotificationService.createAndEmit(req.io, {
+          userId: providerId,
+          type: 'escrow',
+          title: 'Payment Held for Your Service',
+          message: `${currency}${amount} is being held in escrow. Complete the service and ask for the PIN.`,
+          data: { escrowId: escrowResult.id || escrowResult.transactionId, amount, currency }
+        });
+      } catch (e) { console.error('Notification error (escrow created):', e.message); }
     }
 
-    res.json({
-      success: true,
-      message: 'Escrow created successfully. Share the PIN with provider ONLY after service is complete.',
-      transaction: escrowResult,
-      completionPin: escrowResult.completionPin, // Only sent to client
-      riskAssessment
-    });
+    res.json(response);
 
   } catch (error) {
     console.error('Create escrow error:', error);
@@ -113,6 +173,17 @@ router.post('/enter-pin', authMiddleware, async (req, res) => {
         confirmationDeadline: result.confirmationDeadline,
         message: `Provider entered completion PIN. Please confirm the service was delivered within 48 hours, or funds will auto-release.`
       });
+
+      // Persist notification for client (survives offline)
+      try {
+        await NotificationService.createAndEmit(req.io, {
+          userId: escrow.client_id.toString(),
+          type: 'escrow',
+          title: 'PIN Entered - Confirm Service',
+          message: `Provider entered the PIN. Please confirm the service was delivered within 48 hours, or funds will auto-release.`,
+          data: { escrowId, amount: escrow.amount, currency: escrow.currency, confirmationDeadline: result.confirmationDeadline }
+        });
+      } catch (e) { console.error('Notification error (pin entered):', e.message); }
     }
 
     res.json({
@@ -157,6 +228,17 @@ router.post('/confirm', authMiddleware, async (req, res) => {
         currency: escrow.currency,
         message: `Payment of ${escrow.currency}${result.amount} released! Funds added to your wallet.`
       });
+
+      // Persist notification for provider (survives offline)
+      try {
+        await NotificationService.createAndEmit(req.io, {
+          userId: escrow.provider_id.toString(),
+          type: 'payment',
+          title: 'Payment Released!',
+          message: `${escrow.currency}${result.amount} has been released to your wallet.`,
+          data: { escrowId, amount: result.amount, currency: escrow.currency }
+        });
+      } catch (e) { console.error('Notification error (escrow released):', e.message); }
     }
 
     // Record positive trust event
@@ -212,6 +294,17 @@ router.post('/claim-complete', authMiddleware, async (req, res) => {
         message: `Provider claims the service was delivered. Please share the PIN, confirm, or dispute within 24 hours. If you don't respond, payment will auto-release to the provider.`,
         urgency: 'high'
       });
+
+      // Persist URGENT notification for client (survives offline)
+      try {
+        await NotificationService.createAndEmit(req.io, {
+          userId: escrow.client_id.toString(),
+          type: 'escrow',
+          title: '⚠️ Action Required: Service Claim',
+          message: `Provider claims the service was delivered. Respond within 24 hours or payment auto-releases.`,
+          data: { escrowId, amount: escrow.amount, currency: escrow.currency, clientResponseDeadline: result.clientResponseDeadline, urgency: 'high' }
+        });
+      } catch (e) { console.error('Notification error (claim complete):', e.message); }
     }
 
     res.json({
@@ -280,6 +373,17 @@ router.post('/dispute', authMiddleware, async (req, res) => {
           reason,
           message: 'A dispute has been opened. You can upload evidence to support your case. Admin will review within 24-48 hours.'
         });
+
+        // Persist notification for other party (survives offline)
+        try {
+          await NotificationService.createAndEmit(req.io, {
+            userId: otherUserId,
+            type: 'escrow',
+            title: '⚠️ Dispute Opened',
+            message: `A dispute has been opened on a ${escrow.currency}${escrow.amount} payment. Admin will review within 24-48 hours.`,
+            data: { escrowId, amount: escrow.amount, currency: escrow.currency, reason }
+          });
+        } catch (e) { console.error('Notification error (dispute):', e.message); }
       }
     }
 
@@ -487,6 +591,17 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
         amount: result.amount,
         message: 'Service completed and payment released!'
       });
+
+      // Persist notification (survives offline)
+      try {
+        await NotificationService.createAndEmit(req.io, {
+          userId: otherPartyId,
+          type: 'payment',
+          title: 'Payment Completed!',
+          message: `Service completed and payment of ${result.amount} released!`,
+          data: { escrowId: transactionId, amount: result.amount }
+        });
+      } catch (e) { console.error('Notification error (escrow completed):', e.message); }
     }
 
     res.json({

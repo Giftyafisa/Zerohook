@@ -36,8 +36,8 @@ const ShellContainer = styled(Box)({
   left: 0,
   right: 0,
   bottom: 0,
-  width: '100vw',
-  maxWidth: '100vw',
+  width: '100%',
+  maxWidth: '100%',
   display: 'flex',
   flexDirection: 'column',
   background: '#000', // Pure black for immersive TikTok feel
@@ -62,7 +62,7 @@ const HeaderRegion = styled(Box, {
 })(({ hasHeader }) => ({
   flexShrink: 0,
   width: '100%',
-  maxWidth: '100vw',
+  maxWidth: '100%',
   height: hasHeader ? `${tokens.layout.mobileHeaderHeight}px` : 0,
   minHeight: hasHeader ? `${tokens.layout.mobileHeaderHeight}px` : 0,
   // Safe area for notched devices (iPhone X+)
@@ -83,7 +83,7 @@ const ContentRegion = styled(Box, {
 })(({ noPadding, isFullBleed }) => ({
   flex: 1,
   width: '100%',
-  maxWidth: '100vw', // CRITICAL: Prevent content from exceeding viewport
+  maxWidth: '100%', // CRITICAL: Prevent content from exceeding viewport
   minWidth: 0, // Allow flex shrink
   minHeight: 0, // Critical for flex scroll behavior
   overflow: 'auto',
@@ -116,7 +116,7 @@ const NavRegion = styled(Box, {
 })(({ hasBottomNav, isOverlay }) => ({
   flexShrink: 0,
   width: '100%',
-  maxWidth: '100vw',
+  maxWidth: '100%',
   height: hasBottomNav ? `${tokens.layout.bottomNavHeight}px` : 0,
   minHeight: hasBottomNav ? `${tokens.layout.bottomNavHeight}px` : 0,
   // Safe area for home indicator (iPhone)

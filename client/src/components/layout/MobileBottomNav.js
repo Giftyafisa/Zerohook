@@ -55,7 +55,7 @@ const NavItem = styled(Box, {
   justifyContent: 'center',
   // Flexible sizing - allow labels to fit without wrapping
   minWidth: '52px',
-  minHeight: '40px',
+  minHeight: '44px', // WCAG minimum touch target
   flex: '1 1 0', // Equal flexible distribution
   maxWidth: '72px', // Prevent oversized items
   padding: '2px 4px',

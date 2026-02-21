@@ -169,4 +169,35 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// ==================== BACKWARD COMPAT ====================
+// Android clients (pre-v2) send POST instead of PUT. Accept both verbs.
+router.post('/:id/read', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user or notification ID' });
+    }
+    await Notification.updateOne({ _id: id, user_id: userId }, { read: true });
+    res.json({ success: true, message: 'Notification marked as read' });
+  } catch (error) {
+    console.error('Mark notification read (POST compat) error:', error);
+    res.status(500).json({ error: 'Failed to mark notification as read' });
+  }
+});
+
+router.post('/read-all', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+    await Notification.updateMany({ user_id: userId, read: false }, { read: true });
+    res.json({ success: true, message: 'All notifications marked as read' });
+  } catch (error) {
+    console.error('Mark all notifications read (POST compat) error:', error);
+    res.status(500).json({ error: 'Failed to mark all notifications as read' });
+  }
+});
+
 module.exports = router;

@@ -55,8 +55,8 @@ body,
   position: relative;
 }
 
-/* Universal overflow prevention */
-* {
+/* Universal overflow prevention - scoped to avoid breaking flex/grid layouts */
+img, video, canvas, svg, embed, object, iframe {
   max-width: 100%;
 }
 

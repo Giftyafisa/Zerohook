@@ -327,16 +327,19 @@ router.post('/service-media', authMiddleware, serviceUpload.array('media', 10), 
 });
 
 // Video upload endpoint for user videos - uses local storage (videos are large)
+const videoFileFilter = (req, file, cb) => {
+  const extname = path.extname(file.originalname).toLowerCase();
+  const mimetype = (file.mimetype || '').toLowerCase();
+  if (ALLOWED_VIDEO_EXTS.test(extname) && ALLOWED_VIDEO_MIMES.test(mimetype)) {
+    return cb(null, true);
+  }
+  cb(new Error('Only video files are allowed! Extension and content type must match.'));
+};
+
 const videoUpload = multer({
   storage: localStorage,
   limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype?.startsWith('video/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only video files are allowed'));
-    }
-  }
+  fileFilter: videoFileFilter
 });
 
 router.post('/user-video', authMiddleware, videoUpload.single('video'), async (req, res) => {
@@ -440,9 +443,12 @@ router.delete('/:fileId', authMiddleware, async (req, res) => {
     
     const filePath = file.file_path;
     
-    // Delete physical file
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    // Delete physical file asynchronously
+    try {
+      await fs.promises.access(filePath);
+      await fs.promises.unlink(filePath);
+    } catch (fsErr) {
+      // File may not exist on disk (e.g. Cloudinary) - non-fatal
     }
     
     // Mark as deleted in database
@@ -607,56 +613,50 @@ router.get('/content/feed', async (req, res) => {
       query['metadata.category'] = category;
     }
 
-    const content = await FileUpload.find(query)
-      .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await FileUpload.countDocuments(query);
-
-    // Get user info for each post
-    const contentWithUsers = await Promise.all(
-      content.map(async (post) => {
-        try {
-          const user = await User.findById(post.user_id).select('username profile_data');
-          return {
-            id: post._id,
-            url: post.file_path,
-            contentType: post.metadata?.contentType || 'image',
-            caption: post.metadata?.caption || '',
-            category: post.metadata?.category || 'showcase',
-            price: post.metadata?.price || 0,
-            location: post.metadata?.location || '',
-            views: post.metadata?.views || 0,
-            likes: post.metadata?.likes || 0,
-            shares: post.metadata?.shares || 0,
-            userId: post.user_id,
-            username: post.username || user?.username || 'Anonymous',
-            userAvatar: user?.profile_data?.profilePicture || user?.profile_data?.photos?.[0] || null,
-            createdAt: post.created_at,
-            storageType: post.storage_type
-          };
-        } catch (err) {
-          return {
-            id: post._id,
-            url: post.file_path,
-            contentType: post.metadata?.contentType || 'image',
-            caption: post.metadata?.caption || '',
-            category: post.metadata?.category || 'showcase',
-            price: post.metadata?.price || 0,
-            location: post.metadata?.location || '',
-            views: post.metadata?.views || 0,
-            likes: post.metadata?.likes || 0,
-            shares: post.metadata?.shares || 0,
-            userId: post.user_id,
-            username: post.username || 'Anonymous',
-            userAvatar: null,
-            createdAt: post.created_at,
-            storageType: post.storage_type
-          };
+    // Use aggregation with $lookup to avoid N+1 user queries
+    const pipeline = [
+      { $match: query },
+      { $sort: { created_at: -1 } },
+      { $skip: skip },
+      { $limit: parseInt(limit) },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user_id',
+          foreignField: '_id',
+          as: '_user',
+          pipeline: [{ $project: { username: 1, 'profile_data.profilePicture': 1, 'profile_data.photos': 1 } }]
         }
-      })
-    );
+      },
+      { $unwind: { path: '$_user', preserveNullAndEmptyArrays: true } }
+    ];
+
+    const [content, totalArr] = await Promise.all([
+      FileUpload.aggregate(pipeline),
+      FileUpload.aggregate([{ $match: query }, { $count: 'n' }])
+    ]);
+    const total = totalArr.length > 0 ? totalArr[0].n : 0;
+
+    const contentWithUsers = content.map(post => {
+      const user = post._user || null;
+      return {
+        id: post._id,
+        url: post.file_path,
+        contentType: post.metadata?.contentType || 'image',
+        caption: post.metadata?.caption || '',
+        category: post.metadata?.category || 'showcase',
+        price: post.metadata?.price || 0,
+        location: post.metadata?.location || '',
+        views: post.metadata?.views || 0,
+        likes: post.metadata?.likes || 0,
+        shares: post.metadata?.shares || 0,
+        userId: post.user_id,
+        username: post.username || user?.username || 'Anonymous',
+        userAvatar: user?.profile_data?.profilePicture || user?.profile_data?.photos?.[0] || null,
+        createdAt: post.created_at,
+        storageType: post.storage_type
+      };
+    });
 
     res.json({
       success: true,
@@ -735,7 +735,7 @@ router.get('/content/my', authMiddleware, async (req, res) => {
   }
 });
 
-// Like/unlike content
+// Like/unlike content (idempotent toggle using likedBy array)
 router.post('/content/:contentId/like', authMiddleware, async (req, res) => {
   try {
     const { contentId } = req.params;
@@ -746,17 +746,28 @@ router.post('/content/:contentId/like', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // Toggle like (simple implementation - in production use a separate likes collection)
-    const currentLikes = content.metadata?.likes || 0;
-    const newLikes = currentLikes + 1; // For simplicity, just increment
+    const likedBy = content.metadata?.likedBy || [];
+    const alreadyLiked = likedBy.some(id => id.toString() === userId.toString());
 
-    await FileUpload.findByIdAndUpdate(contentId, {
-      'metadata.likes': newLikes
-    });
+    let update;
+    if (alreadyLiked) {
+      // Unlike: remove from likedBy and decrement likes
+      update = await FileUpload.findByIdAndUpdate(contentId, {
+        $pull: { 'metadata.likedBy': userId },
+        $inc: { 'metadata.likes': -1 }
+      }, { new: true });
+    } else {
+      // Like: add to likedBy and increment likes
+      update = await FileUpload.findByIdAndUpdate(contentId, {
+        $addToSet: { 'metadata.likedBy': userId },
+        $inc: { 'metadata.likes': 1 }
+      }, { new: true });
+    }
 
     res.json({
       success: true,
-      likes: newLikes
+      liked: !alreadyLiked,
+      likes: update?.metadata?.likes || 0
     });
 
   } catch (error) {
@@ -768,24 +779,24 @@ router.post('/content/:contentId/like', authMiddleware, async (req, res) => {
   }
 });
 
-// Increment view count
+// Increment view count (atomic)
 router.post('/content/:contentId/view', async (req, res) => {
   try {
     const { contentId } = req.params;
 
-    const content = await FileUpload.findById(contentId);
-    if (!content) {
+    const result = await FileUpload.findByIdAndUpdate(
+      contentId,
+      { $inc: { 'metadata.views': 1 } },
+      { new: true }
+    );
+
+    if (!result) {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    const currentViews = content.metadata?.views || 0;
-    await FileUpload.findByIdAndUpdate(contentId, {
-      'metadata.views': currentViews + 1
-    });
-
     res.json({
       success: true,
-      views: currentViews + 1
+      views: result.metadata?.views || 0
     });
 
   } catch (error) {

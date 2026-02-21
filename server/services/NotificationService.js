@@ -69,35 +69,40 @@ class NotificationService {
    *   createAndEmit(io, userId, type, title, message, data)
    */
   static async createAndEmit(io, optionsOrUserId, typeArg, titleArg, messageArg, dataArg) {
-    let userId, type, title, message, data = {};
+    try {
+      let userId, type, title, message, data = {};
 
-    if (typeof optionsOrUserId === 'object' && optionsOrUserId !== null) {
-      ({ userId, type, title, message, data = {} } = optionsOrUserId);
-    } else {
-      userId = optionsOrUserId;
-      type = typeArg;
-      title = titleArg;
-      message = messageArg;
-      data = dataArg || {};
+      if (typeof optionsOrUserId === 'object' && optionsOrUserId !== null) {
+        ({ userId, type, title, message, data = {} } = optionsOrUserId);
+      } else {
+        userId = optionsOrUserId;
+        type = typeArg;
+        title = titleArg;
+        message = messageArg;
+        data = dataArg || {};
+      }
+      
+      // Save to database
+      const notification = await this.create(userId, type, title, message, data);
+      
+      // Emit via socket if io instance available
+      if (io && notification) {
+        io.to(`user_${userId}`).emit('new_notification', {
+          id: notification.id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          read: false,
+          createdAt: notification.created_at,
+          data: data
+        });
+      }
+      
+      return notification;
+    } catch (error) {
+      console.error('Failed to create and emit notification:', error);
+      return null;
     }
-    
-    // Save to database
-    const notification = await this.create(userId, type, title, message, data);
-    
-    // Emit via socket if io instance available
-    if (io && notification) {
-      io.to(`user_${userId}`).emit('new_notification', {
-        id: notification.id,
-        type: notification.type,
-        title: notification.title,
-        message: notification.message,
-        read: false,
-        createdAt: notification.created_at,
-        data: data
-      });
-    }
-    
-    return notification;
   }
   
   /**

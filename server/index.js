@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -154,9 +155,9 @@ app.use(cors({
       return callback(null, true);
     }
 
+    // In development, allow localhost on any port
     const isDev = (process.env.NODE_ENV || 'development') === 'development';
-    if (isDev) {
-      console.warn(`CORS (dev) allowing unlisted origin: ${origin}`);
+    if (isDev && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
       return callback(null, true);
     }
 
@@ -204,6 +205,7 @@ app.use('/api/', (req, res, next) => {
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(cookieParser());
 
 // Initialize services
 const trustEngine = new TrustEngine();

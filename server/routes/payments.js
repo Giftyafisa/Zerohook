@@ -7,6 +7,7 @@ const { Transaction } = require('../config/database');
 const NotificationService = require('../services/NotificationService');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
+const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 // Per-route rate limiter: 10 payment creations per 15 min per IP
 const paymentLimiter = new RateLimiterMemory({ points: 10, duration: 900 });
@@ -33,7 +34,7 @@ const paymentRateLimit = async (req, res, next) => {
 router.post('/create-payment-intent', authMiddleware, paymentRateLimit, [
   body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
   body('currency').optional().isString().withMessage('Currency must be a string'),
-  body('cryptoSymbol').optional().isIn(['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC']).withMessage('Invalid crypto symbol'),
+  body('cryptoSymbol').optional().isIn(SUPPORTED_SETTLEMENT_CRYPTOS).withMessage('Invalid crypto symbol'),
   body('serviceId').optional().isString().matches(/^[0-9a-fA-F]{24}$/).withMessage('Invalid service ID'),
   body('description').optional().isString().withMessage('Description must be a string')
 ], async (req, res) => {
@@ -171,6 +172,19 @@ router.post('/confirm', authMiddleware, paymentRateLimit, [
           status: 'confirmed',
           timestamp: new Date().toISOString()
         });
+
+        await NotificationService.createAndEmit(req.io, {
+          userId,
+          type: 'payment',
+          title: 'Payment Confirmed',
+          message: `${transaction.currency}${transaction.amount} has been confirmed and credited.`,
+          data: {
+            transactionId: transaction._id.toString(),
+            reference: transaction.reference,
+            type: transaction.type,
+            status: 'confirmed'
+          }
+        });
       }
     }
 
@@ -299,7 +313,9 @@ router.get('/methods', authMiddleware, async (req, res) => {
       success: true,
       userCountry: userCountry.country,
       paymentMethods,
-      supportedCryptos: req.cryptoPaymentManager.getSupportedCryptocurrencies(),
+      supportedCryptos: req.cryptoPaymentManager
+        .getSupportedCryptocurrencies()
+        .filter((crypto) => SUPPORTED_SETTLEMENT_CRYPTOS.includes(crypto.symbol)),
       message: 'Crypto payments available globally - no fees'
     });
 
@@ -525,51 +541,56 @@ router.get('/wallet', authMiddleware, async (req, res) => {
     try {
       const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
 
-      // Deposits
-      const depositResult = await Transaction.aggregate([
-        { $match: { user_id: userObjId, type: { $in: ['deposit', 'wallet_topup'] }, status: { $in: ['completed', 'confirmed'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-
-      // Completed withdrawals
-      const withdrawnResult = await Transaction.aggregate([
-        { $match: { user_id: userObjId, type: 'withdrawal', status: { $in: ['completed', 'confirmed'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-
-      // Escrow held as client
-      const escrowAsClientResult = await Transaction.aggregate([
-        { $match: { client_id: userObjId, type: 'escrow_hold', status: { $in: ['pending', 'held', 'escrow_held', 'in_progress', 'pin_entered'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-
-      // Escrow released to user as provider
-      const escrowReleasedResult = await Transaction.aggregate([
-        { $match: { user_id: userObjId, type: 'escrow_release', status: { $in: ['completed', 'confirmed'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-
-      // Total earnings including released
-      const totalEarningsResult = await Transaction.aggregate([
-        { $match: { provider_id: userObjId, status: { $in: ['completed', 'released'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-
-      // Pending withdrawals
-      const withdrawalResult = await Transaction.aggregate([
-        { $match: { user_id: userObjId, type: 'withdrawal', status: 'pending' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
+      // Single $facet pipeline replaces 6 separate aggregation round-trips
+      const [walletData] = await Transaction.aggregate([
+        {
+          $match: {
+            $or: [
+              { user_id: userObjId },
+              { client_id: userObjId },
+              { provider_id: userObjId }
+            ]
+          }
+        },
+        {
+          $facet: {
+            deposits: [
+              { $match: { user_id: userObjId, type: { $in: ['deposit', 'wallet_topup'] }, status: { $in: ['completed', 'confirmed'] } } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ],
+            withdrawn: [
+              { $match: { user_id: userObjId, type: 'withdrawal', status: { $in: ['completed', 'confirmed'] } } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ],
+            escrowAsClient: [
+              { $match: { client_id: userObjId, type: 'escrow_hold', status: { $in: ['pending', 'held', 'escrow_held', 'in_progress', 'pin_entered'] } } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ],
+            escrowReleased: [
+              { $match: { user_id: userObjId, type: 'escrow_release', status: { $in: ['completed', 'confirmed'] } } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ],
+            earnings: [
+              { $match: { provider_id: userObjId, status: { $in: ['completed', 'released'] } } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ],
+            pendingWithdrawals: [
+              { $match: { user_id: userObjId, type: 'withdrawal', status: 'pending' } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ]
+          }
+        }
       ]);
       
-      const deposits = depositResult[0]?.total || 0;
-      const withdrawn = withdrawnResult[0]?.total || 0;
-      const escrowHeldAsClient = escrowAsClientResult[0]?.total || 0;
-      const escrowReleased = escrowReleasedResult[0]?.total || 0;
+      const deposits = walletData.deposits[0]?.total || 0;
+      const withdrawn = walletData.withdrawn[0]?.total || 0;
+      const escrowHeldAsClient = walletData.escrowAsClient[0]?.total || 0;
+      const escrowReleased = walletData.escrowReleased[0]?.total || 0;
       
       balance = deposits + escrowReleased - withdrawn - escrowHeldAsClient;
-      totalEarnings = (totalEarningsResult[0]?.total || 0) + escrowReleased;
+      totalEarnings = (walletData.earnings[0]?.total || 0) + escrowReleased;
       escrowHeld = escrowHeldAsClient;
-      pendingWithdrawal = withdrawalResult[0]?.total || 0;
+      pendingWithdrawal = walletData.pendingWithdrawals[0]?.total || 0;
       
     } catch (dbError) {
       console.log('Wallet query failed, using defaults:', dbError.message);
@@ -602,6 +623,14 @@ router.post('/deposit', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { amount, cryptoSymbol = 'USDT' } = req.body;
+    const normalizedSymbol = String(cryptoSymbol || '').toUpperCase();
+
+    if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(normalizedSymbol)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported crypto. Allowed: ${SUPPORTED_SETTLEMENT_CRYPTOS.join(', ')}`
+      });
+    }
 
     // Get user's country for local currency
     const userCountry = await req.countryManager.getUserCountry(userId);
@@ -620,13 +649,25 @@ router.post('/deposit', authMiddleware, async (req, res) => {
       });
     }
 
+    // Maximum deposit limit for safety
+    const maxAmounts = { NGN: 50000000, GHS: 500000, KES: 5000000, ZAR: 500000, UGX: 50000000, TZS: 50000000, RWF: 5000000, BWP: 50000, ZMW: 500000, MWK: 50000000, USD: 50000 };
+    const maxAmount = maxAmounts[currency] || 50000000;
+    if (amount > maxAmount) {
+      return res.status(400).json({ success: false, error: `Maximum deposit is ${currencySymbol}${maxAmount.toLocaleString()}` });
+    }
+
+    // Sanitize amount - ensure it's a valid positive number
+    if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid amount' });
+    }
+
     // Convert fiat to crypto
-    const conversion = await req.currencyManager.fiatToCrypto(amount, currency, cryptoSymbol);
+    const conversion = await req.currencyManager.fiatToCrypto(amount, currency, normalizedSymbol);
 
     // Create crypto invoice
     const invoice = await req.cryptoPaymentManager.createPaymentInvoice({
       cryptoAmount: parseFloat(conversion.cryptoAmount.toFixed(8)),
-      cryptoSymbol,
+      cryptoSymbol: normalizedSymbol,
       fiatAmount: amount,
       fiatCurrency: currency,
       userId,
@@ -645,7 +686,7 @@ router.post('/deposit', authMiddleware, async (req, res) => {
       type: 'deposit',
       metadata: {
         type: 'deposit',
-        cryptoSymbol,
+        cryptoSymbol: normalizedSymbol,
         cryptoAmount: conversion.cryptoAmount,
         cryptoAddress: invoice.address,
         rate: conversion.rate,
@@ -653,14 +694,15 @@ router.post('/deposit', authMiddleware, async (req, res) => {
       }
     });
 
-    console.log(`💰 Crypto deposit created: ${invoice.reference} - ${conversion.cryptoAmount} ${cryptoSymbol} (${currencySymbol}${amount})`);
+    console.log(`💰 Crypto deposit created: ${invoice.reference} - ${conversion.cryptoAmount} ${normalizedSymbol} (${currencySymbol}${amount})`);
 
     res.json({
       success: true,
       reference: invoice.reference,
       address: invoice.address,
+      walletAddress: invoice.address,
       cryptoAmount: conversion.cryptoAmount,
-      cryptoSymbol,
+      cryptoSymbol: normalizedSymbol,
       fiatAmount: amount,
       network: invoice.network,
       qrData: invoice.qrData,
@@ -686,6 +728,14 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { amount, cryptoSymbol = 'USDT', walletAddress, destinationAddress, network } = req.body;
     const destAddr = walletAddress || destinationAddress; // Accept both field names
+    const normalizedSymbol = String(cryptoSymbol || '').toUpperCase();
+
+    if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(normalizedSymbol)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported crypto. Allowed: ${SUPPORTED_SETTLEMENT_CRYPTOS.join(', ')}`
+      });
+    }
 
     // Get user's country for currency
     const userCountry = await req.countryManager.getUserCountry(userId);
@@ -706,6 +756,16 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: `Minimum withdrawal is ${currencySymbol}${minAmount}`,
         minAmount, currency
       });
+    }
+
+    // Sanitize amount
+    if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid amount' });
+    }
+
+    // Basic wallet address sanitization
+    if (destAddr.length > 200 || /[<>'"&]/.test(destAddr)) {
+      return res.status(400).json({ success: false, error: 'Invalid wallet address format' });
     }
 
     // Check available balance
@@ -741,7 +801,7 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
     }
 
     // Convert to crypto amount
-    const conversion = await req.currencyManager.fiatToCrypto(amount, currency, cryptoSymbol);
+    const conversion = await req.currencyManager.fiatToCrypto(amount, currency, normalizedSymbol);
 
     // Create pending withdrawal record (store positive amount; type='withdrawal' indicates direction)
     const reference = `WD_${Date.now()}_${userId.substring(0, 8)}`;
@@ -756,24 +816,24 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       type: 'withdrawal',
       metadata: { 
         type: 'withdrawal',
-        cryptoSymbol,
+        cryptoSymbol: normalizedSymbol,
         cryptoAmount: conversion.cryptoAmount,
         walletAddress: destAddr,
         destinationAddress: destAddr,
-        network: network || cryptoSymbol,
+        network: network || normalizedSymbol,
         rate: conversion.rate,
         description: `Withdrawal - ${currencySymbol}${amount.toLocaleString()}`
       }
     });
 
-    console.log(`📤 Crypto withdrawal requested: ${reference} - ${conversion.cryptoAmount} ${cryptoSymbol} to ${destAddr}`);
+    console.log(`📤 Crypto withdrawal requested: ${reference} - ${conversion.cryptoAmount} ${normalizedSymbol} to ${destAddr}`);
 
     res.json({
       success: true,
-      message: `Withdrawal of ${currencySymbol}${amount.toLocaleString()} (${req.currencyManager.formatCryptoAmount(conversion.cryptoAmount, cryptoSymbol)} ${cryptoSymbol}) requested`,
+      message: `Withdrawal of ${currencySymbol}${amount.toLocaleString()} (${req.currencyManager.formatCryptoAmount(conversion.cryptoAmount, normalizedSymbol)} ${normalizedSymbol}) requested`,
       reference,
       cryptoAmount: conversion.cryptoAmount,
-      cryptoSymbol,
+      cryptoSymbol: normalizedSymbol,
       walletAddress: destAddr,
       status: 'pending',
       currency, currencySymbol,
@@ -842,6 +902,19 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
           type: transaction.type,
           timestamp: new Date().toISOString()
         });
+
+        await NotificationService.createAndEmit(req.io, {
+          userId,
+          type: 'payment',
+          title: 'Payment Verified',
+          message: `${transaction.currency}${transaction.amount} payment was verified successfully.`,
+          data: {
+            transactionId: transaction._id.toString(),
+            reference,
+            type: transaction.type,
+            status: 'confirmed'
+          }
+        });
       }
 
       return res.json({
@@ -855,7 +928,12 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
     res.json({
       success: false,
       status: status.status || 'pending',
-      message: 'Payment not yet confirmed on blockchain'
+      error: status.error || null,
+      message: status.status === 'expired'
+        ? (status.error || 'Payment invoice has expired')
+        : status.status === 'pending_confirmation'
+          ? 'Payment detected, waiting for network confirmations'
+          : 'Payment not yet confirmed on blockchain'
     });
 
   } catch (error) {

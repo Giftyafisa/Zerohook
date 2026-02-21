@@ -517,11 +517,14 @@ class MongoRecommendationEngine {
         });
       }
 
-      // Fetch profiles - get more than needed for proper sorting
+      // Fetch profiles - cap at 100 to avoid large in-memory sorts
+      // The DB-side sort by last_active gives a reasonable pre-order;
+      // we then re-rank by recommendation score in JS.
+      const fetchLimit = Math.min(Math.max(limit * 3, 60), 100);
       const profiles = await User.find(mongoQuery)
         .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
         .sort({ last_active: -1, lastActive: -1 })
-        .limit(Math.max(limit * 10, 200))
+        .limit(fetchLimit)
         .lean();
 
       debugLog(`   Found ${profiles.length} raw profiles`);

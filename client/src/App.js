@@ -55,6 +55,7 @@ import BookingsPage from './pages/BookingsPage';
 import BookingDetails from './pages/BookingDetails';
 // WalletPage removed - using MyMoneyPage instead for consistency
 import MyMoneyPage from './pages/MyMoneyPage';
+import AdminDashboard from './pages/AdminDashboard';
 import HelpSupportPage from './pages/HelpSupportPage';
 import NotificationsPage from './pages/NotificationsPage';
 import SugarProfilesPage from './pages/SugarProfilesPage';
@@ -320,6 +321,13 @@ function AppContent() {
         <Route path="/wallet" element={
           <ProtectedRoute requireSubscription={false}>
             <ErrorBoundary><MyMoneyPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+        
+        {/* Admin Dashboard - Platform owner revenue, disputes, user management */}
+        <Route path="/admin" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><AdminDashboard /></ErrorBoundary>
           </ProtectedRoute>
         } />
         

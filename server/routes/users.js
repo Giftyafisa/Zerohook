@@ -9,50 +9,75 @@ const router = express.Router();
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
+/**
+ * Sanitize profile field values to enforce types, lengths, and safe ranges.
+ * Keys are already whitelisted by ALLOWED_PROFILE_FIELDS; this validates VALUES.
+ */
+function sanitizeProfileValues(data) {
+  if (!data || typeof data !== 'object') return {};
+  const clean = {};
+
+  // String fields with max lengths
+  const stringFields = { firstName: 50, lastName: 50, bio: 2000, gender: 30,
+    bodyType: 30, height: 20, ethnicity: 50, currency: 10 };
+  for (const [key, maxLen] of Object.entries(stringFields)) {
+    if (key in data) {
+      if (typeof data[key] === 'string') {
+        clean[key] = data[key].slice(0, maxLen);
+      } // else: silently drop non-string value
+    }
+  }
+
+  // Numeric fields with min/max
+  if ('age' in data) {
+    const age = parseInt(data.age, 10);
+    if (!isNaN(age) && age >= 18 && age <= 120) clean.age = age;
+  }
+  if ('basePrice' in data) {
+    const price = parseFloat(data.basePrice);
+    if (!isNaN(price) && price >= 0 && price <= 999999) clean.basePrice = price;
+  }
+
+  // Date field
+  if ('dateOfBirth' in data) {
+    const d = new Date(data.dateOfBirth);
+    if (!isNaN(d.getTime())) clean.dateOfBirth = d.toISOString();
+  }
+
+  // Array fields with max length
+  const arrayFields = { photos: 20, services: 50, availability: 30,
+    specializations: 20, languages: 20, interests: 30, gallery: 30 };
+  for (const [key, maxItems] of Object.entries(arrayFields)) {
+    if (key in data && Array.isArray(data[key])) {
+      clean[key] = data[key].slice(0, maxItems);
+    }
+  }
+
+  // Object fields (shallow — keep as-is but limit depth risk by only accepting plain objects)
+  const objectFields = ['location', 'contactInfo', 'socialLinks', 'preferences'];
+  for (const key of objectFields) {
+    if (key in data && typeof data[key] === 'object' && data[key] !== null && !Array.isArray(data[key])) {
+      // Stringify+parse to strip prototypes/functions, limit size
+      const serialized = JSON.stringify(data[key]);
+      if (serialized.length <= 5000) {
+        clean[key] = JSON.parse(serialized);
+      }
+    }
+  }
+
+  // URL/path string fields
+  const urlFields = ['profilePhoto', 'coverPhoto'];
+  for (const key of urlFields) {
+    if (key in data && typeof data[key] === 'string') {
+      clean[key] = data[key].slice(0, 500);
+    }
+  }
+
+  return clean;
+}
+
 // Initialize MongoDB-native engine with Uber/Bolt-style algorithm
 const mongoRecommendationEngine = new MongoRecommendationEngine();
-
-// Mock profiles for when database is unavailable
-const mockProfiles = [
-  {
-    id: 'mock-1',
-    username: 'sarah_professional',
-    profile_data: {
-      firstName: 'Sarah',
-      lastName: 'Johnson',
-      age: 28,
-      bio: 'Professional escort with 5+ years experience.',
-      location: { city: 'Lagos', country: 'Nigeria' },
-      languages: ['English', 'Yoruba'],
-      basePrice: 250
-    },
-    verification_tier: 3,
-    reputation_score: 95,
-    is_subscribed: true,
-    subscription_tier: 'premium',
-    created_at: new Date().toISOString(),
-    last_active: new Date().toISOString()
-  },
-  {
-    id: 'mock-2',
-    username: 'grace_elegant',
-    profile_data: {
-      firstName: 'Grace',
-      lastName: 'Williams',
-      age: 25,
-      bio: 'Elegant companion for discerning clients.',
-      location: { city: 'Accra', country: 'Ghana' },
-      languages: ['English', 'Twi'],
-      basePrice: 400
-    },
-    verification_tier: 2,
-    reputation_score: 88,
-    is_subscribed: true,
-    subscription_tier: 'elite',
-    created_at: new Date().toISOString(),
-    last_active: new Date().toISOString()
-  }
-];
 
 /**
  * @route   GET /api/users/profile
@@ -182,22 +207,23 @@ router.put('/me', authMiddleware, async (req, res) => {
     // Build the update object
     const updateObj = { updated_at: new Date() };
 
-    // Update profile_data if provided (merge with existing, whitelist fields)
+    // Update profile_data if provided (merge with existing, whitelist fields + validate values)
     if (incomingData) {
       const existingUser = await User.findById(userId).lean();
       if (existingUser) {
         const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
-        const sanitizedData = {};
+        const whitelisted = {};
         for (const key of ALLOWED_PROFILE_FIELDS) {
-          if (key in incomingData) sanitizedData[key] = incomingData[key];
+          if (key in incomingData) whitelisted[key] = incomingData[key];
         }
+        const sanitizedData = sanitizeProfileValues(whitelisted);
         updateObj.profile_data = { ...existingProfileData, ...sanitizedData };
       } else {
-        const sanitizedData = {};
+        const whitelisted = {};
         for (const key of ALLOWED_PROFILE_FIELDS) {
-          if (key in incomingData) sanitizedData[key] = incomingData[key];
+          if (key in incomingData) whitelisted[key] = incomingData[key];
         }
-        updateObj.profile_data = sanitizedData;
+        updateObj.profile_data = sanitizeProfileValues(whitelisted);
       }
     }
 
@@ -279,10 +305,11 @@ router.put('/profile', authMiddleware, async (req, res) => {
       'profilePhoto', 'coverPhoto', 'gallery'
     ];
     const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
-    const sanitizedData = {};
+    const whitelisted = {};
     for (const key of ALLOWED_PROFILE_FIELDS) {
-      if (key in incomingData) sanitizedData[key] = incomingData[key];
+      if (key in incomingData) whitelisted[key] = incomingData[key];
     }
+    const sanitizedData = sanitizeProfileValues(whitelisted);
     const mergedProfileData = { ...existingProfileData, ...sanitizedData };
 
     debugLog('📝 Profile update:', { userId, incoming: Object.keys(incomingData), merged: Object.keys(mergedProfileData) });
@@ -523,16 +550,11 @@ const handleBrowseProfiles = async (req, res) => {
         userId: currentUserId,
         viewerAccountType,
         userLocation,
-        limit: 200, // Fetch more for proper sorting
-        offset: 0,
+        limit: limitNum,
+        offset,
         filters,
         accountTypeFilter
       });
-      
-      // Apply pagination after sorting
-      const allProfiles = result.profiles || [];
-      result.profiles = allProfiles.slice(offset, offset + limitNum);
-      result.total = allProfiles.length;
       
     } else {
       // Use simple MongoDB sort for non-recommendation sorts
@@ -619,17 +641,8 @@ const handleBrowseProfiles = async (req, res) => {
   } catch (error) {
     console.error('❌ Get profiles error:', error);
     
-    // Return mock data only in development; never in production
+    // Return 503 for connection errors in all environments
     if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
-      if ((process.env.NODE_ENV || 'development') === 'development') {
-        return res.json({
-          success: true,
-          users: mockProfiles,
-          pagination: { page: 1, limit: 20, total: mockProfiles.length, pages: 1 },
-          metadata: { mockData: true, message: 'Database temporarily unavailable' }
-        });
-      }
-
       return res.status(503).json({
         success: false,
         error: 'Profile service temporarily unavailable'

@@ -73,7 +73,7 @@ const SUPPORTED_COUNTRIES = [
 ];
 
 // Supported crypto payment methods
-const SUPPORTED_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'];
+const SUPPORTED_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 const SubscriptionPage = () => {
   const navigate = useNavigate();

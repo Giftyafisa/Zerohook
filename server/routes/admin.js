@@ -50,10 +50,21 @@ router.get('/disputes', authMiddleware, adminMiddleware, async (req, res) => {
       status: status
     });
 
-    // Enrich with user details
-    const enrichedDisputes = await Promise.all(disputes.map(async (dispute) => {
-      const client = await User.findById(dispute.client_id).select('username email dispute_strikes');
-      const provider = await User.findById(dispute.provider_id).select('username email dispute_strikes');
+    // Batch-load all referenced users to avoid N+1 queries
+    const userIds = new Set();
+    disputes.forEach(d => {
+      if (d.client_id) userIds.add(d.client_id.toString());
+      if (d.provider_id) userIds.add(d.provider_id.toString());
+    });
+    const users = await User.find({ _id: { $in: [...userIds] } })
+      .select('username email dispute_strikes')
+      .lean();
+    const userMap = {};
+    users.forEach(u => { userMap[u._id.toString()] = u; });
+
+    const enrichedDisputes = disputes.map((dispute) => {
+      const client = dispute.client_id ? userMap[dispute.client_id.toString()] : null;
+      const provider = dispute.provider_id ? userMap[dispute.provider_id.toString()] : null;
       
       return {
         id: dispute._id.toString(),
@@ -80,7 +91,7 @@ router.get('/disputes', authMiddleware, adminMiddleware, async (req, res) => {
           disputeStrikes: provider?.dispute_strikes || 0
         }
       };
-    }));
+    });
 
     res.json({
       success: true,
@@ -503,9 +514,19 @@ router.get('/revenue', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { Transaction, Subscription } = require('../config/database');
 
-    // 1. Platform fees from escrow releases (5% stored in metadata.platformFee)
+    // 1. Platform fees from dedicated platform_fee transactions + legacy metadata
     const feeResult = await Transaction.aggregate([
-      { $match: { type: 'escrow_release', status: 'completed' } },
+      { $match: { type: 'platform_fee', status: 'completed' } },
+      { $group: { 
+        _id: null, 
+        totalFees: { $sum: '$amount' },
+        count: { $sum: 1 }
+      }}
+    ]);
+
+    // Also count legacy fees stored only in metadata (for backward compatibility)
+    const legacyFeeResult = await Transaction.aggregate([
+      { $match: { type: 'escrow_release', status: 'completed', 'metadata.platformFee': { $gt: 0 } } },
       { $group: { 
         _id: null, 
         totalFees: { $sum: { $ifNull: ['$metadata.platformFee', 0] } },
@@ -513,6 +534,16 @@ router.get('/revenue', authMiddleware, adminMiddleware, async (req, res) => {
         count: { $sum: 1 }
       }}
     ]);
+
+    // Check if there are corresponding platform_fee records — avoid double counting
+    const platformFeeCount = feeResult[0]?.count || 0;
+    const legacyCount = legacyFeeResult[0]?.count || 0;
+    
+    // Use platform_fee type if they exist; otherwise fall back to legacy metadata
+    const feesFromDedicated = feeResult[0]?.totalFees || 0;
+    const feesFromLegacy = platformFeeCount < legacyCount ? (legacyFeeResult[0]?.totalFees || 0) - feesFromDedicated : 0;
+    const totalPlatformFees = feesFromDedicated + Math.max(0, feesFromLegacy);
+    const totalReleasedToProviders = legacyFeeResult[0]?.totalReleased || 0;
 
     // 2. Subscription revenue
     const subscriptionResult = await Transaction.aggregate([
@@ -527,7 +558,7 @@ router.get('/revenue', authMiddleware, adminMiddleware, async (req, res) => {
     // 3. Active subscriptions count
     const activeSubscriptions = await Subscription.countDocuments({
       status: 'active',
-      end_date: { $gt: new Date() }
+      expires_at: { $gt: new Date() }
     });
 
     // 4. Pending user withdrawals (need admin approval)
@@ -551,7 +582,7 @@ router.get('/revenue', authMiddleware, adminMiddleware, async (req, res) => {
       { $group: { _id: null, totalFees: { $sum: { $ifNull: ['$metadata.platformFee', 0] } }, count: { $sum: 1 } } }
     ]);
 
-    const fees = feeResult[0] || { totalFees: 0, totalReleased: 0, count: 0 };
+    const fees = { totalFees: totalPlatformFees, totalReleased: totalReleasedToProviders, count: legacyCount };
     const subs = subscriptionResult[0] || { total: 0, count: 0 };
     const volume = volumeResult[0] || { total: 0, count: 0 };
     const recentFees = recentFeeResult[0] || { totalFees: 0, count: 0 };
@@ -676,6 +707,23 @@ router.post('/withdrawals/:id/reject', authMiddleware, adminMiddleware, async (r
       return res.status(404).json({ error: 'Pending withdrawal not found' });
     }
 
+    // Create explicit refund ledger entry so the balance calculation credits back
+    await Transaction.create({
+      user_id: withdrawal.user_id,
+      type: 'deposit',
+      amount: withdrawal.amount,
+      currency: withdrawal.currency || 'USD',
+      status: 'completed',
+      reference: `refund_${withdrawal._id}`,
+      metadata: {
+        reason: 'withdrawal_rejected_refund',
+        originalWithdrawalId: withdrawal._id.toString(),
+        rejectedBy: req.user.userId,
+        rejectionReason: reason || 'Rejected by admin'
+      },
+      created_at: new Date()
+    });
+
     res.json({
       success: true,
       message: 'Withdrawal rejected. Funds returned to user wallet balance.',
@@ -709,10 +757,15 @@ router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) 
       return res.status(400).json({ error: 'Destination address required' });
     }
 
-    // Calculate total available platform fees
+    // Calculate total available platform fees (from dedicated platform_fee transactions + legacy metadata)
     const feeResult = await Transaction.aggregate([
-      { $match: { type: 'escrow_release', status: 'completed' } },
-      { $group: { _id: null, totalFees: { $sum: { $ifNull: ['$metadata.platformFee', 0] } } } }
+      { $match: { $or: [
+        { type: 'platform_fee', status: 'completed' },
+        { type: 'escrow_release', status: 'completed', 'metadata.platformFee': { $gt: 0 } }
+      ]}},
+      { $group: { _id: null, totalFees: { $sum: { 
+        $cond: [{ $eq: ['$type', 'platform_fee'] }, '$amount', { $ifNull: ['$metadata.platformFee', 0] }] 
+      }}}}
     ]);
 
     const adminWithdrawnResult = await Transaction.aggregate([
@@ -765,6 +818,210 @@ router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) 
   } catch (error) {
     console.error('Admin fee withdrawal error:', error);
     res.status(500).json({ error: 'Failed to process fee withdrawal' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/deposits/:id/confirm
+ * @desc    Admin manually confirms a deposit (when blockchain verification is unavailable)
+ * @access  Admin only
+ */
+router.post('/deposits/:id/confirm', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction } = require('../config/database');
+    const { id } = req.params;
+    const { txHash, notes } = req.body;
+
+    const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
+    
+    const deposit = await Transaction.findOneAndUpdate(
+      { _id: txObjId, type: { $in: ['deposit', 'wallet_topup'] }, status: 'pending' },
+      { 
+        $set: { 
+          status: 'completed',
+          confirmed_at: new Date(),
+          completed_at: new Date(),
+          'metadata.confirmedBy': req.user.userId,
+          'metadata.confirmedAt': new Date().toISOString(),
+          'metadata.txHash': txHash || 'manual_confirmation',
+          'metadata.adminNotes': notes || 'Manually confirmed by admin',
+          'metadata.blockchain_verification': { source: 'admin_manual', txHash: txHash || null }
+        } 
+      },
+      { new: true }
+    );
+
+    if (!deposit) {
+      return res.status(404).json({ error: 'Pending deposit not found' });
+    }
+
+    // Notify user via socket
+    const NotificationService = require('../services/NotificationService');
+    if (req.io && deposit.user_id) {
+      const userId = deposit.user_id.toString();
+      req.io.to(`user_${userId}`).emit('payment_confirmed', {
+        transactionId: deposit._id.toString(),
+        amount: deposit.amount,
+        currency: deposit.currency,
+        status: 'confirmed',
+        timestamp: new Date().toISOString()
+      });
+
+      await NotificationService.createAndEmit(req.io, {
+        userId,
+        type: 'payment',
+        title: 'Deposit Confirmed',
+        message: `Your deposit of ${deposit.currency}${deposit.amount} has been confirmed and credited to your wallet.`,
+        data: { transactionId: deposit._id.toString(), amount: deposit.amount, currency: deposit.currency }
+      });
+    }
+
+    console.log(`✅ Admin manually confirmed deposit ${deposit.reference} for ${deposit.currency}${deposit.amount}`);
+
+    res.json({
+      success: true,
+      message: `Deposit of ${deposit.currency}${deposit.amount} confirmed and credited`,
+      deposit: {
+        id: deposit._id.toString(),
+        amount: deposit.amount,
+        currency: deposit.currency,
+        userId: deposit.user_id?.toString(),
+        reference: deposit.reference
+      }
+    });
+
+  } catch (error) {
+    console.error('Manual deposit confirmation error:', error);
+    res.status(500).json({ error: 'Failed to confirm deposit' });
+  }
+});
+
+/**
+ * @route   GET /api/admin/pending-deposits
+ * @desc    Get all pending deposits awaiting confirmation
+ * @access  Admin only
+ */
+router.get('/pending-deposits', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction, User } = require('../config/database');
+    
+    const deposits = await Transaction.find({
+      type: { $in: ['deposit', 'wallet_topup'] },
+      status: 'pending'
+    }).sort({ created_at: -1 }).limit(50);
+
+    // Batch user lookup
+    const userIds = [...new Set(deposits.map(d => d.user_id?.toString()).filter(Boolean))];
+    const users = await User.find({ _id: { $in: userIds } }).select('username email').lean();
+    const userMap = {};
+    users.forEach(u => { userMap[u._id.toString()] = u; });
+
+    res.json({
+      success: true,
+      deposits: deposits.map(d => ({
+        id: d._id.toString(),
+        userId: d.user_id?.toString(),
+        username: userMap[d.user_id?.toString()]?.username || 'Unknown',
+        email: userMap[d.user_id?.toString()]?.email || '',
+        amount: d.amount,
+        currency: d.currency,
+        cryptoSymbol: d.metadata?.cryptoSymbol,
+        cryptoAmount: d.metadata?.cryptoAmount,
+        cryptoAddress: d.metadata?.cryptoAddress,
+        reference: d.reference,
+        createdAt: d.created_at
+      })),
+      count: deposits.length
+    });
+
+  } catch (error) {
+    console.error('Get pending deposits error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending deposits' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/subscriptions/:id/activate
+ * @desc    Admin manually activates a subscription payment
+ * @access  Admin only
+ */
+router.post('/subscriptions/:id/activate', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Subscription, User, Transaction } = require('../config/database');
+    const { id } = req.params;
+
+    const subscription = await Subscription.findById(id);
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 6 * 30 * 24 * 60 * 60 * 1000); // 6 months
+
+    subscription.status = 'active';
+    subscription.activated_at = now;
+    subscription.expires_at = expiresAt;
+    await subscription.save();
+
+    // Update user
+    await User.findByIdAndUpdate(subscription.user_id, {
+      $set: {
+        is_subscribed: true,
+        subscription_tier: 'premium',
+        subscription_expires_at: expiresAt
+      }
+    });
+
+    // Record as subscription revenue
+    await Transaction.create({
+      user_id: subscription.user_id,
+      amount: subscription.amount,
+      currency: subscription.currency,
+      type: 'subscription',
+      status: 'completed',
+      payment_method: 'crypto',
+      reference: `SUB_MANUAL_${Date.now()}`,
+      metadata: {
+        subscriptionId: subscription._id.toString(),
+        activatedBy: req.user.userId,
+        description: 'Subscription activated by admin'
+      }
+    });
+
+    const NotificationService = require('../services/NotificationService');
+    if (req.io) {
+      const userId = subscription.user_id.toString();
+      req.io.to(`user_${userId}`).emit('subscription_updated', {
+        isSubscribed: true,
+        tier: 'premium',
+        expiresAt: expiresAt.toISOString()
+      });
+
+      await NotificationService.createAndEmit(req.io, {
+        userId,
+        type: 'subscription',
+        title: 'Subscription Activated!',
+        message: 'Your premium subscription is now active. Enjoy all premium features!',
+        data: { tier: 'premium', expiresAt: expiresAt.toISOString() }
+      });
+    }
+
+    console.log(`✅ Admin activated subscription for user ${subscription.user_id}`);
+
+    res.json({
+      success: true,
+      message: 'Subscription activated successfully',
+      subscription: {
+        id: subscription._id.toString(),
+        userId: subscription.user_id.toString(),
+        status: 'active',
+        expiresAt: expiresAt.toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('Subscription activation error:', error);
+    res.status(500).json({ error: 'Failed to activate subscription' });
   }
 });
 

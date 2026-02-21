@@ -542,6 +542,22 @@ const systemCounterSchema = new mongoose.Schema({
 
 const SystemCounter = mongoose.model('SystemCounter', systemCounterSchema);
 
+// Refresh Token Schema - for token rotation & revocation
+const refreshTokenSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  token: { type: String, required: true, unique: true },
+  family: { type: String, required: true, index: true }, // Token family for rotation detection
+  expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } }, // TTL auto-delete
+  revoked: { type: Boolean, default: false },
+  replacedBy: { type: String, default: null }, // Points to the next token in the rotation chain
+  userAgent: { type: String },
+  ipAddress: { type: String }
+}, { timestamps: true });
+
+refreshTokenSchema.index({ userId: 1, family: 1 });
+
+const RefreshToken = mongoose.model('RefreshToken', refreshTokenSchema);
+
 const initializeCollections = async () => {
   try {
     // Drop stale conflicting index before creating new ones
@@ -599,24 +615,16 @@ const initializeCollections = async () => {
   }
 };
 
-// PostgreSQL-compatible query wrapper for backward compatibility
-// This translates simple PostgreSQL queries to MongoDB operations
-const query = async (text, params = []) => {
-  if (!dbAvailable) {
-    throw new Error('Database not available');
-  }
-  
-  // Log the query for debugging during migration
-  const preview = typeof text === 'string' ? text.substring(0, 120) : '[non-string query]';
-  console.error('❌ Legacy SQL query attempted after MongoDB migration:', preview + '...');
-
-  const migrationError = new Error(
-    'Legacy SQL query path is not supported after MongoDB migration. Migrate this route to Mongoose models.'
+// PostgreSQL-compatible query wrapper — REMOVED after MongoDB migration.
+// Any caller using this is a bug. Keeping the export symbol so require()
+// destructuring doesn't crash, but the function immediately throws.
+const query = () => {
+  const err = new Error(
+    'FATAL: Legacy SQL query() called after MongoDB migration. ' +
+    'Migrate the calling code to use Mongoose models (User, Service, etc.).'
   );
-  migrationError.code = 'LEGACY_SQL_NOT_MIGRATED';
-  migrationError.queryPreview = preview;
-  migrationError.paramsLength = Array.isArray(params) ? params.length : 0;
-  throw migrationError;
+  err.code = 'LEGACY_SQL_REMOVED';
+  throw err;
 };
 
 const getClient = async () => {
@@ -667,5 +675,6 @@ module.exports = {
   UserPrivacySettings,
   PrivacyConsent,
   CryptoInvoice,
-  SystemCounter
+  SystemCounter,
+  RefreshToken
 };

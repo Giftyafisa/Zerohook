@@ -365,7 +365,7 @@ class UserActivityMonitor {
       // Remove from memory
       this.activeSessions.delete(sessionToken);
 
-      console.log(`✅ Session invalidated: ${sessionToken}`);
+      console.log(`✅ Session invalidated: ${sessionToken ? sessionToken.slice(0, 8) + '…' : 'unknown'}`);
     } catch (error) {
       console.error('Error invalidating session:', error);
     }

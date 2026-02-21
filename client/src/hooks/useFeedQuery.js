@@ -1,0 +1,202 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useSelector } from 'react-redux';
+import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
+import { API_BASE_URL } from '../config/constants';
+import { resolveProfileImage } from '../utils/imageUtils';
+import useCurrency from './useCurrency';
+
+// Environment-gated debug logger
+const isDev = process.env.NODE_ENV === 'development';
+const debugError = isDev ? (...args) => console.error(...args) : () => {};
+
+/**
+ * useFeedQuery – handles fetching profiles from the recommendation engine,
+ *  pagination (infinite-scroll), abort-controller race-condition prevention,
+ *  and profile-data normalisation.
+ *
+ * @param {object}  opts
+ * @param {string}  opts.activeFilter  – current filter chip id
+ * @param {string}  opts.searchQuery   – current search text
+ * @param {object|null} opts.userLocation – location from useLocationBootstrap
+ * @param {boolean} opts.locationLoading – still detecting location
+ */
+const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading }) => {
+  const { user: currentUser, isAuthenticated } = useAuth();
+  const isSubscribed = useSelector(selectIsSubscribed);
+  const reduxUser    = useSelector(selectUser);
+  const { convertFromUSD } = useCurrency();
+
+  const [displayedProfiles, setDisplayedProfiles] = useState([]);
+  const [loading, setLoading]                     = useState(true);
+  const [loadingMore, setLoadingMore]             = useState(false);
+  const [error, setError]                         = useState(null);
+  const [page, setPage]                           = useState(1);
+  const [hasMore, setHasMore]                     = useState(true);
+  const [searchMetadata, setSearchMetadata]       = useState(null);
+
+  const loadMoreRef       = useRef(null);
+  const abortControllerRef = useRef(null);
+  const requestIdRef       = useRef(0);
+
+  // Price converter (stable ref)
+  const convertPrice = useCallback(
+    (basePriceUSD) => convertFromUSD(basePriceUSD),
+    [convertFromUSD],
+  );
+
+  // ── core fetch ───────────────────────────────────
+  const fetchProfiles = useCallback(
+    async (pageNum = 1, append = false) => {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      abortControllerRef.current = new AbortController();
+      const currentRequestId = ++requestIdRef.current;
+
+      try {
+        if (pageNum === 1) setLoading(true);
+        else setLoadingMore(true);
+
+        const qp = new URLSearchParams({
+          page: pageNum.toString(),
+          limit: '24',
+          filter: activeFilter,
+          search: searchQuery,
+        });
+
+        if (userLocation) {
+          if (userLocation.lat != null && userLocation.lng != null &&
+              !isNaN(userLocation.lat) && !isNaN(userLocation.lng)) {
+            qp.set('userLat', parseFloat(userLocation.lat).toFixed(6));
+            qp.set('userLng', parseFloat(userLocation.lng).toFixed(6));
+          }
+          if (userLocation.city)       qp.set('userCity', userLocation.city);
+          if (userLocation.country)    qp.set('userCountry', userLocation.country);
+          if (userLocation.source)     qp.set('locationSource', userLocation.source);
+          if (userLocation.confidence != null) qp.set('locationConfidence', userLocation.confidence);
+          if (userLocation.accuracy)   qp.set('locationAccuracy', userLocation.accuracy);
+        }
+
+        const headers = {};
+        const token = localStorage.getItem('token');
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch(`${API_BASE_URL}/users/profiles?${qp}`, {
+          headers,
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (currentRequestId !== requestIdRef.current) return;
+        if (!res.ok) throw new Error('Failed to fetch profiles');
+
+        const data = await res.json();
+        if (!data.users || !Array.isArray(data.users)) throw new Error('Invalid response');
+
+        const processed = data.users
+          .filter((u) => {
+            if (isAuthenticated && String(currentUser?.id) === String(u.id)) return false;
+            if (String(reduxUser?.id) === String(u.id)) return false;
+            if (u.profile_visibility === 'hidden') return false;
+            if (u.profile_data?.profileVisibility === 'hidden') return false;
+            return true;
+          })
+          .map((u) => {
+            const pd = u.profile_data || {};
+            const basePrice = pd.basePrice != null ? parseFloat(pd.basePrice) : null;
+            const converted = basePrice != null ? convertPrice(basePrice) : null;
+            return {
+              id: u.id,
+              username: u.username,
+              profileData: pd,
+              verificationTier: parseInt(u.verification_tier) || 1,
+              trustScore: parseFloat(u.reputation_score) || 75,
+              isPremium: u.is_subscribed,
+              isOnline: u.isOnline || u.is_online || false,
+              lastActive: u.last_active || u.lastActive || u.created_at,
+              lastSeenLabel: u.lastSeen,
+              createdAt: u.created_at,
+              distance: u.distance != null ? parseFloat(u.distance) : null,
+              distanceEstimated: u.distanceEstimated,
+              distanceSource: u.distanceSource,
+              distanceConfidence: u.distanceConfidence,
+              recommendationScore: parseFloat(u.recommendationScore) || 0,
+              successRate: parseFloat(u.successRate) || 0,
+              sameCountry: u.sameCountry,
+              displayPrice: converted,
+              scoreBreakdown: u.scoreBreakdown || null,
+              eloRating: u.eloRating || 1200,
+              matchPercentage: u.matchPercentage || null,
+            };
+          });
+
+        if (append) setDisplayedProfiles((prev) => [...prev, ...processed]);
+        else setDisplayedProfiles(processed);
+
+        setHasMore(processed.length === 24);
+        setPage(pageNum);
+        if (data.metadata) setSearchMetadata(data.metadata);
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        debugError('Error fetching profiles:', err);
+        setError(err.message);
+      } finally {
+        if (currentRequestId === requestIdRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [activeFilter, searchQuery, isAuthenticated, currentUser, reduxUser, userLocation, convertPrice, isSubscribed],
+  );
+
+  // Cleanup on unmount
+  useEffect(() => () => { if (abortControllerRef.current) abortControllerRef.current.abort(); }, []);
+
+  // Initial load + refetch on filter change
+  useEffect(() => { fetchProfiles(1); }, [activeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refetch when location detected
+  useEffect(() => {
+    if (!locationLoading && userLocation) fetchProfiles(1);
+  }, [locationLoading, userLocation, fetchProfiles]);
+
+  // Debounced search
+  useEffect(() => {
+    const t = setTimeout(() => fetchProfiles(1), 500);
+    return () => clearTimeout(t);
+  }, [searchQuery, fetchProfiles]);
+
+  // Infinite-scroll observer
+  useEffect(() => {
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && hasMore && !loadingMore && !loading) {
+          fetchProfiles(page + 1, true);
+        }
+      },
+      { threshold: 0.1 },
+    );
+    if (loadMoreRef.current) obs.observe(loadMoreRef.current);
+    return () => obs.disconnect();
+  }, [hasMore, loadingMore, loading, page, fetchProfiles]);
+
+  // Reset helper (e.g. when clearing filters)
+  const resetProfiles = useCallback(() => {
+    setPage(1);
+    setDisplayedProfiles([]);
+  }, []);
+
+  return {
+    displayedProfiles,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    page,
+    searchMetadata,
+    loadMoreRef,
+    fetchProfiles,
+    resetProfiles,
+  };
+};
+
+export default useFeedQuery;

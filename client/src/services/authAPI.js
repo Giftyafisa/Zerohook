@@ -33,27 +33,24 @@ api.interceptors.response.use(
       originalRequest._retry = true;
       
       try {
-        // Try to refresh the token
-        const token = localStorage.getItem('token');
-        if (token) {
-          const refreshResponse = await fetch(`${API_BASE_URL}/auth/validate-token`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ token })
-          });
-          
-          if (refreshResponse.ok) {
-            const refreshData = await refreshResponse.json();
-            if (refreshData.valid) {
-              // Token is still valid, retry the original request
-              return api(originalRequest);
-            }
+        // Try to refresh via the rotation endpoint (cookie carries the refresh token for web)
+        const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // Send httpOnly cookie
+          body: JSON.stringify({})
+        });
+        
+        if (refreshResponse.ok) {
+          const refreshData = await refreshResponse.json();
+          if (refreshData.token) {
+            localStorage.setItem('token', refreshData.token);
+            originalRequest.headers.Authorization = `Bearer ${refreshData.token}`;
+            return api(originalRequest);
           }
         }
         
-        // Token refresh failed, redirect to login
+        // Refresh failed, redirect to login
         localStorage.removeItem('token');
         window.location.href = '/login';
       } catch (refreshError) {
@@ -106,10 +103,12 @@ const authAPI = {
     }
   },
 
-  // Refresh token
-  refresh: async () => {
+  // Refresh token (with rotation - pass refresh token)
+  refresh: async (refreshToken) => {
     try {
-      const response = await api.post('/auth/refresh');
+      const response = await api.post('/auth/refresh', {
+        refreshToken: refreshToken || undefined
+      });
       return response.data;
     } catch (error) {
       console.error('Token refresh error:', error);

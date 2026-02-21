@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+// NOTE: useRef/useMemo still used by sub-components (LocationPicker, ProfileCard, ActivityTracker)
 import {
   Box,
-  Container,
   Typography,
   Card,
   CardContent,
@@ -44,95 +44,27 @@ import {
   EditLocation,
   CheckCircle,
   AccessTime,
-  Person,
-  Login,
-  Menu as MenuIcon
 } from '@mui/icons-material';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useSelector } from 'react-redux';
-import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
-import { isProvider, ACCOUNT_TYPES } from '../utils/accountTypeUtils';
-import { selectUserCountry, selectDetectedCountry, selectExchangeRates } from '../store/slices/countrySlice';
-import { API_BASE_URL, getUploadUrl } from '../config/constants';
-import { LOCATIONS, calculateDistance } from '../config/locations';
+import { API_BASE_URL } from '../config/constants';
+import { calculateDistance } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
-import { VERIFICATION_TIERS, getVerificationTierConfig, VerificationBadge, TrustScoreBreakdown } from '../components/ui/StatusBadge';
+import { VerificationBadge, TrustScoreBreakdown } from '../components/ui/StatusBadge';
 import ProfileCompletionReminder from '../components/ProfileCompletionReminder';
 import useCurrency from '../hooks/useCurrency';
 import useProfileEngagement from '../hooks/useProfileEngagement';
+import useFeedFilters from '../hooks/useFeedFilters';
+import useLocationBootstrap, { getAllLocations, findNearestCity } from '../hooks/useLocationBootstrap';
+import useFeedQuery from '../hooks/useFeedQuery';
 import TikTokProfileFeed from '../components/TikTokProfileFeed';
 
 // Environment-gated debug logger — no logs in production builds
 const isDev = process.env.NODE_ENV === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
-const debugWarn = isDev ? (...args) => console.warn(...args) : () => {};
 const debugError = isDev ? (...args) => console.error(...args) : () => {};
 
-// Get all locations from user's country (or default to Ghana/Nigeria)
-const getAllLocations = (countryCode) => {
-  // Handle various input formats:
-  // - String country code: 'GH', 'gh'
-  // - String country name: 'Ghana', 'ghana'  
-  // - Country object: {code: 'GH', name: 'Ghana'}
-  let countryKey;
-  
-  if (typeof countryCode === 'string') {
-    // Could be a code ('GH', 'NG') or a name ('Ghana', 'Nigeria')
-    const lower = countryCode.toLowerCase();
-    // Map country codes to LOCATIONS keys
-    const codeToKey = { 'gh': 'ghana', 'ng': 'nigeria', 'ke': 'kenya', 'za': 'southafrica' };
-    countryKey = codeToKey[lower] || lower;
-  } else if (countryCode?.code) {
-    // Object with code property
-    const codeToKey = { 'gh': 'ghana', 'ng': 'nigeria', 'ke': 'kenya', 'za': 'southafrica' };
-    countryKey = codeToKey[countryCode.code.toLowerCase()] || countryCode.code.toLowerCase();
-  } else if (countryCode?.name) {
-    // Object with name property
-    countryKey = countryCode.name.toLowerCase();
-  } else {
-    countryKey = 'ghana'; // Default
-  }
-  
-  const countryData = LOCATIONS[countryKey];
-  
-  if (!countryData) {
-    debugLog('⚠️ getAllLocations: No data for country:', countryKey, 'input:', countryCode);
-    return [];
-  }
-  
-  // Flatten location data structure
-  if (countryData.cities) {
-    return countryData.cities;
-  } else if (countryData.states) {
-    return countryData.states.flatMap(state => state.cities || []);
-  }
-  return [];
-};
-
-// ============================================
-// HELPER: Find nearest city from GPS coordinates
-// ============================================
-const findNearestCity = (latitude, longitude, countryCode) => {
-  const availableLocations = getAllLocations(countryCode);
-  
-  let nearestLocation = null;
-  let minDistance = Infinity;
-  
-  availableLocations.forEach(loc => {
-    const locLat = loc.coordinates?.lat || loc.lat;
-    const locLng = loc.coordinates?.lng || loc.lng;
-    if (locLat && locLng) {
-      const dist = calculateDistance(latitude, longitude, locLat, locLng);
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearestLocation = loc;
-      }
-    }
-  });
-  
-  return { location: nearestLocation, distance: minDistance };
-};
+// getAllLocations and findNearestCity are now in hooks/useLocationBootstrap.js
 // ============================================
 // LOCATION PICKER COMPONENT
 // ============================================
@@ -1195,64 +1127,30 @@ const SubscriptionPaywall = ({ onSubscribe }) => {
 const ProfileFeed = () => {
   const isMobile = useMediaQuery(useTheme().breakpoints.down('sm'));
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { user: currentUser, isAuthenticated } = useAuth();
-  const isSubscribed = useSelector(selectIsSubscribed);
-  const reduxUser = useSelector(selectUser);
-  const userCountry = useSelector(selectUserCountry);
-  const detectedCountry = useSelector(selectDetectedCountry);
-  const exchangeRates = useSelector(selectExchangeRates);
-  
-  // Use the centralized currency hook for consistent currency conversion
-  const { convertFromUSD, symbol: currencySymbol, countryCode: detectedCurrencyCountry } = useCurrency();
 
-  // Get initial search query from URL params
-  const initialSearchQuery = searchParams.get('search') || '';
+  // ── extracted hooks ──────────────────────────────
+  const {
+    activeFilter, searchQuery, filterOptions,
+    handleFilterChange: _onFilterChange,
+    handleSearchChange, resetFilters,
+  } = useFeedFilters();
 
-  // State - ALL hooks must be called unconditionally
-  const [displayedProfiles, setDisplayedProfiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
-  const [activeFilter, setActiveFilter] = useState('all');
+  const {
+    userLocation, locationLoading,
+    showLocationPicker, setShowLocationPicker,
+    locationLabel, setManualLocation,
+    availableLocations, countryKey,
+  } = useLocationBootstrap();
+
+  const {
+    displayedProfiles, loading, loadingMore, error,
+    hasMore, searchMetadata, loadMoreRef,
+    fetchProfiles, resetProfiles,
+  } = useFeedQuery({ activeFilter, searchQuery, userLocation, locationLoading });
+
+  // Local UI state
   const [likedProfiles, setLikedProfiles] = useState(new Set());
-  
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [userLocation, setUserLocation] = useState(null);
-  const [locationLoading, setLocationLoading] = useState(true);
-  const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [searchMetadata, setSearchMetadata] = useState(null); // For radius expansion suggestions
-  
-  const loadMoreRef = useRef(null);
-  // AbortController for fetch cancellation - prevents race conditions
-  const abortControllerRef = useRef(null);
-  // Request ID to ignore stale responses
-  const requestIdRef = useRef(0);
-
-  const locationLabel = useMemo(() => {
-    if (!userLocation) return null;
-    // Display format: Country, Region/State, City/Town
-    const city = userLocation.city || userLocation.name;
-    const region = userLocation.region || userLocation.district || userLocation.state;
-    const country = userLocation.country;
-    
-    // Build display string
-    const parts = [];
-    if (country) parts.push(country);
-    if (region) parts.push(region);
-    if (city) parts.push(city);
-    
-    return parts.length > 0 ? parts.join(', ') : 'Location enabled';
-  }, [userLocation]);
-
-  // Use the unified currency hook for consistent conversion across the app
-  // This ensures ProfileFeed uses the same currency as ProfileDetailPage, PaymentSheet, etc.
-  const convertPrice = useCallback((basePriceUSD) => {
-    // Use the hook's convertFromUSD which already handles country detection properly
-    return convertFromUSD(basePriceUSD);
-  }, [convertFromUSD]);
 
   // Initialize activity tracker
   useEffect(() => {
@@ -1260,478 +1158,19 @@ const ProfileFeed = () => {
     return () => activityTracker.destroy();
   }, []);
 
-  // Get user's location on mount - works for both authenticated and public users
-  useEffect(() => {
-    /**
-     * Build profile-based location (used when user prefers profile location)
-     */
-    const buildProfileLocation = () => {
-      const location = reduxUser?.profile_data?.location;
-      if (!location) return null;
-
-      const coords = location.coordinates || location.coords || {};
-      const hasCoords = coords.lat != null && coords.lng != null && !isNaN(coords.lat) && !isNaN(coords.lng);
-
-      return {
-        lat: hasCoords ? parseFloat(coords.lat) : null,
-        lng: hasCoords ? parseFloat(coords.lng) : null,
-        city: location.city || location.name,
-        country: location.country,
-        countryCode: location.countryCode,
-        source: 'profile',
-        accuracy: hasCoords ? 'city' : 'country',
-        confidence: hasCoords ? 0.9 : 0.7
-      };
-    };
-
-    /**
-     * Get IP-based location via backend proxy (no exposed API key)
-     * Includes caching to prevent redundant API calls
-     */
-    const IP_LOCATION_CACHE_KEY = 'zerohook_ip_location';
-    const IP_LOCATION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
-    
-    const getIPLocation = async () => {
-      try {
-        // Check cache first to avoid redundant API calls
-        const cached = sessionStorage.getItem(IP_LOCATION_CACHE_KEY);
-        if (cached) {
-          const { data, timestamp } = JSON.parse(cached);
-          if (Date.now() - timestamp < IP_LOCATION_CACHE_TTL) {
-            debugLog('📍 Using cached IP location');
-            return data;
-          }
-        }
-
-        const token = localStorage.getItem('token');
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-        
-        const response = await fetch(`${API_BASE_URL}/geolocation/ip-detect`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({}),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          const body = await response.json();
-          const ipData = body?.data;
-          if (ipData) {
-            const locationData = {
-              lat: ipData.lat ?? ipData.latitude ?? null,
-              lng: ipData.lng ?? ipData.longitude ?? null,
-              city: ipData.city,
-              country: ipData.country,
-              countryCode: ipData.countryCode,
-              region: ipData.region,
-              source: ipData.source || 'ip-proxy',
-              confidence: ipData.confidence ?? 'medium'
-            };
-            // Cache the result
-            sessionStorage.setItem(IP_LOCATION_CACHE_KEY, JSON.stringify({
-              data: locationData,
-              timestamp: Date.now()
-            }));
-            return locationData;
-          }
-        }
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          debugLog('IP geolocation timed out');
-        } else {
-          debugError('IP geolocation failed:', error);
-        }
-      }
-      return null;
-    };
-
-    const getUserLocation = async () => {
-      setLocationLoading(true);
-
-      // Set a maximum timeout to prevent infinite loading
-      const locationTimeout = setTimeout(() => {
-        debugLog('📍 Location detection timed out, proceeding without location');
-        setLocationLoading(false);
-      }, 10000); // 10 second max
-
-      // Check for saved manual location first
-      const savedLocation = localStorage.getItem('userManualLocation');
-      if (savedLocation) {
-        try {
-          const parsed = JSON.parse(savedLocation);
-          setUserLocation({ ...parsed, source: 'manual' });
-          setLocationLoading(false);
-          clearTimeout(locationTimeout);
-          debugLog('📍 Using saved manual location:', parsed.city);
-          return;
-        } catch (e) {
-          localStorage.removeItem('userManualLocation');
-        }
-      }
-
-      const profilePreferred = Boolean(reduxUser?.profile_data?.location?.preferProfileLocation);
-      const profileLocation = buildProfileLocation();
-
-      // Respect user preference to rely on profile location first
-      if (profilePreferred && profileLocation) {
-        setUserLocation({ ...profileLocation, source: 'profile-preferred' });
-        setLocationLoading(false);
-        clearTimeout(locationTimeout);
-        return;
-      }
-
-      // Start IP detection immediately (as backup)
-      const ipLocationPromise = getIPLocation();
-
-      // Try browser geolocation
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            clearTimeout(locationTimeout);
-            const { latitude, longitude, accuracy } = position.coords;
-            
-            // Find nearest city from GPS coordinates
-            const countryForLookup = userCountry || detectedCountry || 'ghana';
-            const { location: nearestCity, distance } = findNearestCity(latitude, longitude, countryForLookup);
-            
-            // Extract country name from object or use string directly
-            const getCountryName = (c) => {
-              if (!c) return 'Unknown';
-              if (typeof c === 'string') return c;
-              return c.name || c.code || 'Unknown';
-            };
-            
-            // GPS success - use precise location with resolved city name
-            const gpsLocation = {
-              lat: latitude,
-              lng: longitude,
-              accuracy: accuracy,
-              city: nearestCity?.name || 'Current Location',
-              region: nearestCity?.region || nearestCity?.state || null,
-              country: getCountryName(userCountry || detectedCountry),
-              source: 'gps',
-              confidence: 1.0,
-              distanceToCity: distance ? `${distance.toFixed(1)} km from ${nearestCity?.name}` : null
-            };
-            setUserLocation(gpsLocation);
-            setLocationLoading(false);
-            debugLog('📍 FRESH GPS location:', gpsLocation.lat, gpsLocation.lng, 
-              `(accuracy: ${gpsLocation.accuracy}m, nearest city: ${gpsLocation.city}, country: ${gpsLocation.country}, ${gpsLocation.distanceToCity})`);
-          },
-          async (error) => {
-            clearTimeout(locationTimeout);
-            debugLog('Geolocation denied/blocked, using profile/IP detection:', error.message);
-
-            if (profileLocation) {
-              setUserLocation(profileLocation);
-              setLocationLoading(false);
-              return;
-            }
-
-            const ipLocation = await ipLocationPromise;
-            if (ipLocation) {
-              setUserLocation(ipLocation);
-              debugLog('📍 IP-based location:', ipLocation.city, ipLocation.country);
-            }
-            setLocationLoading(false);
-          },
-          { 
-            enableHighAccuracy: false, // Use network location (faster) instead of GPS
-            timeout: 8000, // 8 second timeout
-            maximumAge: 60000 // Allow cached location up to 1 minute
-          }
-        );
-      } else {
-        // No geolocation support, use profile preference or IP
-        clearTimeout(locationTimeout);
-        if (profileLocation) {
-          setUserLocation(profileLocation);
-          setLocationLoading(false);
-          return;
-        }
-
-        const ipLocation = await ipLocationPromise;
-        if (ipLocation) {
-          setUserLocation(ipLocation);
-        }
-        setLocationLoading(false);
-      }
-    };
-
-    getUserLocation();
-  }, [reduxUser, userCountry, detectedCountry]); // Removed auth dependencies - location works for everyone
-
-  // Function to set manual location (for testing or when GPS blocked) - not currently used but available
-  // const setManualLocation = useCallback((locationKey) => {
-  //   const KNOWN_LOCATIONS = {
-  //     'tema-west-adjei-kojo': { lat: 5.6647, lng: -0.0175, city: 'Tema West (Adjei-Kojo)', country: 'Ghana' },
-  //     'tema-community-1': { lat: 5.6698, lng: -0.0166, city: 'Tema Community 1', country: 'Ghana' },
-  //     'accra-central': { lat: 5.5560, lng: -0.1969, city: 'Accra Central', country: 'Ghana' },
-  //     'osu': { lat: 5.5571, lng: -0.1818, city: 'Osu', country: 'Ghana' },
-  //     'east-legon': { lat: 5.6350, lng: -0.1550, city: 'East Legon', country: 'Ghana' },
-  //     'madina': { lat: 5.6700, lng: -0.1650, city: 'Madina', country: 'Ghana' },
-  //     'spintex': { lat: 5.6350, lng: -0.0850, city: 'Spintex', country: 'Ghana' },
-  //   };
-  //   
-  //   const location = KNOWN_LOCATIONS[locationKey];
-  //   if (location) {
-  //     const manualLocation = { ...location, source: 'manual' };
-  //     setUserLocation(manualLocation);
-  //     localStorage.setItem('userManualLocation', JSON.stringify(manualLocation));
-  //     console.log('📍 Manual location set:', location.city);
-  //     // Refresh profiles with new location
-  //     setPage(1);
-  //     setProfiles([]);
-  //     setDisplayedProfiles([]);
-  //   }
-  // }, []);
-
-  // Filter options - Simple and clean
-  const filterOptions = useMemo(() => [
-    { id: 'all', label: 'For You', icon: <Whatshot sx={{ fontSize: 18 }} /> },
-    { id: 'nearby', label: 'Nearby', icon: <LocationOn sx={{ fontSize: 18 }} /> },
-    { id: 'online', label: 'Online', icon: <AccessTime sx={{ fontSize: 18 }} /> },
-    { id: 'verified', label: 'Verified', icon: <Verified sx={{ fontSize: 18 }} /> },
-    { id: 'trending', label: 'Top Rated', icon: <Star sx={{ fontSize: 18 }} /> },
-  ], []);
-
-  // Fetch profiles from backend recommendation engine
-  // Public access: Shows public profiles to everyone
-  // Authenticated users see all profiles (public + authenticated-only)
-  const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
-    // Cancel any in-flight request to prevent race conditions
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    abortControllerRef.current = new AbortController();
-    
-    // Track this request to ignore stale responses
-    const currentRequestId = ++requestIdRef.current;
-    
-    try {
-      if (pageNum === 1) setLoading(true);
-      else setLoadingMore(true);
-
-      const queryParams = new URLSearchParams({
-        page: pageNum.toString(),
-        limit: '24',
-        filter: activeFilter,
-        search: searchQuery,
-      });
-
-      // Add location data if available for distance-based recommendations
-      if (userLocation) {
-        // Validate coordinates before sending
-        if (userLocation.lat != null && userLocation.lng != null && 
-            !isNaN(userLocation.lat) && !isNaN(userLocation.lng)) {
-          queryParams.set('userLat', parseFloat(userLocation.lat).toFixed(6));
-          queryParams.set('userLng', parseFloat(userLocation.lng).toFixed(6));
-        }
-        // Also send city and country for country-first filtering
-        if (userLocation.city) {
-          queryParams.set('userCity', userLocation.city);
-        }
-        if (userLocation.country) {
-          queryParams.set('userCountry', userLocation.country);
-        }
-        if (userLocation.source) {
-          queryParams.set('locationSource', userLocation.source);
-        }
-        if (userLocation.confidence != null) {
-          queryParams.set('locationConfidence', userLocation.confidence);
-        }
-        if (userLocation.accuracy) {
-          queryParams.set('locationAccuracy', userLocation.accuracy);
-        }
-      }
-
-      // Add auth token for personalized recommendations
-      const headers = {};
-      const token = localStorage.getItem('token');
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/users/profiles?${queryParams}`, { 
-        headers,
-        signal: abortControllerRef.current.signal 
-      });
-      
-      // Ignore stale responses from cancelled or outdated requests
-      if (currentRequestId !== requestIdRef.current) {
-        return;
-      }
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch profiles');
-      }
-
-      const data = await response.json();
-      
-      if (!data.users || !Array.isArray(data.users)) {
-        throw new Error('Invalid response');
-      }
-
-      // Process profiles - backend now provides recommendation data
-      const processedProfiles = data.users
-        .filter(user => {
-          // Exclude current user
-          if (isAuthenticated && String(currentUser?.id) === String(user.id)) return false;
-          if (String(reduxUser?.id) === String(user.id)) return false;
-          // Backend already filters by visibility, but double-check
-          // 'hidden' is legacy, 'authenticated' means logged-in users only
-          if (user.profile_visibility === 'hidden') return false;
-          if (user.profile_data?.profileVisibility === 'hidden') return false;
-          
-          // UBER/BOLT STYLE: Backend already applies account-type-aware filtering
-          // - Clients/Anonymous see PROVIDERS (sex workers)
-          // - Providers see CLIENTS (sex seekers)
-          // - Sugar accounts see verified PROVIDERS
-          // The backend's MongoRecommendationEngine handles this logic.
-          // We trust the backend's filtering - no need to double-check here.
-          // This allows providers to see clients in their feed.
-          
-          return true;
-        })
-        .map(user => {
-          const profileData = user.profile_data || {};
-          const basePrice = profileData.basePrice != null ? parseFloat(profileData.basePrice) : null;
-          const converted = basePrice != null ? convertPrice(basePrice) : null;
-          return {
-            id: user.id,
-            username: user.username,
-            profileData,
-            verificationTier: parseInt(user.verification_tier) || 1,
-            trustScore: parseFloat(user.reputation_score) || 75,
-            isPremium: user.is_subscribed,
-            isOnline: user.isOnline || user.is_online || false, // From recommendation engine
-            // Use last_active date for formatting, lastSeen is pre-formatted string for display
-            lastActive: user.last_active || user.lastActive || user.created_at,
-            lastSeenLabel: user.lastSeen, // Pre-formatted: "Online now", "2 days ago", etc.
-            createdAt: user.created_at,
-            // Recommendation engine data - ensure numbers
-            distance: user.distance != null ? parseFloat(user.distance) : null,
-            distanceEstimated: user.distanceEstimated,
-            distanceSource: user.distanceSource,
-            distanceConfidence: user.distanceConfidence,
-            recommendationScore: parseFloat(user.recommendationScore) || 0,
-            successRate: parseFloat(user.successRate) || 0,
-            sameCountry: user.sameCountry,
-            displayPrice: converted,
-            // Quality scoring breakdown
-            scoreBreakdown: user.scoreBreakdown || null,
-            eloRating: user.eloRating || 1200,
-            matchPercentage: user.matchPercentage || null,
-          };
-        });
-
-      if (append) {
-        setDisplayedProfiles(prev => [...prev, ...processedProfiles]);
-      } else {
-        setDisplayedProfiles(processedProfiles);
-      }
-
-      setHasMore(processedProfiles.length === 24);
-      setPage(pageNum);
-      
-      // Capture search metadata for radius expansion suggestions
-      if (data.metadata) {
-        setSearchMetadata(data.metadata);
-      }
-
-      // Track search/filter activity
-      if (searchQuery) {
-        activityTracker.trackSearch(searchQuery, { filter: activeFilter });
-      }
-
-    } catch (err) {
-      // Ignore abort errors - these are expected when cancelling requests
-      if (err.name === 'AbortError') {
-        return;
-      }
-      debugError('Error fetching profiles:', err);
-      setError(err.message);
-    } finally {
-      // Only update loading state if this is still the current request
-      if (currentRequestId === requestIdRef.current) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  }, [activeFilter, searchQuery, isAuthenticated, isSubscribed, currentUser, reduxUser, userLocation, convertPrice]);
-
-  // Cleanup abort controller on unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Initial load - fetch profiles immediately, don't wait for location
-  // Location detection runs in parallel and will trigger a refresh when complete
-  useEffect(() => {
-    fetchProfiles(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter]); // Only refetch when filter changes
-
-  // Refetch when location is detected for better results
-  useEffect(() => {
-    if (!locationLoading && userLocation) {
-      fetchProfiles(1);
-    }
-  }, [locationLoading, userLocation, fetchProfiles]);
-
-  // Sync URL search params with state
-  useEffect(() => {
-    const urlSearch = searchParams.get('search') || '';
-    if (urlSearch !== searchQuery) {
-      setSearchQuery(urlSearch);
-    }
-  }, [searchParams]); // Only run when URL params change
-
-  // Debounced search — also reset when clearing search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchProfiles(1);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchQuery, fetchProfiles]);
-
-  // Infinite scroll observer
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-          fetchProfiles(page + 1, true);
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    if (loadMoreRef.current) {
-      observer.observe(loadMoreRef.current);
-    }
-
-    return () => observer.disconnect();
-  }, [hasMore, loadingMore, loading, page, fetchProfiles]);
+  // Handle filter change — reset profiles + track
+  const handleFilterChange = useCallback((filterId) => {
+    _onFilterChange(filterId);
+    resetProfiles();
+    activityTracker.trackFilter('category', filterId);
+  }, [_onFilterChange, resetProfiles]);
 
   // Handle like
   const handleLike = useCallback((profileId) => {
     setLikedProfiles(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(profileId)) {
-        newSet.delete(profileId);
-      } else {
-        newSet.add(profileId);
-      }
+      if (newSet.has(profileId)) newSet.delete(profileId);
+      else newSet.add(profileId);
       return newSet;
     });
   }, []);
@@ -1757,19 +1196,6 @@ const ProfileFeed = () => {
   const handleProfileClick = useCallback((profile) => {
     navigate(`/profile/${profile.id}`);
   }, [navigate]);
-
-  // Handle filter change
-  const handleFilterChange = useCallback((filterId) => {
-    setActiveFilter(filterId);
-    setPage(1);
-    setDisplayedProfiles([]);
-    activityTracker.trackFilter('category', filterId);
-  }, []);
-
-  // Handle search input change
-  const handleSearchChange = useCallback((value) => {
-    setSearchQuery(value);
-  }, []);
 
   // ============================================
   // RENDER PROFILE FEED (Public Access Allowed)
@@ -2051,8 +1477,8 @@ const ProfileFeed = () => {
                 <Button
                   variant="outlined"
                   onClick={() => {
-                    setSearchQuery('');
-                    setActiveFilter('all');
+                    resetFilters();
+                    resetProfiles();
                     fetchProfiles(1, false);
                   }}
                   sx={{
@@ -2078,68 +1504,10 @@ const ProfileFeed = () => {
         open={showLocationPicker}
         onClose={() => setShowLocationPicker(false)}
         currentLocation={userLocation}
-        countryCode={userCountry || detectedCountry || 'ghana'}
+        countryCode={countryKey}
         onSelectLocation={async (location) => {
-          debugLog('📍 Location selected:', location.name, location.lat, location.lng);
-          
-          // Determine country from location data or user country
-          const selectedCountry = location.country || userCountry || detectedCountry || 'Unknown';
-          
-          // Build location object
-          const locationData = {
-            lat: location.lat,
-            lng: location.lng,
-            city: location.name,
-            country: selectedCountry,
-            district: location.district,
-            region: location.region,
-            method: location.method,
-            precision: location.precision
-          };
-          
-          // Save to localStorage for persistence
-          localStorage.setItem('userManualLocation', JSON.stringify(locationData));
-          
-          // Save to backend
-          const token = localStorage.getItem('token');
-          if (token) {
-            try {
-              const response = await fetch(`${API_BASE_URL}/api/users/me`, {
-                method: 'PUT',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                  profile_data: {
-                    location: locationData
-                  }
-                })
-              });
-              if (response.ok) {
-                debugLog('✅ Location saved to profile');
-                toast.success('Location updated successfully!');
-              }
-            } catch (error) {
-              debugError('Failed to save location to backend:', error);
-              // Still update locally even if backend fails
-            }
-          }
-          
-          setUserLocation({
-            lat: location.lat,
-            lng: location.lng,
-            city: location.name,
-            country: selectedCountry,
-            district: location.district,
-            region: location.region,
-            source: location.method,
-            precision: location.precision
-          });
-          
-          // Refetch profiles with new location
-          setPage(1);
-          setDisplayedProfiles([]);
+          await setManualLocation(location);
+          resetProfiles();
         }}
       />
     </Box>

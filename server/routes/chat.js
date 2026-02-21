@@ -119,13 +119,15 @@ router.get('/unread-count', authMiddleware, async (req, res) => {
 
     // Single aggregation pipeline — avoids a separate Conversation.find() round-trip.
     // Uses the compound index { conversationId, senderId, readAt } for efficiency.
+    const mongoose = require('mongoose');
+    const userObjId = new mongoose.Types.ObjectId(userId);
     const pipeline = [
       // 1. Find conversations the user is in
       {
         $match: {
           $or: [
-            { participant1Id: new (require('mongoose').Types.ObjectId)(userId) },
-            { participant2Id: new (require('mongoose').Types.ObjectId)(userId) }
+            { participant1Id: userObjId },
+            { participant2Id: userObjId }
           ]
         }
       },
@@ -142,7 +144,7 @@ router.get('/unread-count', authMiddleware, async (req, res) => {
                 $expr: {
                   $and: [
                     { $in: ['$conversationId', '$$convIds'] },
-                    { $ne: ['$senderId', new (require('mongoose').Types.ObjectId)(userId)] },
+                    { $ne: ['$senderId', userObjId] },
                     { $eq: [{ $ifNull: ['$readAt', null] }, null] }
                   ]
                 }
@@ -465,16 +467,10 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
       // Emit after successful commit
       req.io.to(`conversation_${conversationId}`).emit('new_message', payload);
 
-      // Get the recipient (other participant) and save notification
+      // Notify the recipient — reuse recipientId computed during membership check above
       try {
-        const conv = await Conversation.findById(conversationId).select('participant1Id participant2Id');
-        
-        if (conv) {
-          const recipientId = conv.participant1Id?.toString() === senderId ? conv.participant2Id : conv.participant1Id;
-          
-          // Get sender name for notification
-          const sender = await User.findById(senderId).select('username');
-          const senderName = sender?.username || 'Someone';
+        if (recipientId) {
+          const senderName = req.user.username || 'Someone';
           
           // Truncate message for notification preview
           const preview = content.length > 50 ? content.substring(0, 50) + '...' : content;

@@ -115,63 +115,19 @@ const MainLayout = ({ children, showNavigation = true }) => {
     );
   }
   
-  // Full-screen mode (TikTok feed) - completely immersive, no chrome
+  // Full-screen mode (TikTok feed) - use MobileShell with fullBleed for unified viewport handling
   if (isFullScreen) {
     return (
-      <Box
-        sx={{
-          position: 'fixed',
-          inset: 0,
-          width: '100%',
-          maxWidth: '100%',
-          height: '100vh',
-          bgcolor: '#000',
-          display: 'flex',
-          flexDirection: 'column',
-          // Prevent any overscroll
-          overscrollBehavior: 'none',
-          touchAction: 'manipulation',
-          // CRITICAL: Explicit overflow prevention
-          overflow: 'hidden',
-          overflowX: 'hidden',
-          boxSizing: 'border-box',
-          '@supports (height: 100dvh)': {
-            height: '100dvh',
-          },
-        }}
+      <MobileShell
+        header={null}
+        bottomNav={showNavigation ? <MobileBottomNav /> : null}
+        showHeader={false}
+        showBottomNav={showNavigation}
+        isFullBleed={true}
+        overlayNav={true}
       >
-        {/* Full screen content - takes all space */}
-        <Box 
-          sx={{ 
-            flex: 1, 
-            position: 'relative', 
-            overflow: 'hidden', // Content handles its own scrolling
-            overflowX: 'hidden', // CRITICAL: Prevent horizontal scroll
-            maxWidth: '100%',
-          }}
-        >
-          {children}
-        </Box>
-        
-        {/* Bottom nav overlaid on content with gradient fade */}
-        {showNavigation && (
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              zIndex: 100,
-              // TikTok-style gradient fade
-              background: 'linear-gradient(0deg, rgba(0,0,0,0.98) 0%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.5) 75%, transparent 100%)',
-              pt: 4,
-              pb: 'env(safe-area-inset-bottom, 0px)',
-            }}
-          >
-            <MobileBottomNav />
-          </Box>
-        )}
-      </Box>
+        {children}
+      </MobileShell>
     );
   }
   

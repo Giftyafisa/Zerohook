@@ -424,7 +424,8 @@ class EscrowManager {
       }
 
       // Create a new transaction for the provider showing they earned the money
-      const platformFee = transaction.amount * 0.05; // 5% platform fee
+      const platformFeePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT || '5') / 100;
+      const platformFee = Math.round(transaction.amount * platformFeePercent * 100) / 100; // Round to 2 decimal places
       const providerAmount = transaction.amount - platformFee;
 
       await Transaction.create({
@@ -441,10 +442,33 @@ class EscrowManager {
           originalEscrowId: transaction._id.toString(),
           originalAmount: transaction.amount,
           platformFee: platformFee,
+          platformFeePercent: platformFeePercent * 100,
           description: 'Escrow funds released',
           releaseType: releaseType
         }
       });
+
+      // Record platform fee as a separate transaction for accurate revenue tracking
+      if (platformFee > 0) {
+        await Transaction.create({
+          amount: platformFee,
+          currency: transaction.currency,
+          payment_method: 'platform_fee',
+          reference: `FEE_${transaction.reference}`,
+          status: 'completed',
+          type: 'platform_fee',
+          metadata: {
+            originalEscrowId: transaction._id.toString(),
+            originalAmount: transaction.amount,
+            providerAmount: providerAmount,
+            providerId: transaction.provider_id?.toString(),
+            clientId: transaction.client_id?.toString(),
+            description: `Platform fee (${platformFeePercent * 100}%) from escrow release`,
+            releaseType: releaseType
+          }
+        });
+        console.log(`💰 Platform fee collected: ${transaction.currency}${platformFee} from escrow ${transaction.reference}`);
+      }
 
       // Update reputation scores positively for successful transaction
       await User.findByIdAndUpdate(transaction.client_id, {
@@ -670,6 +694,10 @@ class EscrowManager {
         
         console.log(`✅ Dispute resolved in favor of client - Escrow refunded: ${transaction.reference}`);
       } else {
+        // Persist dispute resolution data BEFORE releasing (releaseFundsToProvider uses atomic findOneAndUpdate
+        // which would overwrite without saving dispute_data first)
+        await transaction.save();
+        
         // Release to provider — do NOT pre-set status; releaseFundsToProvider handles it atomically
         await this.releaseFundsToProvider(transaction, 'dispute_resolved_provider');
         

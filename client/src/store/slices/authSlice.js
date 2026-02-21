@@ -1,6 +1,9 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import authAPI from '../../services/authAPI';
 
+// In-memory storage for refresh token (not localStorage for security)
+let _refreshToken = null;
+
 // Async thunks
 export const loginUser = createAsyncThunk(
   'auth/loginUser',
@@ -8,6 +11,7 @@ export const loginUser = createAsyncThunk(
     try {
       const response = await authAPI.login(credentials);
       localStorage.setItem('token', response.token);
+      _refreshToken = response.refreshToken || null;
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || { error: 'Login failed' });
@@ -21,6 +25,7 @@ export const registerUser = createAsyncThunk(
     try {
       const response = await authAPI.register(userData);
       localStorage.setItem('token', response.token);
+      _refreshToken = response.refreshToken || null;
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || { error: 'Registration failed' });
@@ -32,8 +37,9 @@ export const refreshToken = createAsyncThunk(
   'auth/refreshToken',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await authAPI.refresh();
+      const response = await authAPI.refresh(_refreshToken);
       localStorage.setItem('token', response.token);
+      _refreshToken = response.refreshToken || null;
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || { error: 'Token refresh failed' });
@@ -110,6 +116,7 @@ const authSlice = createSlice({
   reducers: {
     logout: (state) => {
       localStorage.removeItem('token');
+      _refreshToken = null;
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;

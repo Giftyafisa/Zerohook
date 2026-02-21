@@ -1,10 +1,12 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authMiddleware } = require('./auth');
-const { Subscription, SubscriptionPlan, User } = require('../config/database');
+const { Subscription, SubscriptionPlan, User, Transaction } = require('../config/database');
 const mongoose = require('mongoose');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
+const NotificationService = require('../services/NotificationService');
 const router = express.Router();
+const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 // Per-route rate limiter: 5 subscription creations per 15 min per IP
 const subLimiter = new RateLimiterMemory({ points: 5, duration: 900 });
@@ -23,9 +25,8 @@ const subRateLimit = async (req, res, next) => {
 
 const adminMiddleware = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.userId).select('profile_data verification_tier is_admin');
-    const isAdmin = user?.is_admin === true ||
-      user?.verification_tier >= 5;
+    const user = await User.findById(req.user.userId).select('is_admin role');
+    const isAdmin = user?.is_admin === true || user?.role === 'admin';
 
     if (!isAdmin) {
       return res.status(403).json({ success: false, error: 'Admin access required' });
@@ -96,7 +97,7 @@ router.post('/create', authMiddleware, subRateLimit, [
   body('amount').isNumeric(),
   body('currency').isString().isLength({ min: 3, max: 3 }),
   body('countryCode').isString().isLength({ min: 2, max: 2 }),
-  body('cryptoSymbol').optional().isIn(['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC']).withMessage('Invalid crypto')
+  body('cryptoSymbol').optional().isIn(SUPPORTED_SETTLEMENT_CRYPTOS).withMessage('Invalid crypto')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -109,6 +110,14 @@ router.post('/create', authMiddleware, subRateLimit, [
     }
 
     const { planId, amount, currency, countryCode, cryptoSymbol = 'USDT' } = req.body;
+    const normalizedSymbol = String(cryptoSymbol || '').toUpperCase();
+
+    if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(normalizedSymbol)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported crypto. Allowed: ${SUPPORTED_SETTLEMENT_CRYPTOS.join(', ')}`
+      });
+    }
     const userId = req.user.userId;
 
     // Get the actual plan ID from the database if planId is a string identifier
@@ -122,12 +131,12 @@ router.post('/create', authMiddleware, subRateLimit, [
     }
 
     // Convert fiat amount to crypto using live rates
-    const conversion = await req.currencyManager.fiatToCrypto(amount, currency.toUpperCase(), cryptoSymbol);
+    const conversion = await req.currencyManager.fiatToCrypto(amount, currency.toUpperCase(), normalizedSymbol);
 
     // Create crypto payment invoice
     const invoice = await req.cryptoPaymentManager.createPaymentInvoice({
       cryptoAmount: parseFloat(conversion.cryptoAmount.toFixed(8)),
-      cryptoSymbol,
+      cryptoSymbol: normalizedSymbol,
       fiatAmount: amount,
       fiatCurrency: currency.toUpperCase(),
       userId,
@@ -157,7 +166,7 @@ router.post('/create', authMiddleware, subRateLimit, [
       status: 'pending'
     });
 
-    console.log(`🪙 Crypto subscription created: ${invoice.reference} - ${conversion.cryptoAmount} ${cryptoSymbol} (${currency} ${amount})`);
+    console.log(`🪙 Crypto subscription created: ${invoice.reference} - ${conversion.cryptoAmount} ${normalizedSymbol} (${currency} ${amount})`);
 
     res.json({
       success: true,
@@ -167,7 +176,7 @@ router.post('/create', authMiddleware, subRateLimit, [
         reference: invoice.reference,
         address: invoice.address,
         cryptoAmount: conversion.cryptoAmount,
-        cryptoSymbol,
+        cryptoSymbol: normalizedSymbol,
         fiatAmount: amount,
         fiatCurrency: currency.toUpperCase(),
         network: invoice.network,
@@ -220,9 +229,12 @@ router.post('/verify-payment', authMiddleware, subRateLimit, [
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
+    const sixMonthsFromNow = new Date();
+    sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+
     const subscriptionUpdate = await Subscription.findOneAndUpdate(
       { crypto_reference: paymentReference, user_id: userObjectId },
-      { status: 'active', activated_at: new Date() },
+      { status: 'active', activated_at: new Date(), expires_at: sixMonthsFromNow },
       { new: true }
     );
 
@@ -231,9 +243,6 @@ router.post('/verify-payment', authMiddleware, subRateLimit, [
     }
 
     // Update user subscription status (6-month subscription) — fail loudly if user update breaks
-    const sixMonthsFromNow = new Date();
-    sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-
     const userUpdate = await User.findByIdAndUpdate(userObjectId, {
       is_subscribed: true,
       subscription_tier: 'premium',
@@ -247,6 +256,28 @@ router.post('/verify-payment', authMiddleware, subRateLimit, [
     }
 
     console.log(`✅ User subscription updated: ${userId} (tier: premium, expires: 6 months)`);
+
+    // Record subscription payment into Transaction ledger (idempotent)
+    await Transaction.updateOne(
+      { reference: paymentReference, user_id: userObjectId, type: 'subscription' },
+      {
+        $setOnInsert: {
+          amount: subscriptionUpdate.amount,
+          currency: subscriptionUpdate.currency,
+          payment_method: 'crypto',
+          status: 'completed',
+          type: 'subscription',
+          country_code: subscriptionUpdate.country_code || null,
+          metadata: {
+            subscriptionId: subscriptionUpdate._id.toString(),
+            planId: subscriptionUpdate.plan_id?.toString() || null,
+            description: 'Subscription payment'
+          },
+          confirmed_at: new Date()
+        }
+      },
+      { upsert: true }
+    );
     
     console.log(`✅ Crypto payment verified and subscription activated for user: ${userId}`);
 
@@ -256,6 +287,18 @@ router.post('/verify-payment', authMiddleware, subRateLimit, [
         isSubscribed: true,
         status: 'active',
         timestamp: new Date().toISOString()
+      });
+
+      await NotificationService.createAndEmit(req.io, {
+        userId,
+        type: 'payment',
+        title: 'Subscription Activated',
+        message: 'Your premium subscription is now active.',
+        data: {
+          subscriptionId: subscriptionUpdate._id.toString(),
+          paymentReference,
+          expiresAt: sixMonthsFromNow
+        }
       });
     }
 
@@ -352,15 +395,9 @@ router.post('/verify-payment-manual', authMiddleware, adminMiddleware, async (re
 });
 
 // Activate all pending subscriptions for a user (ADMIN ONLY - for fixing existing issues)
-router.post('/activate-all-pending', authMiddleware, async (req, res) => {
+router.post('/activate-all-pending', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-
-    // SECURITY: Only allow admin users to activate pending subscriptions
-    const callingUser = await User.findById(userId).select('role').lean();
-    if (!callingUser || callingUser.role !== 'admin') {
-      return res.status(403).json({ success: false, error: 'Admin access required' });
-    }
 
     // Admin specifies which user to activate for (not self-service)
     const targetUserId = req.body.targetUserId || userId;
@@ -470,7 +507,12 @@ router.post('/verify-payment-by-reference', authMiddleware, async (req, res) => 
         if (verificationResult.success && verificationResult.status === 'confirmed') {
           await Subscription.findByIdAndUpdate(payment._id, {
             status: 'active',
-            activated_at: new Date()
+            activated_at: new Date(),
+            expires_at: (() => {
+              const date = new Date();
+              date.setMonth(date.getMonth() + 6);
+              return date;
+            })()
           });
 
           const sixMonthsFromNow = new Date();
@@ -481,6 +523,41 @@ router.post('/verify-payment-by-reference', authMiddleware, async (req, res) => 
             subscription_tier: 'premium',
             subscription_expires_at: sixMonthsFromNow
           });
+
+          await Transaction.updateOne(
+            { reference: paymentReference, user_id: payment.user_id, type: 'subscription' },
+            {
+              $setOnInsert: {
+                amount: payment.amount,
+                currency: payment.currency,
+                payment_method: 'crypto',
+                status: 'completed',
+                type: 'subscription',
+                country_code: payment.country_code || null,
+                metadata: {
+                  subscriptionId: payment._id.toString(),
+                  planId: payment.plan_id?.toString() || null,
+                  description: 'Subscription payment (polling verification)'
+                },
+                confirmed_at: new Date()
+              }
+            },
+            { upsert: true }
+          );
+
+          if (req.io) {
+            await NotificationService.createAndEmit(req.io, {
+              userId: payment.user_id.toString(),
+              type: 'payment',
+              title: 'Subscription Activated',
+              message: 'Your premium subscription is now active.',
+              data: {
+                subscriptionId: payment._id.toString(),
+                paymentReference,
+                expiresAt: sixMonthsFromNow
+              }
+            });
+          }
 
           console.log(`✅ Crypto payment verified for user: ${payment.user_id.toString()}`);
           

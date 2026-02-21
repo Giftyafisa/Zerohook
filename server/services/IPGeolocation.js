@@ -6,7 +6,10 @@
 
 class IPGeolocation {
   constructor() {
-    this.apiKey = process.env.IP_GEOLOCATION_API_KEY || '1d24707d2a554ee697b852f28dd6533e';
+    this.apiKey = process.env.IP_GEOLOCATION_API_KEY || '';
+    if (!this.apiKey) {
+      console.warn('⚠️  IP_GEOLOCATION_API_KEY not set – IP geolocation will be disabled');
+    }
     this.baseUrl = 'https://api.ipgeolocation.io';
     this.cache = new Map(); // Simple in-memory cache
     this.cacheExpiry = 24 * 60 * 60 * 1000; // 24 hours cache

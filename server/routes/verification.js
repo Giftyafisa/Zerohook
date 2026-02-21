@@ -394,22 +394,70 @@ router.post('/request-upgrade', authMiddleware, [
 });
 
 // Helper functions
+
+/**
+ * Verify phone OTP against stored verification record.
+ * Looks up the most recent unexpired OTP for this phone number.
+ */
 async function verifyOTP(phoneNumber, otp) {
-  // In production, integrate with SMS service
-  // For now, return true for testing
-  return true;
+  if (!phoneNumber || !otp) return false;
+  try {
+    const { VerificationRequest } = require('../config/database');
+    const record = await VerificationRequest.findOne({
+      'verification_data.phone': phoneNumber,
+      'verification_data.otp_hash': otp.toString(), // Compare against stored OTP
+      'verification_data.otp_expires': { $gt: new Date() },
+      status: 'pending'
+    }).sort({ created_at: -1 });
+    return !!record;
+  } catch (error) {
+    console.error('OTP verification error:', error);
+    return false;
+  }
 }
 
+/**
+ * Verify email OTP against stored verification record.
+ */
 async function verifyEmailOTP(email, otp) {
-  // In production, integrate with email service
-  // For now, return true for testing
-  return true;
+  if (!email || !otp) return false;
+  try {
+    const { VerificationRequest } = require('../config/database');
+    const record = await VerificationRequest.findOne({
+      'verification_data.email': email.toLowerCase(),
+      'verification_data.otp_hash': otp.toString(),
+      'verification_data.otp_expires': { $gt: new Date() },
+      status: 'pending'
+    }).sort({ created_at: -1 });
+    return !!record;
+  } catch (error) {
+    console.error('Email OTP verification error:', error);
+    return false;
+  }
 }
 
+/**
+ * Verify social account ownership.
+ * In production, integrate with platform APIs (TikTok, Instagram, etc.).
+ * Currently validates that the user submitted a verification request with matching details.
+ */
 async function verifySocialAccount(platform, username, verificationUrl) {
-  // In production, use platform APIs for verification
-  // For now, return true for testing
-  return true;
+  if (!platform || !username) return false;
+  try {
+    const { VerificationRequest } = require('../config/database');
+    // Check that a pending verification request exists for this social account
+    const record = await VerificationRequest.findOne({
+      'verification_data.platform': platform,
+      'verification_data.social_username': username,
+      status: 'pending'
+    }).sort({ created_at: -1 });
+    // For now, social verification requires admin approval (returns false to block auto-approve)
+    // Admin can manually approve via the admin panel
+    return false;
+  } catch (error) {
+    console.error('Social verification error:', error);
+    return false;
+  }
 }
 
 function calculateVerificationProgress(verificationData, currentTier) {

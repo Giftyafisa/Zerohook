@@ -691,15 +691,21 @@ const MyMoneyPage = () => {
       }
 
       // Show crypto payment dialog
-      if (data.walletAddress) {
+      const depositAddress = data.address || data.walletAddress;
+      if (depositAddress) {
         setAddMoneyDialog(false);
         setAddAmount('');
         setCryptoPaymentData({
-          walletAddress: data.walletAddress,
+          address: depositAddress,
+          walletAddress: depositAddress,
           cryptoAmount: data.cryptoAmount,
           cryptoSymbol: data.cryptoSymbol || cryptoSymbol,
           reference: data.reference,
-          expiresAt: data.expiresAt
+          expiresAt: data.expiresAt,
+          network: data.network,
+          fiatAmount: data.fiatAmount,
+          fiatCurrency: data.currency,
+          rate: data.rate
         });
         setShowCryptoPayment(true);
         setActionLoading(false);
@@ -1324,7 +1330,7 @@ const MyMoneyPage = () => {
 
         {/* Crypto Method Tabs */}
         <Box sx={styles.paymentTabs}>
-          {['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'].map((crypto) => (
+          {['BTC', 'ETH', 'USDT', 'USDC'].map((crypto) => (
             <Box 
               key={crypto}
               sx={{ 
@@ -1492,7 +1498,7 @@ const MyMoneyPage = () => {
           <Box sx={{ ...styles.amountInputSection, mt: 2 }}>
             <Typography sx={styles.amountLabel}>Crypto Currency</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'SOL', 'LTC'].map((sym) => (
+              {['USDT', 'USDC', 'BTC', 'ETH'].map((sym) => (
                 <Chip
                   key={sym}
                   label={sym}
@@ -1813,7 +1819,7 @@ const MyMoneyPage = () => {
         open={showCryptoPayment}
         onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
         paymentData={cryptoPaymentData}
-        onPaymentConfirmed={handleCryptoDepositConfirmed}
+        onSuccess={handleCryptoDepositConfirmed}
         title="Crypto Deposit"
       />
     </Box>

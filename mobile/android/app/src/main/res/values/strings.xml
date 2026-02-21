@@ -74,7 +74,7 @@
     <string name="transaction_history">Transaction History</string>
     <string name="no_transactions">No transactions yet</string>
     <string name="escrow_active">Active Escrow</string>
-    <string name="secured_with_paystack">Secured with Paystack</string>
+    <string name="secured_with_paystack">Secured with Blockchain Escrow</string>
     
     <!-- Subscription -->
     <string name="go_premium">Go Premium</string>

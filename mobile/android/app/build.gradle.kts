@@ -10,6 +10,13 @@ android {
     namespace = "com.zerohook.app"
     compileSdk = 35
 
+    // Read API URLs from local.properties (per-machine), falling back to production
+    val localProps = rootProject.file("local.properties").let { f ->
+        java.util.Properties().apply { if (f.exists()) load(f.inputStream()) }
+    }
+    val apiBaseUrl: String = localProps.getProperty("API_BASE_URL", "https://zerohook-api.onrender.com/api")
+    val socketUrl: String  = localProps.getProperty("SOCKET_URL",   "https://zerohook-api.onrender.com")
+
     defaultConfig {
         applicationId = "com.zerohook.app"
         minSdk = 26
@@ -23,17 +30,17 @@ android {
             useSupportLibrary = true
         }
 
-        // Build config fields for API
-        buildConfigField("String", "API_BASE_URL", "\"https://zerohook-api.onrender.com/api\"")
-        buildConfigField("String", "SOCKET_URL", "\"https://zerohook-api.onrender.com\"")
+        // Build config fields for API — values come from local.properties or defaults above
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "SOCKET_URL",   "\"$socketUrl\"")
     }
 
     buildTypes {
         debug {
             isDebuggable = true
-            // Use production API for physical device testing
-            buildConfigField("String", "API_BASE_URL", "\"https://zerohook-api.onrender.com/api\"")
-            buildConfigField("String", "SOCKET_URL", "\"https://zerohook-api.onrender.com\"")
+            // Debug can override via local.properties; defaults to same production URL
+            buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            buildConfigField("String", "SOCKET_URL",   "\"$socketUrl\"")
         }
         release {
             isMinifyEnabled = true
@@ -42,8 +49,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            buildConfigField("String", "API_BASE_URL", "\"https://zerohook-api.onrender.com/api\"")
-            buildConfigField("String", "SOCKET_URL", "\"https://zerohook-api.onrender.com\"")
+            buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            buildConfigField("String", "SOCKET_URL",   "\"$socketUrl\"")
         }
     }
     

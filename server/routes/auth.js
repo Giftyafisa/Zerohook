@@ -1,20 +1,31 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User, FraudLog } = require('../config/database');
+const crypto = require('crypto');
+const { User, FraudLog, RefreshToken } = require('../config/database');
 const { body, validationResult } = require('express-validator');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
 
-// Rate limiting for auth endpoints
-const authLimiter = new RateLimiterMemory({
-  points: 5, // Number of requests
-  duration: 900, // Per 15 minutes (900 seconds)
+// Rate limiting for auth endpoints - dual key: IP + identifier
+const authLimiterByIp = new RateLimiterMemory({
+  points: 10, // 10 attempts per IP
+  duration: 900, // Per 15 minutes
+});
+const authLimiterByIdentifier = new RateLimiterMemory({
+  points: 5, // 5 attempts per email/username
+  duration: 900, // Per 15 minutes
 });
 
 const rateLimitMiddleware = async (req, res, next) => {
   try {
-    await authLimiter.consume(req.ip);
+    // Always limit by IP
+    await authLimiterByIp.consume(req.ip);
+    // Also limit by email/username if provided (prevents credential stuffing)
+    const identifier = req.body?.email || req.body?.username;
+    if (identifier) {
+      await authLimiterByIdentifier.consume(identifier.toLowerCase());
+    }
     next();
   } catch (rejRes) {
     res.status(429).json({ success: false, error: 'Too many authentication attempts, please try again later.' });
@@ -25,13 +36,66 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.trim().length < 32) {
   throw new Error('JWT_SECRET is missing or too weak. Set a strong secret (min 32 chars).');
 }
-const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
+const JWT_EXPIRE = process.env.JWT_EXPIRE || '15m'; // Short-lived access token (was 7d)
+const REFRESH_TOKEN_EXPIRE_DAYS = 30; // Refresh token lives 30 days
+
+/**
+ * Generate a cryptographically secure refresh token and persist it.
+ * Returns { refreshToken, family }
+ */
+async function generateRefreshToken(userId, family, req) {
+  const token = crypto.randomBytes(40).toString('hex');
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
+
+  await RefreshToken.create({
+    userId,
+    token,
+    family: family || crypto.randomBytes(20).toString('hex'),
+    expiresAt,
+    userAgent: req?.get?.('User-Agent') || '',
+    ipAddress: req?.ip || ''
+  });
+
+  return token;
+}
+
+/**
+ * Generate a short-lived JWT access token.
+ */
+function generateAccessToken(user) {
+  return jwt.sign(
+    {
+      userId: user._id.toString(),
+      username: user.username,
+      verificationTier: user.verification_tier
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRE }
+  );
+}
+
+/**
+ * Set refresh token as an HttpOnly cookie (web clients) while also
+ * returning it in the response body (mobile clients need it).
+ */
+function setRefreshTokenCookie(res, refreshToken) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: isProduction,           // HTTPS only in production
+    sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin production
+    maxAge: REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60 * 1000,
+    path: '/api/auth'               // Only sent to auth endpoints
+  });
+}
 
 /**
  * Generate a unique username from firstName and lastName
  */
 const generateUsername = async (firstName, lastName) => {
-  const base = `${firstName || 'user'}${lastName ? '_' + lastName : ''}`.toLowerCase().replace(/[^a-z0-9_]/g, '');
+  // Truncate base upfront to leave room for counter suffix (max 4 digits)
+  const raw = `${firstName || 'user'}${lastName ? '_' + lastName : ''}`.toLowerCase().replace(/[^a-z0-9_]/g, '');
+  const base = raw.substring(0, 26);
   let username = base;
   let counter = 1;
   
@@ -40,9 +104,14 @@ const generateUsername = async (firstName, lastName) => {
     if (!existing) break;
     username = `${base}${counter}`;
     counter++;
+    if (counter > 9999) {
+      // Fallback: append random suffix
+      username = `${base}${Date.now().toString(36).slice(-4)}`;
+      break;
+    }
   }
   
-  return username.substring(0, 30); // Ensure max 30 chars
+  return username; // Already ≤30 chars (26 base + 4 counter)
 };
 
 /**
@@ -243,21 +312,16 @@ router.post('/register', rateLimitMiddleware, [
       fraudAnalysis.requiresVerification ? -5 : 5 // Penalty if suspicious
     );
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user._id.toString(),
-        username: user.username,
-        verificationTier: user.verification_tier
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRE }
-    );
+    // Generate JWT access token + refresh token
+    const token = generateAccessToken(user);
+    const refreshToken = await generateRefreshToken(user._id, null, req);
+    setRefreshTokenCookie(res, refreshToken);
 
     // Return user data (excluding sensitive info)
     res.status(201).json({
       message: 'Registration successful',
       token,
+      refreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -368,16 +432,10 @@ router.post('/login', rateLimitMiddleware, [
     // Update last active timestamp
     await User.findByIdAndUpdate(user._id, { last_active: new Date() });
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user._id.toString(),
-        username: user.username,
-        verificationTier: user.verification_tier
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRE }
-    );
+    // Generate JWT access token + refresh token
+    const token = generateAccessToken(user);
+    const refreshToken = await generateRefreshToken(user._id, null, req);
+    setRefreshTokenCookie(res, refreshToken);
 
     // Record trust event for successful login
     await req.trustEngine.recordTrustEvent(
@@ -394,6 +452,7 @@ router.post('/login', rateLimitMiddleware, [
     res.json({
       message: 'Login successful',
       token,
+      refreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -483,34 +542,74 @@ router.post('/verify-tier', authMiddleware, [
 
 /**
  * @route   POST /api/auth/refresh
- * @desc    Refresh JWT token
- * @access  Private
+ * @desc    Rotate refresh token and issue new access + refresh tokens
+ * @access  Public (uses refresh token, not access token)
  */
-router.post('/refresh', authMiddleware, async (req, res) => {
+router.post('/refresh', async (req, res) => {
   try {
-    const userId = req.user.userId;
-    
-    // Get fresh user data
-    const user = await User.findById(userId);
+    // Accept refresh token from cookie (web) or body (mobile)
+    const incomingToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
-    if (!user) {
-      return res.status(401).json({ success: false, error: 'User not found' });
+    if (!incomingToken) {
+      return res.status(400).json({ success: false, error: 'Refresh token is required' });
     }
 
-    // Generate new token
-    const token = jwt.sign(
-      { 
-        userId: user._id,
-        username: user.username,
-        verificationTier: user.verification_tier
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRE }
-    );
+    // Find the refresh token in DB
+    const storedToken = await RefreshToken.findOne({ token: incomingToken });
+
+    if (!storedToken) {
+      return res.status(401).json({ success: false, error: 'Invalid refresh token' });
+    }
+
+    // Check if token was already revoked (reuse detection)
+    if (storedToken.revoked) {
+      // Token reuse detected — revoke entire family (possible theft)
+      await RefreshToken.updateMany(
+        { family: storedToken.family },
+        { $set: { revoked: true } }
+      );
+      console.warn(`⚠️ Refresh token reuse detected for user ${storedToken.userId}, family ${storedToken.family} — all tokens revoked`);
+      return res.status(401).json({ success: false, error: 'Token reuse detected. Please log in again.' });
+    }
+
+    // Check expiry
+    if (storedToken.expiresAt < new Date()) {
+      return res.status(401).json({ success: false, error: 'Refresh token expired' });
+    }
+
+    // Get fresh user data
+    const user = await User.findById(storedToken.userId);
+    if (!user || user.status === 'suspended') {
+      return res.status(401).json({ success: false, error: 'User not found or suspended' });
+    }
+
+    // Rotate: revoke old token, create new one in the same family
+    const newRefreshToken = crypto.randomBytes(40).toString('hex');
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
+
+    // Mark old token as revoked and point to new one
+    storedToken.revoked = true;
+    storedToken.replacedBy = newRefreshToken;
+    await storedToken.save();
+
+    // Create new refresh token in DB
+    await RefreshToken.create({
+      userId: user._id,
+      token: newRefreshToken,
+      family: storedToken.family,
+      expiresAt,
+      userAgent: req.get('User-Agent') || '',
+      ipAddress: req.ip || ''
+    });
+
+    // Generate new access token
+    const token = generateAccessToken(user);
+    setRefreshTokenCookie(res, newRefreshToken);
 
     res.json({
       message: 'Token refreshed successfully',
       token,
+      refreshToken: newRefreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -524,20 +623,32 @@ router.post('/refresh', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Token refresh error:', error);
-    res.status(500).json({ success: false, error: 'Token refresh failed'
-    });
+    res.status(500).json({ success: false, error: 'Token refresh failed' });
   }
 });
 
 /**
  * @route   POST /api/auth/logout
- * @desc    Logout user (client-side token invalidation)
+ * @desc    Logout user and revoke all refresh tokens for this user
  * @access  Private
  */
-router.post('/logout', authMiddleware, (req, res) => {
-  // In a more sophisticated setup, you might maintain a blacklist of tokens
-  // For now, we rely on client-side token removal
-  res.json({ success: true, message: 'Logged out successfully' });
+router.post('/logout', authMiddleware, async (req, res) => {
+  try {
+    // Revoke all refresh tokens for this user
+    const userId = req.user.userId;
+    await RefreshToken.updateMany(
+      { userId, revoked: false },
+      { $set: { revoked: true } }
+    );
+    // Clear the httpOnly cookie
+    res.clearCookie('refreshToken', { path: '/api/auth' });
+    // Invalidate auth cache
+    invalidateCachedUser(userId);
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.json({ success: true, message: 'Logged out successfully' });
+  }
 });
 
 /**

@@ -96,6 +96,12 @@ const CryptoPayment = ({
     try {
       setStatus('checking');
       const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Your session has expired. Please login again.');
+        setStatus('failed');
+        return false;
+      }
+
       const response = await fetch(`${API_BASE_URL}/payments/verify-inline`, {
         method: 'POST',
         headers: {
@@ -106,9 +112,22 @@ const CryptoPayment = ({
       });
       
       const data = await response.json();
+
+      if (data?.status === 'expired') {
+        setStatus('expired');
+        setError(data?.error || data?.message || 'Invoice has expired. Create a new deposit invoice.');
+        return false;
+      }
+
+      if (response.status === 401) {
+        setStatus('failed');
+        setError('Authentication failed. Please login again.');
+        return false;
+      }
       
       if (data.success && (data.status === 'confirmed' || data.status === 'already_verified')) {
         setStatus('confirmed');
+        setError(null);
         onSuccess?.(data);
         return true;
       } else {
@@ -117,7 +136,8 @@ const CryptoPayment = ({
       }
     } catch (err) {
       console.error('Payment check error:', err);
-      setStatus('pending');
+      setStatus('failed');
+      setError('Could not verify payment right now. Please try again.');
       return false;
     }
   }, [paymentData?.reference, onSuccess]);
@@ -221,6 +241,11 @@ const CryptoPayment = ({
         {error && (
           <Alert severity="warning" sx={{ mb: 2, bgcolor: 'rgba(255, 165, 0, 0.1)', color: '#ffa500' }}>
             {error}
+          </Alert>
+        )}
+        {(status === 'expired' || status === 'failed') && (
+          <Alert severity="info" sx={{ mb: 2, bgcolor: 'rgba(0, 242, 234, 0.1)', color: '#00f2ea', fontSize: '0.85rem' }}>
+            If you already sent crypto to the address above, don't worry — your deposit is recorded and will be confirmed by an admin within 24 hours. You'll receive a notification once it's credited.
           </Alert>
         )}
 

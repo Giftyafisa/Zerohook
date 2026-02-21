@@ -31,7 +31,7 @@ router.get('/', authMiddleware, async (req, res) => {
       filter.status = status;
     }
 
-    const [transactions, totalCount] = await Promise.all([
+    const [transactions, totalCount, summaryAgg] = await Promise.all([
       Transaction.find(filter)
         .populate({
           path: 'service_id',
@@ -42,7 +42,30 @@ router.get('/', authMiddleware, async (req, res) => {
         .skip(skip)
         .limit(limit)
         .lean(),
-      Transaction.countDocuments(filter)
+      Transaction.countDocuments(filter),
+      // Compute summary from ALL matching transactions (not just the current page)
+      Transaction.aggregate([
+        { $match: filter },
+        { $facet: {
+          completed: [
+            { $match: { status: 'completed' } },
+            { $group: { 
+              _id: null, 
+              count: { $sum: 1 },
+              earnings: { $sum: { $cond: [{ $eq: ['$provider_id', userObjectId] }, '$amount', 0] } },
+              spent: { $sum: { $cond: [{ $eq: ['$client_id', userObjectId] }, '$amount', 0] } }
+            }}
+          ],
+          pending: [
+            { $match: { status: 'pending' } },
+            { $count: 'count' }
+          ],
+          cancelled: [
+            { $match: { status: 'cancelled' } },
+            { $count: 'count' }
+          ]
+        }}
+      ])
     ]);
 
     const formattedTransactions = transactions.map((transaction) => ({
@@ -63,24 +86,17 @@ router.get('/', authMiddleware, async (req, res) => {
       user_role: transaction.client_id?.toString() === userId ? 'client' : 'provider'
     }));
 
-    const summary = formattedTransactions.reduce((acc, transaction) => {
-      acc.total_transactions += 1;
-      if (transaction.status === 'completed') {
-        acc.completed_transactions += 1;
-        if (transaction.provider_id === userId) acc.total_earnings += Number(transaction.amount || 0);
-        if (transaction.client_id === userId) acc.total_spent += Number(transaction.amount || 0);
-      }
-      if (transaction.status === 'pending') acc.pending_transactions += 1;
-      if (transaction.status === 'cancelled') acc.cancelled_transactions += 1;
-      return acc;
-    }, {
-      total_transactions: 0,
-      completed_transactions: 0,
-      pending_transactions: 0,
-      cancelled_transactions: 0,
-      total_earnings: 0,
-      total_spent: 0
-    });
+    // Extract summary from aggregation (computed over ALL matching transactions)
+    const summaryData = summaryAgg[0] || {};
+    const completedData = summaryData.completed?.[0] || {};
+    const summary = {
+      total_transactions: totalCount,
+      completed_transactions: completedData.count || 0,
+      pending_transactions: summaryData.pending?.[0]?.count || 0,
+      cancelled_transactions: summaryData.cancelled?.[0]?.count || 0,
+      total_earnings: completedData.earnings || 0,
+      total_spent: completedData.spent || 0
+    };
 
     res.json({
       success: true,

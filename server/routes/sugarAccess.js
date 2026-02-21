@@ -18,6 +18,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { User, SugarAccessPayment } = require('../config/database');
 const { authMiddleware } = require('./auth');
+const requireSubscription = require('../middleware/requireSubscription');
 const router = express.Router();
 
 // Sugar access pricing (in NGN)
@@ -141,7 +142,7 @@ router.get('/status', authMiddleware, async (req, res) => {
  * @desc    Initialize a sugar access payment via crypto
  * @access  Private (Providers only)
  */
-router.post('/initialize', authMiddleware, async (req, res) => {
+router.post('/initialize', authMiddleware, requireSubscription(), async (req, res) => {
   try {
     const userId = req.user.userId;
     const { accessType, cryptoSymbol = 'USDT' } = req.body;

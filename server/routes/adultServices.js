@@ -1,5 +1,6 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
+const requireSubscription = require('../middleware/requireSubscription');
 const AdultServiceManager = require('../services/AdultServiceManager');
 const PrivacyManager = require('../services/PrivacyManager');
 const router = express.Router();
@@ -112,22 +113,12 @@ router.get('/', async (req, res) => {
   } catch (error) {
     console.error('Get adult services error:', error);
     
-    // Return mock data if database is unavailable (for UI testing)
-    // Also return mock for any other errors so UI can still function
     const errorMsg = error?.message || '';
-    const isDbError = errorMsg.includes('buffering timed out') || 
-                      errorMsg.includes('connection') ||
-                      errorMsg.includes('ECONNREFUSED') ||
-                      errorMsg.includes('MongoNetworkError') ||
-                      errorMsg.includes('User not found') ||
-                      errorMsg.includes('Cannot read') ||
-                      errorMsg.includes('is not a function') ||
-                      error.name === 'MongoError' ||
-                      error.name === 'CastError';
-    
-    // Always return mock data on error so UI doesn't break
-    console.log('⚠️ Returning mock adult services data due to error:', errorMsg);
-    const mockServices = [
+
+    // In development: return mock data so UI can still function during dev
+    if (process.env.NODE_ENV === 'development') {
+      console.log('⚠️ [DEV] Returning mock adult services data due to error:', errorMsg);
+      const mockServices = [
         {
           id: 'mock-1',
           title: 'Premium Companionship',
@@ -188,8 +179,114 @@ router.get('/', async (req, res) => {
         services: mockServices,
         pagination: { page: 1, limit: 20, hasMore: false },
         _mock: true,
-        _error: process.env.NODE_ENV === 'development' ? errorMsg : undefined
+        _error: errorMsg
       });
+    }
+
+    // In production: return proper error (don't mask real bugs with fake data)
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch adult services',
+      services: [],
+      pagination: { page: 1, limit: 20, hasMore: false }
+    });
+  }
+});
+
+/**
+ * @route   GET /api/adult-services/user/:userId
+ * @desc    Get user's adult service listings
+ * @access  Private (owner or verified users)
+ */
+router.get('/user/:userId', authMiddleware, async (req, res) => {
+  try {
+    const targetUserId = req.params.userId;
+    const requestingUserId = req.user.userId;
+
+    if (targetUserId !== requestingUserId.toString() && req.user.verification_tier < 2) {
+      return res.status(403).json({ 
+        error: 'Advanced verification required to view other users\' services' 
+      });
+    }
+
+    const userServices = await adultServiceManager.getUserServices(targetUserId);
+    res.json({ services: userServices });
+
+  } catch (error) {
+    console.error('Get user services error:', error);
+    res.status(500).json({ error: 'Failed to get user services' });
+  }
+});
+
+/**
+ * @route   GET /api/adult-services/search/:term
+ * @desc    Search adult services
+ * @access  Public (with privacy filtering)
+ */
+router.get('/search/:term', async (req, res) => {
+  try {
+    const searchTerm = req.params.term;
+    const { category, minPrice, maxPrice } = req.query;
+
+    const filters = {
+      category,
+      minPrice: minPrice ? parseFloat(minPrice) : null,
+      maxPrice: maxPrice ? parseFloat(maxPrice) : null
+    };
+
+    const searchResults = await adultServiceManager.searchServices(searchTerm, filters);
+    
+    const filteredResults = await Promise.all(
+      searchResults.map(async (service) => {
+        try {
+          const visibleData = await privacyManager.getVisibleProfileData(service.user_id);
+          return { ...service, provider: visibleData };
+        } catch (error) {
+          console.error('Privacy filtering error for search result:', service.id, error);
+          return {
+            ...service,
+            provider: {
+              username: service.username,
+              verification_tier: service.verification_tier,
+              trust_score_range: privacyManager.getTrustScoreRange(service.trust_score),
+              is_verified: service.is_verified
+            }
+          };
+        }
+      })
+    );
+
+    res.json({ 
+      searchResults: filteredResults,
+      searchTerm,
+      totalResults: filteredResults.length
+    });
+
+  } catch (error) {
+    console.error('Search adult services error:', error);
+    res.status(500).json({ error: 'Failed to search adult services' });
+  }
+});
+
+/**
+ * @route   GET /api/adult-services/stats
+ * @desc    Get adult service statistics
+ * @access  Public
+ */
+router.get('/stats', async (req, res) => {
+  try {
+    const stats = await adultServiceManager.getServiceStats();
+    const categories = adultServiceManager.getServiceCategories();
+    
+    res.json({ 
+      stats,
+      categories,
+      totalCategories: categories.length
+    });
+
+  } catch (error) {
+    console.error('Get adult service stats error:', error);
+    res.status(500).json({ error: 'Failed to get adult service statistics' });
   }
 });
 
@@ -228,9 +325,9 @@ router.get('/:id', async (req, res) => {
  * @desc    Create new adult service listing
  * @access  Private (requires authentication and verification tier 2+)
  */
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, requireSubscription(), async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     
     // Check if user has required verification tier
     if (req.user.verification_tier < 2) {
@@ -294,7 +391,7 @@ router.post('/', authMiddleware, async (req, res) => {
 router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const serviceId = req.params.id;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     const updateData = {
       title: req.body.title,
@@ -346,7 +443,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const serviceId = req.params.id;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     const deletedService = await adultServiceManager.deleteServiceListing(serviceId, userId);
 
@@ -362,109 +459,6 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Delete adult service error:', error);
     res.status(500).json({ error: 'Failed to delete adult service listing' });
-  }
-});
-
-/**
- * @route   GET /api/adult-services/user/:userId
- * @desc    Get user's adult service listings
- * @access  Private (owner or verified users)
- */
-router.get('/user/:userId', authMiddleware, async (req, res) => {
-  try {
-    const targetUserId = req.params.userId;
-    const requestingUserId = req.user.id;
-
-    // Check if requesting user can view target user's services
-    if (targetUserId !== requestingUserId.toString() && req.user.verification_tier < 2) {
-      return res.status(403).json({ 
-        error: 'Advanced verification required to view other users\' services' 
-      });
-    }
-
-    const userServices = await adultServiceManager.getUserServices(targetUserId);
-    
-    res.json({ services: userServices });
-
-  } catch (error) {
-    console.error('Get user services error:', error);
-    res.status(500).json({ error: 'Failed to get user services' });
-  }
-});
-
-/**
- * @route   GET /api/adult-services/search/:term
- * @desc    Search adult services
- * @access  Public (with privacy filtering)
- */
-router.get('/search/:term', async (req, res) => {
-  try {
-    const searchTerm = req.params.term;
-    const { category, minPrice, maxPrice } = req.query;
-
-    const filters = {
-      category,
-      minPrice: minPrice ? parseFloat(minPrice) : null,
-      maxPrice: maxPrice ? parseFloat(maxPrice) : null
-    };
-
-    const searchResults = await adultServiceManager.searchServices(searchTerm, filters);
-    
-    // Apply privacy filtering to search results
-    const filteredResults = await Promise.all(
-      searchResults.map(async (service) => {
-        try {
-          const visibleData = await privacyManager.getVisibleProfileData(service.user_id);
-          return {
-            ...service,
-            provider: visibleData
-          };
-        } catch (error) {
-          console.error('Privacy filtering error for search result:', service.id, error);
-          return {
-            ...service,
-            provider: {
-              username: service.username,
-              verification_tier: service.verification_tier,
-              trust_score_range: privacyManager.getTrustScoreRange(service.trust_score),
-              is_verified: service.is_verified
-            }
-          };
-        }
-      })
-    );
-
-    res.json({ 
-      searchResults: filteredResults,
-      searchTerm,
-      totalResults: filteredResults.length
-    });
-
-  } catch (error) {
-    console.error('Search adult services error:', error);
-    res.status(500).json({ error: 'Failed to search adult services' });
-  }
-});
-
-/**
- * @route   GET /api/adult-services/stats
- * @desc    Get adult service statistics
- * @access  Public
- */
-router.get('/stats', async (req, res) => {
-  try {
-    const stats = await adultServiceManager.getServiceStats();
-    const categories = adultServiceManager.getServiceCategories();
-    
-    res.json({ 
-      stats,
-      categories,
-      totalCategories: categories.length
-    });
-
-  } catch (error) {
-    console.error('Get adult service stats error:', error);
-    res.status(500).json({ error: 'Failed to get adult service statistics' });
   }
 });
 

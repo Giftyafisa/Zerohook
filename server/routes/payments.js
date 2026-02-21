@@ -149,10 +149,18 @@ router.post('/confirm', authMiddleware, paymentRateLimit, [
       return res.status(400).json({ success: false, error: status.error });
     }
 
+    // Validate userId format
+    let userObjectId;
+    try {
+      userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+
     // If confirmed, update transaction in DB
     if (status.status === 'confirmed') {
       const transaction = await Transaction.findOneAndUpdate(
-        { reference, user_id: mongoose.Types.ObjectId.createFromHexString(userId) },
+        { reference, user_id: userObjectId },
         {
           $set: {
             status: 'completed',
@@ -216,12 +224,21 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { page = 1, limit = 10, status, type } = req.query;
     
-    const userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjectId;
+    try {
+      userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const matchQuery = {
       $or: [
         { user_id: userObjectId },
+        { client_id: userObjectId },
+        { provider_id: userObjectId }
+      ]
+    };
         { client_id: userObjectId },
         { provider_id: userObjectId }
       ]
@@ -438,7 +455,12 @@ router.get('/balance', authMiddleware, async (req, res) => {
     let pendingTransactions = 0;
     let currency = 'USD';
     
-    const userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjectId;
+    try {
+      userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
     
     try {
       const spentResult = await Transaction.aggregate([
@@ -539,7 +561,12 @@ router.get('/wallet', authMiddleware, async (req, res) => {
     }
     
     try {
-      const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+      let userObjId;
+      try {
+        userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+      } catch (e) {
+        return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+      }
 
       // Single $facet pipeline replaces 6 separate aggregation round-trips
       const [walletData] = await Transaction.aggregate([
@@ -674,9 +701,17 @@ router.post('/deposit', authMiddleware, async (req, res) => {
       metadata: { type: 'deposit', countryCode }
     });
 
+    // Validate userId format
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+
     // Create transaction record
     await Transaction.create({
-      user_id: mongoose.Types.ObjectId.createFromHexString(userId),
+      user_id: userObjId,
       amount: amount,
       currency: currency,
       payment_method: 'crypto',
@@ -768,31 +803,46 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid wallet address format' });
     }
 
-    // Check available balance
-    const userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    // Check available balance using atomic $facet aggregation (single DB round-trip)
+    let userObjectId;
+    try {
+      userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
     
-    const depositResult = await Transaction.aggregate([
-      { $match: { user_id: userObjectId, type: { $in: ['deposit', 'wallet_topup'] }, status: { $in: ['completed', 'confirmed'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
+    const [balanceResult] = await Transaction.aggregate([
+      { $match: { 
+        $or: [
+          { user_id: userObjectId, type: { $in: ['deposit', 'wallet_topup', 'escrow_release'] }, status: { $in: ['completed', 'confirmed'] } },
+          { user_id: userObjectId, type: 'withdrawal', status: { $in: ['completed', 'pending'] } },
+          { client_id: userObjectId, type: 'escrow_hold', status: { $in: ['pending', 'held', 'pin_entered'] } }
+        ]
+      }},
+      { $facet: {
+        deposits: [
+          { $match: { type: { $in: ['deposit', 'wallet_topup'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ],
+        escrowReleased: [
+          { $match: { type: 'escrow_release' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ],
+        withdrawn: [
+          { $match: { type: 'withdrawal' } },
+          { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
+        ],
+        escrowHeld: [
+          { $match: { type: 'escrow_hold' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]
+      }}
     ]);
     
-    const escrowReleasedResult = await Transaction.aggregate([
-      { $match: { user_id: userObjectId, type: 'escrow_release', status: { $in: ['completed', 'confirmed'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    
-    const withdrawnResult = await Transaction.aggregate([
-      { $match: { user_id: userObjectId, type: 'withdrawal', status: { $in: ['completed', 'pending'] } } },
-      { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
-    ]);
-    
-    const escrowHeldResult = await Transaction.aggregate([
-      { $match: { client_id: userObjectId, type: 'escrow_hold', status: { $in: ['pending', 'held', 'pin_entered'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    
-    const availableBalance = (depositResult[0]?.total || 0) + (escrowReleasedResult[0]?.total || 0) 
-                           - (withdrawnResult[0]?.total || 0) - (escrowHeldResult[0]?.total || 0);
+    const availableBalance = (balanceResult.deposits[0]?.total || 0) 
+                           + (balanceResult.escrowReleased[0]?.total || 0) 
+                           - (balanceResult.withdrawn[0]?.total || 0) 
+                           - (balanceResult.escrowHeld[0]?.total || 0);
     
     if (amount > availableBalance) {
       return res.status(400).json({ success: false, error: `Insufficient balance. Available: ${currencySymbol}${availableBalance.toLocaleString()}`,
@@ -800,11 +850,13 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       });
     }
 
+    // Create pending withdrawal record atomically with a unique reference
+    // The reference includes a random component to prevent duplicate submissions
+    const reference = `WD_${Date.now()}_${userId.substring(0, 8)}_${Math.random().toString(36).substring(2, 6)}`;
+
     // Convert to crypto amount
     const conversion = await req.currencyManager.fiatToCrypto(amount, currency, normalizedSymbol);
 
-    // Create pending withdrawal record (store positive amount; type='withdrawal' indicates direction)
-    const reference = `WD_${Date.now()}_${userId.substring(0, 8)}`;
     await Transaction.create({
       user_id: userObjectId,
       amount: amount,
@@ -860,10 +912,18 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Payment reference is required' });
     }
 
+    // Validate userId format
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+
     // Check if already verified
     const existingTransaction = await Transaction.findOne({ 
       reference, 
-      user_id: mongoose.Types.ObjectId.createFromHexString(userId) 
+      user_id: userObjId 
     });
 
     if (existingTransaction && existingTransaction.status === 'completed') {
@@ -888,7 +948,7 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
     
     if (status.success && status.status === 'confirmed') {
       const transaction = await Transaction.findOneAndUpdate(
-        { reference, user_id: mongoose.Types.ObjectId.createFromHexString(userId) },
+        { reference, user_id: userObjId },
         { $set: { status: 'completed', confirmed_at: new Date(), 'metadata.blockchain_verification': status.verification } },
         { new: true }
       );

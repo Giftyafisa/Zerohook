@@ -409,7 +409,7 @@ const AdultServiceDetail = () => {
             <Box display="flex" gap={1} mb={3} sx={{ overflowX: 'auto' }}>
               {service.photos.map((photo, index) => (
                 <Card
-                  key={index}
+                  key={photo}
                   sx={{
                     minWidth: isMobile ? 80 : 100,
                     cursor: 'pointer',
@@ -616,7 +616,7 @@ const AdultServiceDetail = () => {
                     </Typography>
                     <List dense>
                       {service.requirements.map((req, index) => (
-                        <ListItem key={index}>
+                        <ListItem key={req}>
                           <ListItemIcon>
                             <CheckCircle color="primary" fontSize="small" />
                           </ListItemIcon>
@@ -638,7 +638,7 @@ const AdultServiceDetail = () => {
                     </Typography>
                     <List dense>
                       {service.safety.map((item, index) => (
-                        <ListItem key={index}>
+                        <ListItem key={item}>
                           <ListItemIcon>
                             <Verified color="success" fontSize="small" />
                           </ListItemIcon>

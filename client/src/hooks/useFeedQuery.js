@@ -152,7 +152,7 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
   useEffect(() => () => { if (abortControllerRef.current) abortControllerRef.current.abort(); }, []);
 
   // Initial load + refetch on filter change
-  useEffect(() => { fetchProfiles(1); }, [activeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchProfiles(1); }, [activeFilter, fetchProfiles]);
 
   // Refetch when location detected
   useEffect(() => {

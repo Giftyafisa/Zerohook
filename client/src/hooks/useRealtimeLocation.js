@@ -281,7 +281,7 @@ const useRealtimeLocation = (options = {}) => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (watchIdRef.current !== null) {
+      if (navigator.geolocation && watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
       if (updateIntervalRef.current) {

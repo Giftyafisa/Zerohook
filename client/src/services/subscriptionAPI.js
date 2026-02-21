@@ -1,36 +1,4 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
-// Create axios instance with default config
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Handle response errors
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
+import apiClient from './apiClient';
 
 const subscriptionAPI = {
   /**
@@ -38,7 +6,7 @@ const subscriptionAPI = {
    */
   async checkStatus() {
     try {
-      const response = await api.get('/subscriptions/status');
+      const response = await apiClient.get('/subscriptions/status');
       return response.data;
     } catch (error) {
       console.error('Error checking subscription status:', error);
@@ -51,7 +19,7 @@ const subscriptionAPI = {
    */
   async createSubscription(subscriptionData) {
     try {
-      const response = await api.post('/subscriptions/create', subscriptionData);
+      const response = await apiClient.post('/subscriptions/create', subscriptionData);
       return response.data;
     } catch (error) {
       console.error('Error creating subscription:', error);
@@ -64,7 +32,7 @@ const subscriptionAPI = {
    */
   async verifyPayment(paymentReference) {
     try {
-      const response = await api.post('/subscriptions/verify-payment', {
+      const response = await apiClient.post('/subscriptions/verify-payment', {
         paymentReference
       });
       return response.data;
@@ -79,7 +47,7 @@ const subscriptionAPI = {
    */
   async verifyPaymentByReference(paymentReference) {
     try {
-      const response = await api.post('/subscriptions/verify-payment-by-reference', {
+      const response = await apiClient.post('/subscriptions/verify-payment-by-reference', {
         paymentReference
       });
       return response.data;
@@ -91,28 +59,20 @@ const subscriptionAPI = {
 
   /**
    * Get subscription history
+   * @deprecated Backend route not yet implemented - will return 404
    */
   async getHistory() {
-    try {
-      const response = await api.get('/subscriptions/history');
-      return response.data;
-    } catch (error) {
-      console.error('Error getting subscription history:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.getHistory() - Backend route /subscriptions/history not implemented');
+    return { success: false, error: 'Not implemented', data: [] };
   },
 
   /**
    * Cancel subscription
+   * @deprecated Backend route not yet implemented - will return 404
    */
   async cancelSubscription() {
-    try {
-      const response = await api.post('/subscriptions/cancel');
-      return response.data;
-    } catch (error) {
-      console.error('Error canceling subscription:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.cancelSubscription() - Backend route /subscriptions/cancel not implemented');
+    return { success: false, error: 'Not implemented' };
   },
 
   /**
@@ -120,7 +80,7 @@ const subscriptionAPI = {
    */
   async getPlans() {
     try {
-      const response = await api.get('/subscriptions/plans');
+      const response = await apiClient.get('/subscriptions/plans');
       return response.data;
     } catch (error) {
       console.error('Error getting subscription plans:', error);
@@ -130,149 +90,98 @@ const subscriptionAPI = {
 
   /**
    * Get user's current plan details
+   * @deprecated Backend route not yet implemented
    */
   async getCurrentPlan() {
-    try {
-      const response = await api.get('/subscriptions/current-plan');
-      return response.data;
-    } catch (error) {
-      console.error('Error getting current plan:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.getCurrentPlan() - Backend route not implemented');
+    return { success: false, error: 'Not implemented', data: null };
   },
 
   /**
    * Upgrade subscription plan
+   * @deprecated Backend route not yet implemented
    */
   async upgradePlan(newPlanId) {
-    try {
-      const response = await api.post('/subscriptions/upgrade', {
-        newPlanId
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error upgrading subscription:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.upgradePlan() - Backend route not implemented');
+    return { success: false, error: 'Not implemented' };
   },
 
   /**
    * Get payment methods
+   * @deprecated Crypto-only system - no stored payment methods
    */
   async getPaymentMethods() {
-    try {
-      const response = await api.get('/subscriptions/payment-methods');
-      return response.data;
-    } catch (error) {
-      console.error('Error getting payment methods:', error);
-      throw error;
-    }
+    return { success: true, data: [], message: 'Crypto-only system - no stored payment methods' };
   },
 
   /**
    * Add payment method
+   * @deprecated Crypto-only system
    */
   async addPaymentMethod(paymentMethodData) {
-    try {
-      const response = await api.post('/subscriptions/payment-methods', paymentMethodData);
-      return response.data;
-    } catch (error) {
-      console.error('Error adding payment method:', error);
-      throw error;
-    }
+    return { success: false, error: 'Crypto-only system - payment methods not applicable' };
   },
 
   /**
    * Remove payment method
+   * @deprecated Crypto-only system
    */
   async removePaymentMethod(paymentMethodId) {
-    try {
-      const response = await api.delete(`/subscriptions/payment-methods/${paymentMethodId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error removing payment method:', error);
-      throw error;
-    }
+    return { success: false, error: 'Crypto-only system - payment methods not applicable' };
   },
 
   /**
    * Get billing information
+   * @deprecated Backend route not yet implemented
    */
   async getBillingInfo() {
-    try {
-      const response = await api.get('/subscriptions/billing');
-      return response.data;
-    } catch (error) {
-      console.error('Error getting billing info:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.getBillingInfo() - Backend route not implemented');
+    return { success: false, error: 'Not implemented', data: null };
   },
 
   /**
    * Update billing information
+   * @deprecated Backend route not yet implemented
    */
   async updateBillingInfo(billingData) {
-    try {
-      const response = await api.put('/subscriptions/billing', billingData);
-      return response.data;
-    } catch (error) {
-      console.error('Error updating billing info:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.updateBillingInfo() - Backend route not implemented');
+    return { success: false, error: 'Not implemented' };
   },
 
   /**
    * Get invoices
+   * @deprecated Backend route not yet implemented
    */
   async getInvoices() {
-    try {
-      const response = await api.get('/subscriptions/invoices');
-      return response.data;
-    } catch (error) {
-      console.error('Error getting invoices:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.getInvoices() - Backend route not implemented');
+    return { success: false, error: 'Not implemented', data: [] };
   },
 
   /**
    * Download invoice
+   * @deprecated Backend route not yet implemented
    */
   async downloadInvoice(invoiceId) {
-    try {
-      const response = await api.get(`/subscriptions/invoices/${invoiceId}/download`, {
-        responseType: 'blob'
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error downloading invoice:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.downloadInvoice() - Backend route not implemented');
+    return null;
   },
 
   /**
    * Get subscription analytics
+   * @deprecated Backend route not yet implemented
    */
   async getAnalytics() {
-    try {
-      const response = await api.get('/subscriptions/analytics');
-      return response.data;
-    } catch (error) {
-      console.error('Error getting subscription analytics:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.getAnalytics() - Backend route not implemented');
+    return { success: false, error: 'Not implemented', data: null };
   },
 
   /**
    * Send support request
+   * @deprecated Backend route not yet implemented
    */
   async sendSupportRequest(supportData) {
-    try {
-      const response = await api.post('/subscriptions/support', supportData);
-      return response.data;
-    } catch (error) {
-      console.error('Error sending support request:', error);
-      throw error;
-    }
+    console.warn('subscriptionAPI.sendSupportRequest() - Backend route not implemented');
+    return { success: false, error: 'Not implemented' };
   }
 };
 

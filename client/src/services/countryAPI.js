@@ -1,22 +1,9 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import apiClient from './apiClient';
 
 // Cache keys and TTLs
 const COUNTRY_CACHE_KEY = 'zerohook_detected_country';
 const SUPPORTED_COUNTRIES_CACHE_KEY = 'zerohook_supported_countries';
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: { 'Content-Type': 'application/json' }
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
 
 const countryAPI = {
   async detectCountry() {
@@ -40,7 +27,7 @@ const countryAPI = {
       
       // SECURITY FIX: Route all IP detection through backend to avoid exposing API keys
       // Backend handles IP detection via request headers or server-side API calls
-      const response = await api.post('/countries/detect', {});
+      const response = await apiClient.post('/countries/detect', {});
       
       if (process.env.NODE_ENV !== 'production') {
         console.log('🌍 countryAPI response:', response.data);
@@ -79,7 +66,7 @@ const countryAPI = {
         }
       }
 
-      const response = await api.get('/countries');
+      const response = await apiClient.get('/countries');
       
       // Cache the result
       sessionStorage.setItem(SUPPORTED_COUNTRIES_CACHE_KEY, JSON.stringify({
@@ -96,7 +83,7 @@ const countryAPI = {
 
   async getUserCountryPreference() {
     try {
-      const response = await api.get('/countries/user/preference');
+      const response = await apiClient.get('/countries/user/preference');
       return response.data;
     } catch (error) {
       console.error('Error getting user country preference:', error);
@@ -106,7 +93,7 @@ const countryAPI = {
 
   async setPreference(countryCode) {
     try {
-      const response = await api.put('/countries/user/preference', { countryCode });
+      const response = await apiClient.put('/countries/user/preference', { countryCode });
       return response.data;
     } catch (error) {
       console.error('Error setting country preference:', error);

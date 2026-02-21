@@ -44,6 +44,107 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// Magic-byte validation for uploaded files (post-upload verification)
+// Checks actual file content signatures to prevent MIME-spoofing attacks
+const MAGIC_BYTES = {
+  // Images
+  'image/jpeg': [Buffer.from([0xFF, 0xD8, 0xFF])],
+  'image/png':  [Buffer.from([0x89, 0x50, 0x4E, 0x47])],
+  'image/gif':  [Buffer.from('GIF87a'), Buffer.from('GIF89a')],
+  'image/webp': [Buffer.from('RIFF')], // RIFF....WEBP (check first 4 bytes + offset 8)
+  // Videos
+  'video/mp4':           [Buffer.from([0x00, 0x00, 0x00]), Buffer.from('ftyp')], // offset 4
+  'video/quicktime':     [Buffer.from([0x00, 0x00, 0x00]), Buffer.from('ftyp')],
+  'video/x-msvideo':     [Buffer.from('RIFF')],
+  'video/webm':          [Buffer.from([0x1A, 0x45, 0xDF, 0xA3])],
+  'video/x-matroska':    [Buffer.from([0x1A, 0x45, 0xDF, 0xA3])],
+  'video/x-flv':         [Buffer.from('FLV')],
+  'video/x-ms-wmv':      [Buffer.from([0x30, 0x26, 0xB2, 0x75])],
+};
+
+/**
+ * Validate file content by reading first bytes and comparing to known magic numbers.
+ * @param {string} filePath - Path to the uploaded file on disk
+ * @param {string} mimetype - Declared MIME type
+ * @returns {Promise<boolean>} true if valid or unknown type, false if spoofed
+ */
+async function validateMagicBytes(filePath, mimetype) {
+  try {
+    const fd = await fs.promises.open(filePath, 'r');
+    const buf = Buffer.alloc(12);
+    await fd.read(buf, 0, 12, 0);
+    await fd.close();
+
+    const mime = (mimetype || '').toLowerCase();
+
+    // JPEG: FF D8 FF
+    if (mime === 'image/jpeg') {
+      return buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+    }
+    // PNG: 89 50 4E 47
+    if (mime === 'image/png') {
+      return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+    }
+    // GIF: GIF87a or GIF89a
+    if (mime === 'image/gif') {
+      const sig = buf.slice(0, 6).toString('ascii');
+      return sig === 'GIF87a' || sig === 'GIF89a';
+    }
+    // WebP: RIFF....WEBP
+    if (mime === 'image/webp') {
+      return buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP';
+    }
+    // MP4/MOV: ....ftyp at offset 4
+    if (mime === 'video/mp4' || mime === 'video/quicktime') {
+      return buf.slice(4, 8).toString('ascii') === 'ftyp';
+    }
+    // AVI: RIFF
+    if (mime === 'video/x-msvideo') {
+      return buf.slice(0, 4).toString('ascii') === 'RIFF';
+    }
+    // WebM/MKV: 1A 45 DF A3
+    if (mime === 'video/webm' || mime === 'video/x-matroska') {
+      return buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3;
+    }
+    // FLV: FLV
+    if (mime === 'video/x-flv') {
+      return buf.slice(0, 3).toString('ascii') === 'FLV';
+    }
+    // WMV: 30 26 B2 75
+    if (mime === 'video/x-ms-wmv') {
+      return buf[0] === 0x30 && buf[1] === 0x26 && buf[2] === 0xB2 && buf[3] === 0x75;
+    }
+    // Unknown MIME — allow (the extension+MIME filter already passed)
+    return true;
+  } catch {
+    // If we can't read the file, reject it
+    return false;
+  }
+}
+
+/**
+ * Middleware to validate magic bytes after multer has saved the file.
+ * If validation fails, the file is deleted and an error is returned.
+ */
+function magicByteValidation(req, res, next) {
+  if (!req.file) return next();
+  // Only validate local files (Cloudinary handles its own validation)
+  if (req.file.path && !req.file.path.includes('cloudinary.com')) {
+    validateMagicBytes(req.file.path, req.file.mimetype).then(valid => {
+      if (!valid) {
+        // Delete the spoofed file
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ 
+          error: 'File content does not match its declared type. Upload rejected.' 
+        });
+      }
+      next();
+    }).catch(() => next());
+  } else {
+    next();
+  }
+}
+
 // Dynamic upload middleware that uses Cloudinary if available
 const getUploadMiddleware = (type = 'profile') => {
   return (req, res, next) => {
@@ -97,7 +198,7 @@ const getFileUrl = (file, cloudinaryManager) => {
 // Chat attachment upload endpoint (image/video/file) - uses Cloudinary if available
 router.post('/chat-attachment', authMiddleware, (req, res, next) => {
   getUploadMiddleware('chat')(req, res, next);
-}, async (req, res) => {
+}, magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -148,7 +249,7 @@ router.post('/chat-attachment', authMiddleware, (req, res, next) => {
 // Profile picture upload endpoint - uses Cloudinary if available
 router.post('/profile-picture', authMiddleware, (req, res, next) => {
   getUploadMiddleware('profile')(req, res, next);
-}, async (req, res) => {
+}, magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -241,7 +342,7 @@ const serviceUpload = multer({
   fileFilter: fileFilter
 });
 
-router.post('/service-media', authMiddleware, serviceUpload.array('media', 10), async (req, res) => {
+router.post('/service-media', authMiddleware, serviceUpload.array('media', 10), magicByteValidation, async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
@@ -342,7 +443,7 @@ const videoUpload = multer({
   fileFilter: videoFileFilter
 });
 
-router.post('/user-video', authMiddleware, videoUpload.single('video'), async (req, res) => {
+router.post('/user-video', authMiddleware, videoUpload.single('video'), magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No video uploaded' });
@@ -491,7 +592,7 @@ const contentUpload = multer({
   fileFilter: fileFilter
 });
 
-router.post('/content', authMiddleware, contentUpload.single('media'), async (req, res) => {
+router.post('/content', authMiddleware, contentUpload.single('media'), magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No media file uploaded' });
@@ -741,33 +842,43 @@ router.post('/content/:contentId/like', authMiddleware, async (req, res) => {
     const { contentId } = req.params;
     const userId = req.user.userId;
 
-    const content = await FileUpload.findById(contentId);
-    if (!content) {
-      return res.status(404).json({ error: 'Content not found' });
-    }
-
-    const likedBy = content.metadata?.likedBy || [];
-    const alreadyLiked = likedBy.some(id => id.toString() === userId.toString());
-
-    let update;
-    if (alreadyLiked) {
-      // Unlike: remove from likedBy and decrement likes
-      update = await FileUpload.findByIdAndUpdate(contentId, {
-        $pull: { 'metadata.likedBy': userId },
-        $inc: { 'metadata.likes': -1 }
-      }, { new: true });
-    } else {
-      // Like: add to likedBy and increment likes
-      update = await FileUpload.findByIdAndUpdate(contentId, {
+    // Atomic like toggle: try $addToSet first, check if it actually added
+    const addResult = await FileUpload.findOneAndUpdate(
+      { _id: contentId, 'metadata.likedBy': { $ne: userId } },
+      {
         $addToSet: { 'metadata.likedBy': userId },
         $inc: { 'metadata.likes': 1 }
-      }, { new: true });
+      },
+      { new: true }
+    );
+
+    if (addResult) {
+      // User was not in likedBy → like added
+      return res.json({
+        success: true,
+        liked: true,
+        likes: addResult.metadata?.likes || 0
+      });
+    }
+
+    // addResult is null → either content doesn't exist or user already liked
+    const removeResult = await FileUpload.findOneAndUpdate(
+      { _id: contentId, 'metadata.likedBy': userId },
+      {
+        $pull: { 'metadata.likedBy': userId },
+        $inc: { 'metadata.likes': -1 }
+      },
+      { new: true }
+    );
+
+    if (!removeResult) {
+      return res.status(404).json({ error: 'Content not found' });
     }
 
     res.json({
       success: true,
-      liked: !alreadyLiked,
-      likes: update?.metadata?.likes || 0
+      liked: false,
+      likes: removeResult.metadata?.likes || 0
     });
 
   } catch (error) {

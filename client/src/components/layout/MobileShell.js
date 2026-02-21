@@ -23,7 +23,7 @@
  * @module components/layout/MobileShell
  */
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Box } from '@mui/material';
 import { styled } from '@mui/system';
 import tokens from '../../theme/tokens';
@@ -156,6 +156,26 @@ const MobileShell = ({
   overlayNav = false,
   contentStyle = {},
 }) => {
+  // Track soft keyboard visibility via visualViewport API
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  const handleViewportResize = useCallback(() => {
+    if (window.visualViewport) {
+      // If the visual viewport height is significantly less than the window height,
+      // the soft keyboard is open
+      const isKeyboard = window.visualViewport.height < window.innerHeight * 0.75;
+      setKeyboardOpen(isKeyboard);
+    }
+  }, []);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', handleViewportResize);
+      return () => vv.removeEventListener('resize', handleViewportResize);
+    }
+  }, [handleViewportResize]);
+
   return (
     <ShellContainer>
       {/* Fixed Header */}
@@ -172,13 +192,15 @@ const MobileShell = ({
         {children}
       </ContentRegion>
       
-      {/* Fixed Bottom Nav */}
-      <NavRegion 
-        hasBottomNav={showBottomNav && bottomNav}
-        isOverlay={overlayNav}
-      >
-        {showBottomNav && bottomNav}
-      </NavRegion>
+      {/* Fixed Bottom Nav — hide when soft keyboard is open to avoid overlap */}
+      {!keyboardOpen && (
+        <NavRegion 
+          hasBottomNav={showBottomNav && bottomNav}
+          isOverlay={overlayNav}
+        >
+          {showBottomNav && bottomNav}
+        </NavRegion>
+      )}
     </ShellContainer>
   );
 };

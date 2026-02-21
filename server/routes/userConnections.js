@@ -2,21 +2,12 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authMiddleware } = require('./auth');
 const mongoose = require('mongoose');
+const { UserConnection } = require('../config/database');
 const UserConnectionManager = require('../services/UserConnectionManager');
 const NotificationService = require('../services/NotificationService');
 
 const router = express.Router();
 const connectionManager = new UserConnectionManager();
-
-const userConnectionSchema = new mongoose.Schema({
-  from_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  to_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  connection_type: { type: String, default: 'contact_request' },
-  message: { type: String, default: '' },
-  status: { type: String, default: 'pending' }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
-
-const UserConnection = mongoose.models.UserConnection || mongoose.model('UserConnection', userConnectionSchema);
 
 /**
  * @route   GET /api/connections/check-status/:otherUserId

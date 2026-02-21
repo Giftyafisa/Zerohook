@@ -201,8 +201,14 @@ router.put('/me', authMiddleware, async (req, res) => {
       'location', 'photos', 'services', 'availability', 'specializations',
       'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
       'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
-      'profilePhoto', 'coverPhoto', 'gallery'
+      'profilePhoto', 'coverPhoto', 'gallery', 'accountType'
     ];
+
+    // Validate accountType if being changed
+    const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
+    if (incomingData?.accountType && !VALID_ACCOUNT_TYPES.includes(incomingData.accountType)) {
+      return res.status(400).json({ error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
+    }
 
     // Build the update object
     const updateObj = { updated_at: new Date() };
@@ -512,7 +518,11 @@ const handleBrowseProfiles = async (req, res) => {
     // ============================================
     // STEP 4: DETERMINE ACCOUNT TYPE FILTER
     // ============================================
-    const viewerAccountType = currentUser?.accountType || 'client';
+    // accountType can be at top-level OR inside profile_data depending on how it was saved
+    const viewerAccountType = currentUser?.accountType 
+      || currentUser?.profile_data?.accountType 
+      || currentUser?.profileData?.accountType 
+      || 'client';
     let accountTypeFilter = 'provider'; // Default: show providers
     
     if (viewerAccountType === 'provider') {

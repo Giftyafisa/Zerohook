@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useCallback, useRef } from
 import { useSelector, useDispatch } from 'react-redux';
 import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction, logout as logoutAction, setInitialized } from '../store/slices/authSlice';
 import { detectUserCountry, getSupportedCountries, fetchExchangeRates } from '../store/slices/countrySlice';
+import { clearExchangeRateCache } from '../services/exchangeRateAPI';
 
 const AuthContext = createContext({});
 
@@ -106,8 +107,7 @@ export const AuthProvider = ({ children }) => {
   const logout = useCallback(() => {
     console.log('🚪 Logging out user...');
     localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    dispatch(logoutAction());
+    localStorage.removeItem('user');    clearExchangeRateCache();    dispatch(logoutAction());
   }, [dispatch]);
 
   return (

@@ -187,7 +187,7 @@ router.post('/assess-risk', authMiddleware, async (req, res) => {
     console.error('Assess risk error:', error);
     res.status(500).json({
       error: 'Failed to assess transaction risk',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });

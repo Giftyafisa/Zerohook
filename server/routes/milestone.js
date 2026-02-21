@@ -1,20 +1,8 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
 const mongoose = require('mongoose');
-const { User, Transaction } = require('../config/database');
+const { User, Transaction, MilestoneRequest } = require('../config/database');
 const router = express.Router();
-
-const milestoneRequestSchema = new mongoose.Schema({
-  sender_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  recipient_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  amount: { type: Number, required: true },
-  description: { type: String, default: '' },
-  request_type: { type: String, enum: ['provider_request', 'client_request'], default: 'provider_request' },
-  status: { type: String, enum: ['pending', 'accepted', 'declined', 'paid'], default: 'pending' },
-  escrow_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
-
-const MilestoneRequest = mongoose.models.MilestoneRequest || mongoose.model('MilestoneRequest', milestoneRequestSchema);
 
 const getAvatar = (user) => user?.profile_data?.profilePicture || user?.profile_data?.avatar || null;
 
@@ -48,8 +36,12 @@ router.post('/request', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Recipient and amount are required' });
     }
 
-    if (amount < 500) {
-      return res.status(400).json({ error: 'Minimum amount is ₦500' });
+    // Dynamic minimum based on currency (equivalent of ~$0.50 USD)
+    const currencyMinimums = { NGN: 500, GHS: 10, KES: 100, ZAR: 15, UGX: 3000, TZS: 2000, USD: 1, GBP: 1, EUR: 1 };
+    const userCurrency = req.user?.currency || 'NGN';
+    const minAmount = currencyMinimums[userCurrency] || 500;
+    if (amount < minAmount) {
+      return res.status(400).json({ error: `Minimum amount is ${minAmount} ${userCurrency}` });
     }
 
     if (!mongoose.Types.ObjectId.isValid(senderId) || !mongoose.Types.ObjectId.isValid(recipientId)) {
@@ -211,7 +203,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
         escrowId: escrowTransaction._id.toString(),
         amount,
         clientId,
-        message: `₦${amount.toLocaleString()} has been held for your service!`
+        message: `${amount.toLocaleString()} has been held for your service!`
       });
     }
 

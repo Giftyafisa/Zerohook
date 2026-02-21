@@ -58,7 +58,12 @@ class CurrencyManager {
       GBP: { name: 'British Pound', symbol: '£' }
     };
     
-    // Fallback rates (used when APIs are unreachable)
+    // Fallback rates (used when ALL APIs are unreachable)
+    // ⚠️ STALENESS WARNING: These are approximate rates as of June 2025.
+    // They WILL become inaccurate over time. If both ExchangeRate-API and
+    // Frankfurter are down, these provide a degraded-but-functional experience.
+    // Update periodically if API outages are frequent.
+    this._fallbackRatesDate = '2025-06-01';
     this.fallbackCryptoRatesUSD = {
       BTC: 67000, ETH: 3500, USDT: 1.0, USDC: 1.0,
       BNB: 600, SOL: 170, LTC: 85
@@ -154,27 +159,66 @@ class CurrencyManager {
     }
   }
 
-  // ============ FIAT RATES (Frankfurter) ============
+  // ============ FIAT RATES (ExchangeRate-API + Frankfurter fallback) ============
 
   /**
-   * Fetch live fiat exchange rates (base USD) from Frankfurter
-   * @returns {Object} { NGN: 1600, GHS: 15.5, ... }
+   * Fetch live fiat exchange rates (base USD)
+   * Primary: ExchangeRate-API (supports African currencies: NGN, GHS, KES, etc.)
+   * Fallback: Frankfurter (ECB, major currencies only)
+   * Final fallback: Hardcoded rates
+   * @returns {Object} { rates: { NGN: 1600, GHS: 15.5, ... }, timestamp, source }
    */
   async fetchFiatRates() {
     const cacheKey = 'fiat_rates_usd';
     const cached = this.fiatCache.get(cacheKey);
     if (cached) return cached;
 
+    // Thundering herd protection
+    if (this._fiatFetchPromise) return this._fiatFetchPromise;
+
+    this._fiatFetchPromise = this._doFetchFiatRates(cacheKey);
     try {
-      // Frankfurter uses ECB rates - only supports ~30 major currencies
-      // It does NOT support African currencies (NGN, GHS, KES, UGX, TZS, RWF, BWP, ZMW, MWK)
-      // So we fetch what we can, then fill gaps with fallback rates
+      return await this._fiatFetchPromise;
+    } finally {
+      this._fiatFetchPromise = null;
+    }
+  }
+
+  async _doFetchFiatRates(cacheKey) {
+    // Try ExchangeRate-API first (supports all African currencies)
+    try {
+      const response = await axios.get(
+        'https://open.er-api.com/v6/latest/USD',
+        { timeout: 10000 }
+      );
+
+      if (response.data && response.data.rates) {
+        // Filter to only our supported currencies
+        const allRates = response.data.rates;
+        const rates = { USD: 1 };
+        for (const currency of Object.keys(this.fiatCurrencies)) {
+          if (allRates[currency]) {
+            rates[currency] = allRates[currency];
+          } else {
+            // Use fallback for any missing currency
+            rates[currency] = this.fallbackFiatRatesUSD[currency] || 1;
+          }
+        }
+
+        const result = { rates, timestamp: Date.now(), source: 'exchangerate-api' };
+        this.fiatCache.set(cacheKey, result);
+        console.log('💱 Fiat rates fetched from ExchangeRate-API (supports African currencies)');
+        return result;
+      }
+    } catch (error) {
+      console.warn('ExchangeRate-API error, trying Frankfurter fallback:', error.message);
+    }
+
+    // Fallback to Frankfurter (doesn't support African currencies but has EUR/GBP)
+    try {
       const symbols = Object.keys(this.fiatCurrencies).filter(c => c !== 'EUR').join(',');
       const response = await axios.get(`${this.frankfurterBase}/latest`, {
-        params: {
-          from: 'USD',
-          to: symbols
-        },
+        params: { from: 'USD', to: symbols },
         timeout: 10000
       });
 
@@ -184,11 +228,13 @@ class CurrencyManager {
       this.fiatCache.set(cacheKey, result);
       return result;
     } catch (error) {
-      console.error('Frankfurter API error:', error.message);
+      console.error('Frankfurter API also failed:', error.message);
+      const daysSinceFallback = Math.floor((Date.now() - new Date(this._fallbackRatesDate).getTime()) / 86400000);
+      console.warn(`⚠️ Using hardcoded fallback rates from ${this._fallbackRatesDate} (${daysSinceFallback} days old). Exchange rates may be inaccurate!`);
       return {
         rates: this.fallbackFiatRatesUSD,
         timestamp: Date.now(),
-        source: 'fallback'
+        source: 'fallback-stale'
       };
     }
   }

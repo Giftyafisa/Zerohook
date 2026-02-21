@@ -180,7 +180,7 @@ router.post('/disputes/:id/resolve', authMiddleware, adminMiddleware, async (req
     console.error('Resolve dispute error:', error);
     res.status(500).json({ 
       error: 'Failed to resolve dispute',
-      message: error.message 
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error' 
     });
   }
 });
@@ -319,7 +319,7 @@ router.post('/unban/:userId', authMiddleware, adminMiddleware, async (req, res) 
     console.error('Process unban error:', error);
     res.status(500).json({ 
       error: 'Failed to process unban request',
-      message: error.message 
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error' 
     });
   }
 });
@@ -385,6 +385,9 @@ router.get('/user/:userId/history', authMiddleware, adminMiddleware, async (req,
     const userId = req.params.userId;
     const { User, Transaction } = require('../config/database');
     
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid ID format' });
+    }
     const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
     
     const user = await User.findById(userObjId).select(
@@ -638,6 +641,9 @@ router.post('/withdrawals/:id/approve', authMiddleware, adminMiddleware, async (
     const { id } = req.params;
     const { txHash, notes } = req.body; // txHash = blockchain transaction hash after admin sends funds
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid ID format' });
+    }
     const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
     
     const withdrawal = await Transaction.findOneAndUpdate(
@@ -688,6 +694,9 @@ router.post('/withdrawals/:id/reject', authMiddleware, adminMiddleware, async (r
     const { id } = req.params;
     const { reason } = req.body;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid ID format' });
+    }
     const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
 
     const withdrawal = await Transaction.findOneAndUpdate(
@@ -785,8 +794,14 @@ router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) 
 
     // Create admin fee withdrawal transaction
     const reference = `ADMIN_FEE_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    let adminUserObjId;
+    try {
+      adminUserObjId = mongoose.Types.ObjectId.createFromHexString(req.user.userId);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
     const withdrawal = await Transaction.create({
-      user_id: mongoose.Types.ObjectId.createFromHexString(req.user.userId),
+      user_id: adminUserObjId,
       amount,
       currency: 'USD',
       type: 'admin_fee_withdrawal',
@@ -832,6 +847,9 @@ router.post('/deposits/:id/confirm', authMiddleware, adminMiddleware, async (req
     const { id } = req.params;
     const { txHash, notes } = req.body;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid ID format' });
+    }
     const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
     
     const deposit = await Transaction.findOneAndUpdate(

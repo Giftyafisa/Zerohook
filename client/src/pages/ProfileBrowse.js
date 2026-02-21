@@ -1853,7 +1853,7 @@ const ProfileBrowse = () => {
                     <Box display="flex" flexWrap="wrap" gap={0.5}>
                       {profile.profileData.languages.slice(0, 3).map((lang, index) => (
                         <Chip 
-                          key={index} 
+                          key={lang} 
                           label={lang} 
                           size="small" 
                           variant="outlined"
@@ -1873,7 +1873,7 @@ const ProfileBrowse = () => {
                     <Box display="flex" flexWrap="wrap" gap={0.5}>
                       {profile.profileData.specializations.slice(0, 3).map((spec, index) => (
                         <Chip 
-                          key={index} 
+                          key={spec} 
                           label={spec} 
                           size="small" 
                           variant="outlined"

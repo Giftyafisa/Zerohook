@@ -284,6 +284,20 @@ const CallSystem = () => {
   const remoteStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
 
+  /**
+   * WebRTC role flag — prevents glare (dual-offer race condition).
+   * true  = this peer is the CALLER → creates the offer
+   * false = this peer is the CALLEE → only answers offers
+   * The caller is "impolite" (always keeps its offer); the callee is "polite".
+   */
+  const isCallerRef = useRef(false);
+
+  /**
+   * Negotiation lock — serialises setLocalDescription / setRemoteDescription
+   * so that two async socket events can never interleave SDP operations.
+   */
+  const negotiationBusy = useRef(false);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -304,30 +318,45 @@ const CallSystem = () => {
     socket.on('call_accepted', async (callData) => {
       console.log('✅ Call accepted:', callData);
       setOutgoingCall(null);
+      outgoingCallRef.current = null;
       setActiveCall(callData);
       setIsInCall(true);
       startCallTimer();
-      // Caller creates offer after acceptance
+
+      // ── CALLER side: we originated the call → we create the one-and-only offer
+      isCallerRef.current = true;
       await createAndSendOffer(callData.targetUserId);
     });
 
     socket.on('call_rejected', () => {
       console.log('❌ Call rejected');
       setOutgoingCall(null);
+      outgoingCallRef.current = null;
+      cleanupMediaStreams();
     });
 
     socket.on('call_ended', () => {
-      console.log('📞 Call ended');
-      endCall();
+      console.log('📞 Call ended by remote');
+      endCall(true); // true = remote-initiated, don't re-emit
     });
 
     socket.on('call_timeout', () => {
       console.log('⏰ Call timeout');
       setOutgoingCall(null);
+      outgoingCallRef.current = null;
       setIncomingCall(null);
+      cleanupMediaStreams();
     });
 
-    // WebRTC signaling events
+    // Caller cancelled before we accepted
+    socket.on('call_cancelled', () => {
+      console.log('🚫 Call cancelled by caller');
+      setIncomingCall(null);
+      cleanupMediaStreams();
+    });
+
+    // ── WebRTC signaling events ─────────────────────────────────
+
     socket.on('webrtc_offer', async (data) => {
       console.log('📡 Received WebRTC offer from:', data.callerId);
       try {
@@ -340,18 +369,20 @@ const CallSystem = () => {
     socket.on('webrtc_answer', async (data) => {
       console.log('📡 Received WebRTC answer from:', data.answererId);
       try {
-        if (peerConnectionRef.current) {
-          await peerConnectionRef.current.setRemoteDescription(
-            new RTCSessionDescription(data.answer)
-          );
+        const pc = peerConnectionRef.current;
+        if (!pc) return;
+        // Guard: only apply an answer when WE sent an offer (signalingState === 'have-local-offer')
+        if (pc.signalingState !== 'have-local-offer') {
+          console.warn('⚠️ Ignoring WebRTC answer — signalingState is', pc.signalingState);
+          return;
         }
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
       } catch (error) {
         console.error('Error handling WebRTC answer:', error);
       }
     });
 
     socket.on('ice_candidate', async (data) => {
-      console.log('🧊 Received ICE candidate from:', data.senderId);
       try {
         if (peerConnectionRef.current && data.candidate) {
           await peerConnectionRef.current.addIceCandidate(
@@ -359,7 +390,8 @@ const CallSystem = () => {
           );
         }
       } catch (error) {
-        console.error('Error handling ICE candidate:', error);
+        // Non-fatal: candidate may arrive before remote description is set
+        console.warn('ICE candidate buffering issue (non-fatal):', error.message);
       }
     });
 
@@ -369,6 +401,7 @@ const CallSystem = () => {
       socket.off('call_rejected');
       socket.off('call_ended');
       socket.off('call_timeout');
+      socket.off('call_cancelled');
       socket.off('webrtc_offer');
       socket.off('webrtc_answer');
       socket.off('ice_candidate');
@@ -407,6 +440,8 @@ const CallSystem = () => {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
+    isCallerRef.current = false;
+    negotiationBusy.current = false;
   };
 
   // Start call
@@ -457,7 +492,10 @@ const CallSystem = () => {
     });
 
     startCallTimer();
-    establishConnection(incomingCall);
+
+    // ── CALLEE side: we are "polite" — we do NOT create an offer.
+    // The caller will send us a webrtc_offer and we will answer it.
+    isCallerRef.current = false;
   }, [incomingCall, socket]);
 
   // Reject call
@@ -470,9 +508,10 @@ const CallSystem = () => {
     setIncomingCall(null);
   }, [incomingCall, socket]);
 
-  // End call
-  const endCall = useCallback(() => {
-    if (activeCall) {
+  // End call — remoteInitiated=true means the OTHER peer ended, so we
+  // must NOT re-emit 'end_call' back to them (would cause infinite loop).
+  const endCall = useCallback((remoteInitiated = false) => {
+    if (activeCall && !remoteInitiated) {
       socket.emit('end_call', {
         callId: activeCall.id,
         targetUserId: activeCall.targetUserId || activeCall.callerId
@@ -481,6 +520,7 @@ const CallSystem = () => {
     setIsInCall(false);
     setActiveCall(null);
     setOutgoingCall(null);
+    outgoingCallRef.current = null;
     setCallDuration(0);
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
@@ -498,15 +538,26 @@ const CallSystem = () => {
     callTimerRef.current = timer;
   };
 
-  // Create peer connection with ICE handling
+  // Create (or reuse) peer connection with ICE handling.
+  // IMPORTANT: If a PC already exists and is not closed, we reuse it to
+  // prevent leaking connections and losing buffered ICE candidates.
   const createPeerConnection = (targetUserId) => {
+    const existing = peerConnectionRef.current;
+    if (existing && existing.connectionState !== 'closed') {
+      console.log('♻️ Reusing existing PeerConnection');
+      return existing;
+    }
+
+    // Close stale PC if any
+    if (existing) {
+      try { existing.close(); } catch (_) {}
+    }
+
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        // TURN server for users behind symmetric NATs (common on African mobile networks)
-        // Configure these via environment variables in production
         ...(process.env.REACT_APP_TURN_URL ? [{
           urls: process.env.REACT_APP_TURN_URL,
           username: process.env.REACT_APP_TURN_USERNAME || '',
@@ -535,7 +586,6 @@ const CallSystem = () => {
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate && socket) {
-        console.log('🧊 Sending ICE candidate to:', targetUserId);
         socket.emit('ice_candidate', {
           candidate: event.candidate,
           targetUserId
@@ -554,13 +604,23 @@ const CallSystem = () => {
     return pc;
   };
 
-  // Create and send WebRTC offer (caller side)
+  // Create and send WebRTC offer — CALLER ONLY.
+  // Guards: (1) must be the caller, (2) prevents duplicate offers via negotiationBusy.
   const createAndSendOffer = async (targetUserId) => {
+    if (!isCallerRef.current) {
+      console.log('⛔ createAndSendOffer skipped — we are the callee');
+      return;
+    }
+    if (negotiationBusy.current) {
+      console.log('⏳ createAndSendOffer skipped — negotiation already in progress');
+      return;
+    }
+    negotiationBusy.current = true;
     try {
       const pc = createPeerConnection(targetUserId);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      
+
       console.log('📡 Sending WebRTC offer to:', targetUserId);
       socket.emit('webrtc_offer', {
         offer: pc.localDescription,
@@ -569,32 +629,36 @@ const CallSystem = () => {
       });
     } catch (error) {
       console.error('Error creating WebRTC offer:', error);
+    } finally {
+      negotiationBusy.current = false;
     }
   };
 
-  // Handle incoming WebRTC offer (callee side)
+  // Handle incoming WebRTC offer — CALLEE ONLY.
+  // Reuses existing PeerConnection; sets remote description and creates answer.
   const handleWebRTCOffer = async (data) => {
-    const targetUserId = data.callerId;
-    const pc = createPeerConnection(targetUserId);
-    
-    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    
-    console.log('📡 Sending WebRTC answer to:', targetUserId);
-    socket.emit('webrtc_answer', {
-      answer: pc.localDescription,
-      targetUserId
-    });
-  };
-
-  // Legacy establishConnection (kept for compatibility)
-  const establishConnection = async (callData) => {
     try {
-      const targetUserId = callData.targetUserId || callData.callerId;
-      await createAndSendOffer(targetUserId);
+      const targetUserId = data.callerId;
+      // Reuse or create PC
+      const pc = createPeerConnection(targetUserId);
+
+      // Guard: if we already have an offer set, skip to prevent glare
+      if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-remote-offer') {
+        console.warn('⚠️ handleWebRTCOffer ignored — signalingState:', pc.signalingState);
+        return;
+      }
+
+      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      console.log('📡 Sending WebRTC answer to:', targetUserId);
+      socket.emit('webrtc_answer', {
+        answer: pc.localDescription,
+        targetUserId
+      });
     } catch (error) {
-      console.error('WebRTC connection failed:', error);
+      console.error('Error handling WebRTC offer:', error);
     }
   };
 
@@ -620,7 +684,12 @@ const CallSystem = () => {
   };
 
   const toggleMute = () => {
-    setIsMuted(!isMuted);
+    const next = !isMuted;
+    setIsMuted(next);
+    // Actually mute/unmute the remote audio output
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = next;
+    }
   };
 
   const toggleFullscreen = () => {

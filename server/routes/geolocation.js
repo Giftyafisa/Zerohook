@@ -1,18 +1,20 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { authMiddleware } = require('./auth');
-const LocationTrackingService = require('../services/LocationTrackingService');
-const LocationVerificationService = require('../services/LocationVerificationService');
 
-// Shared location service instance for geolocation utilities
-const locationTrackingService = new LocationTrackingService();
-locationTrackingService.initialize().catch((err) => {
-  console.error('LocationTrackingService init failed (non-fatal):', err.message);
-});
-
-// Location verification service for city coordinates
-const locationVerificationService = new LocationVerificationService();
+// Services are injected via middleware (req.locationTrackingService, req.locationVerificationService)
+// No module-level instantiation needed — this avoids initialization before DB is ready.
 
 const router = express.Router();
+
+// Rate limiter for unauthenticated public routes
+const publicRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // 30 requests per window
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 /**
  * @route   GET /api/geolocation/lookup
@@ -57,14 +59,14 @@ router.get('/lookup', authMiddleware, async (req, res) => {
  * @route   GET /api/geolocation/lookup-city
  * @desc    Lookup city coordinates and metadata (public)
  */
-router.get('/lookup-city', async (req, res) => {
+router.get('/lookup-city', publicRateLimiter, async (req, res) => {
   try {
     const { city, country } = req.query;
     if (!city) {
       return res.status(400).json({ error: 'city is required' });
     }
 
-    const result = await locationTrackingService.getCityCoordinates(city, country);
+    const result = await req.locationTrackingService.getCityCoordinates(city, country);
     if (!result) {
       return res.status(404).json({ error: 'City not found' });
     }
@@ -100,7 +102,7 @@ router.post('/ip-detect', async (req, res) => {
     const forwarded = req.headers['x-forwarded-for']?.split(',')[0];
     const ip = bodyIp || forwarded || req.ip || req.connection?.remoteAddress;
 
-    const ipLocation = await locationTrackingService.processIPLocation(ip);
+    const ipLocation = await req.locationTrackingService.processIPLocation(ip);
     if (!ipLocation) {
       return res.status(503).json({ error: 'IP lookup failed' });
     }
@@ -127,8 +129,10 @@ router.get('/ip/:ip', authMiddleware, async (req, res) => {
   try {
     const { ip } = req.params;
     
-    // Check if user is admin
-    if (req.user.verificationTier !== 'admin') {
+    // Check if user is admin using DB lookup (verificationTier is unreliable)
+    const { User } = require('../config/database');
+    const adminUser = await User.findById(req.user.userId).select('is_admin role').lean();
+    if (!adminUser || (adminUser.is_admin !== true && adminUser.role !== 'admin')) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -272,7 +276,7 @@ router.get('/nearest-city', async (req, res) => {
       });
     }
 
-    const nearestCity = locationVerificationService.findNearestCity(
+    const nearestCity = req.locationVerificationService.findNearestCity(
       latitude, 
       longitude, 
       country || null
@@ -320,7 +324,7 @@ router.get('/cities/:countryCode', async (req, res) => {
       });
     }
 
-    const cities = locationVerificationService.getCitiesForCountry(countryCode.toUpperCase());
+    const cities = req.locationVerificationService.getCitiesForCountry(countryCode.toUpperCase());
 
     res.json({
       success: true,
@@ -344,7 +348,7 @@ router.get('/cities/:countryCode', async (req, res) => {
  */
 router.get('/supported-countries', async (req, res) => {
   try {
-    const countries = locationVerificationService.getSupportedCountries();
+    const countries = req.locationVerificationService.getSupportedCountries();
 
     res.json({
       success: true,
@@ -381,7 +385,7 @@ router.post('/check-location-change', authMiddleware, async (req, res) => {
     const profileData = user.profile_data || user.profileData || {};
     const storedLocation = profileData.location || {};
 
-    const changeResult = locationVerificationService.detectLocationChange(
+    const changeResult = req.locationVerificationService.detectLocationChange(
       { lat: parseFloat(currentLat), lng: parseFloat(currentLng) },
       storedLocation
     );

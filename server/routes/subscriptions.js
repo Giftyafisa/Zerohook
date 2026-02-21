@@ -120,14 +120,22 @@ router.post('/create', authMiddleware, subRateLimit, [
     }
     const userId = req.user.userId;
 
-    // Get the actual plan ID from the database if planId is a string identifier
+    // Get the actual plan ID from the database if planId is a string identifier (not a valid ObjectId)
     let actualPlanId = planId;
-    if (typeof planId === 'string' && !planId.includes('-')) {
+    const mongoose = require('mongoose');
+    if (typeof planId === 'string' && !mongoose.Types.ObjectId.isValid(planId)) {
+      // planId is a human-readable plan name, look it up
       const plan = await SubscriptionPlan.findOne({ plan_name: planId, is_active: true }).select('_id').lean();
       if (!plan) {
         return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
       }
       actualPlanId = plan._id.toString();
+    } else if (typeof planId === 'string' && mongoose.Types.ObjectId.isValid(planId)) {
+      // Verify the ObjectId actually references an active plan
+      const plan = await SubscriptionPlan.findOne({ _id: planId, is_active: true }).select('_id').lean();
+      if (!plan) {
+        return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
+      }
     }
 
     // Convert fiat amount to crypto using live rates

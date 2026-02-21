@@ -122,78 +122,130 @@ const getVisibleAccountTypes = (user) => {
 };
 
 /**
- * Build SQL WHERE clause for account type filtering
+ * Build MongoDB query filter for account type filtering
  * 
  * @param {Object} viewer - The user viewing profiles
  * @param {Object} options - Additional options
- * @returns {Object} { clause: string, params: array }
+ * @returns {Object} MongoDB query filter object
  */
-const buildAccountTypeWhereClause = (viewer, options = {}) => {
+const buildAccountTypeFilter = (viewer, options = {}) => {
   const viewerType = getAccountType(viewer);
-  const params = [];
-  let clause = '';
   
   switch (viewerType) {
     case ACCOUNT_TYPES.CLIENT:
       // Clients see only providers
-      clause = `AND u.profile_data->>'accountType' = 'provider'`;
-      break;
+      return {
+        $or: [
+          { 'profile_data.accountType': 'provider' },
+          { 'profileData.accountType': 'provider' }
+        ]
+      };
       
     case ACCOUNT_TYPES.PROVIDER:
       // Providers see only clients (sugar access handled separately)
-      clause = `AND u.profile_data->>'accountType' = 'client'`;
-      break;
+      return {
+        $or: [
+          { 'profile_data.accountType': 'client' },
+          { 'profileData.accountType': 'client' }
+        ]
+      };
       
     case ACCOUNT_TYPES.SUGAR_DADDY:
       // Sugar daddy sees verified female providers
-      clause = `AND u.profile_data->>'accountType' = 'provider'
-                AND u.verification_tier >= 2
-                AND LOWER(u.profile_data->>'gender') = 'female'`;
-      break;
+      return {
+        $and: [
+          { $or: [
+            { 'profile_data.accountType': 'provider' },
+            { 'profileData.accountType': 'provider' }
+          ]},
+          { verification_tier: { $gte: 2 } },
+          { $or: [
+            { 'profile_data.gender': { $regex: /^female$/i } },
+            { 'profileData.gender': { $regex: /^female$/i } }
+          ]}
+        ]
+      };
       
     case ACCOUNT_TYPES.SUGAR_MOMMY:
       // Sugar mommy sees verified male providers
-      clause = `AND u.profile_data->>'accountType' = 'provider'
-                AND u.verification_tier >= 2
-                AND LOWER(u.profile_data->>'gender') = 'male'`;
-      break;
+      return {
+        $and: [
+          { $or: [
+            { 'profile_data.accountType': 'provider' },
+            { 'profileData.accountType': 'provider' }
+          ]},
+          { verification_tier: { $gte: 2 } },
+          { $or: [
+            { 'profile_data.gender': { $regex: /^male$/i } },
+            { 'profileData.gender': { $regex: /^male$/i } }
+          ]}
+        ]
+      };
       
     default:
       // Unauthenticated or unknown - show providers only
-      clause = `AND u.profile_data->>'accountType' = 'provider'`;
+      return {
+        $or: [
+          { 'profile_data.accountType': 'provider' },
+          { 'profileData.accountType': 'provider' }
+        ]
+      };
   }
-  
-  return { clause, params };
 };
 
 /**
- * Build SQL WHERE clause for sugar profile visibility
+ * Build MongoDB query filter for sugar profile visibility
  * 
  * @param {Object} viewer - The user viewing profiles (must be provider)
  * @param {boolean} hasSugarAccess - Whether viewer has paid for sugar access
- * @returns {Object} { clause: string, params: array }
+ * @returns {Object} MongoDB query filter object
  */
-const buildSugarVisibilityClause = (viewer, hasSugarAccess = false) => {
+const buildSugarVisibilityFilter = (viewer, hasSugarAccess = false) => {
   const viewerType = getAccountType(viewer);
   
   // Only providers can see sugar profiles
   if (viewerType !== ACCOUNT_TYPES.PROVIDER) {
-    return { clause: `AND u.profile_data->>'accountType' NOT IN ('sugar_daddy', 'sugar_mommy')`, params: [] };
+    return {
+      $and: [
+        { 'profile_data.accountType': { $nin: ['sugar_daddy', 'sugar_mommy'] } }
+      ]
+    };
   }
   
   // Provider without sugar access - exclude sugar profiles
   if (!hasSugarAccess) {
-    return { clause: `AND u.profile_data->>'accountType' NOT IN ('sugar_daddy', 'sugar_mommy')`, params: [] };
+    return {
+      'profile_data.accountType': { $nin: ['sugar_daddy', 'sugar_mommy'] }
+    };
   }
   
   // Provider with sugar access - include visible sugar profiles
-  return { 
-    clause: `AND (
-      u.profile_data->>'accountType' IN ('sugar_daddy', 'sugar_mommy')
-      AND (u.profile_data->>'sugarVisibility' = 'visible' OR u.profile_data->>'sugarVisibility' IS NULL)
-    )`, 
-    params: [] 
+  return {
+    $or: [
+      { 'profile_data.accountType': { $in: ['sugar_daddy', 'sugar_mommy'] } }
+    ],
+    $or: [
+      { 'profile_data.sugarVisibility': 'visible' },
+      { 'profile_data.sugarVisibility': { $exists: false } },
+      { 'profile_data.sugarVisibility': null }
+    ]
   };
+};
+
+/**
+ * @deprecated Use buildAccountTypeFilter instead. These generate PostgreSQL SQL.
+ */
+const buildAccountTypeWhereClause = (viewer, options = {}) => {
+  console.warn('DEPRECATED: buildAccountTypeWhereClause generates PostgreSQL SQL. Use buildAccountTypeFilter for MongoDB.');
+  return { clause: '', params: [] };
+};
+
+/**
+ * @deprecated Use buildSugarVisibilityFilter instead. These generate PostgreSQL SQL.
+ */
+const buildSugarVisibilityClause = (viewer, hasSugarAccess = false) => {
+  console.warn('DEPRECATED: buildSugarVisibilityClause generates PostgreSQL SQL. Use buildSugarVisibilityFilter for MongoDB.');
+  return { clause: '', params: [] };
 };
 
 /**
@@ -260,6 +312,8 @@ module.exports = {
   getVisibleAccountTypes,
   buildAccountTypeWhereClause,
   buildSugarVisibilityClause,
+  buildAccountTypeFilter,
+  buildSugarVisibilityFilter,
   getSugarGenderPreference,
   getSugarAgePreference,
   isValidAccountType

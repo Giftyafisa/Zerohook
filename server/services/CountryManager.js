@@ -371,14 +371,14 @@ class CountryManager {
           warning: 'Database unavailable, using default country'
         };
       }
-      const user = await User.findById(userId).select('profileData phone');
+      const user = await User.findById(userId).select('profile_data phone');
       
       if (!user) {
         return { success: false, error: 'User not found' };
       }
 
       // Priority 1: Check if user has explicitly set a country preference
-      let countryCode = user.profileData?.country;
+      let countryCode = user.profile_data?.country;
       let source = 'user_preference';
       
       // Priority 2: If no explicit preference, detect from phone number
@@ -391,14 +391,14 @@ class CountryManager {
           
           // Save the detected country for future use
           await User.findByIdAndUpdate(userId, {
-            'profileData.detectedCountry': countryCode
+            'profile_data.detectedCountry': countryCode
           }).catch(err => console.error('Failed to save detected country:', err));
         }
       }
       
       // Priority 3: Use previously detected country from IP
       if (!countryCode) {
-        countryCode = user.profileData?.detectedCountry;
+        countryCode = user.profile_data?.detectedCountry;
         source = 'ip_detection';
       }
       
@@ -439,7 +439,8 @@ class CountryManager {
       }
 
       await User.findByIdAndUpdate(userId, {
-        'profileData.country': countryCode,
+        'profile_data.country': countryCode,
+        'profile_data.currency': country.currency,
         updatedAt: new Date()
       });
 
@@ -463,7 +464,7 @@ class CountryManager {
         return { success: false, error: 'Database unavailable' };
       }
       await User.findByIdAndUpdate(userId, {
-        'profileData.detectedCountry': countryCode,
+        'profile_data.detectedCountry': countryCode,
         updatedAt: new Date()
       });
 

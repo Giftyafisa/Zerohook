@@ -74,6 +74,13 @@ let rateCache = {
 };
 
 /**
+ * Clear the exchange rate cache (call on logout to prevent stale data across sessions)
+ */
+export const clearExchangeRateCache = () => {
+  rateCache = { rates: null, timestamp: 0 };
+};
+
+/**
  * Fetch live exchange rates from API
  * @returns {Promise<Object>} Exchange rates keyed by currency code
  */

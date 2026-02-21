@@ -25,6 +25,8 @@ class RealtimeLocationManager {
     // Batch queue for database writes (reduces DB load)
     this.locationBatchQueue = [];
     this.batchFlushInterval = 30 * 1000; // Flush to DB every 30 seconds
+    this._batchRetryCount = 0;
+    this._maxBatchRetries = 3; // Maximum retry attempts before dropping batch
     
     // Location update frequency settings
     this.updateIntervals = {
@@ -348,8 +350,15 @@ class RealtimeLocationManager {
 
     } catch (error) {
       console.error('Error flushing location batch:', error);
-      // Re-queue failed updates
-      this.locationBatchQueue.push(...batch);
+      // Re-queue failed updates with retry limit to prevent infinite loops
+      this._batchRetryCount++;
+      if (this._batchRetryCount <= this._maxBatchRetries) {
+        console.warn(`📍 Re-queuing ${batch.length} location updates (retry ${this._batchRetryCount}/${this._maxBatchRetries})`);
+        this.locationBatchQueue.push(...batch);
+      } else {
+        console.error(`📍 Dropping ${batch.length} location updates after ${this._maxBatchRetries} retries`);
+        this._batchRetryCount = 0; // Reset for next batch
+      }
     }
   }
 

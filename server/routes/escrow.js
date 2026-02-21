@@ -134,7 +134,7 @@ router.post('/create', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Create escrow error:', error);
     res.status(500).json({ success: false, error: 'Failed to create escrow',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -196,7 +196,7 @@ router.post('/enter-pin', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Enter PIN error:', error);
     res.status(500).json({ success: false, error: 'Failed to verify PIN',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -257,7 +257,7 @@ router.post('/confirm', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Confirm service error:', error);
     res.status(500).json({ success: false, error: 'Failed to confirm service',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -317,7 +317,7 @@ router.post('/claim-complete', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Claim complete error:', error);
     res.status(500).json({ success: false, error: 'Failed to claim service completion',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -338,27 +338,51 @@ router.post('/dispute', authMiddleware, async (req, res) => {
 
     const escrowObjId = mongoose.Types.ObjectId.isValid(escrowId) ? 
       new mongoose.Types.ObjectId(escrowId) : null;
-    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
 
     if (!escrowObjId) {
       return res.status(400).json({ success: false, error: 'Invalid escrow ID' });
     }
 
-    // Verify user is part of this escrow
-    const escrow = await Transaction.findOne({
-      _id: escrowObjId,
-      $or: [
-        { client_id: userObjId },
-        { provider_id: userObjId }
-      ]
-    });
+    // ATOMIC: Check access + status + transition to disputed in one operation (prevents race condition)
+    const escrow = await Transaction.findOneAndUpdate(
+      {
+        _id: escrowObjId,
+        status: { $in: ['held', 'escrow_held', 'in_progress'] },
+        $or: [
+          { client_id: userObjId },
+          { provider_id: userObjId }
+        ]
+      },
+      {
+        $set: {
+          status: 'disputed',
+          dispute_data: {
+            reason,
+            evidence: [],
+            initiated_by: userId,
+            initiated_at: new Date()
+          }
+        }
+      },
+      { new: true }
+    );
 
     if (!escrow) {
-      return res.status(403).json({ success: false, error: 'Access denied to this escrow' });
+      const existing = await Transaction.findOne({
+        _id: escrowObjId,
+        $or: [{ client_id: userObjId }, { provider_id: userObjId }]
+      });
+      if (!existing) {
+        return res.status(403).json({ success: false, error: 'Access denied to this escrow' });
+      }
+      return res.status(409).json({ success: false, error: `Cannot dispute transaction (current status: ${existing.status})` });
     }
-
-    // Use EscrowManager to initiate dispute
-    const result = await req.escrowManager.initiateDispute(escrowId, { reason, evidence: [] }, userId);
 
     // Notify the other party via socket
     if (req.io) {
@@ -396,14 +420,14 @@ router.post('/dispute', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      message: result.message,
-      disputeId: result.disputeId
+      message: 'Dispute opened successfully',
+      disputeId: escrow._id.toString()
     });
 
   } catch (error) {
     console.error('Dispute escrow error:', error);
     res.status(500).json({ success: false, error: 'Failed to submit dispute',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -437,7 +461,7 @@ router.post('/:id/evidence', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Upload evidence error:', error);
     res.status(500).json({ success: false, error: 'Failed to upload evidence',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -454,7 +478,12 @@ router.get('/:id/pin', authMiddleware, async (req, res) => {
 
     const transactionObjId = mongoose.Types.ObjectId.isValid(transactionId) ? 
       new mongoose.Types.ObjectId(transactionId) : null;
-    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
 
     if (!transactionObjId) {
       return res.status(400).json({ success: false, error: 'Invalid transaction ID' });
@@ -484,7 +513,7 @@ router.get('/:id/pin', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Get PIN error:', error);
     res.status(500).json({ success: false, error: 'Failed to get PIN',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -507,7 +536,7 @@ router.get('/dispute-status', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Get dispute status error:', error);
     res.status(500).json({ success: false, error: 'Failed to get dispute status',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -526,8 +555,11 @@ router.post('/request-unban', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Reason is required' });
     }
 
-    // We need to instantiate escrowManager or use a static method
-    const escrowManager = new EscrowManager();
+    // Use the injected escrowManager from middleware (already initialized)
+    const escrowManager = req.escrowManager;
+    if (!escrowManager) {
+      return res.status(503).json({ success: false, error: 'Escrow service unavailable' });
+    }
     
     const result = await escrowManager.requestUnban(userId, reason);
 
@@ -536,7 +568,7 @@ router.post('/request-unban', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Request unban error:', error);
     res.status(500).json({ success: false, error: 'Failed to submit unban request',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -560,26 +592,44 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid transaction ID' });
     }
     
-    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
     
-    const transaction = await Transaction.findOne({
-      _id: transactionObjId,
-      $or: [
-        { client_id: userObjId },
-        { provider_id: userObjId }
-      ]
-    });
+    // ATOMIC: Check access + status + update in one operation (prevents race condition)
+    const transaction = await Transaction.findOneAndUpdate(
+      {
+        _id: transactionObjId,
+        status: { $in: ['held', 'escrow_held', 'in_progress'] },
+        $or: [
+          { client_id: userObjId },
+          { provider_id: userObjId }
+        ]
+      },
+      {
+        $set: {
+          status: 'completed',
+          completed_at: new Date(),
+          completion_proof: completionProof || null
+        }
+      },
+      { new: true }
+    );
 
     if (!transaction) {
-      return res.status(404).json({ success: false, error: 'Transaction not found or not authorized' });
+      // Distinguish not-found/unauthorized from already-completed
+      const existing = await Transaction.findOne({
+        _id: transactionObjId,
+        $or: [{ client_id: userObjId }, { provider_id: userObjId }]
+      });
+      if (!existing) {
+        return res.status(404).json({ success: false, error: 'Transaction not found or not authorized' });
+      }
+      return res.status(409).json({ success: false, error: `Transaction cannot be completed (current status: ${existing.status})` });
     }
-
-    // Confirm completion (pass userId for authorization check)
-    const result = await req.escrowManager.confirmCompletion(
-      transactionId,
-      completionProof,
-      userId
-    );
 
     // Notify other party
     const otherPartyId = transaction.client_id.toString() === userId ? 
@@ -588,7 +638,7 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
     if (req.io) {
       req.io.to(`user_${otherPartyId}`).emit('escrow_completed', {
         escrowId: transactionId,
-        amount: result.amount,
+        amount: transaction.amount,
         message: 'Service completed and payment released!'
       });
 
@@ -598,8 +648,8 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
           userId: otherPartyId,
           type: 'payment',
           title: 'Payment Completed!',
-          message: `Service completed and payment of ${result.amount} released!`,
-          data: { escrowId: transactionId, amount: result.amount }
+          message: `Service completed and payment of ${transaction.amount} released!`,
+          data: { escrowId: transactionId, amount: transaction.amount }
         });
       } catch (e) { console.error('Notification error (escrow completed):', e.message); }
     }
@@ -607,13 +657,18 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       message: 'Transaction completed successfully',
-      result
+      transaction: {
+        id: transaction._id.toString(),
+        status: transaction.status,
+        amount: transaction.amount,
+        completed_at: transaction.completed_at
+      }
     });
 
   } catch (error) {
     console.error('Complete escrow error:', error);
     res.status(500).json({ success: false, error: 'Failed to complete transaction',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -629,21 +684,69 @@ router.post('/:id/dispute', authMiddleware, async (req, res) => {
     const { reason, evidence } = req.body;
     const userId = req.user.userId;
 
-    const result = await req.escrowManager.initiateDispute(
-      transactionId,
-      { reason, evidence },
-      userId
+    if (!reason) {
+      return res.status(400).json({ success: false, error: 'Dispute reason is required' });
+    }
+
+    const transactionObjId = mongoose.Types.ObjectId.isValid(transactionId) ? 
+      new mongoose.Types.ObjectId(transactionId) : null;
+    if (!transactionObjId) {
+      return res.status(400).json({ success: false, error: 'Invalid transaction ID' });
+    }
+
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+
+    // ATOMIC: Check access + status + transition to disputed in one operation (prevents race condition)
+    const transaction = await Transaction.findOneAndUpdate(
+      {
+        _id: transactionObjId,
+        status: { $in: ['held', 'escrow_held', 'in_progress'] },
+        $or: [
+          { client_id: userObjId },
+          { provider_id: userObjId }
+        ]
+      },
+      {
+        $set: {
+          status: 'disputed',
+          dispute_data: {
+            reason,
+            evidence: evidence || [],
+            initiated_by: userId,
+            initiated_at: new Date()
+          }
+        }
+      },
+      { new: true }
     );
 
+    if (!transaction) {
+      const existing = await Transaction.findOne({
+        _id: transactionObjId,
+        $or: [{ client_id: userObjId }, { provider_id: userObjId }]
+      });
+      if (!existing) {
+        return res.status(404).json({ success: false, error: 'Transaction not found or not authorized' });
+      }
+      return res.status(409).json({ success: false, error: `Cannot dispute transaction (current status: ${existing.status})` });
+    }
+
     res.json({
+      success: true,
       message: 'Dispute initiated successfully',
-      result
+      disputeId: transaction._id.toString(),
+      status: transaction.status
     });
 
   } catch (error) {
     console.error('Initiate dispute error:', error);
     res.status(500).json({ success: false, error: 'Failed to initiate dispute',
-      message: error.message
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -661,7 +764,12 @@ router.get('/:id/status', authMiddleware, async (req, res) => {
     // Verify user access using MongoDB
     const transactionObjId = mongoose.Types.ObjectId.isValid(transactionId) ? 
       new mongoose.Types.ObjectId(transactionId) : null;
-    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
     
     if (!transactionObjId) {
       return res.status(400).json({ success: false, error: 'Invalid transaction ID' });
@@ -700,7 +808,12 @@ router.get('/list', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
     
     // Get all escrows where user is client or provider using MongoDB
     // Include more statuses to show completed/disputed escrows too
@@ -844,37 +957,54 @@ router.post('/complete', authMiddleware, async (req, res) => {
 
     const escrowObjId = mongoose.Types.ObjectId.isValid(escrowId) ? 
       new mongoose.Types.ObjectId(escrowId) : null;
-    const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
 
     if (!escrowObjId) {
       return res.status(400).json({ success: false, error: 'Invalid escrow ID' });
     }
 
-    // Verify user is the client for this escrow
-    const escrow = await Transaction.findOne({
-      _id: escrowObjId,
-      client_id: userObjId,
-      type: 'escrow_hold'
-    });
+    // ATOMIC: Check client access + status + complete in one operation (prevents race condition)
+    const escrow = await Transaction.findOneAndUpdate(
+      {
+        _id: escrowObjId,
+        client_id: userObjId,
+        type: 'escrow_hold',
+        status: { $in: ['held', 'escrow_held', 'in_progress'] }
+      },
+      {
+        $set: {
+          status: 'completed',
+          completed_at: new Date(),
+          completion_proof: {
+            type: 'client_release',
+            releasedBy: userId,
+            timestamp: new Date().toISOString()
+          }
+        }
+      },
+      { new: true }
+    );
 
     if (!escrow) {
-      return res.status(403).json({ success: false, error: 'Only the client can release payment' });
+      const existing = await Transaction.findOne({ _id: escrowObjId, client_id: userObjId, type: 'escrow_hold' });
+      if (!existing) {
+        return res.status(403).json({ success: false, error: 'Only the client can release payment' });
+      }
+      return res.status(409).json({ success: false, error: `Cannot release payment (current status: ${existing.status})` });
     }
-
-    // Use EscrowManager to properly release the escrow (pass userId as 3rd arg for auth)
-    const result = await req.escrowManager.confirmCompletion(escrowId, {
-      type: 'client_release',
-      releasedBy: userId,
-      timestamp: new Date().toISOString()
-    }, userId);
 
     // Notify provider via socket
     if (req.io && escrow.provider_id) {
       req.io.to(`user_${escrow.provider_id.toString()}`).emit('escrow_released', {
         escrowId,
-        amount: result.amount,
+        amount: escrow.amount,
         currency: escrow.currency,
-        message: `Payment of ${escrow.currency}${result.amount} released! Funds added to your wallet.`
+        message: `Payment of ${escrow.currency}${escrow.amount} released! Funds added to your wallet.`
       });
     }
 
@@ -895,7 +1025,12 @@ router.post('/complete', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       message: 'Payment released successfully',
-      result
+      transaction: {
+        id: escrow._id.toString(),
+        status: escrow.status,
+        amount: escrow.amount,
+        completed_at: escrow.completed_at
+      }
     });
 
   } catch (error) {

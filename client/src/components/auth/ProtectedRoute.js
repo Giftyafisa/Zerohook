@@ -1,7 +1,8 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { selectIsAuthenticated, selectIsSubscribed } from '../../store/slices/authSlice';
+import { selectIsAuthenticated, selectIsSubscribed, selectAuthInitialized } from '../../store/slices/authSlice';
+import { Box, CircularProgress } from '@mui/material';
 
 /**
  * ProtectedRoute - Guards routes requiring authentication and/or subscription
@@ -13,7 +14,17 @@ import { selectIsAuthenticated, selectIsSubscribed } from '../../store/slices/au
 const ProtectedRoute = ({ children, requireSubscription = true }) => {
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const isSubscribed = useSelector(selectIsSubscribed);
+  const initialized = useSelector(selectAuthInitialized);
   const location = useLocation();
+
+  // Wait for initial token validation before making any redirect decisions
+  if (!initialized) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   // Only log in development to avoid leaking auth state in production
   if (process.env.NODE_ENV === 'development') {

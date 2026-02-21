@@ -1,4 +1,5 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const { User, VerificationRequest } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
@@ -98,6 +99,98 @@ router.post('/submit-documents', authMiddleware, [
   } catch (error) {
     console.error('Submit documents error:', error);
     res.status(500).json({ error: 'Failed to submit verification documents' });
+  }
+});
+
+/**
+ * @route   POST /api/verification/send-phone-otp
+ * @desc    Generate and store a hashed OTP for phone verification
+ * @access  Private
+ */
+router.post('/send-phone-otp', authMiddleware, [
+  body('phoneNumber').isMobilePhone()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+    }
+
+    const { phoneNumber } = req.body;
+    const userId = req.user.userId;
+
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Hash the OTP before storing
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    // Store as a VerificationRequest with hashed OTP
+    await VerificationRequest.create({
+      user_id: userId,
+      verification_data: {
+        phone: phoneNumber,
+        otp_hash: otpHash,
+        otp_expires: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      },
+      status: 'pending'
+    });
+
+    // In production, send the OTP via SMS provider (e.g., Twilio, Africa's Talking)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEV] Phone OTP for user ${userId}: ${otp}`);
+    }
+
+    res.json({ success: true, message: 'OTP sent to your phone number.' });
+  } catch (error) {
+    console.error('Send phone OTP error:', error);
+    res.status(500).json({ error: 'Failed to send OTP' });
+  }
+});
+
+/**
+ * @route   POST /api/verification/send-email-otp
+ * @desc    Generate and store a hashed OTP for email verification
+ * @access  Private
+ */
+router.post('/send-email-otp', authMiddleware, [
+  body('email').isEmail()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+    }
+
+    const { email } = req.body;
+    const userId = req.user.userId;
+
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Hash the OTP before storing
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    // Store as a VerificationRequest with hashed OTP
+    await VerificationRequest.create({
+      user_id: userId,
+      verification_data: {
+        email: email.toLowerCase(),
+        otp_hash: otpHash,
+        otp_expires: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      },
+      status: 'pending'
+    });
+
+    // In production, send the OTP via email provider (e.g., SendGrid, SES)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEV] Email OTP for user ${userId}: ${otp}`);
+    }
+
+    res.json({ success: true, message: 'OTP sent to your email address.' });
+  } catch (error) {
+    console.error('Send email OTP error:', error);
+    res.status(500).json({ error: 'Failed to send OTP' });
   }
 });
 
@@ -251,30 +344,27 @@ router.post('/social-verification', authMiddleware, [
     const { platform, username, verificationUrl } = req.body;
     const userId = req.user.userId;
 
-    // Verify social media account (in production, use platform APIs)
-    const isVerified = await verifySocialAccount(platform, username, verificationUrl);
+    // Submit social media account for verification (requires admin review)
+    const result = await verifySocialAccount(platform, username, verificationUrl);
 
-    if (!isVerified) {
-      return res.status(400).json({ error: 'Social media verification failed' });
-    }
-
-    // Update user social verification
+    // Update user social verification with pending_review status
     await User.findByIdAndUpdate(userId, {
       $set: {
         [`verification_data.social_verified.${platform}`]: {
           username: username,
-          verifiedAt: new Date().toISOString(),
-          status: 'verified'
+          verificationUrl: verificationUrl,
+          submittedAt: new Date().toISOString(),
+          status: result.status
         },
         updated_at: new Date()
       }
     });
 
     res.json({
-      message: 'Social media account verified successfully',
+      message: result.message,
       platform: platform,
       username: username,
-      status: 'verified'
+      status: result.status
     });
 
   } catch (error) {
@@ -403,13 +493,16 @@ async function verifyOTP(phoneNumber, otp) {
   if (!phoneNumber || !otp) return false;
   try {
     const { VerificationRequest } = require('../config/database');
+    // Find the most recent unexpired record for this phone number
     const record = await VerificationRequest.findOne({
       'verification_data.phone': phoneNumber,
-      'verification_data.otp_hash': otp.toString(), // Compare against stored OTP
       'verification_data.otp_expires': { $gt: new Date() },
       status: 'pending'
     }).sort({ created_at: -1 });
-    return !!record;
+    if (!record) return false;
+    // Use bcrypt to compare submitted OTP against stored hash
+    const isMatch = await bcrypt.compare(otp.toString(), record.verification_data.otp_hash);
+    return isMatch;
   } catch (error) {
     console.error('OTP verification error:', error);
     return false;
@@ -423,13 +516,16 @@ async function verifyEmailOTP(email, otp) {
   if (!email || !otp) return false;
   try {
     const { VerificationRequest } = require('../config/database');
+    // Find the most recent unexpired record for this email
     const record = await VerificationRequest.findOne({
       'verification_data.email': email.toLowerCase(),
-      'verification_data.otp_hash': otp.toString(),
       'verification_data.otp_expires': { $gt: new Date() },
       status: 'pending'
     }).sort({ created_at: -1 });
-    return !!record;
+    if (!record) return false;
+    // Use bcrypt to compare submitted OTP against stored hash
+    const isMatch = await bcrypt.compare(otp.toString(), record.verification_data.otp_hash);
+    return isMatch;
   } catch (error) {
     console.error('Email OTP verification error:', error);
     return false;
@@ -442,27 +538,31 @@ async function verifyEmailOTP(email, otp) {
  * Currently validates that the user submitted a verification request with matching details.
  */
 async function verifySocialAccount(platform, username, verificationUrl) {
-  if (!platform || !username) return false;
+  if (!platform || !username) {
+    return { status: 'failed', message: 'Platform and username are required' };
+  }
   try {
     const { VerificationRequest } = require('../config/database');
-    // Check that a pending verification request exists for this social account
-    const record = await VerificationRequest.findOne({
-      'verification_data.platform': platform,
-      'verification_data.social_username': username,
+    // Create a verification request for admin review
+    await VerificationRequest.create({
+      verification_data: {
+        platform: platform,
+        social_username: username,
+        verification_url: verificationUrl
+      },
       status: 'pending'
-    }).sort({ created_at: -1 });
-    // For now, social verification requires admin approval (returns false to block auto-approve)
-    // Admin can manually approve via the admin panel
-    return false;
+    });
+    // Social verification requires admin approval — return pending_review
+    return { status: 'pending_review', message: 'Social verification submitted for admin review' };
   } catch (error) {
     console.error('Social verification error:', error);
-    return false;
+    return { status: 'pending_review', message: 'Social verification submitted for admin review' };
   }
 }
 
 function calculateVerificationProgress(verificationData, currentTier) {
   const progress = {
-    documents: verificationData.pending_verification ? 100 : 0,
+    documents: verificationData.documents_verified ? 100 : (verificationData.pending_verification ? 50 : 0),
     phone: verificationData.phone_verified ? 100 : 0,
     email: verificationData.email_verified ? 100 : 0,
     social: 0

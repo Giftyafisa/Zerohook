@@ -232,7 +232,7 @@ const useLocationBootstrap = () => {
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          const res = await fetch(`${API_BASE_URL}/api/users/me`, {
+          const res = await fetch(`${API_BASE_URL}/users/me`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({ profile_data: { location: locationData } }),

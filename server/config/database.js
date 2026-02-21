@@ -116,6 +116,18 @@ const userSchema = new mongoose.Schema({
   }]
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
+// H2: Geospatial index for location-based queries (Uber-style proximity search)
+// Uses GeoJSON Point format: profile_data.location.coordinates = { type: 'Point', coordinates: [lng, lat] }
+userSchema.index({ 'profile_data.location.coordinates': '2dsphere' }, { sparse: true });
+
+// L3: Compound index for account type filtering + activity sorting (recommendation engine)
+userSchema.index({ 'profile_data.accountType': 1, last_active: -1 }, { sparse: true });
+
+// Additional useful indexes for the recommendation engine
+userSchema.index({ 'profile_data.country': 1, 'profile_data.accountType': 1 }, { sparse: true });
+userSchema.index({ is_subscribed: 1, subscription_expires_at: 1 });
+userSchema.index({ status: 1, last_active: -1 });
+
 const serviceCategorySchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   display_name: { type: String, required: true },
@@ -513,6 +525,42 @@ const AdultService = mongoose.model('AdultService', adultServiceSchema);
 const UserPrivacySettings = mongoose.model('UserPrivacySettings', userPrivacySettingsSchema);
 const PrivacyConsent = mongoose.model('PrivacyConsent', privacyConsentSchema);
 
+// Notification Schema
+const notificationSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  type: { type: String, default: 'system' },
+  title: { type: String, required: true },
+  message: { type: String, required: true },
+  data: { type: mongoose.Schema.Types.Mixed, default: {} },
+  read: { type: Boolean, default: false }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+const Notification = mongoose.model('Notification', notificationSchema);
+
+// Milestone Request Schema
+const milestoneRequestSchema = new mongoose.Schema({
+  sender_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  recipient_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  amount: { type: Number, required: true },
+  description: { type: String, default: '' },
+  request_type: { type: String, enum: ['provider_request', 'client_request'], default: 'provider_request' },
+  status: { type: String, enum: ['pending', 'accepted', 'declined', 'paid'], default: 'pending' },
+  escrow_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+const MilestoneRequest = mongoose.model('MilestoneRequest', milestoneRequestSchema);
+
+// User Connection Schema
+const userConnectionSchema = new mongoose.Schema({
+  from_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  to_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  connection_type: { type: String, default: 'contact_request' },
+  message: { type: String, default: '' },
+  status: { type: String, default: 'pending' }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+const UserConnection = mongoose.model('UserConnection', userConnectionSchema);
+
 // Crypto payment invoice schema - persists pending/expired invoices across server restarts
 const cryptoInvoiceSchema = new mongoose.Schema({
   reference: { type: String, required: true, unique: true, index: true },
@@ -676,5 +724,8 @@ module.exports = {
   PrivacyConsent,
   CryptoInvoice,
   SystemCounter,
-  RefreshToken
+  RefreshToken,
+  Notification,
+  MilestoneRequest,
+  UserConnection
 };

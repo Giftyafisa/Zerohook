@@ -31,43 +31,44 @@ import { AnimatedBackground, ToastProvider } from './components/ui';
 // Location Change Detector - Prompts users to update their location
 import LocationChangeDetector from './components/LocationChangeDetector';
 
-// Page Components
-import HomePage from './pages/HomePageNew';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import SubscriptionPage from './pages/SubscriptionPage';
-import SubscriptionSuccessPage from './pages/SubscriptionSuccessPage';
-import SubscriptionErrorPage from './pages/SubscriptionErrorPage';
-import DashboardPage from './pages/DashboardPage';
-import CreateServicePage from './pages/CreateServicePage';
-import AdultServiceCreate from './pages/AdultServiceCreate';
-import ProfilePage from './pages/ProfilePage';
-import VerificationPage from './pages/VerificationPage';
+// Real-time Location Provider - Uber-style GPS streaming for providers
+import RealtimeLocationProvider from './components/RealtimeLocationProvider';
+
+// Page Components — lazy-loaded to reduce initial bundle size
+const HomePage = lazy(() => import('./pages/HomePageNew'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/RegisterPage'));
+const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage'));
+const SubscriptionSuccessPage = lazy(() => import('./pages/SubscriptionSuccessPage'));
+const SubscriptionErrorPage = lazy(() => import('./pages/SubscriptionErrorPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const CreateServicePage = lazy(() => import('./pages/CreateServicePage'));
+const AdultServiceCreate = lazy(() => import('./pages/AdultServiceCreate'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const VerificationPage = lazy(() => import('./pages/VerificationPage'));
 // TransactionsPage removed - route redirects to /wallet (MyMoneyPage)
-import TrustScorePage from './pages/TrustScorePage';
-import AdultServiceBrowse from './pages/AdultServiceBrowse';
-import AdultServiceDetail from './pages/AdultServiceDetail';
-import ProfileFeed from './pages/ProfileFeed';
-import ProfileDetailPage from './pages/ProfileDetailPage';
-import MessagesPage from './pages/MessagesPage';
-import PrivacySettings from './pages/PrivacySettingsNew';
-import BookingsPage from './pages/BookingsPage';
-import BookingDetails from './pages/BookingDetails';
+const TrustScorePage = lazy(() => import('./pages/TrustScorePage'));
+const AdultServiceBrowse = lazy(() => import('./pages/AdultServiceBrowse'));
+const AdultServiceDetail = lazy(() => import('./pages/AdultServiceDetail'));
+const ProfileFeed = lazy(() => import('./pages/ProfileFeed'));
+const ProfileDetailPage = lazy(() => import('./pages/ProfileDetailPage'));
+const MessagesPage = lazy(() => import('./pages/MessagesPage'));
+const PrivacySettings = lazy(() => import('./pages/PrivacySettingsNew'));
+const BookingsPage = lazy(() => import('./pages/BookingsPage'));
+const BookingDetails = lazy(() => import('./pages/BookingDetails'));
 // WalletPage removed - using MyMoneyPage instead for consistency
-import MyMoneyPage from './pages/MyMoneyPage';
-import AdminDashboard from './pages/AdminDashboard';
-import HelpSupportPage from './pages/HelpSupportPage';
-import NotificationsPage from './pages/NotificationsPage';
-import SugarProfilesPage from './pages/SugarProfilesPage';
-// Info Pages
-import { 
-  AboutPage, 
-  PrivacyPage, 
-  TermsPage, 
-  TrustSafetyPage, 
-  HowItWorksPage, 
-  ContactPage 
-} from './pages/InfoPages';
+const MyMoneyPage = lazy(() => import('./pages/MyMoneyPage'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const HelpSupportPage = lazy(() => import('./pages/HelpSupportPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const SugarProfilesPage = lazy(() => import('./pages/SugarProfilesPage'));
+// Info Pages (named exports → individual lazy wrappers)
+const AboutPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.AboutPage })));
+const PrivacyPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.TermsPage })));
+const TrustSafetyPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.TrustSafetyPage })));
+const HowItWorksPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.HowItWorksPage })));
+const ContactPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.ContactPage })));
 
 // Protected Route Component
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -186,6 +187,8 @@ function App() {
         <ToastProvider>
           <AuthProvider>
             <SocketProvider>
+              {/* Real-time location streaming for providers (Uber-style) */}
+              <RealtimeLocationProvider />
               {/* 
                   React Router v7 future flags:
                   - v7_startTransition: Uses React.startTransition for state updates (smoother navigation)
@@ -232,6 +235,13 @@ function AppContent() {
       <LocationChangeDetector checkOnMount={true} thresholdKm={50} />
       
       {/* Main Content - Layout is fully handled by MainLayout (MobileShell or DesktopContainer) */}
+      <Suspense fallback={
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+          <Box sx={{ textAlign: 'center' }}>
+            <Box sx={{ width: 40, height: 40, margin: '0 auto', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#e91e63', borderRadius: '50%', animation: 'spin 0.8s linear infinite', '@keyframes spin': { to: { transform: 'rotate(360deg)' } } }} />
+          </Box>
+        </Box>
+      }>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
@@ -362,6 +372,7 @@ function AppContent() {
         {/* Catch All - Redirect to Home */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
       
       {/* Global Call System - Only mounted on call-eligible routes to reduce socket overhead */}
       {mountCallSystem && (

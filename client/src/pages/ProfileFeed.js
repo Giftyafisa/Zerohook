@@ -58,6 +58,7 @@ import useFeedFilters from '../hooks/useFeedFilters';
 import useLocationBootstrap, { getAllLocations, findNearestCity } from '../hooks/useLocationBootstrap';
 import useFeedQuery from '../hooks/useFeedQuery';
 import TikTokProfileFeed from '../components/TikTokProfileFeed';
+import tokens from '../theme/tokens';
 
 // Environment-gated debug logger — no logs in production builds
 const isDev = process.env.NODE_ENV === 'development';
@@ -147,8 +148,8 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
       maxWidth="sm"
       PaperProps={{
         sx: {
-          bgcolor: '#1a1a2e',
-          color: '#fff',
+          bgcolor: tokens.colors.background.secondary,
+          color: tokens.colors.text.primary,
           borderRadius: 3,
           maxHeight: '80vh'
         }
@@ -161,7 +162,7 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
         borderBottom: '1px solid rgba(255,255,255,0.1)'
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <EditLocation sx={{ color: '#00f2ea' }} />
+          <EditLocation sx={{ color: tokens.colors.primary.main }} />
           <Typography variant="h6">Select Your Location</Typography>
         </Box>
         <IconButton 
@@ -184,10 +185,10 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
           sx={{
             mb: 2,
             py: 1.5,
-            borderColor: '#00f2ea',
-            color: '#00f2ea',
+            borderColor: tokens.colors.primary.main,
+            color: tokens.colors.primary.main,
             '&:hover': {
-              borderColor: '#00d4aa',
+              borderColor: tokens.colors.primary.dark,
               bgcolor: 'rgba(0,242,234,0.1)',
             }
           }}
@@ -211,10 +212,10 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
             mb: 2,
             '& .MuiOutlinedInput-root': {
               bgcolor: 'rgba(255,255,255,0.05)',
-              color: '#fff',
+              color: tokens.colors.text.primary,
               '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
               '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-              '&.Mui-focused fieldset': { borderColor: '#00f2ea' },
+              '&.Mui-focused fieldset': { borderColor: tokens.colors.primary.main },
             },
             '& .MuiInputBase-input::placeholder': {
               color: 'rgba(255,255,255,0.4)',
@@ -255,7 +256,7 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
                 >
                   <ListItemIcon>
                     {isSelected ? (
-                      <CheckCircle sx={{ color: '#00f2ea' }} />
+                      <CheckCircle sx={{ color: tokens.colors.primary.main }} />
                     ) : (
                       <LocationOn sx={{ color: 'rgba(255,255,255,0.5)' }} />
                     )}
@@ -264,7 +265,7 @@ const LocationPicker = ({ open, onClose, onSelectLocation, currentLocation, coun
                     primary={location.name}
                     secondary={`${location.district}, ${location.region}`}
                     primaryTypographyProps={{
-                      sx: { color: isSelected ? '#00f2ea' : '#fff', fontWeight: isSelected ? 600 : 400 }
+                      sx: { color: isSelected ? tokens.colors.primary.main : tokens.colors.text.primary, fontWeight: isSelected ? 600 : 400 }
                     }}
                     secondaryTypographyProps={{
                       sx: { color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }
@@ -381,8 +382,8 @@ class ActivityTracker {
   }
 }
 
-// Global activity tracker
-const activityTracker = new ActivityTracker();
+// ActivityTracker factory (instances created per-component via useRef, not at module scope)
+// const activityTracker = new ActivityTracker(); // REMOVED: caused interval leak in HMR
 
 // ============================================
 // SIMPLE FILTER CHIPS COMPONENT
@@ -427,20 +428,20 @@ const FilterChips = ({ activeFilter, onFilterChange, filters }) => {
             height: { xs: 28, sm: 32 },
             transition: 'all 0.2s ease',
             background: activeFilter === filter.id 
-              ? 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)'
+              ? tokens.gradients.primary
               : 'rgba(255,255,255,0.08)',
-            color: activeFilter === filter.id ? '#000' : '#fff',
+            color: activeFilter === filter.id ? '#000' : tokens.colors.text.primary,
             border: activeFilter === filter.id 
               ? 'none' 
               : '1px solid rgba(255,255,255,0.15)',
             '&:hover': {
               background: activeFilter === filter.id 
-                ? 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)'
+                ? tokens.gradients.primary
                 : 'rgba(255,255,255,0.15)',
               transform: 'scale(1.02)',
             },
             '& .MuiChip-icon': {
-              color: activeFilter === filter.id ? '#000' : '#00f2ea',
+              color: activeFilter === filter.id ? '#000' : tokens.colors.primary.main,
               fontSize: { xs: '14px', sm: '18px' },
             }
           }}
@@ -612,9 +613,9 @@ const ProfileCard = React.memo(({
             right: 0,
             height: '3px',
             background: verificationTier >= 3 
-              ? 'linear-gradient(90deg, #FFD700, #FFA500)'
+              ? `linear-gradient(90deg, ${tokens.colors.warning}, #FFA500)`
               : verificationTier >= 2 
-                ? 'linear-gradient(90deg, #00f2ea, #00d4aa)'
+                ? tokens.gradients.primary
                 : 'transparent',
           }
         }}
@@ -734,8 +735,8 @@ const ProfileCard = React.memo(({
                 border: '1px solid rgba(0,242,234,0.3)',
               }}
             >
-              <NearMe sx={{ fontSize: 12, color: '#00f2ea' }} />
-              <Typography variant="caption" sx={{ color: '#00f2ea', fontWeight: 600 }}>
+              <NearMe sx={{ fontSize: 12, color: tokens.colors.primary.main }} />
+              <Typography variant="caption" sx={{ color: tokens.colors.primary.main, fontWeight: 600 }}>
                 {distanceLabel}
               </Typography>
             </Box>
@@ -795,8 +796,8 @@ const ProfileCard = React.memo(({
                   cursor: 'pointer',
                 }}
               >
-                <Whatshot sx={{ fontSize: 12, color: matchPercentage >= 80 ? '#4ade80' : matchPercentage >= 60 ? '#FFD700' : '#ff6b6b' }} />
-                <Typography variant="caption" sx={{ color: matchPercentage >= 80 ? '#4ade80' : matchPercentage >= 60 ? '#FFD700' : '#ff6b6b', fontWeight: 600 }}>
+                <Whatshot sx={{ fontSize: 12, color: matchPercentage >= 80 ? tokens.colors.success : matchPercentage >= 60 ? tokens.colors.warning : tokens.colors.error }} />
+                <Typography variant="caption" sx={{ color: matchPercentage >= 80 ? tokens.colors.success : matchPercentage >= 60 ? tokens.colors.warning : tokens.colors.error, fontWeight: 600 }}>
                   {matchPercentage}% Match
                 </Typography>
               </Box>
@@ -834,7 +835,7 @@ const ProfileCard = React.memo(({
                 py: 0.5,
               }}
             >
-              <Typography variant="body2" sx={{ color: '#00f2ea', fontWeight: 700 }}>
+              <Typography variant="body2" sx={{ color: tokens.colors.primary.main, fontWeight: 700 }}>
                 {`${priceSymbol}${Number(price).toFixed(2)}`}{isPriceConverted ? ' *' : ''}
               </Typography>
             </Box>
@@ -914,8 +915,8 @@ const ProfileCard = React.memo(({
                 placement="left"
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer' }}>
-                  <Star sx={{ fontSize: 16, color: '#FFD700' }} />
-                  <Typography variant="body2" sx={{ color: '#FFD700', fontWeight: 600 }}>
+                <Star sx={{ fontSize: 16, color: tokens.colors.warning }} />
+                  <Typography variant="body2" sx={{ color: tokens.colors.warning, fontWeight: 600 }}>
                     {Math.round(parseFloat(profile.trustScore) || 75)}%
                   </Typography>
                 </Box>
@@ -956,13 +957,13 @@ const ProfileCard = React.memo(({
             startIcon={<Message />}
             onClick={handleMessageClick}
             sx={{
-              background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
+              background: tokens.gradients.primary,
               color: '#000',
               fontWeight: 700,
               borderRadius: '12px',
               py: 1,
               '&:hover': {
-                background: 'linear-gradient(135deg, #00d4aa 0%, #00f2ea 100%)',
+                background: `linear-gradient(135deg, ${tokens.colors.primary.dark} 0%, ${tokens.colors.primary.main} 100%)`,
                 transform: 'scale(1.02)',
               },
             }}
@@ -1029,7 +1030,7 @@ const SubscriptionPaywall = ({ onSubscribe }) => {
         {/* Header with gradient */}
         <Box
           sx={{
-            background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
+            background: tokens.gradients.primary,
             py: 4,
             px: 3,
             textAlign: 'center',
@@ -1061,7 +1062,7 @@ const SubscriptionPaywall = ({ onSubscribe }) => {
         <CardContent sx={{ p: 4 }}>
           {/* Benefits */}
           <Box sx={{ mb: 4 }}>
-            <Typography variant="subtitle2" sx={{ color: '#00f2ea', mb: 2, fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ color: tokens.colors.primary.main, mb: 2, fontWeight: 600 }}>
               SUBSCRIPTION BENEFITS:
             </Typography>
             {[
@@ -1088,14 +1089,14 @@ const SubscriptionPaywall = ({ onSubscribe }) => {
             size="large"
             onClick={() => navigate('/subscription')}
             sx={{
-              background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
+              background: tokens.gradients.primary,
               color: '#000',
               fontWeight: 700,
               py: 1.5,
               borderRadius: '12px',
               fontSize: '1rem',
               '&:hover': {
-                background: 'linear-gradient(135deg, #00d4aa 0%, #00f2ea 100%)',
+                background: `linear-gradient(135deg, ${tokens.colors.primary.dark} 0%, ${tokens.colors.primary.main} 100%)`,
                 transform: 'scale(1.02)',
               },
             }}
@@ -1152,11 +1153,18 @@ const ProfileFeed = () => {
   // Local UI state
   const [likedProfiles, setLikedProfiles] = useState(new Set());
 
+  // Activity tracker — per-component instance via useRef (prevents HMR/remount interval leaks)
+  const activityTrackerRef = useRef(null);
+  if (!activityTrackerRef.current) {
+    activityTrackerRef.current = new ActivityTracker();
+  }
+  const activityTracker = activityTrackerRef.current;
+
   // Initialize activity tracker
   useEffect(() => {
     activityTracker.init();
     return () => activityTracker.destroy();
-  }, []);
+  }, [activityTracker]);
 
   // Handle filter change — reset profiles + track
   const handleFilterChange = useCallback((filterId) => {
@@ -1257,26 +1265,26 @@ const ProfileFeed = () => {
           {userLocation ? (
             <Chip
               size="small"
-              icon={<NearMe sx={{ fontSize: 12, color: '#00f2ea !important' }} />}
+              icon={<NearMe sx={{ fontSize: 12, color: `${tokens.colors.primary.main} !important` }} />}
               label={locationLabel ? (locationLabel.length > 20 ? locationLabel.substring(0, 20) + '...' : locationLabel) : 'Near you'}
               onClick={() => setShowLocationPicker(true)}
               sx={{
                 bgcolor: 'rgba(0,242,234,0.12)',
-                color: '#00f2ea',
+                color: tokens.colors.primary.main,
                 border: '1px solid rgba(0,242,234,0.25)',
                 fontSize: '0.7rem',
                 fontWeight: 600,
                 height: 28,
                 cursor: 'pointer',
                 '&:hover': { bgcolor: 'rgba(0,242,234,0.2)' },
-                '& .MuiChip-icon': { color: '#00f2ea', ml: 0.5 },
+                '& .MuiChip-icon': { color: tokens.colors.primary.main, ml: 0.5 },
                 '& .MuiChip-label': { px: 1 },
               }}
             />
           ) : (
             <Chip
               size="small"
-              icon={locationLoading ? <CircularProgress size={12} sx={{ color: '#00f2ea' }} /> : <MyLocation sx={{ fontSize: 12 }} />}
+              icon={locationLoading ? <CircularProgress size={12} sx={{ color: tokens.colors.primary.main }} /> : <MyLocation sx={{ fontSize: 12 }} />}
               label={locationLoading ? 'Detecting...' : 'Set location'}
               onClick={() => !locationLoading && setShowLocationPicker(true)}
               disabled={locationLoading}
@@ -1390,7 +1398,7 @@ const ProfileFeed = () => {
                   borderRadius: 2,
                 }}
               >
-                <NearMe sx={{ color: '#00f2ea', fontSize: 20 }} />
+                <NearMe sx={{ color: tokens.colors.primary.main, fontSize: 20 }} />
                 <Box sx={{ flex: 1 }}>
                   <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500 }}>
                     Only {searchMetadata.nearbyCount?.within10km || displayedProfiles.length} providers within 10km
@@ -1404,7 +1412,7 @@ const ProfileFeed = () => {
                   label={`${searchMetadata.nearbyCount?.within25km || 0} within 25km`}
                   sx={{
                     bgcolor: 'rgba(0,242,234,0.2)',
-                    color: '#00f2ea',
+                    color: tokens.colors.primary.main,
                     fontWeight: 600,
                   }}
                 />
@@ -1442,7 +1450,7 @@ const ProfileFeed = () => {
                   py: 4,
                 }}
               >
-                {loadingMore && <CircularProgress sx={{ color: '#00f2ea' }} />}
+                {loadingMore && <CircularProgress sx={{ color: tokens.colors.primary.main }} />}
               </Box>
             )}
 
@@ -1484,9 +1492,9 @@ const ProfileFeed = () => {
                   sx={{
                     mt: 1,
                     borderColor: 'rgba(0,242,234,0.5)',
-                    color: '#00f2ea',
+                    color: tokens.colors.primary.main,
                     '&:hover': {
-                      borderColor: '#00f2ea',
+                      borderColor: tokens.colors.primary.main,
                       bgcolor: 'rgba(0,242,234,0.1)',
                     }
                   }}

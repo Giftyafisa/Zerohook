@@ -1,45 +1,15 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
-// Create axios instance
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
-
-// Add token to requests automatically
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Handle token expiration
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
+import apiClient from './apiClient';
 
 const userAPI = {
   // Get user profile
   getProfile: async () => {
     try {
-      const response = await api.get('/users/profile');
+      const response = await apiClient.get('/users/profile');
       return response.data;
     } catch (error) {
-      // Fallback to mock data if backend is not available
-      if (error.code === 'ERR_NETWORK' || error.response?.status >= 500) {
+      // Only return mock data in development
+      if (process.env.NODE_ENV === 'development' && (error.code === 'ERR_NETWORK' || error.response?.status >= 500)) {
+        console.warn('Using mock data for getProfile:', error.message);
         return {
           id: 1,
           username: 'testuser',
@@ -61,7 +31,7 @@ const userAPI = {
   // Update user profile
   updateProfile: async (profileData) => {
     try {
-      const response = await api.put('/users/profile', profileData);
+      const response = await apiClient.put('/users/profile', profileData);
       return response.data;
     } catch (error) {
       throw error;
@@ -74,7 +44,7 @@ const userAPI = {
       const formData = new FormData();
       formData.append('profilePicture', file);
       
-      const response = await api.post('/uploads/profile-picture', formData, {
+      const response = await apiClient.post('/uploads/profile-picture', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
@@ -88,11 +58,12 @@ const userAPI = {
   // Get user verification status
   getVerificationStatus: async () => {
     try {
-      const response = await api.get('/users/verification-status');
+      const response = await apiClient.get('/users/verification-status');
       return response.data;
     } catch (error) {
-      // Fallback to mock data if backend is not available
-      if (error.code === 'ERR_NETWORK' || error.response?.status >= 500) {
+      // Only return mock data in development
+      if (process.env.NODE_ENV === 'development' && (error.code === 'ERR_NETWORK' || error.response?.status >= 500)) {
+        console.warn('Using mock data for getVerificationStatus:', error.message);
         return {
           tier: 'Basic',
           documents: [],

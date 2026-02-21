@@ -195,10 +195,10 @@ const useProfileEngagement = (profileId) => {
  */
 const sendEngagementAPI = async (data) => {
   try {
-    const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
     const token = localStorage.getItem('token');
     
-    await fetch(`${API_BASE_URL}/api/users/engagement`, {
+    await fetch(`${API_BASE_URL}/users/engagement`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

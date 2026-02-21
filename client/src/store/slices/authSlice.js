@@ -1,8 +1,8 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import authAPI from '../../services/authAPI';
 
-// In-memory storage for refresh token (not localStorage for security)
-let _refreshToken = null;
+// Refresh token is now handled exclusively via HttpOnly cookie
+// No client-side storage needed - the browser sends the cookie automatically
 
 // Async thunks
 export const loginUser = createAsyncThunk(
@@ -11,7 +11,7 @@ export const loginUser = createAsyncThunk(
     try {
       const response = await authAPI.login(credentials);
       localStorage.setItem('token', response.token);
-      _refreshToken = response.refreshToken || null;
+      // Refresh token is set as HttpOnly cookie by the server
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || { error: 'Login failed' });
@@ -25,7 +25,7 @@ export const registerUser = createAsyncThunk(
     try {
       const response = await authAPI.register(userData);
       localStorage.setItem('token', response.token);
-      _refreshToken = response.refreshToken || null;
+      // Refresh token is set as HttpOnly cookie by the server
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || { error: 'Registration failed' });
@@ -37,9 +37,9 @@ export const refreshToken = createAsyncThunk(
   'auth/refreshToken',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await authAPI.refresh(_refreshToken);
+      // Cookie-based refresh: browser sends HttpOnly cookie automatically via withCredentials
+      const response = await authAPI.refresh();
       localStorage.setItem('token', response.token);
-      _refreshToken = response.refreshToken || null;
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || { error: 'Token refresh failed' });
@@ -116,7 +116,6 @@ const authSlice = createSlice({
   reducers: {
     logout: (state) => {
       localStorage.removeItem('token');
-      _refreshToken = null;
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;

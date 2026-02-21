@@ -87,13 +87,16 @@ const AdminDashboard = () => {
   const [depositTxHash, setDepositTxHash] = useState('');
   const [depositNotes, setDepositNotes] = useState('');
 
-  const token = localStorage.getItem('token');
-  const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const getHeaders = () => {
+    const token = localStorage.getItem('token');
+    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+  };
 
   // Check admin status and fetch data
   const fetchAdminData = useCallback(async () => {
     setLoading(true);
     try {
+      const headers = getHeaders();
       // Fetch stats first to verify admin access
       const statsRes = await fetch(`${API_BASE_URL}/admin/stats`, { headers });
       if (statsRes.status === 403) {
@@ -162,6 +165,7 @@ const AdminDashboard = () => {
       toast.warning('Amount and wallet address required');
       return;
     }
+    const headers = getHeaders();
     setActionLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/withdraw-fees`, {
@@ -188,6 +192,7 @@ const AdminDashboard = () => {
   // Approve/Reject user withdrawal
   const handleApproveWithdrawal = async (approve) => {
     if (!selectedWithdrawal) return;
+    const headers = getHeaders();
     setActionLoading(true);
     try {
       const endpoint = approve ? 'approve' : 'reject';
@@ -218,6 +223,7 @@ const AdminDashboard = () => {
       toast.warning('Select winner and provide reasoning');
       return;
     }
+    const headers = getHeaders();
     setActionLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/disputes/${selectedDispute.id}/resolve`, {
@@ -245,6 +251,7 @@ const AdminDashboard = () => {
   // Confirm deposit manually
   const handleConfirmDeposit = async () => {
     if (!selectedDeposit) return;
+    const headers = getHeaders();
     setActionLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/deposits/${selectedDeposit.id}/confirm`, {
@@ -271,6 +278,7 @@ const AdminDashboard = () => {
 
   // Process unban request
   const handleUnbanDecision = async (userId, approved) => {
+    const headers = getHeaders();
     setActionLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/admin/unban/${userId}`, {

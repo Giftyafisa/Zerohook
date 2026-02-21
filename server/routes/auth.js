@@ -321,7 +321,6 @@ router.post('/register', rateLimitMiddleware, [
     res.status(201).json({
       message: 'Registration successful',
       token,
-      refreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -449,10 +448,19 @@ router.post('/login', rateLimitMiddleware, [
       0 // Neutral trust impact for regular login
     );
 
+    // Check subscription expiry before returning status
+    let isSubscribed = user.is_subscribed;
+    let subscriptionTier = user.subscription_tier;
+    if (isSubscribed && user.subscription_expires_at && new Date(user.subscription_expires_at) <= new Date()) {
+      isSubscribed = false;
+      subscriptionTier = 'free';
+      // Fire-and-forget DB update
+      User.findByIdAndUpdate(user._id, { is_subscribed: false, subscription_tier: 'free' }).catch(e => console.error('Sub expiry update error:', e));
+    }
+
     res.json({
       message: 'Login successful',
       token,
-      refreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -461,8 +469,8 @@ router.post('/login', rateLimitMiddleware, [
         reputationScore: user.reputation_score,
         trustScore: user.trust_score,
         status: user.status,
-        is_subscribed: user.is_subscribed,
-        subscription_tier: user.subscription_tier,
+        is_subscribed: isSubscribed,
+        subscription_tier: subscriptionTier,
         subscription_expires_at: user.subscription_expires_at,
         profile_data: user.profile_data || {},
         created_at: user.created_at
@@ -606,16 +614,24 @@ router.post('/refresh', async (req, res) => {
     const token = generateAccessToken(user);
     setRefreshTokenCookie(res, newRefreshToken);
 
+    // Check subscription expiry before returning status
+    let isSubRefresh = user.is_subscribed;
+    let subTierRefresh = user.subscription_tier;
+    if (isSubRefresh && user.subscription_expires_at && new Date(user.subscription_expires_at) <= new Date()) {
+      isSubRefresh = false;
+      subTierRefresh = 'free';
+      User.findByIdAndUpdate(user._id, { is_subscribed: false, subscription_tier: 'free' }).catch(e => console.error('Sub expiry update error:', e));
+    }
+
     res.json({
       message: 'Token refreshed successfully',
       token,
-      refreshToken: newRefreshToken,
       user: {
         id: user._id,
         username: user.username,
         verificationTier: user.verification_tier,
-        is_subscribed: user.is_subscribed,
-        subscription_tier: user.subscription_tier,
+        is_subscribed: isSubRefresh,
+        subscription_tier: subTierRefresh,
         subscription_expires_at: user.subscription_expires_at,
         profile_data: user.profile_data || {}
       }
@@ -687,6 +703,15 @@ router.post('/validate-token', async (req, res) => {
         });
       }
 
+      // Check subscription expiry before returning status
+      let isSubValidate = user.is_subscribed;
+      let subTierValidate = user.subscription_tier;
+      if (isSubValidate && user.subscription_expires_at && new Date(user.subscription_expires_at) <= new Date()) {
+        isSubValidate = false;
+        subTierValidate = 'free';
+        User.findByIdAndUpdate(user._id, { is_subscribed: false, subscription_tier: 'free' }).catch(e => console.error('Sub expiry update error:', e));
+      }
+
       // Token is valid and user exists
       res.json({
         valid: true,
@@ -694,8 +719,8 @@ router.post('/validate-token', async (req, res) => {
           id: user.id,
           username: user.username,
           verificationTier: user.verification_tier,
-          is_subscribed: user.is_subscribed,
-          subscription_tier: user.subscription_tier,
+          is_subscribed: isSubValidate,
+          subscription_tier: subTierValidate,
           subscription_expires_at: user.subscription_expires_at,
           profile_data: user.profile_data || {}
         }
@@ -739,6 +764,15 @@ router.get('/me', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
     
+    // Check subscription expiry before returning status
+    let isSubMe = user.is_subscribed;
+    let subTierMe = user.subscription_tier;
+    if (isSubMe && user.subscription_expires_at && new Date(user.subscription_expires_at) <= new Date()) {
+      isSubMe = false;
+      subTierMe = 'free';
+      User.findByIdAndUpdate(user._id, { is_subscribed: false, subscription_tier: 'free' }).catch(e => console.error('Sub expiry update error:', e));
+    }
+
     res.json({
       success: true,
       user: {
@@ -748,8 +782,8 @@ router.get('/me', authMiddleware, async (req, res) => {
         verificationTier: user.verification_tier,
         reputationScore: user.reputation_score,
         trustScore: user.trust_score,
-        is_subscribed: user.is_subscribed,
-        subscription_tier: user.subscription_tier,
+        is_subscribed: isSubMe,
+        subscription_tier: subTierMe,
         subscription_expires_at: user.subscription_expires_at,
         profile_data: user.profile_data || {},
         status: user.status,
@@ -826,11 +860,23 @@ async function authMiddleware(req, res, next) {
       return res.status(403).json({ success: false, error: 'Account suspended' });
     }
 
+    // Check subscription expiry in middleware
+    let mwIsSubscribed = user.is_subscribed;
+    let mwSubTier = user.subscription_tier;
+    if (mwIsSubscribed && user.subscription_expires_at && new Date(user.subscription_expires_at) <= new Date()) {
+      mwIsSubscribed = false;
+      mwSubTier = 'free';
+      // Fire-and-forget DB cleanup
+      User.findByIdAndUpdate(decoded.userId, { is_subscribed: false, subscription_tier: 'free' }).catch(e => console.error('MW sub expiry update:', e));
+      // Invalidate cache so next request gets fresh data
+      invalidateCachedUser(decoded.userId);
+    }
+
     // Add subscription data to user object
     req.user = {
       ...decoded,
-      is_subscribed: user.is_subscribed,
-      subscription_tier: user.subscription_tier,
+      is_subscribed: mwIsSubscribed,
+      subscription_tier: mwSubTier,
       subscription_expires_at: user.subscription_expires_at
     };
     next();
@@ -870,10 +916,19 @@ async function optionalAuthMiddleware(req, res, next) {
       return next();
     }
 
+    // Check subscription expiry in optional auth middleware
+    let optIsSubscribed = user.is_subscribed;
+    let optSubTier = user.subscription_tier;
+    if (optIsSubscribed && user.subscription_expires_at && new Date(user.subscription_expires_at) <= new Date()) {
+      optIsSubscribed = false;
+      optSubTier = 'free';
+      User.findByIdAndUpdate(decoded.userId, { is_subscribed: false, subscription_tier: 'free' }).catch(() => {});
+    }
+
     req.user = {
       ...decoded,
-      is_subscribed: user.is_subscribed,
-      subscription_tier: user.subscription_tier,
+      is_subscribed: optIsSubscribed,
+      subscription_tier: optSubTier,
       subscription_expires_at: user.subscription_expires_at
     };
     next();

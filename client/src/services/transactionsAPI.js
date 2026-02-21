@@ -1,45 +1,15 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
-// Create axios instance
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
-
-// Add token to requests automatically
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Handle token expiration
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
+import apiClient from './apiClient';
 
 const transactionsAPI = {
   // Get user transactions
   getTransactions: async (filters = {}) => {
     try {
-      const response = await api.get('/transactions', { params: filters });
+      const response = await apiClient.get('/transactions', { params: filters });
       return response.data;
     } catch (error) {
-      // Fallback to mock data if backend is not available
-      if (error.code === 'ERR_NETWORK' || error.response?.status >= 500) {
+      // Only return mock data in development
+      if (process.env.NODE_ENV === 'development' && (error.code === 'ERR_NETWORK' || error.response?.status >= 500)) {
+        console.warn('Using mock data for getTransactions:', error.message);
         return {
           transactions: [
             {
@@ -72,7 +42,7 @@ const transactionsAPI = {
   // Get transaction by ID
   getTransactionById: async (id) => {
     try {
-      const response = await api.get(`/transactions/${id}`);
+      const response = await apiClient.get(`/transactions/${id}`);
       return response.data;
     } catch (error) {
       throw error;
@@ -82,7 +52,7 @@ const transactionsAPI = {
   // Create new transaction
   createTransaction: async (transactionData) => {
     try {
-      const response = await api.post('/transactions', transactionData);
+      const response = await apiClient.post('/transactions', transactionData);
       return response.data;
     } catch (error) {
       throw error;
@@ -92,7 +62,7 @@ const transactionsAPI = {
   // Update transaction status
   updateTransactionStatus: async (id, status) => {
     try {
-      const response = await api.patch(`/transactions/${id}/status`, { status });
+      const response = await apiClient.patch(`/transactions/${id}/status`, { status });
       return response.data;
     } catch (error) {
       throw error;

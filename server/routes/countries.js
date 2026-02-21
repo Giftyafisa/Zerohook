@@ -10,8 +10,7 @@ const router = express.Router();
  */
 router.get('/', async (req, res) => {
   try {
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const countries = countryManager.getAllCountries();
     
@@ -288,8 +287,7 @@ router.get('/:code/regions', async (req, res) => {
 router.get('/:code', async (req, res) => {
   try {
     const { code } = req.params;
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const country = countryManager.getCountryByCode(code);
     
@@ -326,8 +324,7 @@ router.get('/:code', async (req, res) => {
 router.post('/detect', async (req, res) => {
   try {
     const { User, isDatabaseAvailable } = require('../config/database');
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     // Check if user is authenticated (registered user)
     const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -514,8 +511,7 @@ router.post('/detect', async (req, res) => {
 router.get('/user/preference', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const userCountry = await countryManager.getUserCountry(userId);
     
@@ -555,8 +551,7 @@ router.put('/user/preference', authMiddleware, [
     const { countryCode } = req.body;
     const userId = req.user.userId;
     
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const updateResult = await countryManager.updateUserCountry(userId, countryCode);
     
@@ -583,8 +578,7 @@ router.put('/user/preference', authMiddleware, [
 router.get('/:code/payment-methods', async (req, res) => {
   try {
     const { code } = req.params;
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const paymentMethods = countryManager.getCountryPaymentMethods(code);
     
@@ -607,8 +601,7 @@ router.get('/:code/payment-methods', async (req, res) => {
 router.get('/:code/crypto-platforms', async (req, res) => {
   try {
     const { code } = req.params;
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const cryptoPlatforms = countryManager.getCryptoPlatforms(code);
     
@@ -630,8 +623,7 @@ router.get('/:code/crypto-platforms', async (req, res) => {
  */
 router.get('/ghana/crypto-platforms', async (req, res) => {
   try {
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const paymentOptions = countryManager.getPaymentOptions('GH');
     
@@ -662,8 +654,7 @@ router.get('/ghana/crypto-platforms', async (req, res) => {
 router.get('/features/:feature', async (req, res) => {
   try {
     const { feature } = req.params;
-    const CountryManager = require('../services/CountryManager');
-    const countryManager = new CountryManager();
+    const countryManager = req.countryManager;
     
     const countries = countryManager.getCountriesByFeature(feature);
     

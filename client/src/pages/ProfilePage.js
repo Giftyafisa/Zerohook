@@ -186,7 +186,7 @@ const ProfilePage = () => {
         priceCurrency: user.profile_data?.priceCurrency || 'USD',
         profilePicture: user.profile_data?.profile_picture?.url || user.profile_data?.profilePicture || null,
         trustScore: user.reputation_score || 75,
-        verificationTier: user.verification_tier || 1,
+        verificationTier: user.verificationTier || user.verification_tier || 1,
         completedServices: user.profile_data?.completedServices || 0,
         preferProfileLocation: Boolean(user.profile_data?.location?.preferProfileLocation),
         profileVisibility: user.profile_visibility || user.profile_data?.profileVisibility || 'public'
@@ -409,45 +409,48 @@ const ProfilePage = () => {
           </Box>
 
           {/* Subscription Status */}
-          {!user?.is_subscribed && (
-            <Button
-              variant="contained"
-              startIcon={<PremiumIcon />}
-              onClick={() => navigate('/subscribe')}
-              fullWidth
-              sx={{
-                mt: 2,
-                py: 1.5,
-                background: 'linear-gradient(135deg, #ffd700, #ffaa00)',
-                color: '#000',
-                fontWeight: 700,
-                borderRadius: '14px',
-                fontSize: '0.95rem',
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #ffaa00, #ff8800)',
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 4px 20px rgba(255, 215, 0, 0.4)'
-                },
-                transition: 'all 0.3s ease'
-              }}
-            >
-              🌟 Upgrade to Premium
-            </Button>
-          )}
-          {user?.is_subscribed && (
-            <Chip
-              icon={<PremiumIcon sx={{ color: '#ffd700 !important' }} />}
-              label="Premium Member"
-              sx={{
-                mt: 2,
-                bgcolor: 'rgba(255, 215, 0, 0.15)',
-                color: '#ffd700',
-                fontWeight: 600,
-                border: '1px solid rgba(255, 215, 0, 0.3)',
-                '& .MuiChip-icon': { color: '#ffd700' }
-              }}
-            />
-          )}
+          {(() => {
+            const isActuallySubscribed = user?.is_subscribed && 
+              (!user?.subscription_expires_at || new Date(user.subscription_expires_at) > new Date());
+            return isActuallySubscribed ? (
+              <Chip
+                icon={<PremiumIcon sx={{ color: '#ffd700 !important' }} />}
+                label="Premium Member"
+                sx={{
+                  mt: 2,
+                  bgcolor: 'rgba(255, 215, 0, 0.15)',
+                  color: '#ffd700',
+                  fontWeight: 600,
+                  border: '1px solid rgba(255, 215, 0, 0.3)',
+                  '& .MuiChip-icon': { color: '#ffd700' }
+                }}
+              />
+            ) : (
+              <Button
+                variant="contained"
+                startIcon={<PremiumIcon />}
+                onClick={() => navigate('/subscribe')}
+                fullWidth
+                sx={{
+                  mt: 2,
+                  py: 1.5,
+                  background: 'linear-gradient(135deg, #ffd700, #ffaa00)',
+                  color: '#000',
+                  fontWeight: 700,
+                  borderRadius: '14px',
+                  fontSize: '0.95rem',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #ffaa00, #ff8800)',
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 4px 20px rgba(255, 215, 0, 0.4)'
+                  },
+                  transition: 'all 0.3s ease'
+                }}
+              >
+                🌟 Upgrade to Premium
+              </Button>
+            );
+          })()}
         </Box>
       </motion.div>
 

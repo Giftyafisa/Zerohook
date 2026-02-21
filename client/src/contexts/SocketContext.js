@@ -68,15 +68,32 @@ export const SocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const { isAuthenticated, user } = useAuth();
   const dispatch = useDispatch();
+  // Stable ref for user ID to avoid reconnect churn when user object reference changes
+  const userIdRef = React.useRef(null);
 
   useEffect(() => {
     // Only attempt connection if authenticated and have user data
     if (isAuthenticated && user && localStorage.getItem('token')) {
+      // Prevent reconnect churn: only reconnect if user ID actually changed
+      if (socket && userIdRef.current === user.id) {
+        return; // Same user, same socket — no action needed
+      }
+      // Clean up previous socket if user switched
+      if (socket) {
+        socket.disconnect();
+      }
+      userIdRef.current = user.id;
+
       if (process.env.NODE_ENV !== 'production') {
         console.log('🔌 Attempting socket connection...');
       }
       
-      const newSocket = io(process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000', {
+      // Use API URL as socket URL fallback (same origin), never hardcode localhost
+      const socketUrl = process.env.REACT_APP_SOCKET_URL 
+        || process.env.REACT_APP_API_URL?.replace('/api', '') 
+        || window.location.origin;
+      
+      const newSocket = io(socketUrl, {
         auth: {
           token: localStorage.getItem('token')
         },
@@ -218,6 +235,7 @@ export const SocketProvider = ({ children }) => {
         newSocket.disconnect();
         setSocket(null);
         setIsConnected(false);
+        userIdRef.current = null;
       };
     } else {
       // Clear socket if not authenticated
@@ -228,9 +246,11 @@ export const SocketProvider = ({ children }) => {
         socket.disconnect();
         setSocket(null);
         setIsConnected(false);
+        userIdRef.current = null;
       }
     }
-  }, [isAuthenticated, user]); // REMOVED 'socket' from dependencies to prevent infinite loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user?.id]); // Only reconnect when auth state or user ID changes (not user object reference)
 
   const value = {
     socket,

@@ -21,7 +21,7 @@
 const IPGeolocation = require('./IPGeolocation');
 const { GLOBAL_CITIES } = require('../../shared/utils/globalCityData');
 const mongoose = require('mongoose');
-const { UserActivityLog } = require('../config/database');
+const { User, UserActivityLog } = require('../config/database');
 
 // Simple Levenshtein distance for fuzzy city matching
 function levenshtein(a, b) {
@@ -389,6 +389,12 @@ class LocationTrackingService {
     try {
       if (!mongoose.Types.ObjectId.isValid(userId)) return;
 
+      // Persist GPS coordinates to user profile (C4 fix)
+      // This ensures the recommendation engine has up-to-date locations
+      if (location.lat && location.lng && (source === 'gps' || source === 'ip')) {
+        await this.persistLocationToProfile(userId, location);
+      }
+
       await UserActivityLog.create({
         userId: new mongoose.Types.ObjectId(userId),
         actionType: 'location_update',
@@ -407,6 +413,45 @@ class LocationTrackingService {
       });
     } catch (error) {
       console.error('Location history save error:', error.message);
+    }
+  }
+
+  /**
+   * Persist location data to user's profile_data.location
+   * This ensures the recommendation engine and other services
+   * have access to the user's latest coordinates.
+   */
+  async persistLocationToProfile(userId, location) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId)) return;
+
+      const updateData = {
+        'profile_data.location.coordinates': {
+          lat: location.lat,
+          lng: location.lng
+        },
+        'profile_data.location.lastUpdated': new Date(),
+        last_active: new Date()
+      };
+
+      // Also update city/country if available and confident
+      if (location.city && location.city !== 'Unknown') {
+        updateData['profile_data.location.city'] = location.city;
+      }
+      if (location.country && location.country !== 'Unknown') {
+        updateData['profile_data.location.country'] = location.country;
+      }
+      if (location.countryCode) {
+        updateData['profile_data.location.countryCode'] = location.countryCode;
+      }
+      if (location.region) {
+        updateData['profile_data.location.region'] = location.region;
+      }
+
+      await User.findByIdAndUpdate(userId, { $set: updateData });
+      console.log(`📍 Persisted location to profile for user ${userId}: ${location.city}, ${location.country}`);
+    } catch (error) {
+      console.error('Location profile persist error:', error.message);
     }
   }
 

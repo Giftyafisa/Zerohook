@@ -613,7 +613,7 @@ const HomePage = () => {
 
             <Grid container spacing={4}>
               {trustFeatures.map((feature, index) => (
-                <Grid item xs={12} md={4} key={index}>
+                <Grid item xs={12} md={4} key={feature.title}>
                   <motion.div
                     variants={fadeInUp}
                     whileHover={{ y: -5 }}
@@ -719,7 +719,7 @@ const HomePage = () => {
                 avatar: '👩🏽'
               }
             ].map((testimonial, index) => (
-              <Grid item xs={12} md={4} key={index}>
+              <Grid item xs={12} md={4} key={testimonial.name}>
                 <motion.div variants={fadeInUp}>
                   <Card
                     elevation={3}

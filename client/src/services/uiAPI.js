@@ -1,45 +1,15 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
-// Create axios instance
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
-
-// Add token to requests automatically
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Handle token expiration
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
+import apiClient from './apiClient';
 
 const uiAPI = {
   // Get app settings
   getAppSettings: async () => {
     try {
-      const response = await api.get('/ui/settings');
+      const response = await apiClient.get('/ui/settings');
       return response.data;
     } catch (error) {
-      // Fallback to mock data if backend is not available
-      if (error.code === 'ERR_NETWORK' || error.response?.status >= 500) {
+      // Only return mock data in development
+      if (process.env.NODE_ENV === 'development' && (error.code === 'ERR_NETWORK' || error.response?.status >= 500)) {
+        console.warn('Using mock data for getAppSettings:', error.message);
         return {
           theme: 'light',
           language: 'en',
@@ -62,7 +32,7 @@ const uiAPI = {
   // Update app settings
   updateAppSettings: async (settings) => {
     try {
-      const response = await api.put('/ui/settings', settings);
+      const response = await apiClient.put('/ui/settings', settings);
       return response.data;
     } catch (error) {
       throw error;
@@ -72,11 +42,12 @@ const uiAPI = {
   // Get notifications
   getNotifications: async () => {
     try {
-      const response = await api.get('/ui/notifications');
+      const response = await apiClient.get('/ui/notifications');
       return response.data;
     } catch (error) {
-      // Fallback to mock data if backend is not available
-      if (error.code === 'ERR_NETWORK' || error.response?.status >= 500) {
+      // Only return mock data in development
+      if (process.env.NODE_ENV === 'development' && (error.code === 'ERR_NETWORK' || error.response?.status >= 500)) {
+        console.warn('Using mock data for getNotifications:', error.message);
         return {
           notifications: [
             {
@@ -105,7 +76,7 @@ const uiAPI = {
   // Mark notification as read
   markNotificationRead: async (notificationId) => {
     try {
-      const response = await api.patch(`/ui/notifications/${notificationId}/read`);
+      const response = await apiClient.patch(`/ui/notifications/${notificationId}/read`);
       return response.data;
     } catch (error) {
       throw error;

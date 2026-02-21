@@ -37,7 +37,12 @@ router.post('/request', authMiddleware, [
       return res.status(404).json({ error: 'Target user not found' });
     }
 
-    // Check if there's already an active call
+    // Check if there's already an active call (auto-expire stale "calling" records > 60s)
+    await Call.updateMany(
+      { status: 'calling', created_at: { $lt: new Date(Date.now() - 60000) } },
+      { $set: { status: 'missed', ended_at: new Date() } }
+    );
+
     const activeCall = await Call.findOne({
       $or: [{ caller_id: callerId }, { target_user_id: callerId }],
       status: { $in: ['calling', 'connected'] }

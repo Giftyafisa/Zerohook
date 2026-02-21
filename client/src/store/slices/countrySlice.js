@@ -188,29 +188,32 @@ export const selectExchangeRates = (state) => state.country.exchangeRates;
 export const selectRatesLoading = (state) => state.country.ratesLoading;
 export const selectRatesLastUpdated = (state) => state.country.ratesLastUpdated;
 
-// Helper selector to get localized price
-export const selectLocalizedPrice = (state) => {
+// Factory selector to get localized price for any USD amount
+export const createLocalizedPriceSelector = (priceUSD = 20) => (state) => {
   const userCountry = state.country.userCountry;
   const exchangeRates = state.country.exchangeRates;
   
   if (!userCountry) {
-    return { price: 20, currency: 'USD', symbol: '$' };
+    return { price: priceUSD, currency: 'USD', symbol: '$' };
   }
   
   const countryRate = exchangeRates[userCountry.code];
   if (!countryRate) {
-    return { price: 20, currency: 'USD', symbol: '$' };
+    return { price: priceUSD, currency: 'USD', symbol: '$' };
   }
   
-  const localPrice = Math.round(20 * countryRate.rate);
+  const localPrice = Math.round(priceUSD * countryRate.rate);
   
   return {
     price: localPrice,
     currency: countryRate.currency,
     symbol: countryRate.symbol,
-    originalPrice: 20,
+    originalPrice: priceUSD,
     originalCurrency: 'USD'
   };
 };
+
+// Backward-compatible: default $20 subscription price selector
+export const selectLocalizedPrice = createLocalizedPriceSelector(20);
 
 export default countrySlice.reducer;

@@ -1,5 +1,6 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
+const requireSubscription = require('../middleware/requireSubscription');
 const mongoose = require('mongoose');
 const { Service, ServiceCategory, User, isDatabaseAvailable } = require('../config/database');
 const router = express.Router();
@@ -139,8 +140,9 @@ router.get('/', async (req, res) => {
   } catch (error) {
     console.error('Get services error:', error);
     
-    // Return mock data on database error
-    if (error.message.includes('Connection') || error.message.includes('timeout') || error.message.includes('unavailable')) {
+    // In development: return mock data on database error so UI can still function
+    if (process.env.NODE_ENV === 'development') {
+      console.log('⚠️ [DEV] Returning mock services data due to error:', error.message);
       return res.json({
         services: mockServices,
         pagination: { page: 1, limit: 20, hasMore: false },
@@ -148,7 +150,9 @@ router.get('/', async (req, res) => {
       });
     }
     
+    // In production: return proper error (don't mask real bugs with fake data)
     res.status(500).json({
+      success: false,
       error: 'Failed to get services'
     });
   }
@@ -390,12 +394,9 @@ router.get('/:id', async (req, res) => {
  * @desc    Create new service
  * @access  Private
  */
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, requireSubscription(), async (req, res) => {
   try {
     const userId = req.user.userId;
-    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(category_id)) {
-      return res.status(400).json({ error: 'Invalid user or category ID' });
-    }
     const { 
       title, 
       description, 
@@ -408,6 +409,10 @@ router.post('/', authMiddleware, async (req, res) => {
       requirements,
       media_urls
     } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(userId) || (category_id && !mongoose.Types.ObjectId.isValid(category_id))) {
+      return res.status(400).json({ error: 'Invalid user or category ID' });
+    }
 
     // Validate required fields
     if (!title || !description || !price || !category_id) {

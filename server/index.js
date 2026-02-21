@@ -56,6 +56,7 @@ const MongoRecommendationEngine = require('./services/MongoRecommendationEngine'
 const CloudinaryManager = require('./services/CloudinaryManager');
 const RealtimeLocationManager = require('./services/RealtimeLocationManager');
 const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
+const SubscriptionLifecycleManager = require('./services/SubscriptionLifecycleManager');
 const { connectDB, connectRedis } = require('./config/database');
 
 const app = express();
@@ -221,6 +222,7 @@ const LocationTrackingService = require('./services/LocationTrackingService');
 const locationTrackingService = new LocationTrackingService();
 const realtimeLocationManager = new RealtimeLocationManager();
 const tiktokEngagementTracker = new TikTokEngagementTracker();
+const subscriptionLifecycleManager = new SubscriptionLifecycleManager(cryptoPaymentManager, io);
 
 // Initialize profile and location verification services (NEW)
 const ProfileCompletenessService = require('./services/ProfileCompletenessService');
@@ -248,12 +250,21 @@ const conversationService = new ConversationService();
     if (dbConnected) {
       console.log('✅ Database connected');
     } else {
-      console.log('⚠️  Database connection failed, but server will continue running');
+      console.log('⚠️  Database connection failed');
+      if (process.env.NODE_ENV === 'production') {
+        console.error('❌ FATAL: Cannot start production server without database. Exiting.');
+        process.exit(1);
+      }
+      console.log('⚠️  Development mode: server will continue running without database for frontend testing');
     }
   } catch (error) {
     serviceStatus.db = false;
     console.error('❌ Database connection failed:', error);
-    console.log('⚠️  Server will continue running without database for frontend testing');
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ FATAL: Cannot start production server without database. Exiting.');
+      process.exit(1);
+    }
+    console.log('⚠️  Development mode: server will continue running without database for frontend testing');
   }
 
   try {
@@ -334,6 +345,12 @@ const conversationService = new ConversationService();
     console.error('❌ TikTok Engagement Tracker initialization failed:', error);
   }
 
+  try {
+    await subscriptionLifecycleManager.initialize();
+    console.log('✅ Subscription Lifecycle Manager initialized (payment monitoring + expiry cleanup)');
+  } catch (error) {
+    console.error('❌ Subscription Lifecycle Manager initialization failed:', error);
+  }
 
 
   try {
@@ -369,6 +386,7 @@ app.use((req, res, next) => {
   req.tiktokEngagementTracker = tiktokEngagementTracker;
   req.profileCompletenessService = profileCompletenessService;
   req.locationVerificationService = locationVerificationService;
+  req.systemHealth = systemHealth;
   req.io = io;
   
   // Add database status to request for debugging
@@ -410,8 +428,14 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Serve static files from uploads directory with CORS headers
 app.use('/uploads', (req, res, next) => {
-  // Set CORS headers for uploaded files
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Use the same allowed origins as the main CORS config instead of wildcard
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    // Allow direct browser navigation (no origin header)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 }, express.static(uploadsDir));
@@ -674,6 +698,19 @@ io.on('connection', async (socket) => {
         
       } catch (error) {
         console.error('Error handling call cancellation:', error);
+      }
+    });
+
+    // Handle call timeout (caller gave up after 30s)
+    socket.on('call_timeout', async (data) => {
+      try {
+        console.log(`⏰ Call timeout from ${socket.username}`);
+        socket.to(`user_${data.targetUserId}`).emit('call_cancelled', {
+          callerId: socket.userId,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error('Error handling call timeout:', error);
       }
     });
 

@@ -42,7 +42,7 @@ router.get('/consent-types', async (req, res) => {
  */
 router.get('/settings', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const privacySettings = await privacyManager.getUserPrivacySettings(userId);
     
     res.json({ privacySettings });
@@ -59,7 +59,7 @@ router.get('/settings', authMiddleware, async (req, res) => {
  */
 router.put('/settings', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const privacyData = {
       privacyLevel: req.body.privacyLevel,
       profileVisibility: req.body.profileVisibility,
@@ -95,7 +95,7 @@ router.put('/settings', authMiddleware, async (req, res) => {
  */
 router.get('/consents', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const consents = await privacyManager.getUserConsents(userId);
     
     res.json({ consents });
@@ -112,7 +112,7 @@ router.get('/consents', authMiddleware, async (req, res) => {
  */
 router.post('/consents', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const { consentType, granted } = req.body;
 
     // Validate consent type
@@ -150,7 +150,7 @@ router.post('/consents', authMiddleware, async (req, res) => {
 router.get('/profile/:userId', authMiddleware, async (req, res) => {
   try {
     const targetUserId = req.params.userId;
-    const requestingUserId = req.user.id;
+    const requestingUserId = req.user.userId;
 
     // Users can always view their own profile data
     if (targetUserId === requestingUserId.toString()) {
@@ -184,7 +184,7 @@ router.get('/profile/:userId', authMiddleware, async (req, res) => {
  */
 router.post('/data-deletion', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const { reason, immediate } = req.body;
 
     if (immediate) {
@@ -222,7 +222,7 @@ router.post('/data-deletion', authMiddleware, async (req, res) => {
  */
 router.get('/data-export', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const userData = await privacyManager.exportUserData(userId);
     
     res.json({ 
@@ -244,7 +244,7 @@ router.get('/data-export', authMiddleware, async (req, res) => {
  */
 router.get('/consent-status/:consentType', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const consentType = req.params.consentType;
 
     // Validate consent type

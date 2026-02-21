@@ -79,15 +79,15 @@ router.get('/disputes', authMiddleware, adminMiddleware, async (req, res) => {
         providerConfirmed: dispute.provider_confirmed,
         clientConfirmed: dispute.client_confirmed,
         client: {
-          id: client?._id.toString(),
-          username: client?.username,
-          email: client?.email,
+          id: client?._id?.toString() ?? null,
+          username: client?.username ?? 'Deleted User',
+          email: client?.email ?? null,
           disputeStrikes: client?.dispute_strikes || 0
         },
         provider: {
-          id: provider?._id.toString(),
-          username: provider?.username,
-          email: provider?.email,
+          id: provider?._id?.toString() ?? null,
+          username: provider?.username ?? 'Deleted User',
+          email: provider?.email ?? null,
           disputeStrikes: provider?.dispute_strikes || 0
         }
       };

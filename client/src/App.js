@@ -34,6 +34,18 @@ import LocationChangeDetector from './components/LocationChangeDetector';
 // Real-time Location Provider - Uber-style GPS streaming for providers
 import RealtimeLocationProvider from './components/RealtimeLocationProvider';
 
+// Protected Route Component
+import ProtectedRoute from './components/auth/ProtectedRoute';
+
+// Error Boundary Component
+import ErrorBoundary from './components/ErrorBoundary';
+
+// Global Styles
+import './styles/global.css';
+
+// Error Reporter Service
+import { reportError, reportWarning } from './services/errorReporter';
+
 // Page Components — lazy-loaded to reduce initial bundle size
 const HomePage = lazy(() => import('./pages/HomePageNew'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -69,18 +81,6 @@ const TermsPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m
 const TrustSafetyPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.TrustSafetyPage })));
 const HowItWorksPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.HowItWorksPage })));
 const ContactPage = lazy(() => import('./pages/InfoPages').then(m => ({ default: m.ContactPage })));
-
-// Protected Route Component
-import ProtectedRoute from './components/auth/ProtectedRoute';
-
-// Error Boundary Component
-import ErrorBoundary from './components/ErrorBoundary';
-
-// Global Styles
-import './styles/global.css';
-
-// Error Reporter Service
-import { reportError, reportWarning } from './services/errorReporter';
 
 // Global Call System - Lazy loaded to reduce bundle size on non-chat routes
 const CallSystem = lazy(() => import('./components/CallSystem'));

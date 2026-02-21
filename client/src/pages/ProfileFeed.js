@@ -487,10 +487,10 @@ const ProfileCard = React.memo(({
     return () => {
       if (viewStartTime.current) {
         const duration = Date.now() - viewStartTime.current;
-        activityTracker.trackView(profile.id, duration);
+        if (onView) onView(profile.id, duration);
       }
     };
-  }, [profile.id]);
+  }, [profile.id, onView]);
 
   // Intersection observer for view tracking with engagement
   useEffect(() => {
@@ -846,7 +846,6 @@ const ProfileCard = React.memo(({
             onClick={(e) => {
               e.stopPropagation();
               onLike(profile.id);
-              activityTracker.trackLike(profile.id, !isLiked);
             }}
             aria-label={isLiked ? 'Remove from favorites' : 'Add to favorites'}
             title={isLiked ? 'Remove from favorites' : 'Add to favorites'}

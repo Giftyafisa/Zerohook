@@ -345,7 +345,7 @@ router.post('/social-verification', authMiddleware, [
     const userId = req.user.userId;
 
     // Submit social media account for verification (requires admin review)
-    const result = await verifySocialAccount(platform, username, verificationUrl);
+    const result = await verifySocialAccount(platform, username, verificationUrl, userId);
 
     // Update user social verification with pending_review status
     await User.findByIdAndUpdate(userId, {
@@ -537,7 +537,7 @@ async function verifyEmailOTP(email, otp) {
  * In production, integrate with platform APIs (TikTok, Instagram, etc.).
  * Currently validates that the user submitted a verification request with matching details.
  */
-async function verifySocialAccount(platform, username, verificationUrl) {
+async function verifySocialAccount(platform, username, verificationUrl, userId) {
   if (!platform || !username) {
     return { status: 'failed', message: 'Platform and username are required' };
   }
@@ -545,6 +545,7 @@ async function verifySocialAccount(platform, username, verificationUrl) {
     const { VerificationRequest } = require('../config/database');
     // Create a verification request for admin review
     await VerificationRequest.create({
+      user_id: userId,
       verification_data: {
         platform: platform,
         social_username: username,

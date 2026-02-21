@@ -239,10 +239,6 @@ router.get('/transactions', authMiddleware, async (req, res) => {
         { provider_id: userObjectId }
       ]
     };
-        { client_id: userObjectId },
-        { provider_id: userObjectId }
-      ]
-    };
     
     if (status) matchQuery.status = status;
     if (type) matchQuery.type = type;

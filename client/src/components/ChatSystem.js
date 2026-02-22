@@ -299,10 +299,24 @@ const ChatSystem = ({
   const fileInputRef = useRef(null);
   const hasBootstrappedRef = useRef(false);
   const prevConversationIdRef = useRef(null);
+  // Dedup ref — prevents double-processing when message arrives via both conversation and user rooms
+  const processedMsgIds = useRef(new Set());
 
   useEffect(() => {
     if (user) loadConversations();
   }, [user]);
+
+  // After conversations load, query online status for each participant
+  useEffect(() => {
+    if (!socket || !isConnected || conversations.length === 0) return;
+    conversations.forEach((conv) => {
+      if (conv.participantId) {
+        socket.emit('get_user_status', { userId: conv.participantId });
+      }
+    });
+    // Only run when conversations list length changes (initial load / refresh), not on every update
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, isConnected, conversations.length]);
 
   useEffect(() => {
     if (selectedConversation) {
@@ -368,6 +382,17 @@ const ChatSystem = ({
     if (!socket || !isConnected) return;
 
     const handleNewMessage = (messageData) => {
+      // Dedup: skip if already processed (message received via both conversation + user rooms)
+      const msgId = String(messageData.id || '');
+      if (msgId && processedMsgIds.current.has(msgId)) return;
+      if (msgId) {
+        processedMsgIds.current.add(msgId);
+        if (processedMsgIds.current.size > 200) {
+          const arr = [...processedMsgIds.current];
+          processedMsgIds.current = new Set(arr.slice(-100));
+        }
+      }
+
       let conversationFound = false;
       const messageTimestamp = messageData.createdAt || messageData.timestamp || new Date().toISOString();
 
@@ -411,7 +436,7 @@ const ChatSystem = ({
             const isActive = selectedConversation?.id === conv.id;
             return {
               ...conv,
-              lastMessage: messageData.content,
+              lastMessage: formatMessagePreview(messageData.content, messageData.messageType),
               lastMessageTime: messageTimestamp,
               unreadCount: isOwn || isActive ? 0 : (conv.unreadCount || 0) + 1
             };
@@ -442,6 +467,21 @@ const ChatSystem = ({
     socket.on('typing_start', handleTypingStart);
     socket.on('typing_stop', handleTypingStop);
 
+    // Handle read receipts — other participant read our messages
+    const handleMessageRead = ({ conversationId, userId: readerId, timestamp }) => {
+      if (readerId === user?.id) return; // Ignore our own read events
+      if (selectedConversation?.id === conversationId) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.senderId === user?.id && !msg.readAt
+              ? { ...msg, readAt: timestamp }
+              : msg
+          )
+        );
+      }
+    };
+    socket.on('message_read', handleMessageRead);
+
     // Handle user online/offline status updates
     const handleUserStatus = ({ userId, isOnline }) => {
       debugLog('👤 User status update:', userId, isOnline ? 'online' : 'offline');
@@ -466,6 +506,7 @@ const ChatSystem = ({
       socket.off('typing_start', handleTypingStart);
       socket.off('typing_stop', handleTypingStop);
       socket.off('user_status', handleUserStatus);
+      socket.off('message_read', handleMessageRead);
     };
   }, [socket, isConnected, selectedConversation, user]);
 
@@ -505,6 +546,23 @@ const ChatSystem = ({
     return getUploadUrl(url);
   };
 
+  /**
+   * Format a message preview for the conversation list sidebar.
+   * Shows friendly labels for non-text messages instead of raw URLs.
+   */
+  const formatMessagePreview = (content, messageType) => {
+    if (!messageType || messageType === 'text') return content || '';
+    switch (messageType) {
+      case 'image': return '📷 Photo';
+      case 'video': return '🎬 Video';
+      case 'file': return '📎 File';
+      case 'audio': return '🎵 Audio';
+      case 'location': return '📍 Location';
+      case 'contact': return '👤 Contact';
+      default: return content || '';
+    }
+  };
+
   const loadConversations = async ({ silent = false } = {}) => {
     try {
       debugLog('🔄 Loading conversations...');
@@ -518,19 +576,30 @@ const ChatSystem = ({
         const data = await response.json();
         debugLog('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
-        const transformedConversations = (data.conversations || []).map(conv => ({
-          id: conv.id,
-          participantName: conv.otherUser?.username || 'Unknown',
-          participantAvatar: resolveAvatarUrl(conv.otherUser?.profilePicture),
-          participantOnline: false, // Will be updated via socket
-          participantVerified: (conv.otherUser?.verificationTier || 0) >= 2,
-          participantId: conv.otherUser?.id,
-          lastMessage: conv.lastMessage,
-          lastMessageTime: conv.lastMessageTime,
-          unreadCount: conv.unreadCount || 0,
-          hasActiveEscrow: conv.hasActiveEscrow || false,
-          createdAt: conv.createdAt
-        }));
+        const transformedConversations = (data.conversations || []).map(conv => {
+          // Detect URL-like lastMessage from legacy data and replace with friendly preview
+          let preview = conv.lastMessage;
+          if (preview && (preview.startsWith('http://') || preview.startsWith('https://') || preview.startsWith('/uploads/'))) {
+            const lower = preview.toLowerCase();
+            if (/\.(jpe?g|png|gif|webp|heic)$/i.test(lower)) preview = '📷 Photo';
+            else if (/\.(mp4|mov|avi|webm)$/i.test(lower)) preview = '🎬 Video';
+            else if (/\.(mp3|wav|ogg|aac)$/i.test(lower)) preview = '🎵 Audio';
+            else preview = '📎 File';
+          }
+          return {
+            id: conv.id,
+            participantName: conv.otherUser?.username || 'Unknown',
+            participantAvatar: resolveAvatarUrl(conv.otherUser?.profilePicture),
+            participantOnline: false, // Will be updated via socket get_user_status
+            participantVerified: (conv.otherUser?.verificationTier || 0) >= 2,
+            participantId: conv.otherUser?.id,
+            lastMessage: preview,
+            lastMessageTime: conv.lastMessageTime,
+            unreadCount: conv.unreadCount || 0,
+            hasActiveEscrow: conv.hasActiveEscrow || false,
+            createdAt: conv.createdAt
+          };
+        });
         debugLog('🔄 Transformed conversations:', transformedConversations);
         const sorted = sortConversations(transformedConversations);
         setConversations(sorted);
@@ -561,7 +630,7 @@ const ChatSystem = ({
         setMessages(data.messages || []);
         debugLog('💬 Messages set to state:', data.messages?.length || 0);
         setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
-        await markConversationRead(conversationId);
+        // Note: markConversationRead is already called by `selectConversation`; no need to call again here.
       }
     } catch (error) {
       console.error('Failed to load messages:', error);
@@ -821,13 +890,13 @@ const ChatSystem = ({
   // Handle voice call — delegates to CallSystem via CallContext
   const handleVoiceCall = () => {
     if (!selectedConversation) return;
-    triggerCall(selectedConversation.participantId, 'audio');
+    triggerCall(selectedConversation.participantId, 'audio', selectedConversation.participantName);
   };
 
   // Handle video call — delegates to CallSystem via CallContext
   const handleVideoCall = () => {
     if (!selectedConversation) return;
-    triggerCall(selectedConversation.participantId, 'video');
+    triggerCall(selectedConversation.participantId, 'video', selectedConversation.participantName);
   };
 
   // View user profile
@@ -1151,6 +1220,10 @@ const ChatSystem = ({
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      // Emit socket event so the sender gets real-time read receipt
+      if (socket && isConnected) {
+        socket.emit('mark_read', { conversationId });
+      }
     } catch (error) {
       console.error('Failed to mark conversation read:', error);
     }
@@ -1404,8 +1477,10 @@ const ChatSystem = ({
                         {message.senderId === user.id && (
                           message.status === 'sending' ? (
                             <CheckIcon sx={{ fontSize: 14, opacity: 0.5 }} />
-                          ) : (
+                          ) : message.readAt ? (
                             <DoneAllIcon sx={{ fontSize: 14, color: '#00f2ea' }} />
+                          ) : (
+                            <DoneAllIcon sx={{ fontSize: 14, opacity: 0.5 }} />
                           )
                         )}
                       </Box>

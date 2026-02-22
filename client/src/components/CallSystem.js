@@ -332,9 +332,15 @@ const CallSystem = () => {
 
     socket.on('call_accepted', async (callData) => {
       console.log('✅ Call accepted:', callData);
+      // Preserve target name from outgoing call data for display
+      const prevOutgoing = outgoingCallRef.current;
+      const activeCallData = {
+        ...callData,
+        targetName: prevOutgoing?.targetName || callData.targetName || 'User',
+      };
       setOutgoingCall(null);
       outgoingCallRef.current = null;
-      setActiveCall(callData);
+      setActiveCall(activeCallData);
       setIsInCall(true);
       startCallTimer();
 
@@ -490,7 +496,7 @@ const CallSystem = () => {
   };
 
   // Start call
-  const startCall = useCallback(async (targetUserId, type = 'video') => {
+  const startCall = useCallback(async (targetUserId, type = 'video', targetName = null) => {
     if (!socket || !isConnected) return;
 
     await initializeMedia(type === 'video');
@@ -498,6 +504,7 @@ const CallSystem = () => {
     const callData = {
       id: Date.now().toString(),
       targetUserId,
+      targetName: targetName || 'User',
       type,
       status: 'calling'
     };
@@ -657,8 +664,10 @@ const CallSystem = () => {
     // Connection state monitoring
     pc.onconnectionstatechange = () => {
       console.log('📶 Connection state:', pc.connectionState);
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      if (pc.connectionState === 'failed') {
         endCall();
+      } else if (pc.connectionState === 'disconnected') {
+        console.warn('⚠️ WebRTC connection disconnected (may recover) — not ending call yet');
       }
     };
 
@@ -686,7 +695,7 @@ const CallSystem = () => {
       socket.emit('webrtc_offer', {
         offer: pc.localDescription,
         targetUserId,
-        callType
+        callType: callTypeRef.current
       });
     } catch (error) {
       console.error('Error creating WebRTC offer:', error);
@@ -917,11 +926,11 @@ const CallSystem = () => {
                 transition={{ duration: 2, repeat: Infinity }}
               >
                 <Avatar sx={styles.callerAvatar}>
-                  {outgoingCall.callerName?.charAt(0) || 'U'}
+                  {outgoingCall.targetName?.charAt(0) || 'U'}
                 </Avatar>
               </motion.div>
               
-              <Typography sx={styles.callerName}>Calling...</Typography>
+              <Typography sx={styles.callerName}>{outgoingCall.targetName || 'Calling...'}</Typography>
               
               <Typography sx={styles.callStatus}>
                 <motion.span
@@ -970,11 +979,11 @@ const CallSystem = () => {
           <Box sx={styles.callHeader}>
             <Box sx={styles.headerInfo}>
               <Avatar sx={styles.headerAvatar}>
-                {activeCall.callerName?.charAt(0) || 'U'}
+                {(activeCall.targetName || activeCall.callerName)?.charAt(0) || 'U'}
               </Avatar>
               <Box>
                 <Typography sx={styles.headerName}>
-                  {activeCall.callerName || 'User'}
+                  {activeCall.targetName || activeCall.callerName || 'User'}
                 </Typography>
                 <Typography sx={styles.headerStatus}>
                   <span style={{ color: '#00ff88' }}>●</span> {formatDuration(callDuration)}
@@ -988,14 +997,19 @@ const CallSystem = () => {
 
           {/* Video container */}
           <Box sx={styles.videoContainer}>
+            {/* Remote stream element — always rendered so audio plays for both call types */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              style={{
+                ...styles.remoteVideo,
+                // Hide video element for audio-only calls but keep it in DOM for audio playback
+                ...(callType !== 'video' ? { position: 'absolute', width: 0, height: 0, opacity: 0 } : {})
+              }}
+            />
             {callType === 'video' ? (
               <>
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  style={styles.remoteVideo}
-                />
                 {isVideoEnabled && (
                   <motion.video
                     ref={localVideoRef}
@@ -1019,10 +1033,10 @@ const CallSystem = () => {
             ) : (
               <Box sx={styles.callerInfo}>
                 <Avatar sx={styles.callerAvatar}>
-                  {activeCall.callerName?.charAt(0) || 'U'}
+                  {(activeCall.targetName || activeCall.callerName)?.charAt(0) || 'U'}
                 </Avatar>
                 <Typography sx={styles.callerName}>
-                  {activeCall.callerName || 'User'}
+                  {activeCall.targetName || activeCall.callerName || 'User'}
                 </Typography>
                 <Typography sx={styles.callDuration}>
                   {formatDuration(callDuration)}

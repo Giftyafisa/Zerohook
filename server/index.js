@@ -57,7 +57,7 @@ const CloudinaryManager = require('./services/CloudinaryManager');
 const RealtimeLocationManager = require('./services/RealtimeLocationManager');
 const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
 const SubscriptionLifecycleManager = require('./services/SubscriptionLifecycleManager');
-const { connectDB, connectRedis } = require('./config/database');
+const { connectDB, connectRedis, User, Conversation } = require('./config/database');
 
 const app = express();
 const server = createServer(app);
@@ -833,6 +833,37 @@ io.on('connection', async (socket) => {
           }
         }
 
+        // Subscription messaging limit check (mirrors REST /chat/send logic)
+        try {
+          const FREE_TIER_MAX_CONTACTS = 3;
+          const senderDoc = await User.findById(socket.userId).select('is_subscribed subscription_expires_at');
+          const isSubscribed = senderDoc?.is_subscribed &&
+            (!senderDoc.subscription_expires_at || new Date(senderDoc.subscription_expires_at) > new Date());
+          if (!isSubscribed) {
+            // Count unique contacts
+            const convos = await Conversation.find({
+              $or: [{ participant1Id: socket.userId }, { participant2Id: socket.userId }]
+            }).select('participant1Id participant2Id');
+            const uniqueContacts = new Set();
+            convos.forEach(c => {
+              const cid = c.participant1Id?.toString() === socket.userId
+                ? c.participant2Id?.toString()
+                : c.participant1Id?.toString();
+              if (cid) uniqueContacts.add(cid);
+            });
+            const alreadyContact = otherUserId ? uniqueContacts.has(otherUserId) : true;
+            if (!alreadyContact && uniqueContacts.size >= FREE_TIER_MAX_CONTACTS) {
+              return socket.emit('message_error', {
+                error: 'subscription_required',
+                message: `Free users can only message ${FREE_TIER_MAX_CONTACTS} unique people. Subscribe to message unlimited contacts.`
+              });
+            }
+          }
+        } catch (subErr) {
+          console.error('Socket subscription limit check error:', subErr);
+          // Fail open — if check fails, let message through (REST endpoint is the primary gate)
+        }
+
         // Content moderation via FraudDetection service
         try {
           if (fraudDetection && typeof fraudDetection.analyzeMessageRisk === 'function') {
@@ -870,6 +901,11 @@ io.on('connection', async (socket) => {
 
         // Broadcast message after commit
         io.to(`conversation_${conversationId}`).emit('new_message', messageData);
+
+        // Also emit to recipient's user room so they get it even when viewing a different conversation
+        if (otherUserId) {
+          io.to(`user_${otherUserId}`).emit('new_message', messageData);
+        }
 
         // Log message activity (don't block on error)
         try {

@@ -42,6 +42,8 @@ export const SocketProvider = ({ children }) => {
   const dispatch = useDispatch();
   // Stable ref for user ID to avoid reconnect churn when user object reference changes
   const userIdRef = React.useRef(null);
+  // Dedup ref to avoid double-counting messages received via both user and conversation rooms
+  const processedMessageIds = React.useRef(new Set());
 
   useEffect(() => {
     // Only attempt connection if authenticated and have user data
@@ -97,20 +99,42 @@ export const SocketProvider = ({ children }) => {
 
       // NEW MESSAGE - increment unread count
       newSocket.on('new_message', (data) => {
-        // Only increment if not from self and not currently viewing chat
+        // Dedup: skip if we already processed this message (received via both user + conversation room)
+        if (data.id && processedMessageIds.current.has(String(data.id))) return;
+        if (data.id) {
+          processedMessageIds.current.add(String(data.id));
+          // Prevent unbounded growth
+          if (processedMessageIds.current.size > 200) {
+            const arr = [...processedMessageIds.current];
+            processedMessageIds.current = new Set(arr.slice(-100));
+          }
+        }
+
         const pathname = window?.location?.pathname || '';
         const isChatRoute = pathname.startsWith('/chat') || pathname.startsWith('/messages');
 
-        if (data.senderId !== user?.id && !isChatRoute) {
+        if (data.senderId !== user?.id) {
+          // Always increment unread badge (ChatSystem handles per-conversation decrement when opened)
           dispatch(incrementUnreadMessages());
-          const sender = data.senderName || data.senderUsername;
-          showNotification(
-            '💬 New Message',
-            sender
-              ? `${sender}: ${data.content?.substring(0, 50) || 'New message'}`
-              : 'You have a new message',
-            'info'
-          );
+
+          // Only show toast notification when NOT on the chat page
+          if (!isChatRoute) {
+            const sender = data.senderName || data.senderUsername;
+            // Format preview based on message type — never show raw URLs for media
+            let preview = 'New message';
+            const mType = data.messageType || 'text';
+            if (mType === 'image') preview = '📷 Photo';
+            else if (mType === 'video') preview = '🎬 Video';
+            else if (mType === 'file') preview = '📎 File';
+            else if (mType === 'audio') preview = '🎵 Audio';
+            else if (data.content) preview = data.content.substring(0, 50);
+
+            showNotification(
+              '💬 New Message',
+              sender ? `${sender}: ${preview}` : 'You have a new message',
+              'info'
+            );
+          }
         }
       });
 

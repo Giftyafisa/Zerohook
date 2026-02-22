@@ -471,8 +471,15 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
         });
         message = newMessage;
         
+        // Format a human-readable preview for the conversation sidebar
+        let lastMessagePreview = content;
+        if (messageType === 'image') lastMessagePreview = '📷 Photo';
+        else if (messageType === 'video') lastMessagePreview = '🎬 Video';
+        else if (messageType === 'file') lastMessagePreview = '📎 File';
+        else if (messageType === 'audio') lastMessagePreview = '🎵 Audio';
+
         await Conversation.findByIdAndUpdate(conversationId, {
-          lastMessage: content,
+          lastMessage: lastMessagePreview,
           lastMessageTime: newMessage.createdAt,
           updatedAt: new Date()
         });
@@ -492,13 +499,23 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
       // Emit after successful commit
       req.io.to(`conversation_${conversationId}`).emit('new_message', payload);
 
+      // Also emit to recipient's user room so they get it even when viewing a different conversation
+      if (recipientId) {
+        req.io.to(`user_${recipientId}`).emit('new_message', payload);
+      }
+
       // Notify the recipient — reuse recipientId computed during membership check above
       try {
         if (recipientId) {
           const senderName = req.user.username || 'Someone';
           
-          // Truncate message for notification preview
-          const preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
+          // Format notification preview based on message type — never show raw URLs for media
+          let preview;
+          if (messageType === 'image') preview = '📷 Photo';
+          else if (messageType === 'video') preview = '🎬 Video';
+          else if (messageType === 'file') preview = '📎 File';
+          else if (messageType === 'audio') preview = '🎵 Audio';
+          else preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
           
           await NotificationService.createAndEmit(req.io, {
             userId: recipientId,
@@ -716,6 +733,15 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
       },
       { readAt: new Date() }
     );
+
+    // Emit read receipt via socket so sender gets real-time tick updates
+    if (req.io) {
+      req.io.to(`conversation_${conversationId}`).emit('message_read', {
+        userId,
+        conversationId,
+        timestamp: new Date().toISOString()
+      });
+    }
     
     res.json({ message: 'Messages marked as read' });
 

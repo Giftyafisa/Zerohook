@@ -34,9 +34,9 @@ export const CallProvider = ({ children }) => {
   }, []);
 
   // Any component can trigger a call via this function
-  const startCall = useCallback((targetUserId, type = 'video') => {
+  const startCall = useCallback((targetUserId, type = 'video', targetName = null) => {
     if (startCallRef.current) {
-      startCallRef.current(targetUserId, type);
+      startCallRef.current(targetUserId, type, targetName);
     } else {
       console.warn('CallSystem not mounted — cannot start call');
     }

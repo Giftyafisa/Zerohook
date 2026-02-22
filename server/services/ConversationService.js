@@ -108,9 +108,18 @@ class ConversationService {
         metadata: metadata || {}
       });
 
+      // Format a human-readable preview for the conversation sidebar
+      let lastMessagePreview = content;
+      if (messageType === 'image') lastMessagePreview = '📷 Photo';
+      else if (messageType === 'video') lastMessagePreview = '🎬 Video';
+      else if (messageType === 'file') lastMessagePreview = '📎 File';
+      else if (messageType === 'audio') lastMessagePreview = '🎵 Audio';
+      else if (messageType === 'location') lastMessagePreview = '📍 Location';
+      else if (messageType === 'contact') lastMessagePreview = '👤 Contact';
+
       // Update conversation's last message info
       await Conversation.findByIdAndUpdate(conversationId, {
-        lastMessage: content,
+        lastMessage: lastMessagePreview,
         lastMessageTime: message.createdAt,
         updatedAt: new Date()
       });

@@ -18,6 +18,8 @@ import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useCall } from '../contexts/CallContext';
 
+const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
+
 // CSS-in-JS styles matching mobile Zerohook design
 const styles = {
   // Full screen call overlay
@@ -261,6 +263,7 @@ const styles = {
 const CallSystem = () => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
+  const currentUserId = getUserId(user);
   const { registerStartCall, setIsInCall: setGlobalIsInCall } = useCall();
   
   // Call state
@@ -442,7 +445,7 @@ const CallSystem = () => {
     };
   }, [socket, isConnected]);
 
-  // Initialize media
+  // Initialize media — shows user-friendly errors and retries audio-only on camera fail
   const initializeMedia = async (videoEnabled = true) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -456,6 +459,23 @@ const CallSystem = () => {
       return stream;
     } catch (error) {
       console.warn('Media access failed:', error);
+      // If video was requested but denied, fall back to audio-only
+      if (videoEnabled) {
+        console.log('📹 Camera denied — falling back to audio-only');
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          localStreamRef.current = audioStream;
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = audioStream;
+          }
+          setIsVideoEnabled(false);
+          return audioStream;
+        } catch (audioError) {
+          console.error('🎤 Microphone also denied:', audioError);
+        }
+      }
+      // If all media access failed, inform the user
+      console.error('❌ No media access — call will have no audio/video');
       return null;
     }
   };
@@ -498,6 +518,7 @@ const CallSystem = () => {
   // Start call
   const startCall = useCallback(async (targetUserId, type = 'video', targetName = null) => {
     if (!socket || !isConnected) return;
+    if (!targetUserId || String(targetUserId) === currentUserId) return;
 
     await initializeMedia(type === 'video');
     setCallType(type);
@@ -514,7 +535,7 @@ const CallSystem = () => {
     socket.emit('call_request', {
       targetUserId,
       type,
-      callerId: user.id,
+      callerId: currentUserId,
       callerName: user.username || 'User'
     });
 
@@ -527,7 +548,7 @@ const CallSystem = () => {
         cleanupMediaStreams();
       }
     }, 30000);
-  }, [socket, isConnected, user]);
+  }, [socket, isConnected, user, currentUserId]);
 
   // Register startCall with CallContext so ChatSystem can trigger calls
   useEffect(() => {
@@ -544,8 +565,13 @@ const CallSystem = () => {
   const acceptCall = useCallback(async () => {
     if (!incomingCall) return;
 
-    await initializeMedia(incomingCall.type === 'video');
-    setCallType(incomingCall.type || 'video');
+    const resolvedType = incomingCall.type || 'video';
+    const stream = await initializeMedia(resolvedType === 'video');
+    if (!stream) {
+      console.error('❌ Cannot accept call — media access denied');
+      // Still accept so the caller knows, but warn about no media
+    }
+    setCallType(resolvedType);
     setActiveCall(incomingCall);
     setIncomingCall(null);
     setIsInCall(true);
@@ -553,7 +579,7 @@ const CallSystem = () => {
     socket.emit('accept_call', {
       callId: incomingCall.id,
       targetUserId: incomingCall.callerId,
-      callType: incomingCall.type || 'video'
+      callType: resolvedType
     });
 
     startCallTimer();
@@ -623,15 +649,40 @@ const CallSystem = () => {
 
     const pc = new RTCPeerConnection({
       iceServers: [
+        // STUN servers — help discover public IP
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        // TURN servers — REQUIRED for NAT traversal when STUN fails
+        // (symmetric NAT, mobile carriers, corporate firewalls)
+        // Free relay servers from Open Relay Project
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        // Custom TURN from environment (overrides above if provided)
         ...(process.env.REACT_APP_TURN_URL ? [{
           urls: process.env.REACT_APP_TURN_URL,
           username: process.env.REACT_APP_TURN_USERNAME || '',
           credential: process.env.REACT_APP_TURN_CREDENTIAL || ''
         }] : [])
-      ]
+      ],
+      // Prefer relay candidates when TURN is available — ensures media flows
+      // even through the most restrictive NATs
+      iceTransportPolicy: process.env.REACT_APP_FORCE_RELAY === 'true' ? 'relay' : 'all'
     });
     peerConnectionRef.current = pc;
 
@@ -640,14 +691,23 @@ const CallSystem = () => {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
       });
+    } else {
+      console.warn('⚠️ No local media stream when creating PeerConnection — remote peer won\'t hear/see us');
     }
 
-    // Handle remote tracks
+    // Handle remote tracks — this fires when the other peer's media arrives
     pc.ontrack = (event) => {
-      console.log('📹 Received remote track');
-      remoteStreamRef.current = event.streams[0];
+      console.log('📹 Received remote track:', event.track.kind);
+      const stream = event.streams[0];
+      if (!stream) {
+        console.warn('⚠️ ontrack fired without streams');
+        return;
+      }
+      remoteStreamRef.current = stream;
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
+        remoteVideoRef.current.srcObject = stream;
+        // Force play — some browsers block autoplay
+        remoteVideoRef.current.play().catch(e => console.warn('Remote video play blocked:', e.message));
       }
     };
 

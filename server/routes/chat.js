@@ -17,6 +17,26 @@ const chatSendRateLimit = async (req, res, next) => {
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
+/**
+ * Normalise a lastMessage value so the inbox never shows raw URLs.
+ * Converts http(s) / /uploads/ / data: URIs to friendly labels.
+ */
+const normalizeLastMessagePreview = (msg) => {
+  if (!msg || typeof msg !== 'string') return msg || '';
+  const trimmed = msg.trim();
+  if (
+    trimmed.startsWith('http://') || trimmed.startsWith('https://') ||
+    trimmed.startsWith('/uploads/') || trimmed.startsWith('data:')
+  ) {
+    const cleanUrl = trimmed.split('?')[0].split('#')[0].toLowerCase();
+    if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(cleanUrl) || /image|photo|img/i.test(cleanUrl)) return '📷 Photo';
+    if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(cleanUrl) || /video|vid/i.test(cleanUrl)) return '🎬 Video';
+    if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(cleanUrl)) return '🎵 Audio';
+    return '📎 File';
+  }
+  return msg;
+};
+
 // Maximum unique contacts for non-subscribers
 const FREE_TIER_MAX_CONTACTS = 3;
 
@@ -258,7 +278,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
             verificationTier: otherParticipant?.verification_tier,
             profilePicture: profilePicture
           },
-          lastMessage: conv.lastMessage,
+          lastMessage: normalizeLastMessagePreview(conv.lastMessage),
           lastMessageTime: conv.lastMessageTime,
           unreadCount: unreadMap[conv._id.toString()] || 0,
           createdAt: conv.createdAt,
@@ -736,11 +756,19 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
 
     // Emit read receipt via socket so sender gets real-time tick updates
     if (req.io) {
-      req.io.to(`conversation_${conversationId}`).emit('message_read', {
+      const readPayload = {
         userId,
         conversationId,
         timestamp: new Date().toISOString()
-      });
+      };
+      req.io.to(`conversation_${conversationId}`).emit('message_read', readPayload);
+
+      const otherUserId = conversation.participant1Id?.toString() === userId
+        ? conversation.participant2Id?.toString()
+        : conversation.participant1Id?.toString();
+      if (otherUserId) {
+        req.io.to(`user_${otherUserId}`).emit('message_read', readPayload);
+      }
     }
     
     res.json({ message: 'Messages marked as read' });

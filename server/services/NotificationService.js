@@ -4,17 +4,10 @@
  */
 
 const mongoose = require('mongoose');
-
-const notificationSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, required: true },
-  title: { type: String, required: true },
-  message: { type: String, required: true },
-  data: { type: mongoose.Schema.Types.Mixed, default: {} },
-  read: { type: Boolean, default: false }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
-
-const Notification = mongoose.models.Notification || mongoose.model('Notification', notificationSchema);
+// Use the canonical Notification model from database.js to avoid
+// duplicate/conflicting schema definitions (the model is already
+// registered by the time this module loads).
+const { Notification } = require('../config/database');
 
 class NotificationService {
   /**

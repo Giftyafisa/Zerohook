@@ -99,7 +99,6 @@ export const isFullHeightRoute = (pathname) => {
 export const getRouteLayoutConfig = (pathname, isDesktop, prefersReducedMotion = false) => {
   const chatRoute = isChatRoute(pathname);
   const performanceSensitive = isPerformanceSensitiveRoute(pathname);
-  const callEligible = isCallEligibleRoute(pathname);
   const fullHeight = isFullHeightRoute(pathname);
   
   return {
@@ -107,8 +106,8 @@ export const getRouteLayoutConfig = (pathname, isDesktop, prefersReducedMotion =
     showFooter: isDesktop && !chatRoute,
     // Disable animated background on: performance routes, mobile, or reduced motion preference
     showAnimatedBackground: isDesktop && !performanceSensitive && !prefersReducedMotion,
-    // Only mount CallSystem on eligible routes
-    mountCallSystem: callEligible,
+    // Mount CallSystem globally so incoming calls can be received and answered on any page
+    mountCallSystem: true,
     // Full-height flex layout (independent of footer)
     fullHeightLayout: fullHeight,
     // Chat route flag for specific chat layout adjustments

@@ -57,6 +57,7 @@ const CloudinaryManager = require('./services/CloudinaryManager');
 const RealtimeLocationManager = require('./services/RealtimeLocationManager');
 const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
 const SubscriptionLifecycleManager = require('./services/SubscriptionLifecycleManager');
+const NotificationService = require('./services/NotificationService');
 const { connectDB, connectRedis, User, Conversation } = require('./config/database');
 
 const app = express();
@@ -605,6 +606,9 @@ io.on('connection', async (socket) => {
     // Handle call requests
     socket.on('call_request', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId)) {
+          return;
+        }
         console.log(`📞 Call request from ${socket.username} to user ${data.targetUserId}`);
         
         // Emit incoming call to target user
@@ -628,6 +632,9 @@ io.on('connection', async (socket) => {
     // Handle call acceptance
     socket.on('accept_call', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId)) {
+          return;
+        }
         console.log(`✅ Call accepted by ${socket.username}`);
         
         // Emit call accepted to caller
@@ -650,6 +657,9 @@ io.on('connection', async (socket) => {
     // Handle call rejection
     socket.on('reject_call', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId)) {
+          return;
+        }
         console.log(`❌ Call rejected by ${socket.username}`);
         
         // Emit call rejected to caller
@@ -667,10 +677,20 @@ io.on('connection', async (socket) => {
     // Handle call ending
     socket.on('end_call', async (data) => {
       try {
+        if (!data?.targetUserId) {
+          return;
+        }
         console.log(`📞 Call ended by ${socket.username}`);
         
-        // Emit call ended to other participant
-        const otherUserId = data.targetUserId === socket.userId ? data.callerId : data.targetUserId;
+        // Emit call ended to other participant.
+        // The client sends targetUserId = the other person, but guard against
+        // the edge case where targetUserId === socket.userId (self-reference)
+        // by falling back to data.callerId if available.
+        let otherUserId = data.targetUserId;
+        if (String(otherUserId) === String(socket.userId) && data.callerId) {
+          otherUserId = data.callerId;
+        }
+
         socket.to(`user_${otherUserId}`).emit('call_ended', {
           callId: data.callId,
           endedBy: socket.userId,
@@ -689,6 +709,9 @@ io.on('connection', async (socket) => {
     // Handle call cancellation
     socket.on('cancel_call', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId)) {
+          return;
+        }
         console.log(`🚫 Call cancelled by ${socket.username}`);
         
         // Emit call cancelled to target user
@@ -705,6 +728,9 @@ io.on('connection', async (socket) => {
     // Handle call timeout (caller gave up after 30s)
     socket.on('call_timeout', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId)) {
+          return;
+        }
         console.log(`⏰ Call timeout from ${socket.username}`);
         socket.to(`user_${data.targetUserId}`).emit('call_cancelled', {
           callerId: socket.userId,
@@ -720,6 +746,9 @@ io.on('connection', async (socket) => {
     // Handle WebRTC offer from caller
     socket.on('webrtc_offer', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId) || !data?.offer) {
+          return;
+        }
         console.log(`📡 WebRTC offer from ${socket.username} to user ${data.targetUserId}`);
         socket.to(`user_${data.targetUserId}`).emit('webrtc_offer', {
           offer: data.offer,
@@ -735,6 +764,9 @@ io.on('connection', async (socket) => {
     // Handle WebRTC answer from callee
     socket.on('webrtc_answer', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId) || !data?.answer) {
+          return;
+        }
         console.log(`📡 WebRTC answer from ${socket.username} to user ${data.targetUserId}`);
         socket.to(`user_${data.targetUserId}`).emit('webrtc_answer', {
           answer: data.answer,
@@ -748,6 +780,9 @@ io.on('connection', async (socket) => {
     // Handle ICE candidate exchange
     socket.on('ice_candidate', async (data) => {
       try {
+        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId) || !data?.candidate) {
+          return;
+        }
         console.log(`🧊 ICE candidate from ${socket.username} to user ${data.targetUserId}`);
         socket.to(`user_${data.targetUserId}`).emit('ice_candidate', {
           candidate: data.candidate,
@@ -761,8 +796,16 @@ io.on('connection', async (socket) => {
     // ===== CHAT SYSTEM EVENTS =====
     
     // Handle joining conversation room
-    socket.on('join_conversation', async (conversationId) => {
+    socket.on('join_conversation', async (conversationPayload) => {
       try {
+        const conversationId = typeof conversationPayload === 'object'
+          ? conversationPayload?.conversationId
+          : conversationPayload;
+        if (!conversationId) {
+          socket.emit('join_error', { error: 'conversationId is required' });
+          return;
+        }
+
         // Verify membership via ConversationService
         const isMember = await conversationService.isMember(conversationId, socket.userId);
         if (!isMember) {
@@ -795,19 +838,33 @@ io.on('connection', async (socket) => {
     });
 
     // Handle message read receipts
-    socket.on('mark_read', (data) => {
-      socket.to(`conversation_${data.conversationId}`).emit('message_read', {
-        userId: socket.userId,
-        username: socket.username,
-        conversationId: data.conversationId,
-        messageId: data.messageId,
-        timestamp: new Date().toISOString()
-      });
+    socket.on('mark_read', async (data) => {
+      try {
+        if (!data?.conversationId) return;
+
+        const readPayload = {
+          userId: socket.userId,
+          username: socket.username,
+          conversationId: data.conversationId,
+          messageId: data.messageId,
+          timestamp: new Date().toISOString()
+        };
+
+        socket.to(`conversation_${data.conversationId}`).emit('message_read', readPayload);
+
+        const otherUserId = await conversationService.getOtherParticipant(data.conversationId, socket.userId);
+        if (otherUserId) {
+          io.to(`user_${otherUserId}`).emit('message_read', readPayload);
+        }
+      } catch (err) {
+        console.error('Error handling mark_read:', err);
+      }
     });
 
     // Handle sending messages (transactional + moderation)
     socket.on('send_message', async (data) => {
-      const { conversationId, content, type = 'text', metadata = {} } = data || {};
+      const { conversationId, content, type, messageType, metadata = {} } = data || {};
+      const resolvedMessageType = messageType || type || 'text';
       try {
         console.log(`💬 Message from ${socket.username} to conversation ${conversationId}`);
 
@@ -867,7 +924,7 @@ io.on('connection', async (socket) => {
         // Content moderation via FraudDetection service
         try {
           if (fraudDetection && typeof fraudDetection.analyzeMessageRisk === 'function') {
-            const mod = await fraudDetection.analyzeMessageRisk({ senderId: socket.userId, conversationId, content, messageType: type, metadata });
+            const mod = await fraudDetection.analyzeMessageRisk({ senderId: socket.userId, conversationId, content, messageType: resolvedMessageType, metadata });
             const threshold = parseFloat(process.env.MESSAGE_RISK_BLOCK_THRESHOLD || '0.7');
             if (mod && typeof mod.score === 'number' && mod.score >= threshold) {
               console.warn(`Message blocked: Risk score ${mod.score} >= ${threshold}`);
@@ -881,7 +938,7 @@ io.on('connection', async (socket) => {
         // Persist message via ConversationService with error handling
         let messageRow;
         try {
-          messageRow = await conversationService.insertMessageTx({ conversationId, senderId: socket.userId, content, messageType: type, metadata });
+          messageRow = await conversationService.insertMessageTx({ conversationId, senderId: socket.userId, content, messageType: resolvedMessageType, metadata });
         } catch (dbErr) {
           console.error('Database error inserting message:', dbErr);
           return socket.emit('message_error', { error: 'Database error, please try again' });
@@ -894,7 +951,8 @@ io.on('connection', async (socket) => {
           senderName: socket.username,
           senderUsername: socket.username,
           content,
-          messageType: type,
+          messageType: resolvedMessageType,
+          metadata: messageRow.metadata || metadata || {},
           createdAt: messageRow.createdAt || messageRow.created_at,
           timestamp: messageRow.createdAt || messageRow.created_at
         };
@@ -905,6 +963,25 @@ io.on('connection', async (socket) => {
         // Also emit to recipient's user room so they get it even when viewing a different conversation
         if (otherUserId) {
           io.to(`user_${otherUserId}`).emit('new_message', messageData);
+
+          try {
+            let preview;
+            if (resolvedMessageType === 'image') preview = '📷 Photo';
+            else if (resolvedMessageType === 'video') preview = '🎬 Video';
+            else if (resolvedMessageType === 'file') preview = '📎 File';
+            else if (resolvedMessageType === 'audio') preview = '🎵 Audio';
+            else preview = String(content || '').slice(0, 50);
+
+            await NotificationService.createAndEmit(io, {
+              userId: otherUserId,
+              type: 'message',
+              title: `New message from ${socket.username || 'Someone'}`,
+              message: preview,
+              data: { conversationId, senderId: socket.userId, messageId: String(messageData.id || '') }
+            });
+          } catch (notifErr) {
+            console.error('Socket message notification error:', notifErr.message);
+          }
         }
 
         // Log message activity (don't block on error)
@@ -948,17 +1025,53 @@ io.on('connection', async (socket) => {
     // Handle user status requests
     socket.on('get_user_status', async (data) => {
       try {
-        console.log(`📊 User ${socket.username} requesting status for user ${data.userId}`);
+        if (!data?.userId || String(data.userId) === String(socket.userId)) {
+          return socket.emit('user_status', {
+            userId: socket.userId,
+            isOnline: true,
+            lastSeen: null,
+            status: 'online',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        const canViewStatus = await Conversation.exists({
+          $or: [
+            { participant1Id: socket.userId, participant2Id: data.userId },
+            { participant1Id: data.userId, participant2Id: socket.userId }
+          ],
+          status: { $ne: 'deleted' }
+        });
+        if (!canViewStatus) {
+          return socket.emit('user_status', {
+            userId: data.userId,
+            isOnline: false,
+            lastSeen: null,
+            status: 'offline',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        // Primary check: does the target user have an active socket connection?
+        // This is the most reliable indicator — checking the socket.io room directly.
+        const targetRoom = `user_${data.userId}`;
+        const hasActiveSocket = io.sockets.adapter.rooms.has(targetRoom);
         
-        // Get user status from database
-        const userStatus = await userActivityMonitor.getUserStatus(data.userId);
+        // Fallback to activity monitor for lastSeen data
+        let lastSeen = null;
+        try {
+          const userStatus = await userActivityMonitor.getUserStatus(data.userId);
+          lastSeen = userStatus?.lastSeen || null;
+        } catch (monitorErr) {
+          // Non-critical — socket room check is the authority
+        }
         
         // Emit status back to requesting user
         socket.emit('user_status', {
           userId: data.userId,
-          isOnline: userStatus?.isOnline || false,
-          lastSeen: userStatus?.lastSeen || null,
-          status: userStatus?.status || 'offline',
+          isOnline: hasActiveSocket,
+          lastSeen: lastSeen,
+          status: hasActiveSocket ? 'online' : 'offline',
           timestamp: new Date().toISOString()
         });
         

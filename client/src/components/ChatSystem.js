@@ -65,6 +65,8 @@ import { decrementUnreadMessages } from '../store/slices/uiSlice';
 const isDev = process.env.NODE_ENV === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
+const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
+
 // Helper to resolve avatar URL from backend profilePicture (might be string, object, or JSON string)
 const resolveAvatarUrl = (profilePicture) => {
   if (!profilePicture) return null;
@@ -229,6 +231,7 @@ const ChatSystem = ({
 }) => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
+  const currentUserId = getUserId(user);
   const { startCall: triggerCall } = useCall();
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -301,6 +304,14 @@ const ChatSystem = ({
   const prevConversationIdRef = useRef(null);
   // Dedup ref — prevents double-processing when message arrives via both conversation and user rooms
   const processedMsgIds = useRef(new Set());
+  // Stable ref for selected conversation — socket handlers read this instead of the
+  // state variable, so the useEffect that registers handlers doesn't need
+  // selectedConversation in its dependency array (which would cause handler
+  // teardown/re-registration on every online-status or escrow-state change).
+  const selectedConversationRef = useRef(null);
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   useEffect(() => {
     if (user) loadConversations();
@@ -318,36 +329,41 @@ const ChatSystem = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, isConnected, conversations.length]);
 
+  // Track conversation ID separately so room join/leave only fires on actual
+  // conversation switches — not on every object-reference change (online status,
+  // escrow updates, etc.) which would cause leave+rejoin and lost messages.
+  const selectedConversationId = selectedConversation?.id || null;
+
   useEffect(() => {
-    if (selectedConversation) {
-      loadMessages(selectedConversation.id);
+    if (selectedConversationId) {
+      loadMessages(selectedConversationId);
       if (socket && isConnected) {
-        socket.emit('join_conversation', selectedConversation.id);
+        socket.emit('join_conversation', selectedConversationId);
       }
       setRemoteTyping(false);
     }
     // Cleanup: leave conversation room when switching or unmounting
     return () => {
-      if (selectedConversation && socket && isConnected) {
-        socket.emit('leave_conversation', selectedConversation.id);
+      if (selectedConversationId && socket && isConnected) {
+        socket.emit('leave_conversation', selectedConversationId);
       }
     };
-  }, [selectedConversation, socket, isConnected]);
+  }, [selectedConversationId, socket, isConnected]);
 
   // Emit typing_stop when switching conversations or unmounting to avoid stuck indicators
   useEffect(() => {
     const prevId = prevConversationIdRef.current;
-    if (prevId && prevId !== selectedConversation?.id && socket && isConnected) {
+    if (prevId && prevId !== selectedConversationId && socket && isConnected) {
       socket.emit('typing_stop', { conversationId: prevId });
     }
-    prevConversationIdRef.current = selectedConversation?.id || null;
+    prevConversationIdRef.current = selectedConversationId;
 
     return () => {
       if (prevConversationIdRef.current && socket && isConnected) {
         socket.emit('typing_stop', { conversationId: prevConversationIdRef.current });
       }
     };
-  }, [selectedConversation, socket, isConnected]);
+  }, [selectedConversationId, socket, isConnected]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -377,7 +393,9 @@ const ChatSystem = ({
     return () => window.visualViewport?.removeEventListener('resize', handleViewportResize);
   }, [selectedConversation]);
 
-  // Socket listeners
+  // Socket listeners — use selectedConversationRef (stable ref) instead of
+  // selectedConversation (state) so that this effect only re-runs when the
+  // socket itself changes, not on every conversation-state mutation.
   useEffect(() => {
     if (!socket || !isConnected) return;
 
@@ -395,8 +413,9 @@ const ChatSystem = ({
 
       let conversationFound = false;
       const messageTimestamp = messageData.createdAt || messageData.timestamp || new Date().toISOString();
+      const currentConv = selectedConversationRef.current;
 
-      if (selectedConversation && messageData.conversationId === selectedConversation.id) {
+      if (currentConv && messageData.conversationId === currentConv.id) {
         setMessages((prev) => {
           // Deduplicate by message id
           if (prev.some((m) => m.id === messageData.id)) {
@@ -404,7 +423,7 @@ const ChatSystem = ({
           }
 
           // Replace optimistic temp message if it matches
-          if (messageData.senderId === user?.id) {
+          if (String(messageData.senderId || '') === currentUserId) {
             const tempIndex = prev.findIndex(
               (m) => m.status === 'sending' &&
                 m.senderId === user?.id &&
@@ -421,9 +440,12 @@ const ChatSystem = ({
           return [...prev, { ...messageData, createdAt: messageTimestamp }];
         });
 
-        if (messageData.senderId !== user?.id) {
+        if (String(messageData.senderId || '') !== currentUserId) {
           setRemoteTyping(false);
           markConversationRead(messageData.conversationId);
+          // Counteract the global unread increment from SocketContext — the user
+          // is actively viewing this conversation, so it's instantly read.
+          dispatch(decrementUnreadMessages(1));
         }
       }
 
@@ -432,8 +454,8 @@ const ChatSystem = ({
           prev.map((conv) => {
             if (conv.id !== messageData.conversationId) return conv;
             conversationFound = true;
-            const isOwn = messageData.senderId === user?.id;
-            const isActive = selectedConversation?.id === conv.id;
+            const isOwn = String(messageData.senderId || '') === currentUserId;
+            const isActive = currentConv?.id === conv.id;
             return {
               ...conv,
               lastMessage: formatMessagePreview(messageData.content, messageData.messageType),
@@ -453,13 +475,13 @@ const ChatSystem = ({
     socket.on('new_message', handleNewMessage);
     const handleTypingStart = ({ conversationId }) => {
       setTypingConversations((prev) => (prev.includes(conversationId) ? prev : [...prev, conversationId]));
-      if (selectedConversation?.id === conversationId) {
+      if (selectedConversationRef.current?.id === conversationId) {
         setRemoteTyping(true);
       }
     };
     const handleTypingStop = ({ conversationId }) => {
       setTypingConversations((prev) => prev.filter((id) => id !== conversationId));
-      if (selectedConversation?.id === conversationId) {
+      if (selectedConversationRef.current?.id === conversationId) {
         setRemoteTyping(false);
       }
     };
@@ -469,11 +491,11 @@ const ChatSystem = ({
 
     // Handle read receipts — other participant read our messages
     const handleMessageRead = ({ conversationId, userId: readerId, timestamp }) => {
-      if (readerId === user?.id) return; // Ignore our own read events
-      if (selectedConversation?.id === conversationId) {
+      if (String(readerId || '') === currentUserId) return; // Ignore our own read events
+      if (selectedConversationRef.current?.id === conversationId) {
         setMessages((prev) =>
           prev.map((msg) =>
-            msg.senderId === user?.id && !msg.readAt
+            String(msg.senderId || '') === currentUserId && !msg.readAt
               ? { ...msg, readAt: timestamp }
               : msg
           )
@@ -493,7 +515,7 @@ const ChatSystem = ({
         )
       );
       // Update selected conversation if it's with this user
-      if (selectedConversation?.participantId === userId) {
+      if (selectedConversationRef.current?.participantId === userId) {
         setSelectedConversation((prev) =>
           prev ? { ...prev, participantOnline: isOnline } : prev
         );
@@ -508,7 +530,7 @@ const ChatSystem = ({
       socket.off('user_status', handleUserStatus);
       socket.off('message_read', handleMessageRead);
     };
-  }, [socket, isConnected, selectedConversation, user]);
+  }, [socket, isConnected, currentUserId]);
 
   // Bootstrap target recipient or conversation from props / navigation state
   useEffect(() => {
@@ -577,14 +599,22 @@ const ChatSystem = ({
         debugLog('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
         const transformedConversations = (data.conversations || []).map(conv => {
-          // Detect URL-like lastMessage from legacy data and replace with friendly preview
+          // Detect URL-like lastMessage from legacy data and replace with friendly preview.
+          // Handles query params, Cloudinary URLs, S3 paths, etc.
           let preview = conv.lastMessage;
-          if (preview && (preview.startsWith('http://') || preview.startsWith('https://') || preview.startsWith('/uploads/'))) {
-            const lower = preview.toLowerCase();
-            if (/\.(jpe?g|png|gif|webp|heic)$/i.test(lower)) preview = '📷 Photo';
-            else if (/\.(mp4|mov|avi|webm)$/i.test(lower)) preview = '🎬 Video';
-            else if (/\.(mp3|wav|ogg|aac)$/i.test(lower)) preview = '🎵 Audio';
-            else preview = '📎 File';
+          if (preview && (
+            preview.startsWith('http://') || preview.startsWith('https://') ||
+            preview.startsWith('/uploads/') || preview.startsWith('data:')
+          )) {
+            // Strip query string / hash before checking extension
+            const cleanUrl = preview.split('?')[0].split('#')[0].toLowerCase();
+            if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/i.test(cleanUrl)) preview = '📷 Photo';
+            else if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/i.test(cleanUrl)) preview = '🎬 Video';
+            else if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/i.test(cleanUrl)) preview = '🎵 Audio';
+            else if (/\.(pdf|doc|docx|xls|xlsx|ppt|zip|rar)$/i.test(cleanUrl)) preview = '📎 File';
+            else if (/image|photo|img/i.test(cleanUrl)) preview = '📷 Photo';
+            else if (/video|vid/i.test(cleanUrl)) preview = '🎬 Video';
+            else preview = '📎 File'; // Default: any URL that isn't text is a file
           }
           return {
             id: conv.id,
@@ -711,7 +741,7 @@ const ChatSystem = ({
     const tempMessage = {
       id: tempId,
       content,
-      senderId: user.id,
+      senderId: currentUserId,
       conversationId: selectedConversation.id,
       createdAt: new Date().toISOString(),
       status: 'sending',
@@ -751,7 +781,7 @@ const ChatSystem = ({
           setConversations(prev =>
             prev
               .map(conv => conv.id === selectedConversation.id
-                ? { ...conv, lastMessage: messageType === 'text' ? saved.content : '[Attachment]', lastMessageTime: saved.createdAt }
+                ? { ...conv, lastMessage: formatMessagePreview(saved.content, messageType), lastMessageTime: saved.createdAt }
                 : conv)
               .sort((a, b) => new Date(b.lastMessageTime || b.createdAt || 0) - new Date(a.lastMessageTime || a.createdAt || 0))
           );
@@ -1001,9 +1031,12 @@ const ChatSystem = ({
   };
 
   // Check for active escrow and pending milestones when conversation changes
+  // Use participantId (primitive) instead of the full selectedConversation object
+  // to avoid re-fetching when only participantOnline or other fields change.
+  const selectedParticipantId = selectedConversation?.participantId || null;
   useEffect(() => {
     const checkActiveEscrow = async () => {
-      if (!selectedConversation?.participantId) {
+      if (!selectedParticipantId) {
         setActiveEscrow(null);
         setPendingMilestones([]);
         return;
@@ -1019,8 +1052,8 @@ const ChatSystem = ({
           const data = await escrowResponse.json();
           // Find escrow with this participant
           const escrow = (data.escrows || []).find(e => 
-            (e.provider_id === selectedConversation.participantId || 
-             e.client_id === selectedConversation.participantId) &&
+            (e.provider_id === selectedParticipantId || 
+             e.client_id === selectedParticipantId) &&
             e.status === 'held'
           );
           setActiveEscrow(escrow || null);
@@ -1031,7 +1064,7 @@ const ChatSystem = ({
         }
         
         // Check pending milestone requests
-        const milestoneResponse = await fetch(`${API_BASE_URL}/milestone/pending/${selectedConversation.participantId}`, {
+        const milestoneResponse = await fetch(`${API_BASE_URL}/milestone/pending/${selectedParticipantId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (milestoneResponse.ok) {
@@ -1043,7 +1076,7 @@ const ChatSystem = ({
       }
     };
     checkActiveEscrow();
-  }, [selectedConversation, user?.id]);
+  }, [selectedParticipantId, user?.id]);
 
   // Handle escrow payment success
   const handlePaymentSuccess = (escrowData) => {
@@ -1220,10 +1253,9 @@ const ChatSystem = ({
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      // Emit socket event so the sender gets real-time read receipt
-      if (socket && isConnected) {
-        socket.emit('mark_read', { conversationId });
-      }
+      // NOTE: The REST endpoint already emits 'message_read' via socket.
+      // Do NOT also emit 'mark_read' here — that causes double emission
+      // (4 events per read to the other participant).
     } catch (error) {
       console.error('Failed to mark conversation read:', error);
     }
@@ -1407,13 +1439,13 @@ const ChatSystem = ({
                   <Box
                     sx={{
                       ...styles.messageRow,
-                      justifyContent: message.senderId === user.id ? 'flex-end' : 'flex-start'
+                      justifyContent: String(message.senderId || '') === currentUserId ? 'flex-end' : 'flex-start'
                     }}
                   >
                     <Box
                       sx={{
                         ...styles.messageBubble,
-                        ...(message.senderId === user.id ? styles.sentBubble : styles.receivedBubble),
+                        ...(String(message.senderId || '') === currentUserId ? styles.sentBubble : styles.receivedBubble),
                         cursor: 'pointer',
                         userSelect: 'none',
                         WebkitUserSelect: 'none',
@@ -1444,28 +1476,28 @@ const ChatSystem = ({
                       {message.messageType === 'image' ? (
                         <Box
                           component="img"
-                          src={message.content}
+                          src={resolveMediaUrl(message.content)}
                           alt="Shared image"
                           sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1, cursor: 'pointer' }}
-                          onClick={() => window.open(message.content, '_blank')}
+                          onClick={() => window.open(resolveMediaUrl(message.content), '_blank')}
                         />
                       ) : message.messageType === 'video' ? (
                         <Box
                           component="video"
-                          src={message.content}
+                          src={resolveMediaUrl(message.content)}
                           controls
                           sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1 }}
                         />
                       ) : message.messageType === 'file' ? (
                         <Box
                           component="a"
-                          href={message.content}
+                          href={resolveMediaUrl(message.content)}
                           target="_blank"
                           rel="noopener noreferrer"
                           sx={{ color: 'inherit', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: 0.5 }}
                         >
                           <AttachIcon sx={{ fontSize: 16 }} />
-                          <Typography sx={styles.messageText}>{message.metadata?.fileName || 'Download file'}</Typography>
+                          <Typography sx={styles.messageText}>{message.metadata?.fileName || message.metadata?.filename || 'Download file'}</Typography>
                         </Box>
                       ) : (
                         <Typography sx={styles.messageText}>{message.content}</Typography>
@@ -1474,7 +1506,7 @@ const ChatSystem = ({
                         <Typography sx={styles.messageTime}>
                           {formatTime(message.createdAt)}
                         </Typography>
-                        {message.senderId === user.id && (
+                        {String(message.senderId || '') === currentUserId && (
                           message.status === 'sending' ? (
                             <CheckIcon sx={{ fontSize: 14, opacity: 0.5 }} />
                           ) : message.readAt ? (

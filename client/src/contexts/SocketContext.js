@@ -11,6 +11,8 @@ import {
 
 const SocketContext = createContext({});
 
+const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
+
 export const useSocket = () => {
   const context = useContext(SocketContext);
   if (!context) {
@@ -46,17 +48,19 @@ export const SocketProvider = ({ children }) => {
   const processedMessageIds = React.useRef(new Set());
 
   useEffect(() => {
+    const currentUserId = getUserId(user);
+
     // Only attempt connection if authenticated and have user data
     if (isAuthenticated && user && localStorage.getItem('token')) {
       // Prevent reconnect churn: only reconnect if user ID actually changed
-      if (socket && userIdRef.current === user.id) {
+      if (socket && userIdRef.current === currentUserId) {
         return; // Same user, same socket — no action needed
       }
       // Clean up previous socket if user switched
       if (socket) {
         socket.disconnect();
       }
-      userIdRef.current = user.id;
+      userIdRef.current = currentUserId;
 
       if (process.env.NODE_ENV !== 'production') {
         console.log('🔌 Attempting socket connection...');
@@ -113,7 +117,7 @@ export const SocketProvider = ({ children }) => {
         const pathname = window?.location?.pathname || '';
         const isChatRoute = pathname.startsWith('/chat') || pathname.startsWith('/messages');
 
-        if (data.senderId !== user?.id) {
+        if (String(data.senderId || '') !== currentUserId) {
           // Always increment unread badge (ChatSystem handles per-conversation decrement when opened)
           dispatch(incrementUnreadMessages());
 
@@ -149,7 +153,11 @@ export const SocketProvider = ({ children }) => {
           read: false,
           createdAt: new Date().toISOString()
         }));
-        showNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification', 'info');
+        // Don't show toast for 'message' type notifications — the 'new_message'
+        // socket handler already shows its own toast. Showing both causes double toasts.
+        if (data.type !== 'message') {
+          showNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification', 'info');
+        }
       });
 
       // CONNECTION REQUEST notification
@@ -254,7 +262,7 @@ export const SocketProvider = ({ children }) => {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user?.id]); // Only reconnect when auth state or user ID changes (not user object reference)
+  }, [isAuthenticated, user?.id, user?._id, user?.userId]); // Only reconnect when auth state or user ID changes (not user object reference)
 
   const value = {
     socket,

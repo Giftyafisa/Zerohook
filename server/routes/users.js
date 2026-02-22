@@ -9,6 +9,9 @@ const router = express.Router();
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
+// In-memory dedup cache for engagement events (prevents socket + REST double-counting)
+let engagementDedup = null; // Lazy-init Map in engagement route
+
 /**
  * Sanitize profile field values to enforce types, lengths, and safe ranges.
  * Keys are already whitelisted by ALLOWED_PROFILE_FIELDS; this validates VALUES.
@@ -308,8 +311,14 @@ router.put('/profile', authMiddleware, async (req, res) => {
       'location', 'photos', 'services', 'availability', 'specializations',
       'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
       'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
-      'profilePhoto', 'coverPhoto', 'gallery'
+      'profilePhoto', 'coverPhoto', 'gallery', 'accountType'
     ];
+
+    // Validate accountType if being changed
+    const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
+    if (incomingData?.accountType && !VALID_ACCOUNT_TYPES.includes(incomingData.accountType)) {
+      return res.status(400).json({ error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
+    }
     const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
     const whitelisted = {};
     for (const key of ALLOWED_PROFILE_FIELDS) {
@@ -425,6 +434,7 @@ const handleBrowseProfiles = async (req, res) => {
     const {
       page = 1,
       limit = 20,
+      cursor: cursorParam, // Cursor-based pagination token
       country,
       city,
       minAge,
@@ -562,6 +572,7 @@ const handleBrowseProfiles = async (req, res) => {
         userLocation,
         limit: limitNum,
         offset,
+        cursor: cursorParam || null,
         filters,
         accountTypeFilter
       });
@@ -635,7 +646,8 @@ const handleBrowseProfiles = async (req, res) => {
         page: pageNum,
         limit: limitNum,
         total: result.total || enhancedProfiles.length,
-        pages: totalPages || 1
+        pages: totalPages || 1,
+        nextCursor: result.nextCursor || null
       },
       metadata: {
         authenticated: isAuthenticated,
@@ -782,7 +794,8 @@ router.post('/engagement', optionalAuthMiddleware, async (req, res) => {
       bioReadTime,
       isReturnVisit,
       action, // 'view', 'contact', 'favorite', 'skip', 'exit'
-      swipeDirection
+      swipeDirection,
+      eventId
     } = req.body;
 
     // Input validation
@@ -793,6 +806,24 @@ router.post('/engagement', optionalAuthMiddleware, async (req, res) => {
     const VALID_ACTIONS = ['view', 'contact', 'favorite', 'skip', 'exit'];
     if (action && !VALID_ACTIONS.includes(action)) {
       return res.status(400).json({ error: `action must be one of: ${VALID_ACTIONS.join(', ')}` });
+    }
+
+    // Idempotent deduplication — if eventId was already processed, skip
+    if (eventId && typeof eventId === 'string' && eventId.length <= 30) {
+      if (!engagementDedup) {
+        engagementDedup = new Map();
+      }
+      if (engagementDedup.has(eventId)) {
+        return res.json({ success: true, deduplicated: true });
+      }
+      engagementDedup.set(eventId, Date.now());
+      // Prune old entries every 100 inserts (keep last 5 minutes)
+      if (engagementDedup.size % 100 === 0) {
+        const cutoff = Date.now() - 5 * 60 * 1000;
+        for (const [k, v] of engagementDedup) {
+          if (v < cutoff) engagementDedup.delete(k);
+        }
+      }
     }
 
     // Sanitise numeric inputs
@@ -981,20 +1012,20 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Cannot block yourself' });
     }
     
-    // Check if already blocked
+    // Check if already blocked — use schema field names (blocker_id / blocked_id)
     const existingBlock = await BlockedUser.findOne({
-      blockerId,
-      blockedId
+      blocker_id: blockerId,
+      blocked_id: blockedId
     });
     
     if (existingBlock) {
       return res.json({ message: 'User already blocked' });
     }
     
-    // Insert block record
+    // Insert block record — match schema fields
     await BlockedUser.create({
-      blockerId,
-      blockedId
+      blocker_id: blockerId,
+      blocked_id: blockedId
     });
     
     // Update any conversations to blocked status
@@ -1037,13 +1068,14 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
     const { visible } = req.body;
 
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userDoc.profileData?.accountType;
+    const profileData = userDoc.profile_data || userDoc.profileData || {};
+    const accountType = profileData.accountType;
     
     // Only sugar accounts can toggle visibility
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
@@ -1053,17 +1085,17 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
     }
 
     // Update the sugarSettings.visibleToProviders field
-    const currentSugarSettings = userDoc.profileData?.sugarSettings || {};
+    const currentSugarSettings = profileData.sugarSettings || {};
     const updatedSugarSettings = { ...currentSugarSettings, visibleToProviders: visible };
     
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { 
-        'profileData.sugarSettings': updatedSugarSettings,
-        updatedAt: new Date()
+        'profile_data.sugarSettings': updatedSugarSettings,
+        updated_at: new Date()
       },
       { new: true }
-    ).select('username profileData');
+    ).select('username profile_data profileData');
 
     res.json({
       success: true,
@@ -1072,7 +1104,7 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
       user: {
         id: updatedUser._id,
         username: updatedUser.username,
-        profile_data: updatedUser.profileData
+        profile_data: updatedUser.profile_data || updatedUser.profileData || {}
       }
     });
 
@@ -1096,13 +1128,14 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     const { preferredAgeRange, preferredGender } = req.body;
 
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userDoc.profileData?.accountType;
+    const profileData = userDoc.profile_data || userDoc.profileData || {};
+    const accountType = profileData.accountType;
     
     // Only sugar accounts can update these preferences
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
@@ -1112,7 +1145,7 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     }
 
     // Build the update object
-    const currentProfileData = userDoc.profileData || {};
+    const currentProfileData = profileData || {};
     const currentSugarSettings = currentProfileData.sugarSettings || {};
     
     const updatedSugarSettings = {
@@ -1125,11 +1158,11 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { 
-        'profileData.sugarSettings': updatedSugarSettings,
-        updatedAt: new Date()
+        'profile_data.sugarSettings': updatedSugarSettings,
+        updated_at: new Date()
       },
       { new: true }
-    ).select('username profileData');
+    ).select('username profile_data profileData');
 
     res.json({
       success: true,
@@ -1138,7 +1171,7 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
       user: {
         id: updatedUser._id,
         username: updatedUser.username,
-        profile_data: updatedUser.profileData
+        profile_data: updatedUser.profile_data || updatedUser.profileData || {}
       }
     });
 
@@ -1161,13 +1194,14 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userDoc.profileData?.accountType;
+    const profileData = userDoc.profile_data || userDoc.profileData || {};
+    const accountType = profileData.accountType;
     
     // Only providers need sugar access
     if (accountType !== 'provider') {
@@ -1230,13 +1264,14 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const accountType = userDoc.profileData?.accountType;
+    const profileData = userDoc.profile_data || userDoc.profileData || {};
+    const accountType = profileData.accountType;
     
     // Only providers can access this endpoint (they need to pay)
     if (accountType !== 'provider') {
@@ -1284,20 +1319,54 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
 
     // Fetch sugar profiles that are visible to providers
     const profiles = await User.find({
-      'profileData.accountType': { $in: accountTypeFilter },
-      verificationTier: { $gte: 2 },
-      'profileData.sugarSettings.visibleToProviders': true
+      $and: [
+        {
+          $or: [
+            { 'profile_data.accountType': { $in: accountTypeFilter } },
+            { 'profileData.accountType': { $in: accountTypeFilter } }
+          ]
+        },
+        {
+          $or: [
+            { verification_tier: { $gte: 2 } },
+            { verificationTier: { $gte: 2 } }
+          ]
+        },
+        {
+          $or: [
+            { 'profile_data.sugarSettings.visibleToProviders': true },
+            { 'profileData.sugarSettings.visibleToProviders': true }
+          ]
+        }
+      ]
     })
-    .sort({ lastActive: -1 })
+    .sort({ last_active: -1 })
     .skip(parseInt(offset))
     .limit(parseInt(limit))
-    .select('username profileData verificationTier reputationScore createdAt lastActive');
+    .select('username profile_data profileData verification_tier verificationTier reputation_score reputationScore created_at createdAt last_active lastActive');
 
     // Get total count
     const total = await User.countDocuments({
-      'profileData.accountType': { $in: accountTypeFilter },
-      verificationTier: { $gte: 2 },
-      'profileData.sugarSettings.visibleToProviders': true
+      $and: [
+        {
+          $or: [
+            { 'profile_data.accountType': { $in: accountTypeFilter } },
+            { 'profileData.accountType': { $in: accountTypeFilter } }
+          ]
+        },
+        {
+          $or: [
+            { verification_tier: { $gte: 2 } },
+            { verificationTier: { $gte: 2 } }
+          ]
+        },
+        {
+          $or: [
+            { 'profile_data.sugarSettings.visibleToProviders': true },
+            { 'profileData.sugarSettings.visibleToProviders': true }
+          ]
+        }
+      ]
     });
 
     res.json({
@@ -1306,14 +1375,14 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
         id: p._id,
         username: p.username,
         profile_data: {
-          ...p.profileData,
+          ...(p.profile_data || p.profileData || {}),
           registration_ip: undefined,
           registration_user_agent: undefined
         },
-        verification_tier: p.verificationTier,
-        reputation_score: p.reputationScore,
-        created_at: p.createdAt,
-        last_active: p.lastActive
+        verification_tier: p.verification_tier || p.verificationTier,
+        reputation_score: p.reputation_score || p.reputationScore,
+        created_at: p.created_at || p.createdAt,
+        last_active: p.last_active || p.lastActive
       })),
       total,
       page: parseInt(page),

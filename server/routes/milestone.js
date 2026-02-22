@@ -38,7 +38,18 @@ router.post('/request', authMiddleware, async (req, res) => {
 
     // Dynamic minimum based on currency (equivalent of ~$0.50 USD)
     const currencyMinimums = { NGN: 500, GHS: 10, KES: 100, ZAR: 15, UGX: 3000, TZS: 2000, USD: 1, GBP: 1, EUR: 1 };
-    const userCurrency = req.user?.currency || 'NGN';
+    // Derive user currency from countryManager (req.user.currency is never set by auth middleware)
+    let userCurrency = 'NGN'; // Default
+    try {
+      if (req.countryManager) {
+        const userCountry = await req.countryManager.getUserCountry(senderId);
+        if (userCountry?.success && userCountry?.country?.currency) {
+          userCurrency = userCountry.country.currency;
+        }
+      }
+    } catch (e) {
+      // Use default currency
+    }
     const minAmount = currencyMinimums[userCurrency] || 500;
     if (amount < minAmount) {
       return res.status(400).json({ error: `Minimum amount is ${minAmount} ${userCurrency}` });
@@ -180,27 +191,91 @@ router.post('/pay', authMiddleware, async (req, res) => {
     const providerId = request.sender_id.toString();
     const amount = Number(request.amount);
 
-    const escrowTransaction = await Transaction.create({
-      client_id: new mongoose.Types.ObjectId(clientId),
-      provider_id: new mongoose.Types.ObjectId(providerId),
-      amount,
-      status: 'held',
-      type: 'escrow_hold',
-      metadata: {
-        description: request.description || 'Service payment',
-        request_id: request._id.toString(),
-        payment_method: paymentMethod || 'unknown'
+    // ── Wallet balance check: ensure client has enough funds ──
+    const clientWallet = await Transaction.aggregate([
+      { $match: { $or: [{ client_id: new mongoose.Types.ObjectId(clientId) }, { provider_id: new mongoose.Types.ObjectId(clientId) }] } },
+      {
+        $group: {
+          _id: null,
+          totalIn: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$provider_id', new mongoose.Types.ObjectId(clientId)] }, { $eq: ['$status', 'completed'] }] },
+                '$amount', 0
+              ]
+            }
+          },
+          totalOut: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$client_id', new mongoose.Types.ObjectId(clientId)] }, { $in: ['$status', ['completed', 'held']] }] },
+                '$amount', 0
+              ]
+            }
+          }
+        }
       }
-    });
+    ]);
+    const balance = (clientWallet[0]?.totalIn || 0) - (clientWallet[0]?.totalOut || 0);
+    if (balance < amount) {
+      return res.status(400).json({ error: 'Insufficient wallet balance', available: balance, required: amount });
+    }
+
+    // ── Fraud check (if service available) ──
+    if (req.fraudDetection) {
+      try {
+        const risk = await req.fraudDetection.assessRisk({
+          userId: clientId,
+          action: 'escrow_create',
+          amount,
+          recipientId: providerId
+        });
+        if (risk && risk.blocked) {
+          return res.status(403).json({ error: 'Transaction blocked by fraud detection', reason: risk.reason });
+        }
+      } catch (fraudErr) {
+        console.warn('Fraud check skipped (non-fatal):', fraudErr.message);
+      }
+    }
+
+    // ── Create escrow via EscrowManager if available, else direct ──
+    let escrowTransaction;
+    if (req.escrowManager) {
+      escrowTransaction = await req.escrowManager.createEscrow({
+        clientId,
+        providerId,
+        amount,
+        description: request.description || 'Service payment',
+        metadata: {
+          request_id: request._id.toString(),
+          payment_method: paymentMethod || 'wallet'
+        }
+      });
+    } else {
+      escrowTransaction = await Transaction.create({
+        client_id: new mongoose.Types.ObjectId(clientId),
+        provider_id: new mongoose.Types.ObjectId(providerId),
+        amount,
+        status: 'held',
+        type: 'escrow_hold',
+        metadata: {
+          description: request.description || 'Service payment',
+          request_id: request._id.toString(),
+          payment_method: paymentMethod || 'wallet'
+        }
+      });
+    }
+
+    const escrowId = escrowTransaction._id || escrowTransaction.id;
 
     request.status = 'paid';
-    request.escrow_id = escrowTransaction._id;
+    request.escrow_id = escrowId;
     await request.save();
 
     // Notify provider
     if (req.io) {
       req.io.to(`user_${providerId}`).emit('escrow_created', {
-        escrowId: escrowTransaction._id.toString(),
+        escrowId: escrowId.toString(),
         amount,
         clientId,
         message: `${amount.toLocaleString()} has been held for your service!`
@@ -210,7 +285,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       escrow: {
-        id: escrowTransaction._id.toString(),
+        id: escrowId.toString(),
         amount,
         status: 'held'
       }

@@ -22,6 +22,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import useCurrency from '../hooks/useCurrency';
+import { colors } from '../theme/tokens';
 
 const DashboardPage = () => {
   const navigate = useNavigate();
@@ -90,10 +91,10 @@ const DashboardPage = () => {
   }
 
   const quickActions = [
-    { icon: <MessageIcon />, label: 'Messages', badge: stats.unreadMessages, path: '/chat', color: '#00f2ea' },
-    { icon: <PeopleIcon />, label: 'Connections', badge: stats.pendingRequests, path: '/profiles', color: '#ff0055' },
+    { icon: <MessageIcon />, label: 'Messages', badge: stats.unreadMessages, path: '/chat', color: colors.primary.main },
+    { icon: <PeopleIcon />, label: 'Connections', badge: stats.pendingRequests, path: '/profiles', color: colors.secondary.main },
     { icon: <WalletIcon />, label: 'Wallet', badge: null, path: '/wallet', color: '#8b5cf6' },
-    { icon: <StarIcon />, label: 'Trust Score', badge: null, path: '/trust-score', color: '#ffd700' }
+    { icon: <StarIcon />, label: 'Trust Score', badge: null, path: '/trust-score', color: colors.warning }
   ];
 
   return (
@@ -194,7 +195,7 @@ const DashboardPage = () => {
         >
           <Box sx={styles.statCard}>
             <Box sx={styles.statHeader}>
-              <TrendingUpIcon sx={{ color: '#00ff88' }} />
+              <TrendingUpIcon sx={{ color: colors.success }} />
               <Typography sx={styles.statLabel}>Active Connections</Typography>
             </Box>
             <Typography sx={styles.statValue}>{stats.activeConnections}</Typography>
@@ -208,7 +209,7 @@ const DashboardPage = () => {
         >
           <Box sx={styles.statCard}>
             <Box sx={styles.statHeader}>
-              <PeopleIcon sx={{ color: '#ff0055' }} />
+              <PeopleIcon sx={{ color: colors.secondary.main }} />
               <Typography sx={styles.statLabel}>Pending Requests</Typography>
             </Box>
             <Typography sx={styles.statValue}>{stats.pendingRequests}</Typography>
@@ -222,7 +223,7 @@ const DashboardPage = () => {
         >
           <Box sx={styles.statCard}>
             <Box sx={styles.statHeader}>
-              <MessageIcon sx={{ color: '#00f2ea' }} />
+              <MessageIcon sx={{ color: colors.primary.main }} />
               <Typography sx={styles.statLabel}>Unread Messages</Typography>
             </Box>
             <Typography sx={styles.statValue}>{stats.unreadMessages}</Typography>
@@ -279,12 +280,12 @@ const styles = {
   avatar: {
     width: 56,
     height: 56,
-    border: '2px solid var(--accent-cyan, #00f2ea)',
-    background: 'linear-gradient(135deg, #00f2ea, #ff0055)'
+    border: `2px solid ${colors.primary.main}`,
+    background: `linear-gradient(135deg, ${colors.primary.main}, ${colors.secondary.main})`
   },
   greeting: {
     fontWeight: 700,
-    color: '#fff',
+    color: colors.text.primary,
     fontSize: '1.25rem'
   },
   verifiedRow: {
@@ -301,7 +302,7 @@ const styles = {
     background: 'rgba(0, 242, 234, 0.15)',
     borderRadius: '12px',
     fontSize: '12px',
-    color: '#00f2ea',
+    color: colors.primary.main,
     fontWeight: 500
   },
   memberSince: {
@@ -332,7 +333,7 @@ const styles = {
   balanceAmount: {
     fontSize: '42px',
     fontWeight: 700,
-    background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
+    background: `linear-gradient(135deg, ${colors.primary.main}, ${colors.secondary.main})`,
     WebkitBackgroundClip: 'text',
     WebkitTextFillColor: 'transparent',
     marginBottom: '20px',
@@ -378,7 +379,7 @@ const styles = {
     '@media (max-width: 600px)': {
       gridTemplateColumns: 'repeat(2, 1fr)'
     },
-    '@media (max-width: 360px)': {
+    '@media (max-width: 375px)': {
       gridTemplateColumns: '1fr'
     }
   },
@@ -455,7 +456,7 @@ const styles = {
     justifyContent: 'center',
     gap: '8px',
     padding: '16px',
-    background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
+    background: `linear-gradient(135deg, ${colors.primary.main}, ${colors.primary.dark})`,
     borderRadius: '14px',
     color: '#000',
     fontWeight: 600,

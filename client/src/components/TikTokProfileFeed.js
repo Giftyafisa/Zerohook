@@ -1305,30 +1305,9 @@ const TikTokProfileFeed = () => {
     const viewDuration = Date.now() - viewStartTimeRef.current;
     const currentProfile = profiles[currentIndex];
     
-    // Send engagement data for the profile being swiped away
-    if (currentProfile?.id) {
-      // Determine if this was a quick skip (< 2 seconds = low interest)
-      const action = viewDuration < 2000 ? 'skip' : 'exit';
-      
-      // Send engagement event via API (the FullScreenProfileCard handles socket)
-      try {
-        const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-        const token = localStorage.getItem('token');
-        fetch(`${API_BASE}/api/users/engagement`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` })
-          },
-          body: JSON.stringify({
-            profileId: currentProfile.id,
-            viewDuration,
-            action,
-            swipeDirection: direction
-          })
-        }).catch(() => {}); // Silent fail
-      } catch (e) {}
-    }
+    // Engagement tracking is handled by FullScreenProfileCard's useProfileEngagement
+    // hook cleanup (stopTracking on unmount/profile change). No separate REST call
+    // needed here — that would double-count the event.
     
     if (direction === 'up' && currentIndex < profiles.length - 1) {
       setCurrentIndex(prev => prev + 1);

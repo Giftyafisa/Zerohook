@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { useDispatch } from 'react-redux';
+import { toast } from 'react-toastify';
 import { 
   incrementUnreadMessages, 
   incrementUnreadNotifications,
@@ -18,49 +19,20 @@ export const useSocket = () => {
   return context;
 };
 
-// Simple toast notification function (can be enhanced with a proper toast library)
-// Includes aria-live for screen reader accessibility
+// Unified toast notification using react-toastify (replaces raw DOM manipulation)
 const showNotification = (title, message, type = 'info') => {
-  // Create a simple toast notification
-  const toast = document.createElement('div');
-  // Set accessibility attributes for screen readers
-  toast.setAttribute('role', 'alert');
-  toast.setAttribute('aria-live', 'polite');
-  toast.setAttribute('aria-atomic', 'true');
-  toast.style.cssText = `
-    position: fixed;
-    bottom: 140px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: ${type === 'success' ? '#00ff88' : type === 'warning' ? '#ffa726' : '#00f2ea'};
-    color: #000;
-    padding: 16px 24px;
-    border-radius: 12px;
-    font-weight: 600;
-    z-index: 1300;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-    animation: slideUp 0.3s ease;
-    max-width: calc(100vw - 32px);
-    text-align: center;
-    pointer-events: auto;
-  `;
-  // SECURITY: Use textContent instead of innerHTML to prevent XSS from server payloads
-  const titleEl = document.createElement('div');
-  titleEl.style.cssText = 'font-size:14px;font-weight:700';
-  titleEl.textContent = title;
-  const msgEl = document.createElement('div');
-  msgEl.style.cssText = 'font-size:13px;margin-top:4px';
-  msgEl.textContent = message;
-  toast.appendChild(titleEl);
-  toast.appendChild(msgEl);
-  document.body.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(-50%) translateY(20px)';
-    toast.style.transition = 'all 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  const toastContent = `${title}: ${message}`;
+  switch (type) {
+    case 'success':
+      toast.success(toastContent, { position: 'bottom-center', autoClose: 4000 });
+      break;
+    case 'warning':
+      toast.warning(toastContent, { position: 'bottom-center', autoClose: 4000 });
+      break;
+    default:
+      toast.info(toastContent, { position: 'bottom-center', autoClose: 4000 });
+      break;
+  }
 };
 
 export const SocketProvider = ({ children }) => {
@@ -131,10 +103,11 @@ export const SocketProvider = ({ children }) => {
 
         if (data.senderId !== user?.id && !isChatRoute) {
           dispatch(incrementUnreadMessages());
+          const sender = data.senderName || data.senderUsername;
           showNotification(
             '💬 New Message',
-            data.senderName
-              ? `${data.senderName}: ${data.content?.substring(0, 50) || 'New message'}`
+            sender
+              ? `${sender}: ${data.content?.substring(0, 50) || 'New message'}`
               : 'You have a new message',
             'info'
           );
@@ -170,10 +143,17 @@ export const SocketProvider = ({ children }) => {
         showNotification('🤝 Connection Request', `${data.senderName || 'Someone'} wants to connect`, 'info');
       });
 
-      // VIDEO CALL notification
-      newSocket.on('video_call_request', (data) => {
-        dispatch(incrementUnreadNotifications());
-        showNotification('📹 Incoming Call', `${data.callerName || 'Someone'} is calling you`, 'warning');
+      // INCOMING CALL notification (from call system)
+      // Only toast when NOT on a call-eligible route (CallSystem handles its own UI there)
+      newSocket.on('incoming_call', (data) => {
+        const currentPath = window?.location?.pathname || '';
+        const callRoutes = ['/chat', '/messages', '/inbox', '/profile/', '/dashboard'];
+        const isOnCallRoute = callRoutes.some(r => currentPath.startsWith(r));
+        if (!isOnCallRoute) {
+          dispatch(incrementUnreadNotifications());
+          const callTypeLabel = data.type === 'audio' ? '📞 Incoming Call' : '📹 Incoming Video Call';
+          showNotification(callTypeLabel, `${data.callerName || 'Someone'} is calling you`, 'warning');
+        }
       });
 
       // Escrow notification handlers

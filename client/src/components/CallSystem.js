@@ -16,6 +16,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useCall } from '../contexts/CallContext';
 
 // CSS-in-JS styles matching mobile Zerohook design
 const styles = {
@@ -260,13 +261,16 @@ const styles = {
 const CallSystem = () => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
+  const { registerStartCall, setIsInCall: setGlobalIsInCall } = useCall();
   
   // Call state
   const [incomingCall, setIncomingCall] = useState(null);
   const [outgoingCall, setOutgoingCall] = useState(null);
   const outgoingCallRef = useRef(null);
   const [activeCall, setActiveCall] = useState(null);
+  const activeCallRef = useRef(null);
   const [callType, setCallType] = useState('video');
+  const callTypeRef = useRef('video');
   const [isInCall, setIsInCall] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const callTimerRef = useRef(null);
@@ -283,6 +287,13 @@ const CallSystem = () => {
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
+
+  /**
+   * ICE candidate queue — buffers candidates that arrive before
+   * setRemoteDescription has been called.  Drained once the remote
+   * description is successfully applied.
+   */
+  const iceCandidateQueue = useRef([]);
 
   /**
    * WebRTC role flag — prevents glare (dual-offer race condition).
@@ -306,6 +317,10 @@ const CallSystem = () => {
     };
   }, []);
 
+  // Keep refs in sync with state so socket handlers always see current value
+  useEffect(() => { callTypeRef.current = callType; }, [callType]);
+  useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
+
   // Socket event listeners
   useEffect(() => {
     if (!socket || !isConnected) return;
@@ -322,6 +337,15 @@ const CallSystem = () => {
       setActiveCall(callData);
       setIsInCall(true);
       startCallTimer();
+
+      // Use callType from server payload if available, else fall back to ref
+      const currentCallType = callData.callType || callTypeRef.current || 'video';
+
+      // Ensure media is ready (handles edge case where call was triggered externally)
+      if (!localStreamRef.current) {
+        console.log('🎤 Initializing media on call_accepted (was not yet ready)');
+        await initializeMedia(currentCallType === 'video');
+      }
 
       // ── CALLER side: we originated the call → we create the one-and-only offer
       isCallerRef.current = true;
@@ -377,6 +401,7 @@ const CallSystem = () => {
           return;
         }
         await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        await drainIceCandidateQueue(pc);
       } catch (error) {
         console.error('Error handling WebRTC answer:', error);
       }
@@ -384,14 +409,17 @@ const CallSystem = () => {
 
     socket.on('ice_candidate', async (data) => {
       try {
-        if (peerConnectionRef.current && data.candidate) {
-          await peerConnectionRef.current.addIceCandidate(
-            new RTCIceCandidate(data.candidate)
-          );
+        if (!data.candidate) return;
+        const pc = peerConnectionRef.current;
+        // Buffer candidates that arrive before remote description is set
+        if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
+          console.log('🧊 Buffering ICE candidate (remote description not yet set)');
+          iceCandidateQueue.current.push(data.candidate);
+          return;
         }
+        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
       } catch (error) {
-        // Non-fatal: candidate may arrive before remote description is set
-        console.warn('ICE candidate buffering issue (non-fatal):', error.message);
+        console.warn('ICE candidate error (non-fatal):', error.message);
       }
     });
 
@@ -442,6 +470,23 @@ const CallSystem = () => {
     }
     isCallerRef.current = false;
     negotiationBusy.current = false;
+    iceCandidateQueue.current = [];
+  };
+
+  /**
+   * Drain any ICE candidates that were buffered before remote description
+   * was set.  Call this immediately after every successful setRemoteDescription.
+   */
+  const drainIceCandidateQueue = async (pc) => {
+    const queued = iceCandidateQueue.current.splice(0);
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn('Buffered ICE candidate failed:', err.message);
+      }
+    }
+    if (queued.length) console.log(`🧊 Drained ${queued.length} buffered ICE candidate(s)`);
   };
 
   // Start call
@@ -472,9 +517,21 @@ const CallSystem = () => {
         socket.emit('call_timeout', { targetUserId });
         setOutgoingCall(null);
         outgoingCallRef.current = null;
+        cleanupMediaStreams();
       }
     }, 30000);
   }, [socket, isConnected, user]);
+
+  // Register startCall with CallContext so ChatSystem can trigger calls
+  useEffect(() => {
+    registerStartCall(startCall);
+    return () => registerStartCall(null);
+  }, [registerStartCall, startCall]);
+
+  // Sync local isInCall with global CallContext
+  useEffect(() => {
+    setGlobalIsInCall(isInCall);
+  }, [isInCall, setGlobalIsInCall]);
 
   // Accept call
   const acceptCall = useCallback(async () => {
@@ -488,7 +545,8 @@ const CallSystem = () => {
 
     socket.emit('accept_call', {
       callId: incomingCall.id,
-      targetUserId: incomingCall.callerId
+      targetUserId: incomingCall.callerId,
+      callType: incomingCall.type || 'video'
     });
 
     startCallTimer();
@@ -510,15 +568,18 @@ const CallSystem = () => {
 
   // End call — remoteInitiated=true means the OTHER peer ended, so we
   // must NOT re-emit 'end_call' back to them (would cause infinite loop).
+  // Uses activeCallRef to avoid stale closure when called from onconnectionstatechange.
   const endCall = useCallback((remoteInitiated = false) => {
-    if (activeCall && !remoteInitiated) {
+    const call = activeCallRef.current;
+    if (call && !remoteInitiated && socket) {
       socket.emit('end_call', {
-        callId: activeCall.id,
-        targetUserId: activeCall.targetUserId || activeCall.callerId
+        callId: call.id,
+        targetUserId: call.targetUserId || call.callerId
       });
     }
     setIsInCall(false);
     setActiveCall(null);
+    activeCallRef.current = null;
     setOutgoingCall(null);
     outgoingCallRef.current = null;
     setCallDuration(0);
@@ -527,7 +588,7 @@ const CallSystem = () => {
       callTimerRef.current = null;
     }
     cleanupMediaStreams();
-  }, [activeCall, socket]);
+  }, [socket]);
 
   // Timer
   const startCallTimer = () => {
@@ -649,6 +710,7 @@ const CallSystem = () => {
       }
 
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      await drainIceCandidateQueue(pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -1016,7 +1078,40 @@ const CallSystem = () => {
               {/* Camera switch (for mobile) */}
               {callType === 'video' && (
                 <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-                  <IconButton sx={styles.controlBtn}>
+                  <IconButton
+                    onClick={async () => {
+                      try {
+                        const stream = localStreamRef.current;
+                        if (!stream) return;
+                        const videoTrack = stream.getVideoTracks()[0];
+                        if (!videoTrack) return;
+                        // Use facingMode constraint to switch cameras
+                        const currentFacing = videoTrack.getSettings().facingMode || 'user';
+                        const newFacing = currentFacing === 'user' ? 'environment' : 'user';
+                        const newStream = await navigator.mediaDevices.getUserMedia({
+                          video: { facingMode: newFacing },
+                          audio: false
+                        });
+                        const newVideoTrack = newStream.getVideoTracks()[0];
+                        // Replace track in peer connection
+                        const pc = peerConnectionRef.current;
+                        if (pc) {
+                          const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+                          if (sender) await sender.replaceTrack(newVideoTrack);
+                        }
+                        // Replace track in local stream
+                        stream.removeTrack(videoTrack);
+                        videoTrack.stop();
+                        stream.addTrack(newVideoTrack);
+                        if (localVideoRef.current) {
+                          localVideoRef.current.srcObject = stream;
+                        }
+                      } catch (err) {
+                        console.warn('Camera switch failed:', err.message);
+                      }
+                    }}
+                    sx={styles.controlBtn}
+                  >
                     <SwitchCamera />
                   </IconButton>
                 </motion.div>

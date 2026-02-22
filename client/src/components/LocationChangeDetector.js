@@ -163,8 +163,8 @@ const LocationChangeDetector = ({ checkOnMount = true, thresholdKm = 50 }) => {
   }, [checkOnMount, user, checkLocationChange]);
 
   const handleUpdateLocation = () => {
-    // Navigate to profile settings with location data
-    navigate('/settings/profile', {
+    // Navigate to settings page with location data
+    navigate('/settings', {
       state: {
         updateLocation: true,
         suggestedLocation: {

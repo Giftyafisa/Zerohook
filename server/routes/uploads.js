@@ -4,7 +4,30 @@ const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('./auth');
 const { User, FileUpload } = require('../config/database');
+const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
+
+// Per-user upload rate limiters
+// Profile pictures: 5 per 15 minutes per user
+const profileUploadLimiter = new RateLimiterMemory({ points: 5, duration: 900 });
+// Service media (multi-file): 20 files per 15 minutes per user
+const serviceUploadLimiter = new RateLimiterMemory({ points: 20, duration: 900 });
+// Chat attachments: 30 per 15 minutes per user
+const chatUploadLimiter = new RateLimiterMemory({ points: 30, duration: 900 });
+// Video uploads: 3 per 15 minutes per user
+const videoUploadLimiter = new RateLimiterMemory({ points: 3, duration: 900 });
+
+// Factory for rate limit middleware keyed by userId
+const uploadRateLimit = (limiter, fileCountFromReq) => async (req, res, next) => {
+  try {
+    const userId = req.user?.userId || req.ip;
+    const count = typeof fileCountFromReq === 'function' ? fileCountFromReq(req) : 1;
+    await limiter.consume(userId, count);
+    next();
+  } catch {
+    res.status(429).json({ success: false, error: 'Upload rate limit exceeded. Please try again later.' });
+  }
+};
 
 // Configure multer for local file uploads (fallback)
 const localStorage = multer.diskStorage({
@@ -125,24 +148,37 @@ async function validateMagicBytes(filePath, mimetype) {
 /**
  * Middleware to validate magic bytes after multer has saved the file.
  * If validation fails, the file is deleted and an error is returned.
+ * Supports both single file (req.file) and multi-file (req.files) uploads.
  */
 function magicByteValidation(req, res, next) {
-  if (!req.file) return next();
-  // Only validate local files (Cloudinary handles its own validation)
-  if (req.file.path && !req.file.path.includes('cloudinary.com')) {
-    validateMagicBytes(req.file.path, req.file.mimetype).then(valid => {
-      if (!valid) {
-        // Delete the spoofed file
-        try { fs.unlinkSync(req.file.path); } catch {}
+  const filesToValidate = [];
+  if (req.file) filesToValidate.push(req.file);
+  if (req.files && Array.isArray(req.files)) filesToValidate.push(...req.files);
+  
+  if (filesToValidate.length === 0) return next();
+  
+  // Filter to only local files (Cloudinary handles its own validation)
+  const localFiles = filesToValidate.filter(f => f.path && !f.path.includes('cloudinary.com'));
+  if (localFiles.length === 0) return next();
+  
+  Promise.all(localFiles.map(f => validateMagicBytes(f.path, f.mimetype).then(valid => ({ file: f, valid }))))
+    .then(results => {
+      const spoofed = results.filter(r => !r.valid);
+      if (spoofed.length > 0) {
+        // Delete ALL files in this batch (both spoofed and valid) to prevent partial uploads
+        for (const f of filesToValidate) {
+          if (f.path && !f.path.includes('cloudinary.com')) {
+            try { fs.unlinkSync(f.path); } catch {}
+          }
+        }
         return res.status(400).json({ 
-          error: 'File content does not match its declared type. Upload rejected.' 
+          error: `${spoofed.length} file(s) have content that does not match declared type. All uploads rejected.`,
+          rejectedFiles: spoofed.map(r => r.file.originalname || r.file.filename)
         });
       }
       next();
-    }).catch(() => next());
-  } else {
-    next();
-  }
+    })
+    .catch(() => next());
 }
 
 // Dynamic upload middleware that uses Cloudinary if available
@@ -196,7 +232,7 @@ const getFileUrl = (file, cloudinaryManager) => {
 };
 
 // Chat attachment upload endpoint (image/video/file) - uses Cloudinary if available
-router.post('/chat-attachment', authMiddleware, (req, res, next) => {
+router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimiter), (req, res, next) => {
   getUploadMiddleware('chat')(req, res, next);
 }, magicByteValidation, async (req, res) => {
   try {
@@ -247,7 +283,7 @@ router.post('/chat-attachment', authMiddleware, (req, res, next) => {
 });
 
 // Profile picture upload endpoint - uses Cloudinary if available
-router.post('/profile-picture', authMiddleware, (req, res, next) => {
+router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLimiter), (req, res, next) => {
   getUploadMiddleware('profile')(req, res, next);
 }, magicByteValidation, async (req, res) => {
   try {
@@ -342,7 +378,7 @@ const serviceUpload = multer({
   fileFilter: fileFilter
 });
 
-router.post('/service-media', authMiddleware, serviceUpload.array('media', 10), magicByteValidation, async (req, res) => {
+router.post('/service-media', authMiddleware, uploadRateLimit(serviceUploadLimiter, (req) => req.files?.length || 1), serviceUpload.array('media', 10), magicByteValidation, async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
@@ -443,7 +479,7 @@ const videoUpload = multer({
   fileFilter: videoFileFilter
 });
 
-router.post('/user-video', authMiddleware, videoUpload.single('video'), magicByteValidation, async (req, res) => {
+router.post('/user-video', authMiddleware, uploadRateLimit(videoUploadLimiter), videoUpload.single('video'), magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No video uploaded' });
@@ -571,11 +607,18 @@ router.delete('/:fileId', authMiddleware, async (req, res) => {
 
 // Serve uploaded files
 router.get('/uploads/:filename', (req, res) => {
-  const filename = req.params.filename;
+  const filename = path.basename(req.params.filename); // basename strips path traversal (../ etc.)
   const filePath = path.join(__dirname, '../uploads', filename);
   
-  if (fs.existsSync(filePath)) {
-    res.sendFile(filePath);
+  // Extra guard: resolve and verify the path stays within the uploads directory
+  const uploadsDir = path.resolve(__dirname, '../uploads');
+  const resolvedPath = path.resolve(filePath);
+  if (!resolvedPath.startsWith(uploadsDir)) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+
+  if (fs.existsSync(resolvedPath)) {
+    res.sendFile(resolvedPath);
   } else {
     res.status(404).json({ error: 'File not found' });
   }

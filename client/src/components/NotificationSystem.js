@@ -113,19 +113,19 @@ const NotificationSystem = () => {
     // Handle different notification types - NAVIGATE to appropriate pages
     switch (notification.type) {
       case 'connection_request':
-        navigate('/connections');
+        navigate('/chat');
         break;
       case 'message':
-        // Navigate to chat with specific conversation if available
+        // Navigate to chat — conversationId passed as query param since /chat/:id route doesn't exist
         if (notification.data?.conversationId) {
-          navigate(`/chat/${notification.data.conversationId}`);
+          navigate(`/chat?conversation=${notification.data.conversationId}`);
         } else {
           navigate('/chat');
         }
         break;
       case 'video_call':
-        // Navigate to video call page
-        navigate('/video-call');
+        // Navigate to chat (video calls are initiated from within chat)
+        navigate('/chat');
         break;
       case 'verification':
         navigate('/verification');

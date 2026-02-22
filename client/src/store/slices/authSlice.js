@@ -1,6 +1,8 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import authAPI from '../../services/authAPI';
 
+const readSubscribed = (user) => (user?.is_subscribed ?? user?.isSubscribed ?? false);
+
 // Refresh token is now handled exclusively via HttpOnly cookie
 // No client-side storage needed - the browser sends the cookie automatically
 
@@ -128,6 +130,7 @@ const authSlice = createSlice({
     updateUser: (state, action) => {
       if (state.user) {
         state.user = { ...state.user, ...action.payload };
+        state.isSubscribed = readSubscribed(state.user);
       }
     },
     setVerificationSuccess: (state, action) => {
@@ -156,7 +159,7 @@ const authSlice = createSlice({
         state.user = action.payload.user;
         state.token = action.payload.token;
         state.isAuthenticated = true;
-        state.isSubscribed = action.payload.user.is_subscribed || false;
+        state.isSubscribed = readSubscribed(action.payload.user);
         state.error = null;
         // Set token in localStorage
         localStorage.setItem('token', action.payload.token);
@@ -180,7 +183,7 @@ const authSlice = createSlice({
         state.user = action.payload.user;
         state.token = action.payload.token;
         state.isAuthenticated = true;
-        state.isSubscribed = action.payload.user.is_subscribed || false;
+        state.isSubscribed = readSubscribed(action.payload.user);
         state.error = null;
         // Set token in localStorage
         localStorage.setItem('token', action.payload.token);
@@ -202,7 +205,7 @@ const authSlice = createSlice({
         state.token = action.payload.token;
         if (action.payload.user) {
           state.user = { ...state.user, ...action.payload.user };
-          state.isSubscribed = action.payload.user.is_subscribed || false;
+          state.isSubscribed = readSubscribed(action.payload.user);
         }
         state.error = null;
       })
@@ -245,7 +248,7 @@ const authSlice = createSlice({
         state.user = action.payload.user;
         state.token = localStorage.getItem('token');
         state.isAuthenticated = true;
-        state.isSubscribed = action.payload.user.is_subscribed || false;
+        state.isSubscribed = readSubscribed(action.payload.user);
         state.error = null;
       })
       .addCase(validateStoredToken.rejected, (state, action) => {

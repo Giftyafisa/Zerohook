@@ -117,8 +117,8 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // H2: Geospatial index for location-based queries (Uber-style proximity search)
-// Uses GeoJSON Point format: profile_data.location.coordinates = { type: 'Point', coordinates: [lng, lat] }
-userSchema.index({ 'profile_data.location.coordinates': '2dsphere' }, { sparse: true });
+// Uses GeoJSON Point format: profile_data.location.geoPoint = { type: 'Point', coordinates: [lng, lat] }
+userSchema.index({ 'profile_data.location.geoPoint': '2dsphere' }, { sparse: true });
 
 // L3: Compound index for account type filtering + activity sorting (recommendation engine)
 userSchema.index({ 'profile_data.accountType': 1, last_active: -1 }, { sparse: true });

@@ -1,32 +1,25 @@
-/**
- * Migration: Add metadata column to messages table
- * Safe to run multiple times; only applies when missing.
- */
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { connectDB, Message } = require('../config/database');
 
 async function addMessagesMetadata() {
-  console.log('📦 Ensuring messages.metadata column exists...');
+  console.log('📦 Ensuring Message metadata/messageType schema and indexes...');
   try {
-    const check = await query(`
-      SELECT column_name FROM information_schema.columns
-      WHERE table_name = 'messages' AND column_name = 'metadata'
-    `);
+    await connectDB();
 
-    if (check.rows.length === 0) {
-      await query(`
-        ALTER TABLE messages
-        ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb
-      `);
-      console.log('✅ Added metadata column to messages table');
-    } else {
-      console.log('✅ metadata column already present');
+    const hasMetadata = !!Message.schema.path('metadata');
+    const hasMessageType = !!Message.schema.path('messageType');
+    if (!hasMetadata || !hasMessageType) {
+      throw new Error('Message schema is missing metadata or messageType fields');
     }
 
-    // Helpful index for metadata queries
-    await query(`CREATE INDEX IF NOT EXISTS idx_messages_metadata ON messages USING GIN(metadata)`);
+    await Message.createIndexes();
+    const indexes = await Message.collection.indexes();
+    console.log(`✅ Message schema valid and indexes ensured (${indexes.length} indexes)`);
   } catch (error) {
-    console.error('❌ Failed to ensure messages.metadata:', error.message);
+    console.error('❌ Failed to ensure Message schema/indexes:', error.message);
     throw error;
+  } finally {
+    await mongoose.connection.close();
   }
 }
 

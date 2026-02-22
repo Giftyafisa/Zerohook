@@ -339,6 +339,34 @@ class CountryManager {
   }
 
   /**
+   * Get country-specific crypto platforms (public info for onboarding/payment UI)
+   */
+  getCryptoPlatforms(countryCode) {
+    const country = this.getCountryByCode(countryCode);
+    const localCountry = country || this.getCountryByCode(this.defaultCountry);
+
+    return [
+      {
+        id: 'direct_wallet',
+        name: 'Direct Wallet Transfer',
+        type: 'onchain',
+        supportedCryptos: ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'],
+        settlementCurrency: localCountry?.currency || 'USD',
+        networkFees: 'Blockchain network fees only',
+        recommended: true
+      },
+      {
+        id: 'exchange_transfer',
+        name: 'Crypto Exchange Transfer',
+        type: 'exchange',
+        supportedCryptos: ['BTC', 'ETH', 'USDT', 'USDC'],
+        settlementCurrency: localCountry?.currency || 'USD',
+        networkFees: 'Varies by exchange'
+      }
+    ];
+  }
+
+  /**
    * Initialize country data in database
    */
   async initializeCountryData() {

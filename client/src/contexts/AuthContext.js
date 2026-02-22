@@ -68,8 +68,11 @@ export const AuthProvider = ({ children }) => {
 
   // FIXED: Simplified subscription status check
   useEffect(() => {
-    if (isAuthenticated && user && user.is_subscribed !== undefined) {
-      dispatch(setSubscriptionStatus(user.is_subscribed));
+    if (isAuthenticated && user) {
+      const subscribed = user.is_subscribed ?? user.isSubscribed;
+      if (subscribed !== undefined) {
+        dispatch(setSubscriptionStatus(subscribed));
+      }
     }
   }, [isAuthenticated, user, dispatch]);
 

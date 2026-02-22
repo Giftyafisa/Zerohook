@@ -55,6 +55,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSwipeable } from 'react-swipeable';
 import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useCall } from '../contexts/CallContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import { useDispatch } from 'react-redux';
@@ -228,6 +229,7 @@ const ChatSystem = ({
 }) => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
+  const { startCall: triggerCall } = useCall();
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
@@ -250,11 +252,6 @@ const ChatSystem = ({
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [typingConversations, setTypingConversations] = useState([]);
-  
-  // Call states
-  const [callDialogOpen, setCallDialogOpen] = useState(false);
-  const [callType, setCallType] = useState(null); // 'audio' or 'video'
-  const [isCallActive, setIsCallActive] = useState(false);
   
   // Payment / Escrow states
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
@@ -821,50 +818,16 @@ const ChatSystem = ({
     return date.toLocaleDateString();
   };
 
-  // Handle voice call
+  // Handle voice call — delegates to CallSystem via CallContext
   const handleVoiceCall = () => {
     if (!selectedConversation) return;
-    setCallType('audio');
-    setCallDialogOpen(true);
-    
-    // Emit call request via socket
-    if (socket && isConnected) {
-      socket.emit('call_request', {
-        conversationId: selectedConversation.id,
-        targetUserId: selectedConversation.participantId,
-        callType: 'audio'
-      });
-    }
+    triggerCall(selectedConversation.participantId, 'audio');
   };
 
-  // Handle video call
+  // Handle video call — delegates to CallSystem via CallContext
   const handleVideoCall = () => {
     if (!selectedConversation) return;
-    setCallType('video');
-    setCallDialogOpen(true);
-    
-    // Emit call request via socket
-    if (socket && isConnected) {
-      socket.emit('call_request', {
-        conversationId: selectedConversation.id,
-        targetUserId: selectedConversation.participantId,
-        callType: 'video'
-      });
-    }
-  };
-
-  // Cancel/end call
-  const handleEndCall = () => {
-    setCallDialogOpen(false);
-    setIsCallActive(false);
-    setCallType(null);
-    
-    if (socket && isConnected && selectedConversation) {
-      socket.emit('call_end', {
-        conversationId: selectedConversation.id,
-        targetUserId: selectedConversation.participantId
-      });
-    }
+    triggerCall(selectedConversation.participantId, 'video');
   };
 
   // View user profile
@@ -891,9 +854,13 @@ const ChatSystem = ({
     
     try {
       const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/users/block/${selectedConversation.participantId}`, {
+      await fetch(`${API_BASE_URL}/chat/block-user`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId: selectedConversation.participantId })
       });
       // Remove conversation from list
       setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
@@ -1359,7 +1326,7 @@ const ChatSystem = ({
             >
               {messages.map((message, index) => (
                 <motion.div
-                  key={message.id || index}
+                  key={message.id || message._id || `msg-${message.senderId}-${message.created_at || index}`}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
@@ -1851,64 +1818,7 @@ const ChatSystem = ({
         </Box>
       </Box>
       
-      {/* Call Dialog */}
-      <Dialog 
-        open={callDialogOpen} 
-        onClose={handleEndCall}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a1a2e',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '20px',
-            minWidth: { xs: 'calc(100vw - 32px)', sm: 300 }, // FIXED: Responsive minWidth
-            maxWidth: 'calc(100vw - 32px)', // FIXED: Prevent overflow on small screens
-          }
-        }}
-      >
-        <DialogTitle sx={{ color: '#fff', textAlign: 'center' }}>
-          {callType === 'video' ? '📹 Video Call' : '📞 Voice Call'}
-        </DialogTitle>
-        <DialogContent sx={{ textAlign: 'center', py: 3 }}>
-          <Avatar 
-            src={selectedConversation?.participantAvatar}
-            sx={{ 
-              width: 80, 
-              height: 80, 
-              margin: '0 auto 16px',
-              border: '3px solid #00f2ea'
-            }}
-          >
-            {selectedConversation?.participantName?.[0]}
-          </Avatar>
-          <Typography sx={{ color: '#fff', fontSize: '18px', fontWeight: 600 }}>
-            {selectedConversation?.participantName}
-          </Typography>
-          <Typography sx={{ color: 'rgba(255,255,255,0.5)', mt: 1 }}>
-            {isCallActive ? 'Call in progress...' : 'Calling...'}
-          </Typography>
-          {!isCallActive && (
-            <CircularProgress 
-              sx={{ color: '#00f2ea', mt: 2 }} 
-              size={30}
-            />
-          )}
-        </DialogContent>
-        <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>
-          <Button 
-            onClick={handleEndCall}
-            variant="contained"
-            sx={{
-              bgcolor: '#ff4444',
-              color: '#fff',
-              borderRadius: '12px',
-              px: 4,
-              '&:hover': { bgcolor: '#cc3333' }
-            }}
-          >
-            {isCallActive ? 'End Call' : 'Cancel'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Calls are now handled entirely by CallSystem via CallContext */}
 
       {/* Payment Sheet - Bottom drawer for holding money */}
       <PaymentSheet

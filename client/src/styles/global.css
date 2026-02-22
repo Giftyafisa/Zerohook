@@ -227,25 +227,34 @@ iframe {
     overflow: hidden;
   }
   
-  /* CRITICAL: Universal mobile overflow prevention */
-  .MuiDialog-paper,
-  .MuiMenu-paper,
-  .MuiPopover-paper,
-  .MuiDrawer-paper {
-    max-width: calc(100vw - 16px) !important;
-    margin-left: 8px !important;
-    margin-right: 8px !important;
+  /* CRITICAL: Mobile overflow prevention for MUI overlays.            */
+  /* Already inside @media (max-width: 600px) so only applies on      */
+  /* mobile. Removed !important — scoped with body descendant          */
+  /* selector for sufficient specificity without clobbering MUI.       */
+  body .MuiDialog-paper,
+  body .MuiMenu-paper,
+  body .MuiPopover-paper,
+  body .MuiDrawer-paper {
+    max-width: calc(100vw - 16px);
+    margin-left: 8px;
+    margin-right: 8px;
   }
   
   /* Prevent tables/grids from causing overflow */
-  table, .MuiTable-root {
+  .main-content table,
+  .main-content .MuiTable-root {
     display: block;
     width: 100%;
     overflow-x: auto;
   }
   
-  /* Word break for long text on mobile */
-  p, span, div, h1, h2, h3, h4, h5, h6, li, td, th {
+  /* Word break for long user-generated text on mobile */
+  /* Scoped to .main-content to avoid affecting MUI internal layout */
+  .main-content p,
+  .main-content span,
+  .main-content h1, .main-content h2, .main-content h3,
+  .main-content h4, .main-content h5, .main-content h6,
+  .main-content li, .main-content td, .main-content th {
     word-break: break-word;
     overflow-wrap: break-word;
   }

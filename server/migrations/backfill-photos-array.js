@@ -1,4 +1,5 @@
-const { query } = require('../config/database');
+const mongoose = require('mongoose');
+const { connectDB, User } = require('../config/database');
 
 /**
  * Migration: Backfill photos array from profilePicture and profile_picture
@@ -8,59 +9,64 @@ async function backfillPhotosArray() {
   console.log('🔄 Starting photos array backfill migration...\n');
   
   try {
-    // Step 1: Find users with profilePicture but no photos array
-    console.log('Step 1: Finding users with profilePicture but no photos...');
-    const result1 = await query(`
-      UPDATE users
-      SET profile_data = jsonb_set(
-        profile_data,
-        '{photos}',
-        jsonb_build_array(profile_data->'profilePicture')
-      )
-      WHERE profile_data ? 'profilePicture'
-        AND profile_data->>'profilePicture' IS NOT NULL
-        AND profile_data->>'profilePicture' != ''
-        AND (NOT profile_data ? 'photos' OR jsonb_array_length(profile_data->'photos') = 0)
-      RETURNING username, profile_data->'photos' as photos
-    `);
-    console.log(`✅ Updated ${result1.rowCount} users from profilePicture\n`);
-    
-    // Step 2: Find users with profile_picture object but no photos array
-    console.log('Step 2: Finding users with profile_picture object but no photos...');
-    const result2 = await query(`
-      UPDATE users
-      SET profile_data = jsonb_set(
-        profile_data,
-        '{photos}',
-        jsonb_build_array(profile_data->'profile_picture'->'url')
-      )
-      WHERE profile_data ? 'profile_picture'
-        AND profile_data->'profile_picture' ? 'url'
-        AND profile_data->'profile_picture'->>'url' IS NOT NULL
-        AND profile_data->'profile_picture'->>'url' != ''
-        AND (NOT profile_data ? 'photos' OR jsonb_array_length(profile_data->'photos') = 0)
-      RETURNING username, profile_data->'photos' as photos
-    `);
-    console.log(`✅ Updated ${result2.rowCount} users from profile_picture object\n`);
-    
+    await connectDB();
+
+    // Step 1: profilePicture string -> photos[]
+    console.log('Step 1: Backfilling from profilePicture...');
+    const usersWithProfilePicture = await User.find({
+      'profile_data.profilePicture': { $type: 'string', $ne: '' },
+      $or: [
+        { 'profile_data.photos': { $exists: false } },
+        { 'profile_data.photos.0': { $exists: false } }
+      ]
+    }).select('_id profile_data.profilePicture').lean();
+
+    if (usersWithProfilePicture.length > 0) {
+      const bulk1 = usersWithProfilePicture.map((u) => ({
+        updateOne: {
+          filter: { _id: u._id },
+          update: { $set: { 'profile_data.photos': [u.profile_data.profilePicture] } }
+        }
+      }));
+      await User.bulkWrite(bulk1);
+    }
+    console.log(`✅ Updated ${usersWithProfilePicture.length} users from profilePicture\n`);
+
+    // Step 2: profile_picture.url object -> photos[]
+    console.log('Step 2: Backfilling from profile_picture.url...');
+    const usersWithProfilePictureObj = await User.find({
+      'profile_data.profile_picture.url': { $type: 'string', $ne: '' },
+      $or: [
+        { 'profile_data.photos': { $exists: false } },
+        { 'profile_data.photos.0': { $exists: false } }
+      ]
+    }).select('_id profile_data.profile_picture.url').lean();
+
+    if (usersWithProfilePictureObj.length > 0) {
+      const bulk2 = usersWithProfilePictureObj.map((u) => ({
+        updateOne: {
+          filter: { _id: u._id },
+          update: { $set: { 'profile_data.photos': [u.profile_data.profile_picture.url] } }
+        }
+      }));
+      await User.bulkWrite(bulk2);
+    }
+    console.log(`✅ Updated ${usersWithProfilePictureObj.length} users from profile_picture object\n`);
+
     // Step 3: Verify the migration
     console.log('Step 3: Verifying migration results...');
-    const verification = await query(`
-      SELECT 
-        COUNT(*) as total_users,
-        COUNT(*) FILTER (WHERE profile_data ? 'photos' AND jsonb_array_length(profile_data->'photos') > 0) as users_with_photos,
-        COUNT(*) FILTER (WHERE profile_data ? 'profilePicture') as users_with_profilePicture,
-        COUNT(*) FILTER (WHERE profile_data ? 'profile_picture') as users_with_profile_picture_obj
-      FROM users
-      WHERE profile_data IS NOT NULL
-    `);
-    
-    const stats = verification.rows[0];
+    const [totalUsers, usersWithPhotos, usersWithProfilePicture, usersWithProfilePictureObj] = await Promise.all([
+      User.countDocuments({ profile_data: { $exists: true } }),
+      User.countDocuments({ 'profile_data.photos.0': { $exists: true } }),
+      User.countDocuments({ 'profile_data.profilePicture': { $exists: true } }),
+      User.countDocuments({ 'profile_data.profile_picture': { $exists: true } })
+    ]);
+
     console.log('📊 Final Statistics:');
-    console.log(`  Total users with profile_data: ${stats.total_users}`);
-    console.log(`  Users with photos array: ${stats.users_with_photos}`);
-    console.log(`  Users with profilePicture: ${stats.users_with_profilepicture}`);
-    console.log(`  Users with profile_picture object: ${stats.users_with_profile_picture_obj}`);
+    console.log(`  Total users with profile_data: ${totalUsers}`);
+    console.log(`  Users with photos array: ${usersWithPhotos}`);
+    console.log(`  Users with profilePicture: ${usersWithProfilePicture}`);
+    console.log(`  Users with profile_picture object: ${usersWithProfilePictureObj}`);
     
     console.log('\n✅ Migration completed successfully!');
     
@@ -68,6 +74,7 @@ async function backfillPhotosArray() {
     console.error('❌ Migration failed:', error);
     throw error;
   } finally {
+    await mongoose.connection.close();
     process.exit();
   }
 }

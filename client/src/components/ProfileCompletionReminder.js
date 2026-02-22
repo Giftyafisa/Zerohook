@@ -190,7 +190,7 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
   };
 
   const handleCompleteProfile = () => {
-    navigate('/settings/profile');
+    navigate('/settings');
   };
 
   // Don't show if loading, dismissed, not logged in, or profile is excellent

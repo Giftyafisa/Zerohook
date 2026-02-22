@@ -75,6 +75,18 @@ class RealtimeLocationManager {
       socket.emit('nearby_providers', providers);
     });
 
+    // Client subscribes/unsubscribes to a geographic area for live provider updates
+    socket.on('subscribe_to_area', (data = {}) => {
+      const { lat, lng } = data;
+      if (this.validateCoordinates(lat, lng)) {
+        this.subscribeToArea(socket, parseFloat(lat), parseFloat(lng));
+      }
+    });
+
+    socket.on('unsubscribe_from_area', () => {
+      this.unsubscribeFromArea(socket);
+    });
+
     // Start/stop location sharing
     socket.on('start_location_sharing', () => {
       this.startLocationSharing(socket.userId, socket);
@@ -86,6 +98,7 @@ class RealtimeLocationManager {
 
     // Handle disconnect - mark location as stale
     socket.on('disconnect', () => {
+      this.unsubscribeFromArea(socket);
       this.handleDisconnect(socket.userId);
     });
   }
@@ -239,6 +252,8 @@ class RealtimeLocationManager {
         if (!user) return null;
 
         const profileData = user.profile_data || user.profileData || {};
+        const accountType = profileData.accountType;
+        if (accountType !== 'provider') return null;
         
         return {
           ...p,
@@ -334,6 +349,10 @@ class RealtimeLocationManager {
               'profile_data.location.coordinates': {
                 lat: loc.lat,
                 lng: loc.lng
+              },
+              'profile_data.location.geoPoint': {
+                type: 'Point',
+                coordinates: [loc.lng, loc.lat]
               },
               'profile_data.location.lastUpdated': new Date(loc.timestamp),
               'profile_data.isLocationSharing': true,

@@ -61,7 +61,7 @@ class SubscriptionLifecycleManager {
       // Find all pending invoices that haven't expired
       const pendingInvoices = await CryptoInvoice.find({
         status: 'pending',
-        expires_at: { $gt: new Date() }
+        expiresAt: { $gt: new Date() }
       }).limit(50).lean();
 
       if (pendingInvoices.length === 0) return;
@@ -73,15 +73,10 @@ class SubscriptionLifecycleManager {
           // Check blockchain for payment
           if (!this.cryptoPaymentManager) continue;
 
-          const paymentStatus = await this.cryptoPaymentManager.checkPaymentStatus(
-            invoice.payment_address,
-            invoice.expected_amount,
-            invoice.crypto_symbol,
-            invoice.network
-          );
+          const paymentStatus = await this.cryptoPaymentManager.checkPaymentStatus(invoice.reference);
 
-          if (paymentStatus && paymentStatus.confirmed) {
-            console.log(`✅ Payment confirmed for invoice ${invoice._id} (${invoice.crypto_symbol})`);
+          if (paymentStatus && paymentStatus.success && paymentStatus.status === 'confirmed') {
+            console.log(`✅ Payment confirmed for invoice ${invoice._id} (${invoice.cryptoSymbol})`);
             await this.activateSubscription(invoice);
           }
         } catch (err) {
@@ -91,7 +86,7 @@ class SubscriptionLifecycleManager {
 
       // Mark expired invoices
       await CryptoInvoice.updateMany(
-        { status: 'pending', expires_at: { $lte: new Date() } },
+        { status: 'pending', expiresAt: { $lte: new Date() } },
         { $set: { status: 'expired' } }
       );
     } catch (error) {
@@ -109,14 +104,13 @@ class SubscriptionLifecycleManager {
 
       // Update invoice status
       await CryptoInvoice.findByIdAndUpdate(invoice._id, {
-        status: 'confirmed',
-        confirmed_at: now
+        status: 'confirmed'
       });
 
       // Update subscription record
       await Subscription.findOneAndUpdate(
         { 
-          user_id: invoice.user_id,
+          user_id: invoice.userId,
           status: 'pending'
         },
         {
@@ -130,7 +124,7 @@ class SubscriptionLifecycleManager {
       );
 
       // Update user record
-      await User.findByIdAndUpdate(invoice.user_id, {
+      await User.findByIdAndUpdate(invoice.userId, {
         is_subscribed: true,
         subscription_tier: 'premium',
         subscription_expires_at: sixMonthsLater
@@ -138,25 +132,25 @@ class SubscriptionLifecycleManager {
 
       // Create transaction record
       await Transaction.create({
-        user_id: invoice.user_id,
-        amount: invoice.fiat_amount || invoice.expected_amount,
-        currency: invoice.fiat_currency || invoice.crypto_symbol,
+        user_id: invoice.userId,
+        amount: invoice.fiatAmount || invoice.cryptoAmount,
+        currency: invoice.fiatCurrency || invoice.cryptoSymbol,
         payment_method: 'crypto',
-        reference: `bg_confirm_${invoice._id}`,
+        reference: `bg_confirm_${invoice.reference}`,
         status: 'completed',
         type: 'subscription',
         metadata: {
           invoiceId: invoice._id,
-          cryptoSymbol: invoice.crypto_symbol,
-          expectedAmount: invoice.expected_amount,
-          paymentAddress: invoice.payment_address,
+          cryptoSymbol: invoice.cryptoSymbol,
+          expectedAmount: invoice.cryptoAmount,
+          paymentAddress: invoice.address,
           confirmedBy: 'background_monitor'
         }
       });
 
       // Notify user via socket
       if (this.io) {
-        this.io.to(`user_${invoice.user_id}`).emit('subscription_activated', {
+        this.io.to(`user_${invoice.userId}`).emit('subscription_activated', {
           message: 'Your subscription has been activated!',
           tier: 'premium',
           expiresAt: sixMonthsLater
@@ -165,7 +159,7 @@ class SubscriptionLifecycleManager {
 
       // Create in-app notification
       try {
-        await NotificationService.createNotification(invoice.user_id, {
+        await NotificationService.createNotification(invoice.userId, {
           type: 'subscription',
           title: 'Subscription Activated',
           message: 'Your crypto payment has been confirmed and your premium subscription is now active!',
@@ -175,7 +169,7 @@ class SubscriptionLifecycleManager {
         console.warn('Failed to create activation notification:', notifErr.message);
       }
 
-      console.log(`🎉 Subscription activated for user ${invoice.user_id} via background payment check`);
+      console.log(`🎉 Subscription activated for user ${invoice.userId} via background payment check`);
     } catch (error) {
       console.error('Subscription activation error:', error.message);
     }

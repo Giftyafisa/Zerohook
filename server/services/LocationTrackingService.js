@@ -430,6 +430,10 @@ class LocationTrackingService {
           lat: location.lat,
           lng: location.lng
         },
+        'profile_data.location.geoPoint': {
+          type: 'Point',
+          coordinates: [location.lng, location.lat]
+        },
         'profile_data.location.lastUpdated': new Date(),
         last_active: new Date()
       };

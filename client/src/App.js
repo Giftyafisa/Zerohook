@@ -17,6 +17,7 @@ import theme from './theme/theme';
 import store from './store/store';
 import { AuthProvider } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
+import { CallProvider } from './contexts/CallContext';
 
 // Layout Components
 import Footer from './components/layout/FooterNew';
@@ -187,6 +188,7 @@ function App() {
         <ToastProvider>
           <AuthProvider>
             <SocketProvider>
+              <CallProvider>
               {/* Real-time location streaming for providers (Uber-style) */}
               <RealtimeLocationProvider />
               {/* 
@@ -199,6 +201,7 @@ function App() {
                 <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <AppContent />
               </Router>
+              </CallProvider>
             </SocketProvider>
           </AuthProvider>
         </ToastProvider>

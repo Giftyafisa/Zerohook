@@ -52,74 +52,75 @@ const TransactionsPage = () => {
   const [disputeDialog, setDisputeDialog] = useState({ open: false, escrowId: null });
   const [actionLoading, setActionLoading] = useState(false);
 
-  useEffect(() => {
-    const fetchWalletData = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        
-        // Fetch wallet data
-        const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        // Fetch transactions
-        const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        // Fetch escrows
-        const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+  // Extracted fetch logic so it can be re-called after escrow actions
+  const fetchWalletData = React.useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Fetch wallet data
+      const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      // Fetch transactions
+      const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      // Fetch escrows
+      const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
 
-        let wallet = { balance: 0, escrowHeld: 0, pendingWithdrawal: 0 };
-        let transactions = defaultTransactions;
-        let escrows = [];
+      let wallet = { balance: 0, escrowHeld: 0, pendingWithdrawal: 0 };
+      let transactions = defaultTransactions;
+      let escrows = [];
 
-        if (walletRes.ok) {
-          const data = await walletRes.json();
-          wallet = {
-            balance: data.wallet?.balance || data.balance || 0,
-            escrowHeld: data.wallet?.escrowHeld || data.escrowHeld || 0,
-            pendingWithdrawal: data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0
-          };
-        }
-
-        if (txRes.ok) {
-          const data = await txRes.json();
-          transactions = data.transactions || data.data || defaultTransactions;
-        }
-
-        if (escrowRes.ok) {
-          const data = await escrowRes.json();
-          escrows = data.escrows || data.data || [];
-        }
-
-        setWalletData({
-          ...wallet,
-          transactions,
-          escrows
-        });
-      } catch (error) {
-        console.error('Wallet fetch error:', error);
-        setWalletData({
-          balance: 250.00,
-          escrowHeld: 150.00,
-          pendingWithdrawal: 0,
-          transactions: defaultTransactions,
-          escrows: []
-        });
-      } finally {
-        setLoading(false);
+      if (walletRes.ok) {
+        const data = await walletRes.json();
+        wallet = {
+          balance: data.wallet?.balance || data.balance || 0,
+          escrowHeld: data.wallet?.escrowHeld || data.escrowHeld || 0,
+          pendingWithdrawal: data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0
+        };
       }
-    };
 
+      if (txRes.ok) {
+        const data = await txRes.json();
+        transactions = data.transactions || data.data || defaultTransactions;
+      }
+
+      if (escrowRes.ok) {
+        const data = await escrowRes.json();
+        escrows = data.escrows || data.data || [];
+      }
+
+      setWalletData({
+        ...wallet,
+        transactions,
+        escrows
+      });
+    } catch (error) {
+      console.error('Wallet fetch error:', error);
+      setWalletData({
+        balance: 250.00,
+        escrowHeld: 150.00,
+        pendingWithdrawal: 0,
+        transactions: defaultTransactions,
+        escrows: []
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
     if (isAuthenticated) {
       fetchWalletData();
     } else {
       setLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchWalletData]);
 
   // Handle escrow release
   const handleRelease = async (escrowId) => {
@@ -136,9 +137,9 @@ const TransactionsPage = () => {
       });
 
       if (response.ok) {
-        // Refresh data
+        // Refresh data without full page reload
         toast.success('Payment released successfully!');
-        window.location.reload();
+        await fetchWalletData();
       } else {
         const data = await response.json();
         toast.error(data.error || 'Failed to release payment');
@@ -168,7 +169,7 @@ const TransactionsPage = () => {
 
       if (response.ok) {
         toast.info('Dispute submitted. Our team will review and contact you.');
-        window.location.reload();
+        await fetchWalletData();
       } else {
         const data = await response.json();
         toast.error(data.error || 'Failed to submit dispute');

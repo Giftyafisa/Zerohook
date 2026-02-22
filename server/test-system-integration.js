@@ -1,108 +1,98 @@
-const { Pool } = require('pg');
 require('dotenv').config({ path: './env.production' });
+const mongoose = require('mongoose');
+const {
+  connectDB,
+  User,
+  Service,
+  Conversation,
+  Message,
+  UserConnection,
+  BlockedUser,
+  Notification,
+  FileUpload,
+  SubscriptionPlan,
+  Subscription
+} = require('./config/database');
 
 async function testSystemIntegration() {
   console.log('🧪 Testing System Integration...\n');
-  
-  // Create a direct database connection for testing
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-  });
-  
+
   try {
+    const connected = await connectDB();
+    if (!connected || mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+      console.error('❌ MongoDB is unavailable. Integration checks require a live database.');
+      process.exitCode = 1;
+      return;
+    }
+
     // Test 1: Check if all required tables exist
-    console.log('📋 Testing Database Tables...');
+    console.log('📋 Testing Database Collections...');
     
-    const requiredTables = [
-      'users',
-      'services', 
-      'conversations',
-      'messages',
-      'user_connections',
-      'blocked_users',
-      'notifications',
-      'file_uploads',
-      'subscription_plans',
-      'subscriptions'
+    const requiredCollections = [
+      'users', 'services', 'conversations', 'messages',
+      'userconnections', 'blockedusers', 'notifications',
+      'fileuploads', 'subscriptionplans', 'subscriptions'
     ];
+
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const collectionNames = new Set(collections.map(c => c.name));
     
-    for (const table of requiredTables) {
-      try {
-        const result = await pool.query(`SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = $1
-        )`, [table]);
-        
-        if (result.rows[0].exists) {
-          console.log(`   ✅ ${table} table exists`);
-        } else {
-          console.log(`   ❌ ${table} table missing`);
-        }
-      } catch (error) {
-        console.log(`   ❌ Error checking ${table} table: ${error.message}`);
+    for (const collection of requiredCollections) {
+      if (collectionNames.has(collection)) {
+        console.log(`   ✅ ${collection} collection exists`);
+      } else {
+        console.log(`   ❌ ${collection} collection missing`);
       }
     }
     
     // Test 2: Check if test users exist
     console.log('\n👥 Testing User Data...');
     
-    const userCount = await pool.query('SELECT COUNT(*) FROM users');
-    console.log(`   📊 Total users: ${userCount.rows[0].count}`);
+    const userCount = await User.countDocuments();
+    console.log(`   📊 Total users: ${userCount}`);
     
-    const testUsers = await pool.query(`
-      SELECT username, email, verification_tier, 
-             profile_data->>'profile_picture' as profile_picture
-      FROM users 
-      LIMIT 3
-    `);
+    const testUsers = await User.find({}).select('username email verification_tier').limit(3).lean();
     
     console.log('   👤 Sample users:');
-    testUsers.rows.forEach(user => {
+    testUsers.forEach(user => {
       console.log(`      - ${user.username} (${user.email}) - Tier ${user.verification_tier}`);
     });
     
     // Test 3: Check if test services exist
     console.log('\n🛍️ Testing Service Data...');
     
-    const serviceCount = await pool.query('SELECT COUNT(*) FROM services');
-    console.log(`   📊 Total services: ${serviceCount.rows[0].count}`);
+    const serviceCount = await Service.countDocuments();
+    console.log(`   📊 Total services: ${serviceCount}`);
     
-    const testServices = await pool.query(`
-      SELECT title, category_id, price, 
-             users.username as provider_name
-      FROM services 
-      JOIN users ON services.provider_id = users.id
-      LIMIT 3
-    `);
+    const testServices = await Service.find({})
+      .populate('provider_id', 'username')
+      .select('title category_id price provider_id')
+      .limit(3)
+      .lean();
     
     console.log('   🎯 Sample services:');
-    testServices.rows.forEach(service => {
-      console.log(`      - ${service.title} (${service.category_id}) - $${service.price} by ${service.provider_name}`);
+    testServices.forEach(service => {
+      console.log(`      - ${service.title} (${service.category_id}) - $${service.price} by ${service.provider_id?.username || 'Unknown'}`);
     });
     
     // Test 4: Test user connection functionality
     console.log('\n🔗 Testing User Connection System...');
     
     // Get two test users
-    const testUser1 = await pool.query('SELECT id, username FROM users LIMIT 1');
-    const testUser2 = await pool.query('SELECT id, username FROM users OFFSET 1 LIMIT 1');
+    const [user1, user2] = await User.find({}).select('_id username').limit(2).lean();
     
-    if (testUser1.rows.length > 0 && testUser2.rows.length > 0) {
-      const user1 = testUser1.rows[0];
-      const user2 = testUser2.rows[0];
-      
+    if (user1 && user2) {
       console.log(`   👥 Testing connection between ${user1.username} and ${user2.username}`);
       
       // Check if connection already exists
-      const existingConnection = await pool.query(`
-        SELECT id FROM user_connections 
-        WHERE (from_user_id = $1 AND to_user_id = $2) 
-           OR (from_user_id = $2 AND to_user_id = $1)
-      `, [user1.id, user2.id]);
+      const existingConnection = await UserConnection.findOne({
+        $or: [
+          { from_user_id: user1._id, to_user_id: user2._id },
+          { from_user_id: user2._id, to_user_id: user1._id }
+        ]
+      }).lean();
       
-      if (existingConnection.rows.length === 0) {
+      if (!existingConnection) {
         console.log('   ✅ No existing connection found');
       } else {
         console.log('   ℹ️  Connection already exists');
@@ -134,46 +124,46 @@ async function testSystemIntegration() {
     // Test 6: Check subscription system
     console.log('\n💳 Testing Subscription System...');
     
-    const planCount = await pool.query('SELECT COUNT(*) FROM subscription_plans');
-    console.log(`   📊 Total subscription plans: ${planCount.rows[0].count}`);
+    const planCount = await SubscriptionPlan.countDocuments();
+    console.log(`   📊 Total subscription plans: ${planCount}`);
     
-    const subscriptionCount = await pool.query('SELECT COUNT(*) FROM subscriptions');
-    console.log(`   📊 Total subscriptions: ${subscriptionCount.rows[0].count}`);
+    const subscriptionCount = await Subscription.countDocuments();
+    console.log(`   📊 Total subscriptions: ${subscriptionCount}`);
     
     // Test 7: Check chat system
     console.log('\n💬 Testing Chat System...');
     
-    const conversationCount = await pool.query('SELECT COUNT(*) FROM conversations');
-    console.log(`   📊 Total conversations: ${conversationCount.rows[0].count}`);
+    const conversationCount = await Conversation.countDocuments();
+    console.log(`   📊 Total conversations: ${conversationCount}`);
     
-    const messageCount = await pool.query('SELECT COUNT(*) FROM messages');
-    console.log(`   📊 Total messages: ${messageCount.rows[0].count}`);
+    const messageCount = await Message.countDocuments();
+    console.log(`   📊 Total messages: ${messageCount}`);
     
     // Test 8: Check notification system
     console.log('\n🔔 Testing Notification System...');
     
-    const notificationCount = await pool.query('SELECT COUNT(*) FROM notifications');
-    console.log(`   📊 Total notifications: ${notificationCount.rows[0].count}`);
+    const notificationCount = await Notification.countDocuments();
+    console.log(`   📊 Total notifications: ${notificationCount}`);
     
     // Test 9: Check blocked users system
     console.log('\n🚫 Testing Blocked Users System...');
     
-    const blockedCount = await pool.query('SELECT COUNT(*) FROM blocked_users');
-    console.log(`   📊 Total blocked relationships: ${blockedCount.rows[0].count}`);
+    const blockedCount = await BlockedUser.countDocuments();
+    console.log(`   📊 Total blocked relationships: ${blockedCount}`);
     
     // Test 10: System Health Check
     console.log('\n🏥 System Health Check...');
     
     const healthChecks = [
-      { name: 'Database Connection', query: 'SELECT 1 as test' },
-      { name: 'User Authentication', query: 'SELECT COUNT(*) FROM users WHERE verification_tier > 0' },
-      { name: 'Service Availability', query: 'SELECT COUNT(*) FROM services WHERE status = \'active\'' },
-      { name: 'File System', query: 'SELECT COUNT(*) FROM file_uploads' }
+      { name: 'Database Connection', run: async () => mongoose.connection.db.admin().ping() },
+      { name: 'User Authentication', run: async () => User.countDocuments({ verification_tier: { $gt: 0 } }) },
+      { name: 'Service Availability', run: async () => Service.countDocuments({ status: 'active' }) },
+      { name: 'File System', run: async () => FileUpload.countDocuments() }
     ];
     
     for (const check of healthChecks) {
       try {
-        const result = await pool.query(check.query);
+        await check.run();
         console.log(`   ✅ ${check.name}: OK`);
       } catch (error) {
         console.log(`   ❌ ${check.name}: Failed - ${error.message}`);
@@ -182,18 +172,21 @@ async function testSystemIntegration() {
     
     console.log('\n🎉 System Integration Test Completed!');
     console.log('\n📋 Summary:');
-    console.log(`   - Database Tables: ${requiredTables.length} required tables checked`);
-    console.log(`   - Users: ${userCount.rows[0].count} total users`);
-    console.log(`   - Services: ${serviceCount.rows[0].count} total services`);
-    console.log(`   - Conversations: ${conversationCount.rows[0].count} total conversations`);
-    console.log(`   - Messages: ${messageCount.rows[0].count} total messages`);
+    console.log(`   - Database Collections: ${requiredCollections.length} required collections checked`);
+    console.log(`   - Users: ${userCount} total users`);
+    console.log(`   - Services: ${serviceCount} total services`);
+    console.log(`   - Conversations: ${conversationCount} total conversations`);
+    console.log(`   - Messages: ${messageCount} total messages`);
     console.log(`   - File Uploads: ${fs.existsSync(uploadsDir) ? 'Directory ready' : 'Directory missing'}`);
-    console.log(`   - Subscriptions: ${planCount.rows[0].count} plans, ${subscriptionCount.rows[0].count} active`);
+    console.log(`   - Subscriptions: ${planCount} plans, ${subscriptionCount} active`);
     
   } catch (error) {
     console.error('❌ System integration test failed:', error);
+    process.exitCode = 1;
   } finally {
-    await pool.end();
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+    }
   }
 }
 

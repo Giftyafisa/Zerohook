@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -50,8 +50,7 @@ const BookingsPage = () => {
     },
   ], []);
 
-  useEffect(() => {
-    const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
       setLoading(true);
       setError(null);
       setIsTimeout(false);
@@ -102,14 +101,15 @@ const BookingsPage = () => {
       } finally {
         setLoading(false);
       }
-    };
+  }, [mockBookings]);
 
+  useEffect(() => {
     if (isAuthenticated) {
       fetchBookings();
     } else {
       setLoading(false);
     }
-  }, [isAuthenticated, mockBookings]);
+  }, [isAuthenticated, fetchBookings]);
 
   const getStatusConfig = (status) => {
     switch (status) {
@@ -140,7 +140,9 @@ const BookingsPage = () => {
   };
 
   const handleRetry = () => {
-    window.location.reload();
+    setLoading(true);
+    setError(null);
+    fetchBookings();
   };
 
   if (!isAuthenticated) {

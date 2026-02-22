@@ -1,4 +1,14 @@
-const { query } = require('./config/database');
+const mongoose = require('mongoose');
+const {
+  connectDB,
+  User,
+  Service,
+  Conversation,
+  Message,
+  UserConnection,
+  SubscriptionPlan,
+  Subscription
+} = require('./config/database');
 const SystemHealthService = require('./services/SystemHealthService');
 const UserConnectionManager = require('./services/UserConnectionManager');
 
@@ -6,6 +16,13 @@ async function testCompleteSystem() {
   console.log('🧪 Testing Complete System Integration...\n');
   
   try {
+    const connected = await connectDB();
+    if (!connected || mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+      console.error('❌ MongoDB is unavailable. Complete system checks require a live database.');
+      process.exitCode = 1;
+      return;
+    }
+
     // Test 1: System Health Service
     console.log('🏥 Testing System Health Service...');
     const healthService = new SystemHealthService();
@@ -20,27 +37,20 @@ async function testCompleteSystem() {
 
     // Test 2: Database Schema
     console.log('\n🗄️ Testing Database Schema...');
-    const requiredTables = [
+    const requiredCollections = [
       'users', 'services', 'conversations', 'messages',
-      'user_connections', 'blocked_users', 'notifications',
-      'file_uploads', 'subscription_plans', 'subscriptions'
+      'userconnections', 'blockedusers', 'notifications',
+      'fileuploads', 'subscriptionplans', 'subscriptions'
     ];
+
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const collectionNames = new Set(collections.map(c => c.name));
     
-    for (const table of requiredTables) {
-      try {
-        const result = await query(`SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = $1
-        )`, [table]);
-        
-        if (result.rows[0].exists) {
-          console.log(`   ✅ ${table} table exists`);
-        } else {
-          console.log(`   ❌ ${table} table missing`);
-        }
-      } catch (error) {
-        console.log(`   ❌ Error checking ${table} table: ${error.message}`);
+    for (const collection of requiredCollections) {
+      if (collectionNames.has(collection)) {
+        console.log(`   ✅ ${collection} collection exists`);
+      } else {
+        console.log(`   ❌ ${collection} collection missing`);
       }
     }
 
@@ -50,16 +60,23 @@ async function testCompleteSystem() {
     
     // Test creating a connection
     try {
+      const testUsers = await User.find({}).select('_id').limit(2).lean();
+      if (testUsers.length < 2) {
+        throw new Error('Need at least 2 users for connection manager test');
+      }
+
       const testConnection = await connectionManager.sendContactRequest(
-        'test-user-1',
-        'test-user-2',
+        testUsers[0]._id.toString(),
+        testUsers[1]._id.toString(),
         'Test connection message',
         'contact_request'
       );
       console.log('   ✅ Contact request creation works');
       
       // Clean up test connection
-      await query('DELETE FROM user_connections WHERE id = $1', [testConnection.id]);
+      if (testConnection?.connectionId) {
+        await UserConnection.deleteOne({ _id: testConnection.connectionId });
+      }
     } catch (error) {
       console.log('   ⚠️  Contact request test had issues:', error.message);
     }
@@ -115,33 +132,34 @@ async function testCompleteSystem() {
 
     // Test 6: Data Integrity
     console.log('\n🔍 Testing Data Integrity...');
+
+    let orphanedConnectionsCount = 0;
+    let orphanedMessagesCount = 0;
     
     try {
       // Check for orphaned records
-      const orphanedConnections = await query(`
-        SELECT COUNT(*) FROM user_connections uc
-        LEFT JOIN users u1 ON uc.from_user_id = u1.id
-        LEFT JOIN users u2 ON uc.to_user_id = u2.id
-        WHERE u1.id IS NULL OR u2.id IS NULL
-      `);
+      orphanedConnectionsCount = await UserConnection.countDocuments({
+        $or: [
+          { from_user_id: { $nin: await User.find({}).distinct('_id') } },
+          { to_user_id: { $nin: await User.find({}).distinct('_id') } }
+        ]
+      });
       
-      if (parseInt(orphanedConnections.rows[0].count) === 0) {
+      if (orphanedConnectionsCount === 0) {
         console.log('   ✅ No orphaned user connections found');
       } else {
-        console.log(`   ⚠️  Found ${orphanedConnections.rows[0].count} orphaned connections`);
+        console.log(`   ⚠️  Found ${orphanedConnectionsCount} orphaned connections`);
       }
 
       // Check for orphaned messages
-      const orphanedMessages = await query(`
-        SELECT COUNT(*) FROM messages m
-        LEFT JOIN conversations c ON m.conversation_id = c.id
-        WHERE c.id IS NULL
-      `);
+      orphanedMessagesCount = await Message.countDocuments({
+        conversationId: { $nin: await Conversation.find({}).distinct('_id') }
+      });
       
-      if (parseInt(orphanedMessages.rows[0].count) === 0) {
+      if (orphanedMessagesCount === 0) {
         console.log('   ✅ No orphaned messages found');
       } else {
-        console.log(`   ⚠️  Found ${orphanedMessages.rows[0].count} orphaned messages`);
+        console.log(`   ⚠️  Found ${orphanedMessagesCount} orphaned messages`);
       }
 
     } catch (error) {
@@ -155,9 +173,9 @@ async function testCompleteSystem() {
       const startTime = Date.now();
       
       // Test database query performance
-      await query('SELECT COUNT(*) FROM users');
-      await query('SELECT COUNT(*) FROM services');
-      await query('SELECT COUNT(*) FROM user_connections');
+      await User.countDocuments();
+      await Service.countDocuments();
+      await UserConnection.countDocuments();
       
       const queryTime = Date.now() - startTime;
       
@@ -196,10 +214,10 @@ async function testCompleteSystem() {
     console.log('\n🎉 Complete System Test Completed!');
     console.log('\n📋 Summary:');
     console.log(`   - System Health: ${healthStatus.overall ? '✅ Healthy' : '❌ Issues'}`);
-    console.log(`   - Database Tables: ${requiredTables.length} required tables checked`);
+    console.log(`   - Database Collections: ${requiredCollections.length} required collections checked`);
     console.log(`   - File System: ${fs.existsSync(uploadsDir) ? '✅ Ready' : '❌ Issues'}`);
     console.log(`   - API Endpoints: ${endpoints.length} endpoints tested`);
-    console.log(`   - Data Integrity: ${orphanedConnections.rows[0].count === 0 ? '✅ Clean' : '⚠️ Issues'}`);
+    console.log(`   - Data Integrity: ${orphanedConnectionsCount === 0 && orphanedMessagesCount === 0 ? '✅ Clean' : '⚠️ Issues'}`);
     
     if (healthStatus.overall) {
       console.log('\n🎊 All systems are operational! Your enhanced Zerohook platform is ready.');
@@ -209,8 +227,11 @@ async function testCompleteSystem() {
     
   } catch (error) {
     console.error('❌ Complete system test failed:', error);
+    process.exitCode = 1;
   } finally {
-    await query.end();
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+    }
   }
 }
 

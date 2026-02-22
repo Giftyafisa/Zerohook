@@ -15,6 +15,10 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 
+// Generate a short unique ID for deduplication
+const generateEventId = () =>
+  `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
 const useProfileEngagement = (profileId) => {
   const { socket, isConnected } = useSocket();
   
@@ -31,6 +35,9 @@ const useProfileEngagement = (profileId) => {
 
   // Session-level visited profiles (for return visit detection)
   const sessionVisitsRef = useRef(new Set());
+
+  // Track sent event IDs to prevent duplicate sends within this hook instance
+  const sentEventsRef = useRef(new Set());
 
   /**
    * Start tracking engagement for a profile
@@ -70,6 +77,9 @@ const useProfileEngagement = (profileId) => {
       bioReadTime = Date.now() - tracking.bioExpandTime;
     }
 
+    // Generate idempotency key so server deduplicates socket + REST
+    const eventId = generateEventId();
+
     const engagementData = {
       profileId,
       viewDuration,
@@ -78,22 +88,32 @@ const useProfileEngagement = (profileId) => {
       bioExpanded: tracking.bioExpanded,
       bioReadTime,
       isReturnVisit: tracking.isReturnVisit,
-      action
+      action,
+      eventId
     };
 
-    // Send to server via WebSocket
+    // Prevent duplicate sends for the same tracking session
+    const dedupKey = `${profileId}_${action}_${Math.floor(tracking.startTime / 1000)}`;
+    if (sentEventsRef.current.has(dedupKey)) return;
+    sentEventsRef.current.add(dedupKey);
+
+    // Send via WebSocket (preferred) OR REST API (fallback) – NOT both
+    let sentViaSocket = false;
     if (socket && isConnected) {
       socket.emit('profile_engagement', engagementData);
+      sentViaSocket = true;
     }
 
-    // Also send via API for non-WebSocket fallback
-    sendEngagementAPI(engagementData);
+    if (!sentViaSocket) {
+      sendEngagementAPI(engagementData);
+    }
 
     console.log(`📊 Stopped tracking profile ${profileId}:`, {
       duration: Math.round(viewDuration / 1000) + 's',
       photos: tracking.photoViews,
       scroll: tracking.maxScrollDepth + '%',
-      action
+      action,
+      channel: sentViaSocket ? 'socket' : 'rest'
     });
 
     trackingRef.current.isTracking = false;
@@ -144,7 +164,8 @@ const useProfileEngagement = (profileId) => {
    */
   const trackFavorite = useCallback(() => {
     if (!trackingRef.current.isTracking || !profileId) return;
-    
+
+    const eventId = generateEventId();
     const engagementData = {
       profileId,
       viewDuration: Date.now() - trackingRef.current.startTime,
@@ -153,11 +174,14 @@ const useProfileEngagement = (profileId) => {
       bioExpanded: trackingRef.current.bioExpanded,
       bioReadTime: 0,
       isReturnVisit: trackingRef.current.isReturnVisit,
-      action: 'favorite'
+      action: 'favorite',
+      eventId
     };
 
     if (socket && isConnected) {
       socket.emit('profile_engagement', engagementData);
+    } else {
+      sendEngagementAPI(engagementData);
     }
   }, [profileId, socket, isConnected]);
 

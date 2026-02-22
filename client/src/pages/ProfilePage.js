@@ -6,6 +6,7 @@ import {
   IconButton,
   TextField,
   Button,
+  ButtonBase,
   CircularProgress,
   Dialog,
   DialogTitle,
@@ -410,8 +411,9 @@ const ProfilePage = () => {
 
           {/* Subscription Status */}
           {(() => {
-            const isActuallySubscribed = user?.is_subscribed && 
-              (!user?.subscription_expires_at || new Date(user.subscription_expires_at) > new Date());
+            const subscribed = user?.is_subscribed ?? user?.isSubscribed ?? false;
+            const expiresAt = user?.subscription_expires_at ?? user?.subscriptionExpiresAt;
+            const isActuallySubscribed = subscribed && (!expiresAt || new Date(expiresAt) > new Date());
             return isActuallySubscribed ? (
               <Chip
                 icon={<PremiumIcon sx={{ color: '#ffd700 !important' }} />}
@@ -429,7 +431,7 @@ const ProfilePage = () => {
               <Button
                 variant="contained"
                 startIcon={<PremiumIcon />}
-                onClick={() => navigate('/subscribe')}
+                onClick={() => navigate('/subscription')}
                 fullWidth
                 sx={{
                   mt: 2,
@@ -773,22 +775,22 @@ const ProfilePage = () => {
       {/* Quick Links */}
       <Typography sx={styles.sectionTitle}>Quick Links</Typography>
       <Box sx={styles.linksGrid}>
-        <Box sx={styles.linkCard} onClick={() => navigate('/trust')} role="button" tabIndex={0} aria-label="View trust score" onKeyDown={(e) => e.key === 'Enter' && navigate('/trust')}>
+        <ButtonBase sx={styles.linkCard} onClick={() => navigate('/trust-score')} aria-label="View trust score">
           <ShieldIcon sx={{ color: '#00f2ea' }} />
           <Typography>Trust Score</Typography>
-        </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/transactions')} role="button" tabIndex={0} aria-label="View wallet and transactions" onKeyDown={(e) => e.key === 'Enter' && navigate('/transactions')}>
+        </ButtonBase>
+        <ButtonBase sx={styles.linkCard} onClick={() => navigate('/transactions')} aria-label="View wallet and transactions">
           <StarIcon sx={{ color: '#ffd700' }} />
           <Typography>Wallet</Typography>
-        </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/verification')} role="button" tabIndex={0} aria-label="Get verified" onKeyDown={(e) => e.key === 'Enter' && navigate('/verification')}>
+        </ButtonBase>
+        <ButtonBase sx={styles.linkCard} onClick={() => navigate('/verification')} aria-label="Get verified">
           <VerifiedIcon sx={{ color: '#00ff88' }} />
           <Typography>Verify</Typography>
-        </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/settings')} role="button" tabIndex={0} aria-label="Open settings" onKeyDown={(e) => e.key === 'Enter' && navigate('/settings')}>
+        </ButtonBase>
+        <ButtonBase sx={styles.linkCard} onClick={() => navigate('/settings')} aria-label="Open settings">
           <SettingsIcon sx={{ color: '#ff0055' }} />
           <Typography>Settings</Typography>
-        </Box>
+        </ButtonBase>
       </Box>
 
       {/* Action Buttons */}

@@ -3,6 +3,27 @@ const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
 
+function normalizeCountryParam(inputCode) {
+  const raw = String(inputCode || '').trim();
+  const upper = raw.toUpperCase();
+
+  const aliases = {
+    GHANA: 'GH',
+    NIGERIA: 'NG',
+    KENYA: 'KE',
+    'SOUTH-AFRICA': 'ZA',
+    SOUTHAFRICA: 'ZA',
+    UGANDA: 'UG',
+    TANZANIA: 'TZ',
+    RWANDA: 'RW',
+    BOTSWANA: 'BW',
+    ZAMBIA: 'ZM',
+    MALAWI: 'MW'
+  };
+
+  return aliases[upper] || upper;
+}
+
 /**
  * @route   GET /api/countries
  * @desc    Get all supported African countries
@@ -577,14 +598,14 @@ router.put('/user/preference', authMiddleware, [
  */
 router.get('/:code/payment-methods', async (req, res) => {
   try {
-    const { code } = req.params;
+    const normalizedCode = normalizeCountryParam(req.params.code);
     const countryManager = req.countryManager;
     
-    const paymentMethods = countryManager.getCountryPaymentMethods(code);
+    const paymentMethods = countryManager.getCountryPaymentMethods(normalizedCode);
     
     res.json({
       success: true,
-      countryCode: code,
+      countryCode: normalizedCode,
       paymentMethods: paymentMethods
     });
   } catch (error) {
@@ -600,14 +621,14 @@ router.get('/:code/payment-methods', async (req, res) => {
  */
 router.get('/:code/crypto-platforms', async (req, res) => {
   try {
-    const { code } = req.params;
+    const normalizedCode = normalizeCountryParam(req.params.code);
     const countryManager = req.countryManager;
     
-    const cryptoPlatforms = countryManager.getCryptoPlatforms(code);
+    const cryptoPlatforms = countryManager.getCryptoPlatforms(normalizedCode);
     
     res.json({
       success: true,
-      countryCode: code,
+      countryCode: normalizedCode,
       cryptoPlatforms: cryptoPlatforms
     });
   } catch (error) {

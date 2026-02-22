@@ -204,6 +204,29 @@ router.get('/conversations', authMiddleware, async (req, res) => {
       return res.json({ conversations: [] });
     }
 
+    // Batch-fetch unread counts per conversation in a single aggregation
+    let unreadMap = {};
+    try {
+      const convIds = conversations.map(c => c._id);
+      if (convIds.length > 0) {
+        const mongoose = require('mongoose');
+        const userObjId = new mongoose.Types.ObjectId(userId);
+        const unreadAgg = await Message.aggregate([
+          {
+            $match: {
+              conversationId: { $in: convIds },
+              senderId: { $ne: userObjId },
+              readAt: null
+            }
+          },
+          { $group: { _id: '$conversationId', count: { $sum: 1 } } }
+        ]);
+        unreadAgg.forEach(row => { unreadMap[row._id.toString()] = row.count; });
+      }
+    } catch (unreadErr) {
+      debugLog('Unread count aggregation failed (non-fatal):', unreadErr.message);
+    }
+
     res.json({
       conversations: conversations.map(conv => {
         const isParticipant1 = conv.participant1Id?._id?.toString() === userId;
@@ -237,6 +260,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
           },
           lastMessage: conv.lastMessage,
           lastMessageTime: conv.lastMessageTime,
+          unreadCount: unreadMap[conv._id.toString()] || 0,
           createdAt: conv.createdAt,
           status: conv.status || 'active'
         };
@@ -458,6 +482,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
         id: message._id,
         conversationId,
         senderId,
+        senderName: req.user.username || 'Someone',
         content,
         messageType,
         metadata: message.metadata || metadata || {},

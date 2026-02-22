@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
-const { Transaction } = require('../config/database');
+const { Transaction, Service } = require('../config/database');
 const NotificationService = require('../services/NotificationService');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
@@ -44,8 +44,28 @@ router.post('/create-payment-intent', authMiddleware, paymentRateLimit, [
       return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
     }
 
-    const { amount, currency, cryptoSymbol = 'USDT', serviceId, description } = req.body;
+    const { amount: clientAmount, currency, cryptoSymbol = 'USDT', serviceId, description } = req.body;
     const userId = req.user.userId;
+
+    // Server-authoritative amount: if a serviceId is provided, use the service's price
+    let amount = clientAmount;
+    if (serviceId) {
+      const service = await Service.findById(serviceId).select('price status').lean();
+      if (!service) {
+        return res.status(404).json({ success: false, error: 'Service not found' });
+      }
+      if (service.status !== 'active') {
+        return res.status(400).json({ success: false, error: 'Service is not active' });
+      }
+      // Override client amount with server-authoritative service price
+      amount = service.price;
+    }
+
+    // Enforce maximum amount ceiling for safety (prevent absurd amounts)
+    const MAX_PAYMENT_AMOUNT = 50000000;
+    if (amount > MAX_PAYMENT_AMOUNT) {
+      return res.status(400).json({ success: false, error: 'Amount exceeds maximum allowed' });
+    }
 
     // Get user's country for local currency
     const userCountry = await req.countryManager.getUserCountry(userId);
@@ -799,80 +819,107 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid wallet address format' });
     }
 
-    // Check available balance using atomic $facet aggregation (single DB round-trip)
+    // Validate userId format
     let userObjectId;
     try {
       userObjectId = mongoose.Types.ObjectId.createFromHexString(userId);
     } catch (e) {
       return res.status(400).json({ success: false, error: 'Invalid user ID format' });
     }
-    
-    const [balanceResult] = await Transaction.aggregate([
-      { $match: { 
-        $or: [
-          { user_id: userObjectId, type: { $in: ['deposit', 'wallet_topup', 'escrow_release'] }, status: { $in: ['completed', 'confirmed'] } },
-          { user_id: userObjectId, type: 'withdrawal', status: { $in: ['completed', 'pending'] } },
-          { client_id: userObjectId, type: 'escrow_hold', status: { $in: ['pending', 'held', 'pin_entered'] } }
-        ]
-      }},
-      { $facet: {
-        deposits: [
-          { $match: { type: { $in: ['deposit', 'wallet_topup'] } } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ],
-        escrowReleased: [
-          { $match: { type: 'escrow_release' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ],
-        withdrawn: [
-          { $match: { type: 'withdrawal' } },
-          { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
-        ],
-        escrowHeld: [
-          { $match: { type: 'escrow_hold' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]
-      }}
-    ]);
-    
-    const availableBalance = (balanceResult.deposits[0]?.total || 0) 
-                           + (balanceResult.escrowReleased[0]?.total || 0) 
-                           - (balanceResult.withdrawn[0]?.total || 0) 
-                           - (balanceResult.escrowHeld[0]?.total || 0);
-    
-    if (amount > availableBalance) {
-      return res.status(400).json({ success: false, error: `Insufficient balance. Available: ${currencySymbol}${availableBalance.toLocaleString()}`,
-        availableBalance, requestedAmount: amount
-      });
+
+    // Generate idempotency key to prevent duplicate submissions
+    const idempotencyKey = req.headers['x-idempotency-key'] || `WD_${Date.now()}_${userId.substring(0, 8)}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Check for duplicate withdrawal with same idempotency key
+    const existingWithdrawal = await Transaction.findOne({ reference: idempotencyKey, type: 'withdrawal' });
+    if (existingWithdrawal) {
+      return res.status(409).json({ success: false, error: 'Duplicate withdrawal request', reference: idempotencyKey });
     }
 
-    // Create pending withdrawal record atomically with a unique reference
-    // The reference includes a random component to prevent duplicate submissions
-    const reference = `WD_${Date.now()}_${userId.substring(0, 8)}_${Math.random().toString(36).substring(2, 6)}`;
-
-    // Convert to crypto amount
+    // Convert to crypto amount before session (read-only, no risk)
     const conversion = await req.currencyManager.fiatToCrypto(amount, currency, normalizedSymbol);
 
-    await Transaction.create({
-      user_id: userObjectId,
-      amount: amount,
-      currency: currency,
-      payment_method: 'crypto',
-      reference: reference,
-      status: 'pending',
-      country_code: countryCode,
-      type: 'withdrawal',
-      metadata: { 
-        type: 'withdrawal',
-        cryptoSymbol: normalizedSymbol,
-        cryptoAmount: conversion.cryptoAmount,
-        walletAddress: destAddr,
-        destinationAddress: destAddr,
-        network: network || normalizedSymbol,
-        rate: conversion.rate,
-        description: `Withdrawal - ${currencySymbol}${amount.toLocaleString()}`
+    // ATOMIC: Balance check + withdrawal creation inside a MongoDB session/transaction
+    // This prevents the TOCTOU race where parallel requests can overdraw.
+    const session = await mongoose.startSession();
+    let withdrawalTx;
+    try {
+      await session.withTransaction(async () => {
+        // Check available balance within the transaction
+        const [balanceResult] = await Transaction.aggregate([
+          { $match: { 
+            $or: [
+              { user_id: userObjectId, type: { $in: ['deposit', 'wallet_topup', 'escrow_release'] }, status: { $in: ['completed', 'confirmed'] } },
+              { user_id: userObjectId, type: 'withdrawal', status: { $in: ['completed', 'pending'] } },
+              { client_id: userObjectId, type: 'escrow_hold', status: { $in: ['pending', 'held', 'pin_entered'] } }
+            ]
+          }},
+          { $facet: {
+            deposits: [
+              { $match: { type: { $in: ['deposit', 'wallet_topup'] } } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ],
+            escrowReleased: [
+              { $match: { type: 'escrow_release' } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ],
+            withdrawn: [
+              { $match: { type: 'withdrawal' } },
+              { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
+            ],
+            escrowHeld: [
+              { $match: { type: 'escrow_hold' } },
+              { $group: { _id: null, total: { $sum: '$amount' } } }
+            ]
+          }}
+        ]).session(session);
+        
+        const availableBalance = (balanceResult.deposits[0]?.total || 0) 
+                               + (balanceResult.escrowReleased[0]?.total || 0) 
+                               - (balanceResult.withdrawn[0]?.total || 0) 
+                               - (balanceResult.escrowHeld[0]?.total || 0);
+        
+        if (amount > availableBalance) {
+          throw Object.assign(new Error(`Insufficient balance. Available: ${currencySymbol}${availableBalance.toLocaleString()}`), {
+            statusCode: 400, availableBalance, requestedAmount: amount
+          });
+        }
+
+        // Create pending withdrawal record atomically within the same transaction
+        const [created] = await Transaction.create([{
+          user_id: userObjectId,
+          amount: amount,
+          currency: currency,
+          payment_method: 'crypto',
+          reference: idempotencyKey,
+          status: 'pending',
+          country_code: countryCode,
+          type: 'withdrawal',
+          metadata: { 
+            type: 'withdrawal',
+            cryptoSymbol: normalizedSymbol,
+            cryptoAmount: conversion.cryptoAmount,
+            walletAddress: destAddr,
+            destinationAddress: destAddr,
+            network: network || normalizedSymbol,
+            rate: conversion.rate,
+            description: `Withdrawal - ${currencySymbol}${amount.toLocaleString()}`
+          }
+        }], { session });
+        withdrawalTx = created;
+      });
+    } catch (txError) {
+      if (txError.statusCode === 400) {
+        return res.status(400).json({ success: false, error: txError.message,
+          availableBalance: txError.availableBalance, requestedAmount: txError.requestedAmount
+        });
       }
-    });
+      throw txError; // Re-throw unexpected errors
+    } finally {
+      await session.endSession();
+    }
+
+    const reference = idempotencyKey;
 
     console.log(`📤 Crypto withdrawal requested: ${reference} - ${conversion.cryptoAmount} ${normalizedSymbol} to ${destAddr}`);
 

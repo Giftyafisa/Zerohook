@@ -8,6 +8,97 @@ const NotificationService = require('../services/NotificationService');
 const router = express.Router();
 const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
+/**
+ * Centralized, idempotent subscription activation.
+ * Atomically transitions subscription from 'pending' → 'active', updates user record,
+ * records transaction, and emits real-time events.
+ * Returns { activated: true/false, alreadyActive: boolean, subscription }
+ */
+async function activateSubscription({ paymentReference, userId, io }) {
+  const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+    ? new mongoose.Types.ObjectId(userId) : null;
+  if (!userObjectId) throw new Error('Invalid user ID');
+
+  // Atomically activate only if still pending (idempotent)
+  const subscriptionUpdate = await Subscription.findOneAndUpdate(
+    { crypto_reference: paymentReference, user_id: userObjectId, status: 'pending' },
+    { $set: { status: 'active', activated_at: new Date() } },
+    { new: true }
+  );
+
+  if (!subscriptionUpdate) {
+    // Check if it's already active (idempotent success)
+    const existing = await Subscription.findOne({ crypto_reference: paymentReference, user_id: userObjectId });
+    if (existing && existing.status === 'active') {
+      return { activated: false, alreadyActive: true, subscription: existing };
+    }
+    return { activated: false, alreadyActive: false, subscription: null };
+  }
+
+  const sixMonthsFromNow = new Date();
+  sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+
+  // Update user subscription status
+  const userUpdate = await User.findByIdAndUpdate(userObjectId, {
+    is_subscribed: true,
+    subscription_tier: 'premium',
+    subscription_expires_at: sixMonthsFromNow
+  }, { new: true });
+
+  if (!userUpdate) {
+    // Rollback subscription
+    await Subscription.findByIdAndUpdate(subscriptionUpdate._id, { status: 'pending', activated_at: null });
+    throw new Error('Failed to update user subscription status');
+  }
+
+  // Record transaction (idempotent via upsert)
+  await Transaction.updateOne(
+    { reference: paymentReference, user_id: userObjectId, type: 'subscription' },
+    {
+      $setOnInsert: {
+        amount: subscriptionUpdate.amount,
+        currency: subscriptionUpdate.currency,
+        payment_method: 'crypto',
+        status: 'completed',
+        type: 'subscription',
+        country_code: subscriptionUpdate.country_code || null,
+        metadata: {
+          subscriptionId: subscriptionUpdate._id.toString(),
+          planId: subscriptionUpdate.plan_id?.toString() || null,
+          description: 'Subscription payment'
+        },
+        confirmed_at: new Date()
+      }
+    },
+    { upsert: true }
+  );
+
+  console.log(`✅ Subscription activated for user: ${userId} (tier: premium, expires: 6 months)`);
+
+  // Emit real-time subscription update
+  if (io) {
+    io.to(`user_${userId}`).emit('subscription_updated', {
+      isSubscribed: true,
+      status: 'active',
+      timestamp: new Date().toISOString()
+    });
+
+    await NotificationService.createAndEmit(io, {
+      userId,
+      type: 'payment',
+      title: 'Subscription Activated',
+      message: 'Your premium subscription is now active.',
+      data: {
+        subscriptionId: subscriptionUpdate._id.toString(),
+        paymentReference,
+        expiresAt: sixMonthsFromNow
+      }
+    });
+  }
+
+  return { activated: true, alreadyActive: false, subscription: subscriptionUpdate };
+}
+
 // Per-route rate limiter: 5 subscription creations per 15 min per IP
 const subLimiter = new RateLimiterMemory({ points: 5, duration: 900 });
 const subRateLimit = async (req, res, next) => {
@@ -94,7 +185,7 @@ router.get('/status', authMiddleware, async (req, res) => {
 // Create subscription (Crypto Payment)
 router.post('/create', authMiddleware, subRateLimit, [
   body('planId').isString().notEmpty(),
-  body('amount').isNumeric(),
+  // amount is intentionally omitted — server derives price from the plan record
   body('currency').isString().isLength({ min: 3, max: 3 }),
   body('countryCode').isString().isLength({ min: 2, max: 2 }),
   body('cryptoSymbol').optional().isIn(SUPPORTED_SETTLEMENT_CRYPTOS).withMessage('Invalid crypto')
@@ -109,7 +200,7 @@ router.post('/create', authMiddleware, subRateLimit, [
       });
     }
 
-    const { planId, amount, currency, countryCode, cryptoSymbol = 'USDT' } = req.body;
+    const { planId, currency, countryCode, cryptoSymbol = 'USDT' } = req.body;
     const normalizedSymbol = String(cryptoSymbol || '').toUpperCase();
 
     if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(normalizedSymbol)) {
@@ -120,23 +211,20 @@ router.post('/create', authMiddleware, subRateLimit, [
     }
     const userId = req.user.userId;
 
-    // Get the actual plan ID from the database if planId is a string identifier (not a valid ObjectId)
-    let actualPlanId = planId;
-    const mongoose = require('mongoose');
+    // Resolve plan from DB — NEVER trust client-supplied amount
+    let plan;
     if (typeof planId === 'string' && !mongoose.Types.ObjectId.isValid(planId)) {
       // planId is a human-readable plan name, look it up
-      const plan = await SubscriptionPlan.findOne({ plan_name: planId, is_active: true }).select('_id').lean();
-      if (!plan) {
-        return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
-      }
-      actualPlanId = plan._id.toString();
+      plan = await SubscriptionPlan.findOne({ plan_name: planId, is_active: true }).lean();
     } else if (typeof planId === 'string' && mongoose.Types.ObjectId.isValid(planId)) {
-      // Verify the ObjectId actually references an active plan
-      const plan = await SubscriptionPlan.findOne({ _id: planId, is_active: true }).select('_id').lean();
-      if (!plan) {
-        return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
-      }
+      plan = await SubscriptionPlan.findOne({ _id: planId, is_active: true }).lean();
     }
+    if (!plan) {
+      return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
+    }
+    const actualPlanId = plan._id.toString();
+    // Server-authoritative price: use plan price, ignore any client-supplied amount
+    const amount = plan.price;
 
     // Convert fiat amount to crypto using live rates
     const conversion = await req.currencyManager.fiatToCrypto(amount, currency.toUpperCase(), normalizedSymbol);
@@ -237,77 +325,14 @@ router.post('/verify-payment', authMiddleware, subRateLimit, [
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
-    const sixMonthsFromNow = new Date();
-    sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-
-    const subscriptionUpdate = await Subscription.findOneAndUpdate(
-      { crypto_reference: paymentReference, user_id: userObjectId },
-      { status: 'active', activated_at: new Date(), expires_at: sixMonthsFromNow },
-      { new: true }
-    );
-
-    if (!subscriptionUpdate) {
-      return res.status(404).json({ success: false, error: 'Subscription not found' });
-    }
-
-    // Update user subscription status (6-month subscription) — fail loudly if user update breaks
-    const userUpdate = await User.findByIdAndUpdate(userObjectId, {
-      is_subscribed: true,
-      subscription_tier: 'premium',
-      subscription_expires_at: sixMonthsFromNow
-    }, { new: true });
-
-    if (!userUpdate) {
-      // Rollback subscription activation since user update failed
-      await Subscription.findByIdAndUpdate(subscriptionUpdate._id, { status: 'pending', activated_at: null });
-      return res.status(500).json({ success: false, error: 'Failed to update user subscription status' });
-    }
-
-    console.log(`✅ User subscription updated: ${userId} (tier: premium, expires: 6 months)`);
-
-    // Record subscription payment into Transaction ledger (idempotent)
-    await Transaction.updateOne(
-      { reference: paymentReference, user_id: userObjectId, type: 'subscription' },
-      {
-        $setOnInsert: {
-          amount: subscriptionUpdate.amount,
-          currency: subscriptionUpdate.currency,
-          payment_method: 'crypto',
-          status: 'completed',
-          type: 'subscription',
-          country_code: subscriptionUpdate.country_code || null,
-          metadata: {
-            subscriptionId: subscriptionUpdate._id.toString(),
-            planId: subscriptionUpdate.plan_id?.toString() || null,
-            description: 'Subscription payment'
-          },
-          confirmed_at: new Date()
-        }
-      },
-      { upsert: true }
-    );
+    // Use centralized idempotent activation
+    const result = await activateSubscription({ paymentReference, userId, io: req.io });
     
-    console.log(`✅ Crypto payment verified and subscription activated for user: ${userId}`);
-
-    // Emit real-time subscription update
-    if (req.io) {
-      req.io.to(`user_${userId}`).emit('subscription_updated', {
-        isSubscribed: true,
-        status: 'active',
-        timestamp: new Date().toISOString()
-      });
-
-      await NotificationService.createAndEmit(req.io, {
-        userId,
-        type: 'payment',
-        title: 'Subscription Activated',
-        message: 'Your premium subscription is now active.',
-        data: {
-          subscriptionId: subscriptionUpdate._id.toString(),
-          paymentReference,
-          expiresAt: sixMonthsFromNow
-        }
-      });
+    if (result.alreadyActive) {
+      return res.json({ success: true, message: 'Subscription already active', isSubscribed: true });
+    }
+    if (!result.activated) {
+      return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
 
     res.json({
@@ -335,58 +360,17 @@ router.post('/verify-payment-manual', authMiddleware, adminMiddleware, async (re
 
     console.log(`🔄 Manual payment verification: ${paymentReference} for user: ${userId}`);
 
-    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
-      ? new mongoose.Types.ObjectId(userId)
-      : null;
-
-    if (!userObjectId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid user ID'
-      });
+    // Use centralized idempotent activation
+    const result = await activateSubscription({ paymentReference, userId, io: req.io });
+    
+    if (result.alreadyActive) {
+      return res.json({ success: true, message: 'Subscription already active', isSubscribed: true });
     }
-
-    const subscriptionUpdate = await Subscription.findOneAndUpdate(
-      { crypto_reference: paymentReference, user_id: userObjectId },
-      { status: 'active', activated_at: new Date() },
-      { new: true }
-    );
-
-    if (!subscriptionUpdate) {
-      return res.status(404).json({
-        success: false,
-        error: 'Subscription not found'
-      });
-    }
-
-    // Update user subscription status with tier and expiration (6-month subscription)
-    try {
-      const sixMonthsFromNow = new Date();
-      sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-
-      await User.findByIdAndUpdate(userObjectId, {
-        is_subscribed: true,
-        subscription_tier: 'premium',
-        subscription_expires_at: sixMonthsFromNow
-      });
-
-      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
-    } catch (userUpdateError) {
-      console.log(`⚠️  User update failed: ${userUpdateError.message}`);
-      console.log(`   Subscription activated but user status not updated`);
+    if (!result.activated) {
+      return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
     
     console.log(`✅ Manual verification: Subscription activated for user: ${userId}`);
-
-    // Emit real-time subscription update to user
-    if (req.io) {
-      req.io.to(`user_${userId}`).emit('subscription_updated', {
-        isSubscribed: true,
-        status: 'active',
-        timestamp: new Date().toISOString()
-      });
-      console.log(`📡 Real-time subscription update sent to user: ${userId}`);
-    }
 
     res.json({
       success: true,
@@ -639,53 +623,81 @@ router.get('/plans', async (req, res) => {
 });
 
 // Crypto payment verification callback (replaces old Paystack callback)
+// SECURITY: This endpoint verifies the blockchain state before activating anything.
+// The reference alone is not enough — the blockchain must confirm the payment.
+// A timing verification ensures stale/replayed callbacks are rejected.
 router.get('/payment-callback', async (req, res) => {
   try {
     const { reference } = req.query;
     
-    if (!reference) {
+    if (!reference || typeof reference !== 'string' || reference.length > 200) {
       return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/failed?error=no_reference`);
+    }
+
+    // Sanitize reference to prevent injection
+    if (!/^[a-zA-Z0-9_\-]+$/.test(reference)) {
+      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/failed?error=invalid_reference`);
     }
 
     console.log(`🔄 Processing crypto payment callback for: ${reference}`);
 
-    // Check blockchain verification
-    const verificationResult = await req.cryptoPaymentManager.checkPaymentStatus(reference);
-    
-    if (verificationResult.success && verificationResult.status === 'confirmed') {
-      const subscriptionDoc = await Subscription.findOne({ crypto_reference: reference });
-
-      if (subscriptionDoc) {
-        const userId = subscriptionDoc.user_id?.toString();
-
-        subscriptionDoc.status = 'active';
-        subscriptionDoc.activated_at = new Date();
-        await subscriptionDoc.save();
-        console.log(`✅ Subscription ${subscriptionDoc._id.toString()} activated via callback`);
-
-        if (userId) {
-          try {
-            const sixMonthsFromNow = new Date();
-            sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-
-            await User.findByIdAndUpdate(userId, { 
-              is_subscribed: true, 
-              subscription_tier: 'premium',
-              subscription_expires_at: sixMonthsFromNow
-            });
-          } catch (userUpdateError) {
-            console.log(`⚠️ User update failed: ${userUpdateError.message}`);
-          }
-        }
-
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`);
-      }
-
+    // First verify the subscription exists and is in pending state (not already activated)
+    const subscriptionDoc = await Subscription.findOne({ crypto_reference: reference });
+    if (!subscriptionDoc) {
       return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/failed?error=not_found`);
     }
 
+    // Replay protection: if already activated, just redirect to success
+    if (subscriptionDoc.status === 'active') {
+      console.log(`ℹ️ Subscription ${subscriptionDoc._id} already active, skipping duplicate callback`);
+      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`);
+    }
+
+    // Only process pending subscriptions
+    if (subscriptionDoc.status !== 'pending') {
+      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/failed?error=invalid_status`);
+    }
+
+    // Check blockchain verification — this is the REAL authority, not the callback itself
+    const verificationResult = await req.cryptoPaymentManager.checkPaymentStatus(reference);
+    
+    if (verificationResult.success && verificationResult.status === 'confirmed') {
+      const userId = subscriptionDoc.user_id?.toString();
+
+      // Atomically activate only if still pending (prevents race with verify-payment endpoint)
+      const activatedSub = await Subscription.findOneAndUpdate(
+        { _id: subscriptionDoc._id, status: 'pending' },
+        { $set: { status: 'active', activated_at: new Date() } },
+        { new: true }
+      );
+      
+      if (!activatedSub) {
+        // Already activated by another path (verify-payment endpoint)
+        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`);
+      }
+
+      console.log(`✅ Subscription ${subscriptionDoc._id.toString()} activated via callback`);
+
+      if (userId) {
+        try {
+          const sixMonthsFromNow = new Date();
+          sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+
+          await User.findByIdAndUpdate(userId, { 
+            is_subscribed: true, 
+            subscription_tier: 'premium',
+            subscription_expires_at: sixMonthsFromNow
+          });
+        } catch (userUpdateError) {
+          console.log(`⚠️ User update failed: ${userUpdateError.message}`);
+        }
+      }
+
+      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?verified=true`);
+    }
+
     // Payment not yet confirmed - redirect to pending page
-    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/pending?reference=${reference}`);
+    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/pending?reference=${encodeURIComponent(reference)}`);
     
   } catch (error) {
     console.error('Payment callback error:', error);

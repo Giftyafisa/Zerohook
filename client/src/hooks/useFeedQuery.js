@@ -151,19 +151,26 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
   // Cleanup on unmount
   useEffect(() => () => { if (abortControllerRef.current) abortControllerRef.current.abort(); }, []);
 
-  // Initial load + refetch on filter change
-  useEffect(() => { fetchProfiles(1); }, [activeFilter, fetchProfiles]);
+  // ── Single unified trigger ────────────────────────────────────
+  // Combines filter changes, location updates, and debounced search into one
+  // effect to prevent triple-fetch overlap.
+  const searchTimerRef = useRef(null);
+  const prevSearchRef  = useRef(searchQuery);
 
-  // Refetch when location detected
   useEffect(() => {
-    if (!locationLoading && userLocation) fetchProfiles(1);
-  }, [locationLoading, userLocation, fetchProfiles]);
-
-  // Debounced search
-  useEffect(() => {
-    const t = setTimeout(() => fetchProfiles(1), 500);
-    return () => clearTimeout(t);
-  }, [searchQuery, fetchProfiles]);
+    // If the searchQuery changed, debounce the fetch
+    if (prevSearchRef.current !== searchQuery) {
+      prevSearchRef.current = searchQuery;
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = setTimeout(() => fetchProfiles(1), 500);
+      return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+    }
+    // For filter changes or non-loading location, fetch immediately
+    if (!locationLoading) {
+      fetchProfiles(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, searchQuery, locationLoading, userLocation]);
 
   // Infinite-scroll observer
   useEffect(() => {

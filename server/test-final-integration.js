@@ -1,41 +1,47 @@
-const { Pool } = require('pg');
 require('dotenv').config({ path: './env.production' });
+const axios = require('axios');
+const mongoose = require('mongoose');
+const {
+  connectDB,
+  UserConnection,
+  BlockedUser,
+  Notification,
+  Conversation,
+  Message,
+  SubscriptionPlan,
+  Subscription
+} = require('./config/database');
 
 async function testFinalIntegration() {
   console.log('🎯 Final Integration Test - All New Features\n');
-  
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-  });
-  
+
   try {
     console.log('📡 Connecting to database...');
-    const client = await pool.connect();
+    const connected = await connectDB();
+    if (!connected || mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+      console.error('❌ MongoDB is unavailable. Final integration checks require a live database.');
+      process.exitCode = 1;
+      return;
+    }
     console.log('✅ Database connected successfully');
     
     // Test 1: Verify all required tables exist
     console.log('\n📋 Test 1: Database Schema Verification');
-    const requiredTables = [
+    const requiredCollections = [
       'users', 'services', 'conversations', 'messages',
-      'user_connections', 'blocked_users', 'notifications',
-      'file_uploads', 'subscription_plans', 'subscriptions'
+      'userconnections', 'blockedusers', 'notifications',
+      'fileuploads', 'subscriptionplans', 'subscriptions'
     ];
+
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const collectionNames = new Set(collections.map(c => c.name));
     
     let allTablesExist = true;
-    for (const table of requiredTables) {
-      const result = await client.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = $1
-        )
-      `, [table]);
-      
-      if (result.rows[0].exists) {
-        console.log(`   ✅ ${table} table exists`);
+    for (const collection of requiredCollections) {
+      if (collectionNames.has(collection)) {
+        console.log(`   ✅ ${collection} collection exists`);
       } else {
-        console.log(`   ❌ ${table} table missing`);
+        console.log(`   ❌ ${collection} collection missing`);
         allTablesExist = false;
       }
     }
@@ -54,7 +60,10 @@ async function testFinalIntegration() {
     console.log('   📍 Testing endpoints (should return auth errors, not 404s):');
     for (const endpoint of endpoints) {
       try {
-        const response = await fetch(`http://localhost:5000${endpoint}`);
+        const response = await axios.get(`http://localhost:5000${endpoint}`, {
+          validateStatus: () => true,
+          timeout: 5000
+        });
         if (response.status === 401) {
           console.log(`   ✅ ${endpoint} - Authentication required (working)`);
         } else if (response.status === 200) {
@@ -84,66 +93,65 @@ async function testFinalIntegration() {
     
     // Test 4: Verify user connection system
     console.log('\n🔗 Test 4: User Connection System Verification');
-    const connectionCount = await client.query('SELECT COUNT(*) FROM user_connections');
-    const blockedCount = await client.query('SELECT COUNT(*) FROM blocked_users');
-    const notificationCount = await client.query('SELECT COUNT(*) FROM notifications');
+    const connectionCount = await UserConnection.countDocuments();
+    const blockedCount = await BlockedUser.countDocuments();
+    const notificationCount = await Notification.countDocuments();
     
-    console.log(`   📊 User connections: ${connectionCount.rows[0].count}`);
-    console.log(`   📊 Blocked users: ${blockedCount.rows[0].count}`);
-    console.log(`   📊 Notifications: ${notificationCount.rows[0].count}`);
+    console.log(`   📊 User connections: ${connectionCount}`);
+    console.log(`   📊 Blocked users: ${blockedCount}`);
+    console.log(`   📊 Notifications: ${notificationCount}`);
     
     // Test 5: Verify enhanced chat system
     console.log('\n💬 Test 5: Enhanced Chat System Verification');
-    const conversationCount = await client.query('SELECT COUNT(*) FROM conversations');
-    const messageCount = await client.query('SELECT COUNT(*) FROM messages');
+    const conversationCount = await Conversation.countDocuments();
+    const messageCount = await Message.countDocuments();
     
-    console.log(`   📊 Conversations: ${conversationCount.rows[0].count}`);
-    console.log(`   📊 Messages: ${messageCount.rows[0].count}`);
+    console.log(`   📊 Conversations: ${conversationCount}`);
+    console.log(`   📊 Messages: ${messageCount}`);
     
-    // Check if conversations table has status field
-    const statusCheck = await client.query(`
-      SELECT column_name FROM information_schema.columns 
-      WHERE table_name = 'conversations' AND column_name = 'status'
-    `);
-    
-    if (statusCheck.rows.length > 0) {
-      console.log('   ✅ Conversations table has status field');
+    // Check if schemas have expected fields
+    if (Conversation.schema.path('status')) {
+      console.log('   ✅ Conversation schema has status field');
     } else {
-      console.log('   ❌ Conversations table missing status field');
+      console.log('   ❌ Conversation schema missing status field');
     }
     
-    // Check if messages table has metadata field
-    const metadataCheck = await client.query(`
-      SELECT column_name FROM information_schema.columns 
-      WHERE table_name = 'messages' AND column_name = 'metadata'
-    `);
-    
-    if (metadataCheck.rows.length > 0) {
-      console.log('   ✅ Messages table has metadata field');
+    if (Message.schema.path('metadata')) {
+      console.log('   ✅ Message schema has metadata field');
     } else {
-      console.log('   ❌ Messages table missing metadata field');
+      console.log('   ❌ Message schema missing metadata field');
+    }
+
+    if (Message.schema.path('messageType')) {
+      console.log('   ✅ Message schema has messageType field');
+    } else {
+      console.log('   ❌ Message schema missing messageType field');
     }
     
     // Test 6: Verify subscription system
     console.log('\n💳 Test 6: Subscription System Verification');
-    const planCount = await client.query('SELECT COUNT(*) FROM subscription_plans');
-    const subscriptionCount = await client.query('SELECT COUNT(*) FROM subscriptions');
+    const planCount = await SubscriptionPlan.countDocuments();
+    const subscriptionCount = await Subscription.countDocuments();
     
-    console.log(`   📊 Subscription plans: ${planCount.rows[0].count}`);
-    console.log(`   📊 Active subscriptions: ${subscriptionCount.rows[0].count}`);
+    console.log(`   📊 Subscription plans: ${planCount}`);
+    console.log(`   📊 Active subscriptions: ${subscriptionCount}`);
     
     // Test 7: Performance and indexes
     console.log('\n⚡ Test 7: Performance and Indexes Verification');
     try {
-      const indexes = await client.query(`
-        SELECT indexname FROM pg_indexes 
-        WHERE tablename IN ('user_connections', 'blocked_users', 'notifications', 'file_uploads')
-      `);
-      
-      console.log(`   📊 Found ${indexes.rows.length} performance indexes`);
-      indexes.rows.forEach(index => {
-        console.log(`      - ${index.indexname}`);
-      });
+      const indexCollections = [
+        { name: 'UserConnection', model: UserConnection },
+        { name: 'BlockedUser', model: BlockedUser },
+        { name: 'Notification', model: Notification },
+      ];
+
+      for (const item of indexCollections) {
+        const indexes = await item.model.collection.indexes();
+        console.log(`   📊 ${item.name} indexes: ${indexes.length}`);
+        indexes.forEach(index => {
+          console.log(`      - ${index.name}`);
+        });
+      }
     } catch (error) {
       console.log(`   ⚠️  Index check failed: ${error.message}`);
     }
@@ -151,9 +159,12 @@ async function testFinalIntegration() {
     // Test 8: System health check
     console.log('\n🏥 Test 8: System Health Check');
     try {
-      const healthResponse = await fetch('http://localhost:5000/api/health');
-      if (healthResponse.ok) {
-        const healthData = await healthResponse.json();
+      const healthResponse = await axios.get('http://localhost:5000/api/health', {
+        validateStatus: () => true,
+        timeout: 5000
+      });
+      if (healthResponse.status >= 200 && healthResponse.status < 300) {
+        const healthData = healthResponse.data;
         console.log(`   ✅ Health endpoint working - Status: ${healthData.status}`);
         console.log(`   📊 Database: ${healthData.components?.database?.status}`);
         console.log(`   📊 File System: ${healthData.components?.fileSystem?.status}`);
@@ -189,12 +200,14 @@ async function testFinalIntegration() {
     } else {
       console.log('\n⚠️  Some issues detected. Please review the table creation.');
     }
-    
-    client.release();
-    await pool.end();
+
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+    }
     
   } catch (error) {
     console.error('❌ Final integration test failed:', error);
+    process.exitCode = 1;
     throw error;
   }
 }
@@ -203,6 +216,10 @@ async function testFinalIntegration() {
 if (require.main === module) {
   testFinalIntegration()
     .then(() => {
+      if (process.exitCode && process.exitCode !== 0) {
+        console.error('\n❌ Final integration test completed with failures');
+        process.exit(process.exitCode);
+      }
       console.log('\n✅ Final integration test completed');
       process.exit(0);
     })

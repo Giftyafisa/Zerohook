@@ -1,20 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- External storage paths -->
-    <external-path name="external_files" path="." />
-    
-    <!-- Cache directory -->
-    <cache-path name="cache" path="." />
-    
-    <!-- App-specific external storage -->
-    <external-files-path name="external_files_path" path="." />
-    
-    <!-- Internal files directory -->
-    <files-path name="files" path="." />
-    
-    <!-- Images directory -->
+    <!--
+        Scoped FileProvider paths — only expose directories the app actually uses.
+        Previous config exposed root "." of every storage area which is over-broad.
+    -->
+
+    <!-- Camera captures (temporary photos before upload) -->
+    <cache-path name="camera_cache" path="camera/" />
+
+    <!-- Profile pictures and uploaded media -->
     <external-files-path name="images" path="Pictures/" />
-    
-    <!-- Camera captures -->
-    <external-cache-path name="camera" path="camera/" />
+
+    <!-- Downloaded/shared files -->
+    <files-path name="internal_files" path="shared/" />
 </paths>

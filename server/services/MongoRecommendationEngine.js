@@ -20,7 +20,7 @@
  * MIGRATED FROM PostgreSQL to MongoDB Mongoose
  */
 
-const { User, UserActivityLog, SugarAccessPayment } = require('../config/database');
+const { User, UserActivityLog, SugarAccessPayment, Transaction, Conversation, Message, UserEngagementMetric } = require('../config/database');
 const ProfileCompletenessService = require('./ProfileCompletenessService');
 const LocationVerificationService = require('./LocationVerificationService');
 
@@ -81,6 +81,126 @@ class MongoRecommendationEngine {
 
   toRad(deg) {
     return deg * (Math.PI / 180);
+  }
+
+  /**
+   * SERVER-AUTHORITATIVE ENGAGEMENT STATS
+   * Batch-fetch real engagement data from Transaction, Conversation, and
+   * UserEngagementMetric collections so the scoring function never trusts
+   * user-editable profile_data fields for these metrics.
+   *
+   * Returns Map<string, { bookingSuccessRate, responseRate, viewCount, contactCount }>
+   */
+  async batchFetchEngagementStats(profileIds) {
+    const statsMap = new Map();
+    if (!profileIds || profileIds.length === 0) return statsMap;
+
+    try {
+      // 1. Booking success rate from Transaction collection
+      //    completed / (completed + cancelled + disputed) per provider
+      const [bookingStats, viewStats, contactStats] = await Promise.all([
+        Transaction.aggregate([
+          { $match: { provider_id: { $in: profileIds }, type: 'service' } },
+          { $group: {
+            _id: '$provider_id',
+            total: { $sum: 1 },
+            completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } }
+          }}
+        ]),
+        // 2. View counts from UserEngagementMetric
+        UserEngagementMetric.find(
+          { userId: { $in: profileIds } },
+          { userId: 1, totalProfileViews: 1 }
+        ).lean(),
+        // 3. Contact count from Conversation (how many unique people initiated with this user)
+        Conversation.aggregate([
+          { $match: { $or: [
+            { participant1Id: { $in: profileIds } },
+            { participant2Id: { $in: profileIds } }
+          ]}},
+          { $project: {
+            profileId: { $cond: [
+              { $in: ['$participant1Id', profileIds] },
+              '$participant1Id',
+              '$participant2Id'
+            ]}
+          }},
+          { $group: { _id: '$profileId', contactCount: { $sum: 1 } } }
+        ])
+      ]);
+
+      // Build stats map from booking data
+      for (const b of bookingStats) {
+        const id = b._id.toString();
+        const rate = b.total > 0 ? Math.round((b.completed / b.total) * 100) : 50;
+        statsMap.set(id, { bookingSuccessRate: rate, responseRate: 50, viewCount: 0, contactCount: 0 });
+      }
+
+      // Merge view counts
+      for (const v of viewStats) {
+        const id = v.userId.toString();
+        const entry = statsMap.get(id) || { bookingSuccessRate: 50, responseRate: 50, viewCount: 0, contactCount: 0 };
+        entry.viewCount = v.totalProfileViews || 0;
+        statsMap.set(id, entry);
+      }
+
+      // Merge contact counts
+      for (const c of contactStats) {
+        const id = c._id.toString();
+        const entry = statsMap.get(id) || { bookingSuccessRate: 50, responseRate: 50, viewCount: 0, contactCount: 0 };
+        entry.contactCount = c.contactCount || 0;
+        statsMap.set(id, entry);
+      }
+
+      // 4. Response rate = % of conversations where this user sent at least one reply
+      //    (only compute for users we already have in the statsMap or profileIds)
+      const conversationCounts = await Conversation.aggregate([
+        { $match: { $or: [
+          { participant1Id: { $in: profileIds } },
+          { participant2Id: { $in: profileIds } }
+        ]}},
+        { $lookup: {
+          from: 'messages',
+          let: { convId: '$_id', p1: '$participant1Id', p2: '$participant2Id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$conversationId', '$$convId'] } } },
+            { $group: { _id: '$senderId' } }
+          ],
+          as: 'senders'
+        }},
+        { $project: {
+          participant1Id: 1,
+          participant2Id: 1,
+          senderIds: { $map: { input: '$senders', as: 's', in: '$$s._id' } }
+        }}
+      ]);
+
+      // For each profile, count conversations they were in vs conversations they replied to
+      const responseData = new Map(); // profileId -> { total, replied }
+      for (const conv of conversationCounts) {
+        for (const pid of profileIds) {
+          const pidStr = pid.toString();
+          const isParticipant = conv.participant1Id.toString() === pidStr || conv.participant2Id.toString() === pidStr;
+          if (!isParticipant) continue;
+          const data = responseData.get(pidStr) || { total: 0, replied: 0 };
+          data.total++;
+          if (conv.senderIds.some(s => s.toString() === pidStr)) {
+            data.replied++;
+          }
+          responseData.set(pidStr, data);
+        }
+      }
+
+      for (const [id, data] of responseData) {
+        const entry = statsMap.get(id) || { bookingSuccessRate: 50, responseRate: 50, viewCount: 0, contactCount: 0 };
+        entry.responseRate = data.total > 0 ? Math.round((data.replied / data.total) * 100) : 50;
+        statsMap.set(id, entry);
+      }
+    } catch (err) {
+      debugLog('⚠️  batchFetchEngagementStats error (falling back to defaults):', err.message);
+    }
+
+    return statsMap;
   }
 
   /**
@@ -169,7 +289,7 @@ class MongoRecommendationEngine {
    * UBER/BOLT-STYLE: Country first, then CLOSEST FIRST, then quality factors
    * NEW: Uses fallback coordinates if profile has city but no GPS coordinates
    */
-  calculateProfileScore(profile, userLocation, userPreferences = null) {
+  calculateProfileScore(profile, userLocation, userPreferences = null, serverStats = null) {
     let scores = {
       countryMatch: 0,
       distance: 0,
@@ -293,13 +413,20 @@ class MongoRecommendationEngine {
     // 3. QUALITY SCORE (verification + reputation)
     const verificationTier = profile.verification_tier || profile.verificationTier || 1;
     const reputationScore = profile.reputation_score || profile.reputationScore || 50;
-    const reliabilityScore = profileData.bookingSuccessRate || 70;
+    // Use server-authoritative booking success rate when available
+    const profileId = (profile._id || profile.id || '').toString();
+    const srvStats = serverStats ? serverStats.get(profileId) : null;
+    const reliabilityScore = srvStats ? srvStats.bookingSuccessRate : (profileData.bookingSuccessRate || 70);
     scores.quality = (verificationTier * 25 * 0.35) + (reputationScore * 0.35) + (reliabilityScore * 0.30);
 
     // 4. ENGAGEMENT SCORE (response rate, booking success)
-    // Clamp user-provided values to prevent manipulation
-    const responseRate = Math.min(100, Math.max(0, Number(profileData.responseRate) || 50));
-    const bookingSuccess = Math.min(100, Math.max(0, Number(profileData.bookingSuccessRate) || 50));
+    // Use server-authoritative stats; fall back to clamped profile values
+    const responseRate = srvStats
+      ? Math.min(100, Math.max(0, srvStats.responseRate))
+      : Math.min(100, Math.max(0, Number(profileData.responseRate) || 50));
+    const bookingSuccess = srvStats
+      ? Math.min(100, Math.max(0, srvStats.bookingSuccessRate))
+      : Math.min(100, Math.max(0, Number(profileData.bookingSuccessRate) || 50));
     scores.engagement = (responseRate * 0.5) + (bookingSuccess * 0.5);
 
     // 5. FRESHNESS SCORE (recently active profiles rank higher)
@@ -337,9 +464,9 @@ class MongoRecommendationEngine {
     if (profile.is_subscribed || profile.isSubscribed) beautyScore += 5;
     scores.beauty = Math.min(100, beautyScore);
 
-    // 7. POPULARITY SCORE
-    const viewCount = profileData.viewCount || 0;
-    const contactCount = profileData.contactCount || 0;
+    // 7. POPULARITY SCORE (server-authoritative when available)
+    const viewCount = srvStats ? srvStats.viewCount : (profileData.viewCount || 0);
+    const contactCount = srvStats ? srvStats.contactCount : (profileData.contactCount || 0);
     scores.popularity = Math.min(viewCount / 5, 50) + Math.min(contactCount * 3, 50);
 
     // 8. NEW PROFILE BOOST (TikTok-style cold start solution)
@@ -424,6 +551,7 @@ class MongoRecommendationEngine {
   /**
    * MAIN RECOMMENDATION METHOD - MongoDB Native
    * Implements Uber/Bolt-style: Country first, then distance, then quality
+   * Supports both offset pagination and cursor pagination.
    */
   async getRecommendedProfiles(options = {}) {
     const {
@@ -431,6 +559,7 @@ class MongoRecommendationEngine {
       userLocation = null,
       limit = 20,
       offset = 0,
+      cursor = null, // Base64 cursor for cursor-based pagination
       filters = {},
       accountTypeFilter = 'provider' // Default: show providers
     } = options;
@@ -517,10 +646,13 @@ class MongoRecommendationEngine {
         });
       }
 
-      // Fetch profiles — ensure we fetch enough to cover the requested page.
-      // We fetch offset + limit * 3 (or at least 60) so the in-memory re-ranking
-      // has a good pool, but also covers deep pagination correctly.
-      const fetchLimit = Math.max(offset + limit * 3, offset + 60);
+      // Fetch profiles — cap deep pagination to prevent memory bloat.
+      // For offsets beyond 500, clamp fetchLimit to offset + limit to avoid
+      // pulling thousands of documents into memory for in-memory re-ranking.
+      const MAX_FETCH_POOL = 500;
+      const fetchLimit = offset < MAX_FETCH_POOL
+        ? Math.max(offset + limit * 3, offset + 60)
+        : offset + limit;
       const profiles = await User.find(mongoQuery)
         .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
         .sort({ last_active: -1, lastActive: -1 })
@@ -532,11 +664,25 @@ class MongoRecommendationEngine {
       // Reset debug counter for each request
       this._debugLogged = 0;
 
+      // Batch-fetch server-authoritative engagement stats
+      const profileIds = profiles.map(p => p._id);
+      const serverStats = await this.batchFetchEngagementStats(profileIds);
+
       // Normalize and calculate scores for each profile
       let scoredProfiles = profiles.map(profile => {
         const normalized = this.normalizeProfile(profile);
-        return this.calculateProfileScore(normalized, userLocation);
+        return this.calculateProfileScore(normalized, userLocation, null, serverStats);
       });
+
+      // Enforce minimum profile completeness for feed inclusion
+      // Profiles below the threshold are excluded unless user is searching
+      if (!filters.searchQuery || !filters.searchQuery.trim()) {
+        const beforeCount = scoredProfiles.length;
+        scoredProfiles = scoredProfiles.filter(p => p.canAppearInFeed !== false);
+        if (beforeCount !== scoredProfiles.length) {
+          debugLog(`   🚫 Excluded ${beforeCount - scoredProfiles.length} incomplete profiles from feed`);
+        }
+      }
 
       // Apply UBER/BOLT-STYLE SORTING
       scoredProfiles = this.sortUberBoltStyle(scoredProfiles, filters.filterMode);
@@ -565,12 +711,48 @@ class MongoRecommendationEngine {
         });
       }
 
-      // Paginate
-      const paginatedProfiles = scoredProfiles.slice(offset, offset + limit);
+      // Paginate — cursor-based if cursor is provided, else offset-based
+      let startIndex = offset;
+
+      if (cursor) {
+        try {
+          const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+          const cursorScore = decoded.s;
+          const cursorId = decoded.id;
+          // Find the first profile after the cursor position
+          startIndex = scoredProfiles.findIndex((p, idx) => {
+            const id = (p._id || p.id || '').toString();
+            // Same sort order: sameCountry → distance → score.
+            // Simplification: find by id match then take next item.
+            return id === cursorId;
+          });
+          if (startIndex >= 0) {
+            startIndex += 1; // Start after the cursor item
+          } else {
+            startIndex = 0; // Cursor invalid, start from beginning
+          }
+        } catch {
+          startIndex = offset; // Malformed cursor, fall back to offset
+        }
+      }
+
+      const paginatedProfiles = scoredProfiles.slice(startIndex, startIndex + limit);
+
+      // Build next cursor from the last profile in this page
+      let nextCursor = null;
+      if (paginatedProfiles.length === limit && startIndex + limit < scoredProfiles.length) {
+        const lastProfile = paginatedProfiles[paginatedProfiles.length - 1];
+        const cursorData = {
+          s: lastProfile.recommendationScore || 0,
+          id: (lastProfile._id || lastProfile.id || '').toString()
+        };
+        nextCursor = Buffer.from(JSON.stringify(cursorData)).toString('base64url');
+      }
 
       return {
         profiles: paginatedProfiles,
         total: scoredProfiles.length,
+        nextCursor,
         metadata: {
           algorithm: 'uber_bolt_style_v1',
           userLocationDetected: !!userLocation,
@@ -729,6 +911,10 @@ class MongoRecommendationEngine {
         .limit(200)
         .lean();
 
+      // Batch-fetch server-authoritative engagement stats for sugar profiles
+      const sugarProfileIds = profiles.map(p => p._id);
+      const sugarServerStats = await this.batchFetchEngagementStats(sugarProfileIds);
+
       // Filter by age and score
       let scoredProfiles = profiles
         .map(profile => {
@@ -741,7 +927,7 @@ class MongoRecommendationEngine {
             return null; // Filter out
           }
           
-          return this.calculateProfileScore(normalized, userLocation);
+          return this.calculateProfileScore(normalized, userLocation, null, sugarServerStats);
         })
         .filter(Boolean);
 

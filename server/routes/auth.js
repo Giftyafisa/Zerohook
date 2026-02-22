@@ -40,23 +40,32 @@ const JWT_EXPIRE = process.env.JWT_EXPIRE || '15m'; // Short-lived access token 
 const REFRESH_TOKEN_EXPIRE_DAYS = 30; // Refresh token lives 30 days
 
 /**
- * Generate a cryptographically secure refresh token and persist it.
- * Returns { refreshToken, family }
+ * Hash a refresh token for storage (SHA-256).
+ * We store only the hash in the DB; the raw token goes to the client.
+ */
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * Generate a cryptographically secure refresh token and persist its hash.
+ * Returns the raw token (sent to client), while only the SHA-256 hash is stored.
  */
 async function generateRefreshToken(userId, family, req) {
-  const token = crypto.randomBytes(40).toString('hex');
+  const rawToken = crypto.randomBytes(40).toString('hex');
+  const hashedToken = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
 
   await RefreshToken.create({
     userId,
-    token,
+    token: hashedToken,
     family: family || crypto.randomBytes(20).toString('hex'),
     expiresAt,
     userAgent: req?.get?.('User-Agent') || '',
     ipAddress: req?.ip || ''
   });
 
-  return token;
+  return rawToken;
 }
 
 /**
@@ -562,8 +571,11 @@ router.post('/refresh', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Refresh token is required' });
     }
 
-    // Find the refresh token in DB
-    const storedToken = await RefreshToken.findOne({ token: incomingToken });
+    // Hash the incoming token to match against stored hash
+    const hashedIncoming = hashToken(incomingToken);
+
+    // Find the refresh token in DB by hash
+    const storedToken = await RefreshToken.findOne({ token: hashedIncoming });
 
     if (!storedToken) {
       return res.status(401).json({ success: false, error: 'Invalid refresh token' });
@@ -587,23 +599,31 @@ router.post('/refresh', async (req, res) => {
 
     // Get fresh user data
     const user = await User.findById(storedToken.userId);
-    if (!user || user.status === 'suspended') {
-      return res.status(401).json({ success: false, error: 'User not found or suspended' });
+    if (!user || user.status === 'suspended' || user.status === 'deleted') {
+      return res.status(401).json({ success: false, error: 'User not found or account deactivated' });
     }
 
-    // Rotate: revoke old token, create new one in the same family
-    const newRefreshToken = crypto.randomBytes(40).toString('hex');
+    // Rotate: atomically revoke old token and create new one in the same family
+    // This prevents concurrent refresh calls from minting multiple valid descendants
+    const newRawRefreshToken = crypto.randomBytes(40).toString('hex');
+    const newHashedRefreshToken = hashToken(newRawRefreshToken);
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
 
-    // Mark old token as revoked and point to new one
-    storedToken.revoked = true;
-    storedToken.replacedBy = newRefreshToken;
-    await storedToken.save();
+    // Atomic CAS: only revoke if still not revoked (prevents race condition)
+    const revokeResult = await RefreshToken.findOneAndUpdate(
+      { _id: storedToken._id, revoked: false },
+      { $set: { revoked: true, replacedBy: newHashedRefreshToken } },
+      { new: true }
+    );
+    if (!revokeResult) {
+      // Another concurrent request already revoked this token
+      return res.status(401).json({ success: false, error: 'Token already consumed. Please log in again.' });
+    }
 
-    // Create new refresh token in DB
+    // Create new refresh token in DB (store hash, not raw)
     await RefreshToken.create({
       userId: user._id,
-      token: newRefreshToken,
+      token: newHashedRefreshToken,
       family: storedToken.family,
       expiresAt,
       userAgent: req.get('User-Agent') || '',
@@ -612,7 +632,7 @@ router.post('/refresh', async (req, res) => {
 
     // Generate new access token
     const token = generateAccessToken(user);
-    setRefreshTokenCookie(res, newRefreshToken);
+    setRefreshTokenCookie(res, newRawRefreshToken);
 
     // Check subscription expiry before returning status
     let isSubRefresh = user.is_subscribed;
@@ -860,6 +880,10 @@ async function authMiddleware(req, res, next) {
       return res.status(403).json({ success: false, error: 'Account suspended' });
     }
 
+    if (user.status === 'deleted') {
+      return res.status(403).json({ success: false, error: 'Account has been deleted' });
+    }
+
     // Check subscription expiry in middleware
     let mwIsSubscribed = user.is_subscribed;
     let mwSubTier = user.subscription_tier;
@@ -911,7 +935,7 @@ async function optionalAuthMiddleware(req, res, next) {
       if (user) setCachedUser(decoded.userId, user);
     }
 
-    if (!user || user.status === 'suspended') {
+    if (!user || user.status === 'suspended' || user.status === 'deleted') {
       req.user = null;
       return next();
     }
@@ -961,6 +985,15 @@ router.delete('/account', authMiddleware, async (req, res) => {
     user.email = `deleted_${userId}_${user.email}`; // Free up the email
     user.deletedAt = new Date();
     await user.save();
+
+    // Revoke ALL refresh tokens so deleted user can't refresh sessions
+    await RefreshToken.updateMany(
+      { userId: user._id, revoked: false },
+      { $set: { revoked: true } }
+    );
+
+    // Clear the httpOnly refresh cookie
+    res.clearCookie('refreshToken', { path: '/api/auth' });
 
     // Invalidate cache
     invalidateCachedUser(userId);

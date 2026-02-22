@@ -8,11 +8,11 @@ export const API_BASE_URL = process.env.REACT_APP_API_URL ||
 export const SERVER_URL = process.env.REACT_APP_SOCKET_URL || 
   (process.env.NODE_ENV === 'production'
     ? 'https://zerohook-api.onrender.com'
-    : 'http://localhost:5000');
+    : window.location.origin);
 export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 
   (process.env.NODE_ENV === 'production'
     ? 'https://zerohook-api.onrender.com'
-    : 'http://localhost:5000');
+    : window.location.origin);
 
 /**
  * Get the full URL for uploaded files (profile pictures, service images, etc.)

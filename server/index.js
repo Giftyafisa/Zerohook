@@ -634,6 +634,7 @@ io.on('connection', async (socket) => {
         socket.to(`user_${data.targetUserId}`).emit('call_accepted', {
           callId: data.callId,
           targetUserId: socket.userId,
+          callType: data.callType || data.type || 'video',
           timestamp: new Date().toISOString()
         });
         
@@ -856,13 +857,15 @@ io.on('connection', async (socket) => {
         }
 
         const messageData = {
-          id: messageRow.id,
+          id: messageRow._id || messageRow.id,
           conversationId,
           senderId: socket.userId,
+          senderName: socket.username,
           senderUsername: socket.username,
           content,
-          timestamp: messageRow.created_at,
-          type
+          messageType: type,
+          createdAt: messageRow.createdAt || messageRow.created_at,
+          timestamp: messageRow.createdAt || messageRow.created_at
         };
 
         // Broadcast message after commit

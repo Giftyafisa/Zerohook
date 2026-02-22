@@ -96,7 +96,7 @@ const AdultServiceDetail = () => {
     const fetchService = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/services/${id}`);
+        const response = await fetch(`${API_BASE_URL}/adult-services/${id}`);
         
         if (response.ok) {
           const data = await response.json();

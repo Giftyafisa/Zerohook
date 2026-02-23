@@ -183,7 +183,16 @@ const Navbar = () => {
   const isSugarDaddy = accountType === 'sugar_daddy';
   const isSugarMommy = accountType === 'sugar_mommy';
   const isSugarAccount = isSugarDaddy || isSugarMommy;
-  const isAdmin = user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin';
+  
+  // Multi-source admin detection
+  const isAdmin = React.useMemo(() => {
+    if (user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin') return true;
+    try {
+      const token = localStorage.getItem('token');
+      if (token) { const p = JSON.parse(atob(token.split('.')[1])); if (p.isAdmin === true) return true; }
+    } catch (e) {}
+    return false;
+  }, [user]);
 
   // Get account type label for display
   const getAccountTypeLabel = () => {

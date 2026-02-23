@@ -199,9 +199,25 @@ const DesktopSidebar = () => {
   
   const user = useSelector(selectUser);
   const isAuthenticated = useSelector(selectIsAuthenticated);
-  const isAdmin = user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin';
   
-  // Debug admin detection — remove after confirming it works
+  // Multi-source admin detection: Redux user object + JWT payload + localStorage
+  const isAdmin = React.useMemo(() => {
+    // Source 1: Redux user object
+    if (user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin') {
+      return true;
+    }
+    // Source 2: Decode JWT from localStorage (fallback if Redux doesn't have admin flag)
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.isAdmin === true) return true;
+      }
+    } catch (e) { /* ignore decode errors */ }
+    return false;
+  }, [user]);
+  
+  // Debug admin detection
   React.useEffect(() => {
     if (user) {
       console.log('🔑 [DesktopSidebar] Admin check:', {
@@ -209,7 +225,7 @@ const DesktopSidebar = () => {
         role: user.role,
         accountType: user.profile_data?.accountType,
         isAdmin,
-        fullUser: JSON.stringify(user).slice(0, 300)
+        userKeys: Object.keys(user).join(','),
       });
     }
   }, [user, isAdmin]);

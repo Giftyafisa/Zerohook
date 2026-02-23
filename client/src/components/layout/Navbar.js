@@ -183,6 +183,7 @@ const Navbar = () => {
   const isSugarDaddy = accountType === 'sugar_daddy';
   const isSugarMommy = accountType === 'sugar_mommy';
   const isSugarAccount = isSugarDaddy || isSugarMommy;
+  const isAdmin = user?.is_admin === true || user?.role === 'admin';
 
   // Get account type label for display
   const getAccountTypeLabel = () => {
@@ -448,6 +449,27 @@ const Navbar = () => {
               Dashboard
             </Box>
           </GlassMenuItem>
+          {/* Admin-only: Admin Dashboard */}
+          {isAdmin && (
+            <GlassMenuItem
+              onClick={() => {
+                navigate('/admin');
+                handleMenuClose();
+              }}
+              sx={{
+                background: 'rgba(255, 0, 85, 0.08)',
+                '&:hover': {
+                  background: 'rgba(255, 0, 85, 0.2)',
+                  color: '#ff0055'
+                }
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Security sx={{ color: '#ff0055' }} />
+                Admin Dashboard
+              </Box>
+            </GlassMenuItem>
+          )}
         </>
       )}
       {!isAuthenticated && (

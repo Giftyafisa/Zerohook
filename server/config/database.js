@@ -99,6 +99,9 @@ const userSchema = new mongoose.Schema({
     escrow_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' },
     issued_at: { type: Date, default: Date.now }
   }],
+  // Admin & role flags
+  is_admin: { type: Boolean, default: false },
+  role: { type: String, default: 'user' }, // 'user' | 'admin'
   is_banned: { type: Boolean, default: false },
   ban_data: {
     banned_at: Date,

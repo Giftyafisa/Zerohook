@@ -412,7 +412,7 @@ export default function AdminPanel() {
                     <td style={S.td}>{u.username}</td>
                     <td style={S.td}>{u.email}</td>
                     <td style={S.td}>{fmtDate(u.ban_data?.bannedAt)}</td>
-                    <td style={S.td} style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.ban_data?.reason || '—'}</td>
+                    <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.ban_data?.reason || '—'}</td>
                     <td style={S.td}>
                       <button style={S.btn('#4caf50')} disabled={actionLoading === String(u._id)} onClick={() => unbanUser(u._id)}>Unban</button>
                     </td>

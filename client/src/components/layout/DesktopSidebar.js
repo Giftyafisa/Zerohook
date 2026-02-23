@@ -200,6 +200,19 @@ const DesktopSidebar = () => {
   const user = useSelector(selectUser);
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const isAdmin = user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin';
+  
+  // Debug admin detection — remove after confirming it works
+  React.useEffect(() => {
+    if (user) {
+      console.log('🔑 [DesktopSidebar] Admin check:', {
+        is_admin: user.is_admin,
+        role: user.role,
+        accountType: user.profile_data?.accountType,
+        isAdmin,
+        fullUser: JSON.stringify(user).slice(0, 300)
+      });
+    }
+  }, [user, isAdmin]);
   const isSubscribed = useSelector(selectIsSubscribed);
   const unreadMessages = useSelector(selectUnreadMessages);
   const unreadNotifications = useSelector(selectUnreadNotifications);

@@ -665,7 +665,7 @@ router.get('/wallet', authMiddleware, async (req, res) => {
 router.post('/deposit', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { amount, cryptoSymbol = 'USDT' } = req.body;
+    const { amount, cryptoSymbol = 'USDT', currency: clientCurrency } = req.body;
     const normalizedSymbol = String(cryptoSymbol || '').toUpperCase();
 
     if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(normalizedSymbol)) {
@@ -676,11 +676,25 @@ router.post('/deposit', authMiddleware, async (req, res) => {
     }
 
     // Get user's country for local currency
-    const userCountry = await req.countryManager.getUserCountry(userId);
-    const countryCode = userCountry.success && userCountry.country ? userCountry.country.code : 'NG';
-    const country = req.countryManager.getCountryByCode(countryCode);
-    const currency = country ? country.currency : 'NGN';
-    const currencySymbol = country ? country.currencySymbol : '₦';
+    // Priority: 1) client-sent currency, 2) countryManager detection, 3) user profile, 4) NGN fallback
+    let countryCode, currency, currencySymbol;
+    
+    if (clientCurrency) {
+      // Trust the frontend's currency (derived from useCurrency hook)
+      currency = clientCurrency.toUpperCase();
+      // Reverse-lookup country code from currency
+      const currencyToCountry = { NGN: 'NG', GHS: 'GH', KES: 'KE', ZAR: 'ZA', UGX: 'UG', TZS: 'TZ', RWF: 'RW', BWP: 'BW', ZMW: 'ZM', MWK: 'MW', USD: 'US', GBP: 'GB', EUR: 'EU' };
+      countryCode = currencyToCountry[currency] || 'NG';
+      const country = req.countryManager.getCountryByCode(countryCode);
+      currencySymbol = country ? country.currencySymbol : currency === 'GHS' ? '₵' : currency === 'NGN' ? '₦' : '$';
+    } else {
+      // Fallback: server-side detection
+      const userCountry = await req.countryManager.getUserCountry(userId);
+      countryCode = userCountry.success && userCountry.country ? userCountry.country.code : 'NG';
+      const country = req.countryManager.getCountryByCode(countryCode);
+      currency = country ? country.currency : 'NGN';
+      currencySymbol = country ? country.currencySymbol : '₦';
+    }
 
     // Validate minimum amounts
     const minAmounts = { NGN: 100, GHS: 1, KES: 50, ZAR: 10, UGX: 500, TZS: 500, RWF: 100, BWP: 5, ZMW: 10, MWK: 500, USD: 1 };

@@ -453,7 +453,7 @@ const Navbar = () => {
           {isAdmin && (
             <GlassMenuItem
               onClick={() => {
-                navigate('/admin');
+                navigate('/admin-panel');
                 handleMenuClose();
               }}
               sx={{

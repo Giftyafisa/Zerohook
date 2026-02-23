@@ -406,8 +406,24 @@ class CountryManager {
       }
 
       // Priority 1: Check if user has explicitly set a country preference
-      let countryCode = user.profile_data?.country;
-      let source = 'user_preference';
+      // CRITICAL FIX: profile_data.country stores the NAME ('Ghana'), not the code ('GH')
+      // Must check countryCode first, then location.countryCode, then try resolving the name
+      let countryCode = user.profile_data?.countryCode 
+        || user.profile_data?.location?.countryCode
+        || user.profile_data?.detectedCountry;
+      let source = 'user_profile';
+      
+      // If countryCode is still not found, try resolving from country name
+      if (!countryCode && user.profile_data?.country) {
+        const resolved = this.supportedCountries.find(
+          c => c.name?.toLowerCase() === user.profile_data.country.toLowerCase()
+             || c.code?.toLowerCase() === user.profile_data.country.toLowerCase()
+        );
+        if (resolved) {
+          countryCode = resolved.code;
+          source = 'user_profile_name_resolved';
+        }
+      }
       
       // Priority 2: If no explicit preference, detect from phone number
       if (!countryCode && user.phone) {

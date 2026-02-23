@@ -72,6 +72,7 @@ const BookingDetails = lazy(() => import('./pages/BookingDetails'));
 // WalletPage removed - using MyMoneyPage instead for consistency
 const MyMoneyPage = lazy(() => import('./pages/MyMoneyPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const HelpSupportPage = lazy(() => import('./pages/HelpSupportPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const SugarProfilesPage = lazy(() => import('./pages/SugarProfilesPage'));
@@ -341,6 +342,13 @@ function AppContent() {
         <Route path="/admin" element={
           <ProtectedRoute requireSubscription={false}>
             <ErrorBoundary><AdminDashboard /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+
+        {/* New Admin Panel - standalone, no backend access gate */}
+        <Route path="/admin-panel" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><AdminPanel /></ErrorBoundary>
           </ProtectedRoute>
         } />
         

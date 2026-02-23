@@ -377,6 +377,61 @@ router.post('/detect', async (req, res) => {
       console.log('⚠️ Database unavailable, skipping user phone lookup for country detection');
     }
     
+    // METHOD 0: For REGISTERED USERS - Check stored profile country (most reliable, set at registration)
+    if (userId && isDatabaseAvailable()) {
+      try {
+        const user = await User.findById(userId).select('profile_data phone');
+        if (user) {
+          // Prefer countryCode (2-letter code), then location.countryCode
+          const storedCode = user.profile_data?.countryCode 
+            || user.profile_data?.location?.countryCode
+            || user.profile_data?.detectedCountry;
+          
+          if (storedCode) {
+            const storedCountry = countryManager.getCountryByCode(storedCode);
+            if (storedCountry) {
+              console.log(`🌍 Country from user profile: ${storedCountry.name} (${storedCode})`);
+              return res.json({
+                success: true,
+                detectedCountry: storedCountry,
+                method: 'user_profile',
+                confidence: 'high',
+                message: `Country from profile: ${storedCountry.name}`
+              });
+            }
+          }
+          
+          // Also resolve from country name if code not found
+          if (!storedCode && user.profile_data?.country) {
+            const resolvedCountry = countryManager.supportedCountries?.find(
+              c => c.name?.toLowerCase() === user.profile_data.country.toLowerCase()
+            );
+            if (resolvedCountry) {
+              console.log(`🌍 Country resolved from profile name: ${resolvedCountry.name}`);
+              // Save the code for future fast lookups
+              await User.findByIdAndUpdate(userId, {
+                'profile_data.countryCode': resolvedCountry.code
+              }).catch(() => {});
+              return res.json({
+                success: true,
+                detectedCountry: resolvedCountry,
+                method: 'user_profile_name',
+                confidence: 'high',
+                message: `Country from profile: ${resolvedCountry.name}`
+              });
+            }
+          }
+          
+          // Override userPhone from fresh DB read if not already set
+          if (!userPhone) {
+            userPhone = user.phone || user.profile_data?.phone;
+          }
+        }
+      } catch (profileErr) {
+        console.log('⚠️ Profile country lookup failed:', profileErr.message);
+      }
+    }
+    
     // METHOD 1: For REGISTERED USERS - Use phone number country code
     if (userId && userPhone) {
       console.log(`🌍 Detecting country for registered user from phone: ${userPhone}`);

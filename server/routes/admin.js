@@ -8,16 +8,19 @@ const router = express.Router();
  */
 const adminMiddleware = async (req, res, next) => {
   try {
+    // Fast path: check JWT claim first (no DB query needed)
+    if (req.user?.isAdmin === true) {
+      return next();
+    }
+    // Fallback: DB lookup for legacy tokens issued before isAdmin was added to JWT
     const { User } = require('../config/database');
-    const user = await User.findById(req.user.userId);
-    
-    // Check if user is admin — supports root-level is_admin/role fields AND profile_data.accountType for legacy accounts
-    const isAdmin = user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin';
-    
+    const user = await User.findById(req.user.userId).lean();
+    const isAdmin = user?.is_admin === true
+      || user?.role === 'admin'
+      || user?.profile_data?.accountType === 'admin';
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
     next();
   } catch (error) {
     res.status(500).json({ error: 'Admin verification failed' });

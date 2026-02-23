@@ -68,7 +68,7 @@ const MyMoneyPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { symbol, format } = useCurrency();
+  const { symbol, format, currencyCode } = useCurrency();
   
   // Tab state - initialize from URL param if present
   const initialTab = TAB_MAP[searchParams.get('tab')] ?? 0;
@@ -680,7 +680,8 @@ const MyMoneyPage = () => {
         },
         body: JSON.stringify({
           amount: Number(addAmount),
-          cryptoSymbol: cryptoSymbol
+          cryptoSymbol: cryptoSymbol,
+          currency: currencyCode
         })
       });
 
@@ -914,17 +915,7 @@ const MyMoneyPage = () => {
               // Get PIN - backend returns as completionPin
               const escrowPin = escrow.completionPin || escrow.completion_pin;
               
-              console.log('🔍 Escrow debug:', {
-                id: escrow.id,
-                userRole: escrow.userRole,
-                isClient,
-                isProvider,
-                pin: escrowPin,
-                status: escrow.status,
-                clientId: escrow.clientId,
-                providerId: escrow.providerId,
-                userId: user?.id
-              });
+              // Escrow debug removed - was causing console spam
               
               return (
                 <motion.div

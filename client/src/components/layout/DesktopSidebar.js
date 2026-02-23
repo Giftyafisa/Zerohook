@@ -398,8 +398,8 @@ const DesktopSidebar = () => {
             <>
               <SectionLabel sx={{ color: 'rgba(255, 0, 85, 0.7)' }}>Admin</SectionLabel>
               <NavItem
-                active={isActive('/admin')}
-                onClick={() => navigate('/admin')}
+                active={isActive('/admin-panel')}
+                onClick={() => navigate('/admin-panel')}
                 sx={{
                   border: '1px solid rgba(255, 0, 85, 0.3) !important',
                   background: 'rgba(255, 0, 85, 0.08) !important',

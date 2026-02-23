@@ -526,7 +526,9 @@ router.post('/login', rateLimitMiddleware, [
         subscription_tier: subscriptionTier,
         subscription_expires_at: user.subscription_expires_at,
         profile_data: user.profile_data || {},
-        created_at: user.created_at
+        created_at: user.created_at,
+        is_admin: user.is_admin === true || user.role === 'admin' || user.profile_data?.accountType === 'admin',
+        role: user.role || (user.profile_data?.accountType === 'admin' ? 'admin' : 'user')
       },
       security: {
         requiresAdditionalAuth: fraudAnalysis.requiresVerification
@@ -697,7 +699,9 @@ router.post('/refresh', async (req, res) => {
         is_subscribed: isSubRefresh,
         subscription_tier: subTierRefresh,
         subscription_expires_at: user.subscription_expires_at,
-        profile_data: user.profile_data || {}
+        profile_data: user.profile_data || {},
+        is_admin: user.is_admin === true || user.role === 'admin' || user.profile_data?.accountType === 'admin',
+        role: user.role || (user.profile_data?.accountType === 'admin' ? 'admin' : 'user')
       }
     });
 

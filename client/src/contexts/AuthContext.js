@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useCallback, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectIsAuthenticated, selectUser, validateStoredToken, setSubscriptionStatus, updateUser as updateUserAction, logout as logoutAction, setInitialized } from '../store/slices/authSlice';
-import { detectUserCountry, getSupportedCountries, fetchExchangeRates } from '../store/slices/countrySlice';
+import { detectUserCountry, getSupportedCountries, fetchExchangeRates, setUserCountry } from '../store/slices/countrySlice';
 import { clearExchangeRateCache } from '../services/exchangeRateAPI';
 
 const AuthContext = createContext({});
@@ -77,16 +77,32 @@ export const AuthProvider = ({ children }) => {
   }, [isAuthenticated, user, dispatch]);
 
   // Re-detect country when user logs in (they may have phone number for better detection)
+  // CRITICAL FIX: Also seed countrySlice immediately from user profile data
   const countryDetectedForAuth = useRef(false);
   useEffect(() => {
     if (isAuthenticated && user && !countryDetectedForAuth.current) {
       countryDetectedForAuth.current = true;
+      
+      // IMMEDIATE: Seed country from user profile (instant, no API call needed)
+      // This ensures currency is correct even before detect API responds
+      const profileCode = user.profile_data?.countryCode 
+        || user.profile_data?.location?.countryCode
+        || user.profile_data?.detectedCountry;
+      if (profileCode) {
+        const countryName = user.profile_data?.country 
+          || user.profile_data?.location?.country 
+          || profileCode;
+        console.log(`🌍 Seeding country from user profile: ${profileCode} (${countryName})`);
+        dispatch(setUserCountry({ code: profileCode, name: countryName }));
+      }
+      
+      // ASYNC: Re-detect for potentially better/updated location
       const redetectCountryForAuthUser = async () => {
         try {
           console.log('🌍 Re-detecting country for authenticated user...');
           await dispatch(detectUserCountry()).unwrap();
         } catch (error) {
-          console.log('⚠️ Re-detection failed, keeping previous country');
+          console.log('⚠️ Re-detection failed, keeping profile country');
         }
       };
       redetectCountryForAuthUser();

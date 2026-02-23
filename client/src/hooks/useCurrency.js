@@ -23,6 +23,7 @@ import {
   selectDetectedCountry, 
   selectExchangeRates 
 } from '../store/slices/countrySlice';
+import { selectUser } from '../store/slices/authSlice';
 import { formatCurrency, getCurrencySymbol, getCurrencyInfo } from '../utils/currencyUtils';
 
 /**
@@ -33,12 +34,28 @@ const useCurrency = () => {
   const userCountry = useSelector(selectUserCountry);
   const detectedCountry = useSelector(selectDetectedCountry);
   const exchangeRates = useSelector(selectExchangeRates);
+  const authUser = useSelector(selectUser);
   
-  // Prefer user-selected country, fall back to detected country, then US
-  // Memoize to prevent unnecessary re-renders
+  // Prefer user-selected country, fall back to detected country,
+  // then CRITICAL: fall back to user's profile country (set at registration),
+  // then finally US as last resort
   const currentCountry = useMemo(() => {
-    return userCountry || detectedCountry || { code: 'US', name: 'United States' };
-  }, [userCountry, detectedCountry]);
+    if (userCountry) return userCountry;
+    if (detectedCountry) return detectedCountry;
+    
+    // Fallback: extract country from authenticated user's profile data
+    // This catches cases where IP/phone detection fails but user has stored country
+    if (authUser?.profile_data) {
+      const profileCode = authUser.profile_data.countryCode 
+        || authUser.profile_data.location?.countryCode
+        || authUser.profile_data.detectedCountry;
+      if (profileCode && exchangeRates[profileCode]) {
+        return { code: profileCode, name: authUser.profile_data.country || authUser.profile_data.location?.country || profileCode };
+      }
+    }
+    
+    return { code: 'US', name: 'United States' };
+  }, [userCountry, detectedCountry, authUser, exchangeRates]);
   
   const countryCode = currentCountry?.code || 'US';
   

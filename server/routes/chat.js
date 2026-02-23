@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { Message, Conversation, User, isDatabaseAvailable } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
@@ -37,6 +38,33 @@ const normalizeLastMessagePreview = (msg) => {
   return msg;
 };
 
+const inferMessageType = ({ messageType, content, metadata = {} }) => {
+  if (messageType && messageType !== 'text') return messageType;
+
+  const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
+  const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType && !mimeType.startsWith('text/')) return 'file';
+  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(fileName)) return 'image';
+  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(fileName)) return 'video';
+  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(fileName)) return 'audio';
+
+  const value = String(content || '').trim().toLowerCase().split('?')[0].split('#')[0];
+  if (value.startsWith('data:image/')) return 'image';
+  if (value.startsWith('data:video/')) return 'video';
+  if (value.startsWith('data:audio/')) return 'audio';
+  if (/\/image\/upload\//.test(value)) return 'image';
+  if (/\/video\/upload\//.test(value)) return 'video';
+  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
+  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(value) || /video|vid/.test(value)) return 'video';
+  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
+  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
+
+  return 'text';
+};
+
 // Maximum unique contacts for non-subscribers
 const FREE_TIER_MAX_CONTACTS = 3;
 
@@ -58,25 +86,35 @@ const checkMessagingLimit = async (userId, targetUserId) => {
       }
     }
 
-    // Check existing conversations for this user
-    const existingConversations = await Conversation.find({
-      $or: [
-        { participant1Id: userId },
-        { participant2Id: userId }
-      ]
-    }).select('participant1Id participant2Id');
+    // Count unique contacts via aggregation (avoids loading full conversation rows)
+    const userObjId = new mongoose.Types.ObjectId(userId);
+    const uniqueContactRows = await Conversation.aggregate([
+      {
+        $match: {
+          $or: [
+            { participant1Id: userObjId },
+            { participant2Id: userObjId }
+          ]
+        }
+      },
+      {
+        $project: {
+          contactId: {
+            $cond: [
+              { $eq: ['$participant1Id', userObjId] },
+              '$participant2Id',
+              '$participant1Id'
+            ]
+          }
+        }
+      },
+      { $group: { _id: '$contactId' } }
+    ]);
 
-    // Get unique contact IDs
-    const uniqueContactIds = new Set();
-    existingConversations.forEach(conv => {
-      const contactId = conv.participant1Id?.toString() === userId 
-        ? conv.participant2Id?.toString() 
-        : conv.participant1Id?.toString();
-      if (contactId) uniqueContactIds.add(contactId);
-    });
+    const uniqueContactIds = new Set(uniqueContactRows.map((row) => String(row._id || '')));
 
     // Check if already in conversation with this target
-    const alreadyInConversation = uniqueContactIds.has(targetUserId);
+    const alreadyInConversation = uniqueContactIds.has(String(targetUserId));
     
     // If already in conversation, can continue messaging
     if (alreadyInConversation) {
@@ -139,7 +177,6 @@ router.get('/unread-count', authMiddleware, async (req, res) => {
 
     // Single aggregation pipeline — avoids a separate Conversation.find() round-trip.
     // Uses the compound index { conversationId, senderId, readAt } for efficiency.
-    const mongoose = require('mongoose');
     const userObjId = new mongoose.Types.ObjectId(userId);
     const pipeline = [
       // 1. Find conversations the user is in
@@ -229,7 +266,6 @@ router.get('/conversations', authMiddleware, async (req, res) => {
     try {
       const convIds = conversations.map(c => c._id);
       if (convIds.length > 0) {
-        const mongoose = require('mongoose');
         const userObjId = new mongoose.Types.ObjectId(userId);
         const unreadAgg = await Message.aggregate([
           {
@@ -279,6 +315,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
             profilePicture: profilePicture
           },
           lastMessage: normalizeLastMessagePreview(conv.lastMessage),
+          lastMessageType: conv.lastMessageType || 'text',
           lastMessageTime: conv.lastMessageTime,
           unreadCount: unreadMap[conv._id.toString()] || 0,
           createdAt: conv.createdAt,
@@ -418,6 +455,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
 
     const { conversationId, content, messageType = 'text', metadata = {} } = req.body;
     const senderId = req.user.userId;
+    const resolvedMessageType = inferMessageType({ messageType, content, metadata });
     
     // Verify user is part of this conversation
     let isMember2 = false;
@@ -460,7 +498,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
           senderId,
           conversationId,
           content,
-          messageType,
+          messageType: resolvedMessageType,
           metadata
         });
         // If risk is above threshold, block or flag. Threshold is configurable via env
@@ -479,27 +517,28 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
     try {
       let message;
       if (req.conversationService && typeof req.conversationService.insertMessageTx === 'function') {
-        message = await req.conversationService.insertMessageTx({ conversationId, senderId, content, messageType, metadata });
+        message = await req.conversationService.insertMessageTx({ conversationId, senderId, content, messageType: resolvedMessageType, metadata });
       } else {
         // Fallback: direct insert with MongoDB
         const newMessage = await Message.create({
           conversationId,
           senderId,
           content,
-          messageType,
+          messageType: resolvedMessageType,
           metadata: metadata || {}
         });
         message = newMessage;
         
         // Format a human-readable preview for the conversation sidebar
         let lastMessagePreview = content;
-        if (messageType === 'image') lastMessagePreview = '📷 Photo';
-        else if (messageType === 'video') lastMessagePreview = '🎬 Video';
-        else if (messageType === 'file') lastMessagePreview = '📎 File';
-        else if (messageType === 'audio') lastMessagePreview = '🎵 Audio';
+        if (resolvedMessageType === 'image') lastMessagePreview = '📷 Photo';
+        else if (resolvedMessageType === 'video') lastMessagePreview = '🎬 Video';
+        else if (resolvedMessageType === 'file') lastMessagePreview = '📎 File';
+        else if (resolvedMessageType === 'audio') lastMessagePreview = '🎵 Audio';
 
         await Conversation.findByIdAndUpdate(conversationId, {
           lastMessage: lastMessagePreview,
+          lastMessageType: resolvedMessageType,
           lastMessageTime: newMessage.createdAt,
           updatedAt: new Date()
         });
@@ -511,7 +550,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
         senderId,
         senderName: req.user.username || 'Someone',
         content,
-        messageType,
+        messageType: resolvedMessageType,
         metadata: message.metadata || metadata || {},
         createdAt: message.createdAt
       };
@@ -531,10 +570,10 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
           
           // Format notification preview based on message type — never show raw URLs for media
           let preview;
-          if (messageType === 'image') preview = '📷 Photo';
-          else if (messageType === 'video') preview = '🎬 Video';
-          else if (messageType === 'file') preview = '📎 File';
-          else if (messageType === 'audio') preview = '🎵 Audio';
+          if (resolvedMessageType === 'image') preview = '📷 Photo';
+          else if (resolvedMessageType === 'video') preview = '🎬 Video';
+          else if (resolvedMessageType === 'file') preview = '📎 File';
+          else if (resolvedMessageType === 'audio') preview = '🎵 Audio';
           else preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
           
           await NotificationService.createAndEmit(req.io, {
@@ -780,6 +819,96 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
 });
 
 /**
+ * @route   DELETE /api/chat/messages/:messageId
+ * @desc    Delete a single message sent by the authenticated user
+ * @access  Private
+ */
+router.delete('/messages/:messageId', authMiddleware, async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user.userId;
+
+    if (!messageId) {
+      return res.status(400).json({ error: 'Message ID is required' });
+    }
+
+    const message = await Message.findById(messageId).select('conversationId senderId createdAt');
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    // Sender-only delete to prevent tampering
+    if (String(message.senderId) !== String(userId)) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+
+    // Verify user still belongs to conversation
+    const conversation = await Conversation.findOne({
+      _id: message.conversationId,
+      $or: [
+        { participant1Id: userId },
+        { participant2Id: userId }
+      ]
+    }).select('_id participant1Id participant2Id');
+
+    if (!conversation) {
+      return res.status(403).json({ error: 'Access denied to this conversation' });
+    }
+
+    await Message.deleteOne({ _id: messageId });
+
+    // Recompute conversation preview from latest remaining message
+    const latest = await Message.findOne({ conversationId: message.conversationId })
+      .sort({ createdAt: -1 })
+      .select('content messageType createdAt');
+
+    let nextPreview = '';
+    let nextTime = null;
+    if (latest) {
+      if (latest.messageType === 'image') nextPreview = '📷 Photo';
+      else if (latest.messageType === 'video') nextPreview = '🎬 Video';
+      else if (latest.messageType === 'file') nextPreview = '📎 File';
+      else if (latest.messageType === 'audio') nextPreview = '🎵 Audio';
+      else if (latest.messageType === 'location') nextPreview = '📍 Location';
+      else if (latest.messageType === 'contact') nextPreview = '👤 Contact';
+      else nextPreview = latest.content || '';
+      nextTime = latest.createdAt || null;
+    }
+
+    await Conversation.findByIdAndUpdate(message.conversationId, {
+      lastMessage: nextPreview,
+      lastMessageType: latest?.messageType || 'text',
+      lastMessageTime: nextTime,
+      updatedAt: new Date()
+    });
+
+    if (req.io) {
+      const payload = {
+        messageId,
+        conversationId: String(message.conversationId),
+        deletedBy: String(userId),
+        timestamp: new Date().toISOString()
+      };
+
+      req.io.to(`conversation_${String(message.conversationId)}`).emit('message_deleted', payload);
+
+      const otherUserId = String(conversation.participant1Id) === String(userId)
+        ? String(conversation.participant2Id)
+        : String(conversation.participant1Id);
+
+      if (otherUserId) {
+        req.io.to(`user_${otherUserId}`).emit('message_deleted', payload);
+      }
+    }
+
+    res.json({ success: true, message: 'Message deleted' });
+  } catch (error) {
+    console.error('Delete message error:', error);
+    res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+/**
  * @route   DELETE /api/chat/conversations/:conversationId
  * @route   DELETE /api/chat/conversation/:conversationId (alias)
  * @desc    Delete a conversation (and its messages)
@@ -946,21 +1075,32 @@ router.get('/messaging-limit', authMiddleware, async (req, res) => {
       });
     }
 
-    // Count unique contacts for non-subscribers
-    const existingConversations = await Conversation.find({
-      $or: [
-        { participant1Id: userId },
-        { participant2Id: userId }
-      ]
-    }).select('participant1Id participant2Id');
+    // Count unique contacts for non-subscribers via aggregation
+    const userObjId = new mongoose.Types.ObjectId(userId);
+    const uniqueContactRows = await Conversation.aggregate([
+      {
+        $match: {
+          $or: [
+            { participant1Id: userObjId },
+            { participant2Id: userObjId }
+          ]
+        }
+      },
+      {
+        $project: {
+          contactId: {
+            $cond: [
+              { $eq: ['$participant1Id', userObjId] },
+              '$participant2Id',
+              '$participant1Id'
+            ]
+          }
+        }
+      },
+      { $group: { _id: '$contactId' } }
+    ]);
 
-    const uniqueContactIds = new Set();
-    existingConversations.forEach(conv => {
-      const contactId = conv.participant1Id?.toString() === userId 
-        ? conv.participant2Id?.toString() 
-        : conv.participant1Id?.toString();
-      if (contactId) uniqueContactIds.add(contactId);
-    });
+    const uniqueContactIds = new Set(uniqueContactRows.map((row) => String(row._id || '')));
 
     const uniqueContacts = uniqueContactIds.size;
     const remainingContacts = Math.max(0, FREE_TIER_MAX_CONTACTS - uniqueContacts);

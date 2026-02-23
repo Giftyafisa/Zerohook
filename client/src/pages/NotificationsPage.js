@@ -383,6 +383,11 @@ const NotificationsPage = () => {
         }
       });
       
+      // Decrement unread count if the deleted notification was unread
+      const deletedNotification = notificationsList.find(n => n.id === notificationId);
+      if (deletedNotification && !deletedNotification.read) {
+        dispatch(setUnreadNotifications(Math.max(0, unreadCount - 1)));
+      }
       dispatch(removeFromNotificationsList(notificationId));
       setSnackbar({ open: true, message: 'Notification deleted', severity: 'success' });
     } catch (err) {

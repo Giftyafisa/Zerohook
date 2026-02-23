@@ -16,6 +16,7 @@ import {
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import { selectIsAuthenticated, selectUser } from '../../store/slices/authSlice';
+import { selectUnreadNotifications } from '../../store/slices/uiSlice';
 
 const glowPulse = keyframes`
   0%, 100% { opacity: 0.6; }
@@ -142,6 +143,7 @@ const TopHeader = ({ title, showSearch = true, showNotifications = true, showFil
   const navigate = useNavigate();
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const user = useSelector(selectUser);
+  const unreadNotifications = useSelector(selectUnreadNotifications);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -190,8 +192,8 @@ const TopHeader = ({ title, showSearch = true, showNotifications = true, showFil
           )}
           
           {showNotifications && isAuthenticated && (
-            <NotificationBadge badgeContent={3}>
-              <ActionButton>
+            <NotificationBadge badgeContent={unreadNotifications} max={99}>
+              <ActionButton onClick={() => navigate('/notifications')}>
                 <Notifications fontSize="small" />
               </ActionButton>
             </NotificationBadge>

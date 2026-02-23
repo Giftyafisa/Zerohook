@@ -403,4 +403,91 @@ router.post('/check-location-change', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * @route   POST /api/geolocation/update-location
+ * @desc    Update user's live GPS location + GeoJSON geoPoint for 2dsphere proximity (Uber-style)
+ * @access  Private
+ */
+router.post('/update-location', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { lat, lng, accuracy, city, country, countryCode } = req.body;
+
+    if (lat == null || lng == null) {
+      return res.status(400).json({ success: false, error: 'lat and lng are required' });
+    }
+
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+
+    if (isNaN(latitude) || isNaN(longitude) ||
+        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      return res.status(400).json({ success: false, error: 'Invalid coordinates' });
+    }
+
+    const { User } = require('../config/database');
+
+    // Resolve city/country if not provided
+    let resolvedCity = city || null;
+    let resolvedCountry = country || null;
+    let resolvedCountryCode = countryCode || null;
+    
+    if (!resolvedCity && req.locationTrackingService) {
+      try {
+        const coords = await req.locationTrackingService.processGPSCoordinates({ lat: latitude, lng: longitude });
+        if (coords) {
+          resolvedCity = coords.city;
+          resolvedCountry = resolvedCountry || coords.country;
+          resolvedCountryCode = resolvedCountryCode || coords.countryCode;
+        }
+      } catch { /* non-critical */ }
+    }
+
+    // Atomically update location + geoPoint in profile_data
+    const updatedUser = await User.findByIdAndUpdate(userId, {
+      $set: {
+        'profile_data.location.coordinates': { lat: latitude, lng: longitude },
+        'profile_data.location.geoPoint': { type: 'Point', coordinates: [longitude, latitude] },
+        'profile_data.location.accuracy': accuracy || 'gps',
+        ...(resolvedCity && { 'profile_data.location.city': resolvedCity }),
+        ...(resolvedCountry && { 'profile_data.location.country': resolvedCountry }),
+        ...(resolvedCountryCode && { 'profile_data.location.countryCode': resolvedCountryCode }),
+        'profile_data.location.lastUpdated': new Date().toISOString(),
+        last_active: new Date()
+      }
+    }, { new: true, projection: { 'profile_data.location': 1 } }).lean();
+
+    if (!updatedUser) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Save to location history (fire-and-forget)
+    if (req.locationTrackingService) {
+      req.locationTrackingService.saveLocationHistory(userId, {
+        lat: latitude, lng: longitude,
+        city: resolvedCity, country: resolvedCountry,
+        source: 'gps_update'
+      }, 'gps_live').catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      message: 'Location updated',
+      data: {
+        lat: latitude,
+        lng: longitude,
+        city: resolvedCity,
+        country: resolvedCountry,
+        countryCode: resolvedCountryCode
+      }
+    });
+  } catch (error) {
+    console.error('Update location error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update location'
+    });
+  }
+});
+
 module.exports = router;

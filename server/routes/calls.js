@@ -63,9 +63,11 @@ router.post('/request', authMiddleware, [
     // Emit call request via Socket.io
     req.io.to(`user_${targetUserId}`).emit('incoming_call', {
       id: call._id.toString(),
+      callId: call._id.toString(),
       callerId,
       callerName: req.user.username || req.user.profileData?.firstName || 'User',
       type,
+      callType: type,
       timestamp: call.created_at
     });
 
@@ -119,8 +121,11 @@ router.post('/accept', authMiddleware, [
 
     // Emit call accepted via Socket.io
     req.io.to(`user_${call.caller_id.toString()}`).emit('call_accepted', {
+      id: callId,
       callId,
       targetUserId: userId,
+      peerUserId: userId,
+      callType: call.type,
       timestamp: new Date().toISOString()
     });
 
@@ -173,6 +178,7 @@ router.post('/reject', authMiddleware, [
 
     // Emit call rejected via Socket.io
     req.io.to(`user_${call.caller_id.toString()}`).emit('call_rejected', {
+      id: callId,
       callId,
       targetUserId: userId,
       timestamp: new Date().toISOString()
@@ -235,6 +241,7 @@ router.post('/end', authMiddleware, [
     const otherUserId = callerId === userId ? targetId : callerId;
     
     req.io.to(`user_${otherUserId}`).emit('call_ended', {
+      id: callId,
       callId,
       endedBy: userId,
       timestamp: new Date().toISOString()

@@ -8,6 +8,9 @@ const MessagesPage = () => {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg')); // >= 1200px
   const { recipientId, recipientName, recipientAvatar, conversationId } = location.state || {};
+  const searchParams = new URLSearchParams(location.search || '');
+  const conversationIdFromQuery = searchParams.get('conversation') || searchParams.get('conversationId');
+  const initialConversationId = conversationId || conversationIdFromQuery || null;
 
   // Mobile: MobileShell handles header/nav, this fills the content area
   // Desktop: Uses sidebar layout, full viewport height
@@ -31,7 +34,7 @@ const MessagesPage = () => {
         recipientId={recipientId}
         recipientName={recipientName}
         recipientAvatar={recipientAvatar}
-        initialConversationId={conversationId}
+        initialConversationId={initialConversationId}
       />
     </Box>
   );

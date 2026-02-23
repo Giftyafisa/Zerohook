@@ -268,12 +268,15 @@ const CallSystem = () => {
   
   // Call state
   const [incomingCall, setIncomingCall] = useState(null);
+  const incomingCallRef = useRef(null);
   const [outgoingCall, setOutgoingCall] = useState(null);
   const outgoingCallRef = useRef(null);
+  const outgoingTimeoutRef = useRef(null);
   const [activeCall, setActiveCall] = useState(null);
   const activeCallRef = useRef(null);
   const [callType, setCallType] = useState('video');
   const callTypeRef = useRef('video');
+  const peerUserIdRef = useRef(null);
   const [isInCall, setIsInCall] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const callTimerRef = useRef(null);
@@ -315,30 +318,101 @@ const CallSystem = () => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (outgoingTimeoutRef.current) {
+        clearTimeout(outgoingTimeoutRef.current);
+        outgoingTimeoutRef.current = null;
+      }
       cleanupMediaStreams();
       if (callTimerRef.current) clearInterval(callTimerRef.current);
     };
   }, []);
 
+  // ── CRITICAL FIX: Attach local stream to <video> element after React renders it.
+  // initializeMedia() runs BEFORE setActiveCall/setIsInCall, so localVideoRef.current
+  // is null at that point. This effect re-attaches whenever the active call UI mounts.
+  useEffect(() => {
+    if (isInCall && localStreamRef.current && localVideoRef.current) {
+      if (localVideoRef.current.srcObject !== localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+    }
+  }, [isInCall, activeCall, isVideoEnabled]);
+
+  // ── CRITICAL FIX: Attach remote stream to <video> element after React renders it.
+  // ontrack may fire before the active-call UI mounts; the stream is stored in
+  // remoteStreamRef but never wired to the DOM element. This effect ensures it
+  // gets attached once the element exists.
+  useEffect(() => {
+    if (isInCall && remoteStreamRef.current && remoteVideoRef.current) {
+      if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+        remoteVideoRef.current.play().catch(() => {});
+      }
+    }
+  }, [isInCall, activeCall]);
+
   // Keep refs in sync with state so socket handlers always see current value
   useEffect(() => { callTypeRef.current = callType; }, [callType]);
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
+  useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
   // Socket event listeners
   useEffect(() => {
     if (!socket || !isConnected) return;
 
-    socket.on('incoming_call', (callData) => {
-      console.log('📞 Incoming call:', callData);
-      setIncomingCall(callData);
-    });
+    const getCallId = (payload) => payload?.callId || payload?.id || null;
 
-    socket.on('call_accepted', async (callData) => {
+    const handleIncomingCall = (callData) => {
+      console.log('📞 Incoming call:', callData);
+      const normalized = {
+        ...callData,
+        id: getCallId(callData),
+        callId: getCallId(callData),
+        type: callData?.type || callData?.callType || 'video'
+      };
+      setIncomingCall(normalized);
+      peerUserIdRef.current = String(callData?.callerId || callData?.peerUserId || callData?.targetUserId || '');
+    };
+
+    const handleCallRequestSent = (data) => {
+      const canonicalCallId = getCallId(data);
+      if (!canonicalCallId) return;
+
+      setOutgoingCall((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          id: canonicalCallId,
+          callId: canonicalCallId,
+          status: 'calling'
+        };
+      });
+
+      outgoingCallRef.current = outgoingCallRef.current
+        ? {
+            ...outgoingCallRef.current,
+            id: canonicalCallId,
+            callId: canonicalCallId,
+            status: 'calling'
+          }
+        : outgoingCallRef.current;
+    };
+
+    const handleCallAccepted = async (callData) => {
       console.log('✅ Call accepted:', callData);
-      // Preserve target name from outgoing call data for display
+      if (outgoingTimeoutRef.current) {
+        clearTimeout(outgoingTimeoutRef.current);
+        outgoingTimeoutRef.current = null;
+      }
       const prevOutgoing = outgoingCallRef.current;
+      const resolvedCallId = getCallId(callData) || getCallId(prevOutgoing);
       const activeCallData = {
         ...callData,
+        id: resolvedCallId,
+        callId: resolvedCallId,
+        targetUserId: callData.targetUserId || callData.peerUserId || prevOutgoing?.targetUserId || callData.callerId,
+        peerUserId: callData.targetUserId || callData.peerUserId || prevOutgoing?.targetUserId || callData.callerId,
         targetName: prevOutgoing?.targetName || callData.targetName || 'User',
       };
       setOutgoingCall(null);
@@ -347,64 +421,75 @@ const CallSystem = () => {
       setIsInCall(true);
       startCallTimer();
 
-      // Use callType from server payload if available, else fall back to ref
       const currentCallType = callData.callType || callTypeRef.current || 'video';
+      const peerUserId = String(activeCallData.peerUserId || activeCallData.targetUserId || '');
+      peerUserIdRef.current = peerUserId;
 
-      // Ensure media is ready (handles edge case where call was triggered externally)
       if (!localStreamRef.current) {
         console.log('🎤 Initializing media on call_accepted (was not yet ready)');
         await initializeMedia(currentCallType === 'video');
       }
 
-      // ── CALLER side: we originated the call → we create the one-and-only offer
       isCallerRef.current = true;
-      await createAndSendOffer(callData.targetUserId);
-    });
+      if (peerUserId) {
+        await createAndSendOffer(peerUserId);
+      } else {
+        console.warn('⚠️ call_accepted missing peer user ID; cannot send WebRTC offer');
+      }
+    };
 
-    socket.on('call_rejected', () => {
+    const handleCallRejected = () => {
       console.log('❌ Call rejected');
+      if (outgoingTimeoutRef.current) {
+        clearTimeout(outgoingTimeoutRef.current);
+        outgoingTimeoutRef.current = null;
+      }
       setOutgoingCall(null);
       outgoingCallRef.current = null;
       cleanupMediaStreams();
-    });
+    };
 
-    socket.on('call_ended', () => {
+    const handleCallEnded = () => {
       console.log('📞 Call ended by remote');
-      endCall(true); // true = remote-initiated, don't re-emit
-    });
+      if (outgoingTimeoutRef.current) {
+        clearTimeout(outgoingTimeoutRef.current);
+        outgoingTimeoutRef.current = null;
+      }
+      endCall(true);
+    };
 
-    socket.on('call_timeout', () => {
+    const handleCallTimeout = () => {
       console.log('⏰ Call timeout');
+      if (outgoingTimeoutRef.current) {
+        clearTimeout(outgoingTimeoutRef.current);
+        outgoingTimeoutRef.current = null;
+      }
       setOutgoingCall(null);
       outgoingCallRef.current = null;
       setIncomingCall(null);
       cleanupMediaStreams();
-    });
+    };
 
-    // Caller cancelled before we accepted
-    socket.on('call_cancelled', () => {
+    const handleCallCancelled = () => {
       console.log('🚫 Call cancelled by caller');
       setIncomingCall(null);
       cleanupMediaStreams();
-    });
+    };
 
-    // ── WebRTC signaling events ─────────────────────────────────
-
-    socket.on('webrtc_offer', async (data) => {
+    const handleWebrtcOffer = async (data) => {
       console.log('📡 Received WebRTC offer from:', data.callerId);
       try {
         await handleWebRTCOffer(data);
       } catch (error) {
         console.error('Error handling WebRTC offer:', error);
       }
-    });
+    };
 
-    socket.on('webrtc_answer', async (data) => {
+    const handleWebrtcAnswer = async (data) => {
       console.log('📡 Received WebRTC answer from:', data.answererId);
       try {
         const pc = peerConnectionRef.current;
         if (!pc) return;
-        // Guard: only apply an answer when WE sent an offer (signalingState === 'have-local-offer')
         if (pc.signalingState !== 'have-local-offer') {
           console.warn('⚠️ Ignoring WebRTC answer — signalingState is', pc.signalingState);
           return;
@@ -414,13 +499,12 @@ const CallSystem = () => {
       } catch (error) {
         console.error('Error handling WebRTC answer:', error);
       }
-    });
+    };
 
-    socket.on('ice_candidate', async (data) => {
+    const handleIceCandidate = async (data) => {
       try {
         if (!data.candidate) return;
         const pc = peerConnectionRef.current;
-        // Buffer candidates that arrive before remote description is set
         if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
           console.log('🧊 Buffering ICE candidate (remote description not yet set)');
           iceCandidateQueue.current.push(data.candidate);
@@ -430,18 +514,30 @@ const CallSystem = () => {
       } catch (error) {
         console.warn('ICE candidate error (non-fatal):', error.message);
       }
-    });
+    };
+
+    socket.on('incoming_call', handleIncomingCall);
+    socket.on('call_request_sent', handleCallRequestSent);
+    socket.on('call_accepted', handleCallAccepted);
+    socket.on('call_rejected', handleCallRejected);
+    socket.on('call_ended', handleCallEnded);
+    socket.on('call_timeout', handleCallTimeout);
+    socket.on('call_cancelled', handleCallCancelled);
+    socket.on('webrtc_offer', handleWebrtcOffer);
+    socket.on('webrtc_answer', handleWebrtcAnswer);
+    socket.on('ice_candidate', handleIceCandidate);
 
     return () => {
-      socket.off('incoming_call');
-      socket.off('call_accepted');
-      socket.off('call_rejected');
-      socket.off('call_ended');
-      socket.off('call_timeout');
-      socket.off('call_cancelled');
-      socket.off('webrtc_offer');
-      socket.off('webrtc_answer');
-      socket.off('ice_candidate');
+      socket.off('incoming_call', handleIncomingCall);
+      socket.off('call_request_sent', handleCallRequestSent);
+      socket.off('call_accepted', handleCallAccepted);
+      socket.off('call_rejected', handleCallRejected);
+      socket.off('call_ended', handleCallEnded);
+      socket.off('call_timeout', handleCallTimeout);
+      socket.off('call_cancelled', handleCallCancelled);
+      socket.off('webrtc_offer', handleWebrtcOffer);
+      socket.off('webrtc_answer', handleWebrtcAnswer);
+      socket.off('ice_candidate', handleIceCandidate);
     };
   }, [socket, isConnected]);
 
@@ -524,13 +620,16 @@ const CallSystem = () => {
     setCallType(type);
     const callData = {
       id: Date.now().toString(),
+      callId: null,
       targetUserId,
+      peerUserId: targetUserId,
       targetName: targetName || 'User',
       type,
       status: 'calling'
     };
     setOutgoingCall(callData);
     outgoingCallRef.current = callData;
+    peerUserIdRef.current = String(targetUserId || '');
 
     socket.emit('call_request', {
       targetUserId,
@@ -540,13 +639,20 @@ const CallSystem = () => {
     });
 
     // Timeout after 30s — use ref to avoid stale closure
-    setTimeout(() => {
+    if (outgoingTimeoutRef.current) {
+      clearTimeout(outgoingTimeoutRef.current);
+    }
+    outgoingTimeoutRef.current = setTimeout(() => {
       if (outgoingCallRef.current?.status === 'calling') {
-        socket.emit('call_timeout', { targetUserId });
+        socket.emit('call_timeout', {
+          callId: outgoingCallRef.current?.callId || outgoingCallRef.current?.id,
+          targetUserId
+        });
         setOutgoingCall(null);
         outgoingCallRef.current = null;
         cleanupMediaStreams();
       }
+      outgoingTimeoutRef.current = null;
     }, 30000);
   }, [socket, isConnected, user, currentUserId]);
 
@@ -572,12 +678,18 @@ const CallSystem = () => {
       // Still accept so the caller knows, but warn about no media
     }
     setCallType(resolvedType);
-    setActiveCall(incomingCall);
+    const resolvedPeerUserId = String(incomingCall.callerId || incomingCall.peerUserId || incomingCall.targetUserId || '');
+    setActiveCall({
+      ...incomingCall,
+      peerUserId: resolvedPeerUserId,
+      targetUserId: resolvedPeerUserId
+    });
     setIncomingCall(null);
     setIsInCall(true);
+    peerUserIdRef.current = resolvedPeerUserId;
 
     socket.emit('accept_call', {
-      callId: incomingCall.id,
+      callId: incomingCall.callId || incomingCall.id,
       targetUserId: incomingCall.callerId,
       callType: resolvedType
     });
@@ -593,7 +705,7 @@ const CallSystem = () => {
   const rejectCall = useCallback(() => {
     if (!incomingCall) return;
     socket.emit('reject_call', {
-      callId: incomingCall.id,
+      callId: incomingCall.callId || incomingCall.id,
       targetUserId: incomingCall.callerId
     });
     setIncomingCall(null);
@@ -605,9 +717,10 @@ const CallSystem = () => {
   const endCall = useCallback((remoteInitiated = false) => {
     const call = activeCallRef.current;
     if (call && !remoteInitiated && socket) {
+      const peerUserId = String(call.peerUserId || call.targetUserId || call.callerId || peerUserIdRef.current || '');
       socket.emit('end_call', {
-        callId: call.id,
-        targetUserId: call.targetUserId || call.callerId
+        callId: call.callId || call.id,
+        targetUserId: peerUserId
       });
     }
     setIsInCall(false);
@@ -621,6 +734,7 @@ const CallSystem = () => {
       callTimerRef.current = null;
     }
     cleanupMediaStreams();
+    peerUserIdRef.current = null;
   }, [socket]);
 
   // Timer
@@ -700,12 +814,17 @@ const CallSystem = () => {
       console.log('📹 Received remote track:', event.track.kind);
       const stream = event.streams[0];
       if (!stream) {
-        console.warn('⚠️ ontrack fired without streams');
-        return;
+        // Build a stream from the track if streams array is empty (Firefox edge case)
+        const fallbackStream = remoteStreamRef.current || new MediaStream();
+        fallbackStream.addTrack(event.track);
+        remoteStreamRef.current = fallbackStream;
+      } else {
+        remoteStreamRef.current = stream;
       }
-      remoteStreamRef.current = stream;
+      // Attach to DOM element if it exists; the useEffect above handles the
+      // case where the element isn't mounted yet.
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
         // Force play — some browsers block autoplay
         remoteVideoRef.current.play().catch(e => console.warn('Remote video play blocked:', e.message));
       }
@@ -1009,7 +1128,14 @@ const CallSystem = () => {
               <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
                 <IconButton
                   onClick={() => {
-                    socket.emit('cancel_call', { targetUserId: outgoingCall.targetUserId });
+                      if (outgoingTimeoutRef.current) {
+                        clearTimeout(outgoingTimeoutRef.current);
+                        outgoingTimeoutRef.current = null;
+                      }
+                    socket.emit('cancel_call', {
+                      callId: outgoingCall.callId || outgoingCall.id,
+                      targetUserId: outgoingCall.targetUserId
+                    });
                     setOutgoingCall(null);
                     cleanupMediaStreams();
                   }}

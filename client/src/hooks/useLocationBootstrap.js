@@ -184,15 +184,26 @@ const useLocationBootstrap = () => {
             const cfk = userCountry || detectedCountry || 'ghana';
             const { location: nearest, distance } = findNearestCity(latitude, longitude, cfk);
             const getCountryName = (c) => (!c ? 'Unknown' : typeof c === 'string' ? c : c.name || c.code || 'Unknown');
-            setUserLocation({
+            const gpsLocation = {
               lat: latitude, lng: longitude, accuracy,
               city: nearest?.name || 'Current Location',
               region: nearest?.region || nearest?.state || null,
               country: getCountryName(userCountry || detectedCountry),
               source: 'gps', confidence: 1.0,
               distanceToCity: distance ? `${distance.toFixed(1)} km from ${nearest?.name}` : null,
-            });
+            };
+            setUserLocation(gpsLocation);
             setLocationLoading(false);
+
+            // Uber-style: persist GPS location to backend for proximity queries (fire-and-forget)
+            const token = localStorage.getItem('token');
+            if (token) {
+              fetch(`${API_BASE_URL}/geolocation/update-location`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ lat: latitude, lng: longitude, accuracy: 'gps', city: gpsLocation.city, country: gpsLocation.country }),
+              }).catch(() => {});
+            }
           },
           async () => {
             clearTimeout(timeout);

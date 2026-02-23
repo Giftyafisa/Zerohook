@@ -12,8 +12,13 @@ const envPath = process.env.NODE_ENV === 'production' ? './env.production' : './
 require('dotenv').config({ path: envPath });
 console.log(`🔧 Loading environment from: ${envPath}`);
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 32) {
-  console.error('❌ JWT_SECRET is missing or too weak. Set a strong secret (min 32 chars).');
-  process.exit(1);
+  if (process.env.NODE_ENV === 'test') {
+    process.env.JWT_SECRET = 'test_jwt_secret_for_ci_only_min_32_chars';
+    console.warn('⚠️ JWT_SECRET was missing/weak in test mode. Using test fallback secret.');
+  } else {
+    console.error('❌ JWT_SECRET is missing or too weak. Set a strong secret (min 32 chars).');
+    process.exit(1);
+  }
 }
 const jwt = require('jsonwebtoken');
 
@@ -58,7 +63,8 @@ const RealtimeLocationManager = require('./services/RealtimeLocationManager');
 const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
 const SubscriptionLifecycleManager = require('./services/SubscriptionLifecycleManager');
 const NotificationService = require('./services/NotificationService');
-const { connectDB, connectRedis, User, Conversation } = require('./config/database');
+const mongoose = require('mongoose');
+const { connectDB, connectRedis, User, Conversation, Call } = require('./config/database');
 
 const app = express();
 const server = createServer(app);
@@ -244,7 +250,7 @@ const performanceMetrics = new PerformanceMetrics();
 const conversationService = new ConversationService();
 
 // Initialize all services
-(async () => {
+const initializeRuntimeServices = async () => {
   try {
     const dbConnected = await connectDB();
     serviceStatus.db = Boolean(dbConnected);
@@ -367,7 +373,11 @@ const conversationService = new ConversationService();
   } catch (error) {
     console.error('❌ Performance Metrics initialization failed:', error);
   }
-})();
+};
+
+if (require.main === module) {
+  initializeRuntimeServices();
+}
 
 // Make services available to routes
 app.use((req, res, next) => {
@@ -498,6 +508,34 @@ app.get('/api/health/simple', (req, res) => {
 
 io.on('connection', async (socket) => {
   console.log(`User ${socket.username} (${socket.userId}) connected:`, socket.id);
+
+  const inferMessageType = ({ messageType, type, content, metadata }) => {
+    const directType = messageType || type;
+    if (directType && directType !== 'text') return directType;
+
+    const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
+    const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    if (mimeType && !mimeType.startsWith('text/')) return 'file';
+    if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(fileName)) return 'image';
+    if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(fileName)) return 'video';
+    if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(fileName)) return 'audio';
+
+    const value = String(content || '').toLowerCase().split('?')[0].split('#')[0];
+    if (value.startsWith('data:image/')) return 'image';
+    if (value.startsWith('data:video/')) return 'video';
+    if (value.startsWith('data:audio/')) return 'audio';
+    if (/\/image\/upload\//.test(value)) return 'image';
+    if (/\/video\/upload\//.test(value)) return 'video';
+    if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
+    if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(value) || /video|vid/.test(value)) return 'video';
+    if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
+    if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
+
+    return 'text';
+  };
   
   try {
     // Create user session and update presence
@@ -544,6 +582,9 @@ io.on('connection', async (socket) => {
     
     // Handle typing indicators
     socket.on('typing_start', async (data) => {
+      if (!data?.conversationId) return;
+      const isMember = await conversationService.isMember(data.conversationId, socket.userId);
+      if (!isMember) return;
       await userActivityMonitor.updateTypingStatus(socket.userId, true, data.conversationId);
       socket.to(`conversation_${data.conversationId}`).emit('typing_start', {
         userId: socket.userId,
@@ -559,6 +600,9 @@ io.on('connection', async (socket) => {
     });
     
     socket.on('typing_stop', async (data) => {
+      if (!data?.conversationId) return;
+      const isMember = await conversationService.isMember(data.conversationId, socket.userId);
+      if (!isMember) return;
       await userActivityMonitor.updateTypingStatus(socket.userId, false, data.conversationId);
       socket.to(`conversation_${data.conversationId}`).emit('typing_stop', {
         userId: socket.userId,
@@ -610,13 +654,46 @@ io.on('connection', async (socket) => {
           return;
         }
         console.log(`📞 Call request from ${socket.username} to user ${data.targetUserId}`);
+
+        let persistedCallId = Date.now().toString();
+        if (mongoose.Types.ObjectId.isValid(socket.userId) && mongoose.Types.ObjectId.isValid(data.targetUserId)) {
+          try {
+            const callRow = await Call.create({
+              caller_id: new mongoose.Types.ObjectId(socket.userId),
+              target_user_id: new mongoose.Types.ObjectId(data.targetUserId),
+              type: data.type === 'audio' ? 'audio' : 'video',
+              status: 'calling',
+              metadata: {
+                source: 'socket',
+                callerName: socket.username,
+                socketId: socket.id
+              }
+            });
+            persistedCallId = String(callRow._id);
+          } catch (persistErr) {
+            console.error('Failed to persist socket call request:', persistErr.message);
+          }
+        }
         
         // Emit incoming call to target user
         socket.to(`user_${data.targetUserId}`).emit('incoming_call', {
-          id: Date.now().toString(),
+          id: persistedCallId,
+          callId: persistedCallId,
           callerId: socket.userId,
+          targetUserId: data.targetUserId,
           callerName: socket.username,
           type: data.type, // 'audio' or 'video'
+          callType: data.type,
+          timestamp: new Date().toISOString()
+        });
+
+        // Acknowledge caller with canonical call ID (used for timeout/cancel/end)
+        socket.emit('call_request_sent', {
+          id: persistedCallId,
+          callId: persistedCallId,
+          targetUserId: data.targetUserId,
+          type: data.type,
+          callType: data.type,
           timestamp: new Date().toISOString()
         });
         
@@ -636,11 +713,40 @@ io.on('connection', async (socket) => {
           return;
         }
         console.log(`✅ Call accepted by ${socket.username}`);
+
+        let resolvedCallId = data.callId;
+        if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
+          try {
+            const updated = await Call.findOneAndUpdate(
+              {
+                _id: data.callId,
+                target_user_id: socket.userId,
+                status: 'calling'
+              },
+              {
+                $set: {
+                  status: 'connected',
+                  connected_at: new Date(),
+                  updated_at: new Date()
+                }
+              },
+              { new: true }
+            ).select('_id');
+            if (updated?._id) {
+              resolvedCallId = String(updated._id);
+            }
+          } catch (acceptPersistErr) {
+            console.error('Failed to persist socket call accept:', acceptPersistErr.message);
+          }
+        }
         
         // Emit call accepted to caller
         socket.to(`user_${data.targetUserId}`).emit('call_accepted', {
-          callId: data.callId,
+          id: resolvedCallId,
+          callId: resolvedCallId,
           targetUserId: socket.userId,
+          peerUserId: socket.userId,
+          callerId: data.targetUserId,
           callType: data.callType || data.type || 'video',
           timestamp: new Date().toISOString()
         });
@@ -661,9 +767,31 @@ io.on('connection', async (socket) => {
           return;
         }
         console.log(`❌ Call rejected by ${socket.username}`);
+
+        if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
+          try {
+            await Call.findOneAndUpdate(
+              {
+                _id: data.callId,
+                target_user_id: socket.userId,
+                status: 'calling'
+              },
+              {
+                $set: {
+                  status: 'rejected',
+                  ended_at: new Date(),
+                  updated_at: new Date()
+                }
+              }
+            );
+          } catch (rejectPersistErr) {
+            console.error('Failed to persist socket call reject:', rejectPersistErr.message);
+          }
+        }
         
         // Emit call rejected to caller
         socket.to(`user_${data.targetUserId}`).emit('call_rejected', {
+          id: data.callId,
           callId: data.callId,
           targetUserId: socket.userId,
           timestamp: new Date().toISOString()
@@ -691,7 +819,39 @@ io.on('connection', async (socket) => {
           otherUserId = data.callerId;
         }
 
+        if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
+          try {
+            const existingCall = await Call.findOne({ _id: data.callId }).select('connected_at');
+            const endedAt = new Date();
+            const durationSec = existingCall?.connected_at
+              ? Math.max(0, Math.floor((endedAt.getTime() - new Date(existingCall.connected_at).getTime()) / 1000))
+              : 0;
+
+            await Call.findOneAndUpdate(
+              {
+                _id: data.callId,
+                $or: [
+                  { caller_id: socket.userId },
+                  { target_user_id: socket.userId }
+                ],
+                status: { $in: ['calling', 'connected'] }
+              },
+              {
+                $set: {
+                  status: 'ended',
+                  ended_at: endedAt,
+                  duration: durationSec,
+                  updated_at: endedAt
+                }
+              }
+            );
+          } catch (endPersistErr) {
+            console.error('Failed to persist socket call end:', endPersistErr.message);
+          }
+        }
+
         socket.to(`user_${otherUserId}`).emit('call_ended', {
+          id: data.callId,
           callId: data.callId,
           endedBy: socket.userId,
           timestamp: new Date().toISOString()
@@ -713,9 +873,32 @@ io.on('connection', async (socket) => {
           return;
         }
         console.log(`🚫 Call cancelled by ${socket.username}`);
+
+        if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
+          try {
+            await Call.findOneAndUpdate(
+              {
+                _id: data.callId,
+                caller_id: socket.userId,
+                status: 'calling'
+              },
+              {
+                $set: {
+                  status: 'missed',
+                  ended_at: new Date(),
+                  updated_at: new Date()
+                }
+              }
+            );
+          } catch (cancelPersistErr) {
+            console.error('Failed to persist socket call cancel:', cancelPersistErr.message);
+          }
+        }
         
         // Emit call cancelled to target user
         socket.to(`user_${data.targetUserId}`).emit('call_cancelled', {
+          id: data.callId,
+          callId: data.callId,
           callerId: socket.userId,
           timestamp: new Date().toISOString()
         });
@@ -732,7 +915,31 @@ io.on('connection', async (socket) => {
           return;
         }
         console.log(`⏰ Call timeout from ${socket.username}`);
+
+        if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
+          try {
+            await Call.findOneAndUpdate(
+              {
+                _id: data.callId,
+                caller_id: socket.userId,
+                status: 'calling'
+              },
+              {
+                $set: {
+                  status: 'missed',
+                  ended_at: new Date(),
+                  updated_at: new Date()
+                }
+              }
+            );
+          } catch (timeoutPersistErr) {
+            console.error('Failed to persist socket call timeout:', timeoutPersistErr.message);
+          }
+        }
+
         socket.to(`user_${data.targetUserId}`).emit('call_cancelled', {
+          id: data.callId,
+          callId: data.callId,
           callerId: socket.userId,
           timestamp: new Date().toISOString()
         });
@@ -864,7 +1071,7 @@ io.on('connection', async (socket) => {
     // Handle sending messages (transactional + moderation)
     socket.on('send_message', async (data) => {
       const { conversationId, content, type, messageType, metadata = {} } = data || {};
-      const resolvedMessageType = messageType || type || 'text';
+      const resolvedMessageType = inferMessageType({ messageType, type, content, metadata });
       try {
         console.log(`💬 Message from ${socket.username} to conversation ${conversationId}`);
 
@@ -897,19 +1104,34 @@ io.on('connection', async (socket) => {
           const isSubscribed = senderDoc?.is_subscribed &&
             (!senderDoc.subscription_expires_at || new Date(senderDoc.subscription_expires_at) > new Date());
           if (!isSubscribed) {
-            // Count unique contacts
-            const convos = await Conversation.find({
-              $or: [{ participant1Id: socket.userId }, { participant2Id: socket.userId }]
-            }).select('participant1Id participant2Id');
-            const uniqueContacts = new Set();
-            convos.forEach(c => {
-              const cid = c.participant1Id?.toString() === socket.userId
-                ? c.participant2Id?.toString()
-                : c.participant1Id?.toString();
-              if (cid) uniqueContacts.add(cid);
-            });
-            const alreadyContact = otherUserId ? uniqueContacts.has(otherUserId) : true;
-            if (!alreadyContact && uniqueContacts.size >= FREE_TIER_MAX_CONTACTS) {
+            // Count unique contacts via aggregation (avoids loading full conversation rows)
+            const senderObjId = new mongoose.Types.ObjectId(socket.userId);
+            const uniqueContactRows = await Conversation.aggregate([
+              {
+                $match: {
+                  $or: [
+                    { participant1Id: senderObjId },
+                    { participant2Id: senderObjId }
+                  ]
+                }
+              },
+              {
+                $project: {
+                  contactId: {
+                    $cond: [
+                      { $eq: ['$participant1Id', senderObjId] },
+                      '$participant2Id',
+                      '$participant1Id'
+                    ]
+                  }
+                }
+              },
+              { $group: { _id: '$contactId' } }
+            ]);
+
+            const uniqueContactIds = new Set(uniqueContactRows.map((row) => String(row._id || '')));
+            const alreadyContact = otherUserId ? uniqueContactIds.has(String(otherUserId)) : true;
+            if (!alreadyContact && uniqueContactIds.size >= FREE_TIER_MAX_CONTACTS) {
               return socket.emit('message_error', {
                 error: 'subscription_required',
                 message: `Free users can only message ${FREE_TIER_MAX_CONTACTS} unique people. Subscribe to message unlimited contacts.`
@@ -1055,7 +1277,7 @@ io.on('connection', async (socket) => {
         // Primary check: does the target user have an active socket connection?
         // This is the most reliable indicator — checking the socket.io room directly.
         const targetRoom = `user_${data.userId}`;
-        const hasActiveSocket = io.sockets.adapter.rooms.has(targetRoom);
+        const hasActiveSocket = (io.sockets.adapter.rooms.get(targetRoom)?.size || 0) > 0;
         
         // Fallback to activity monitor for lastSeen data
         let lastSeen = null;
@@ -1087,6 +1309,61 @@ io.on('connection', async (socket) => {
         });
       }
     });
+
+    // Handle batched user status requests to avoid N socket round-trips
+    socket.on('get_users_status', async (data) => {
+      try {
+        const requestedUserIds = Array.isArray(data?.userIds)
+          ? [...new Set(data.userIds.map((id) => String(id || '').trim()).filter(Boolean))]
+          : [];
+
+        if (requestedUserIds.length === 0) {
+          return socket.emit('users_status', { users: [] });
+        }
+
+        const allowedConversations = await Conversation.find({
+          $or: [
+            { participant1Id: socket.userId, participant2Id: { $in: requestedUserIds } },
+            { participant1Id: { $in: requestedUserIds }, participant2Id: socket.userId }
+          ],
+          status: { $ne: 'deleted' }
+        }).select('participant1Id participant2Id').lean();
+
+        const allowedUserSet = new Set();
+        allowedConversations.forEach((conversation) => {
+          const p1 = String(conversation.participant1Id || '');
+          const p2 = String(conversation.participant2Id || '');
+          if (p1 !== String(socket.userId)) allowedUserSet.add(p1);
+          if (p2 !== String(socket.userId)) allowedUserSet.add(p2);
+        });
+
+        const users = requestedUserIds.map((targetUserId) => {
+          if (!allowedUserSet.has(targetUserId)) {
+            return {
+              userId: targetUserId,
+              isOnline: false,
+              lastSeen: null,
+              status: 'offline'
+            };
+          }
+
+          const roomSize = io.sockets.adapter.rooms.get(`user_${targetUserId}`)?.size || 0;
+          const isOnline = roomSize > 0;
+
+          return {
+            userId: targetUserId,
+            isOnline,
+            lastSeen: null,
+            status: isOnline ? 'online' : 'offline'
+          };
+        });
+
+        socket.emit('users_status', { users, timestamp: new Date().toISOString() });
+      } catch (error) {
+        console.error('Error handling get_users_status:', error);
+        socket.emit('users_status', { users: [] });
+      }
+    });
     
   } catch (error) {
     console.error('Error setting up socket connection:', error);
@@ -1095,6 +1372,13 @@ io.on('connection', async (socket) => {
   socket.on('disconnect', async () => {
     console.log(`User ${socket.username} (${socket.userId}) disconnected:`, socket.id);
     try {
+      const personalRoom = `user_${socket.userId}`;
+      const stillConnectedElsewhere = (io.sockets.adapter.rooms.get(personalRoom)?.size || 0) > 0;
+      if (stillConnectedElsewhere) {
+        console.log(`ℹ️ ${socket.username} still has active socket(s), skipping offline broadcast`);
+        return;
+      }
+
       await userActivityMonitor.updateUserPresence(socket.userId, 'offline');
       socket.broadcast.emit('user_status', {
         userId: socket.userId,
@@ -1148,22 +1432,28 @@ const keepAlive = async () => {
   }
 };
 
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
-  
-  // Start keep-alive pings only in production (Render)
-  if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
-    console.log(`🏓 Keep-alive enabled: Self-ping every 14 minutes to ${BACKEND_URL}`);
+const startServer = () => {
+  server.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
     
-    // Initial ping after 1 minute (let server fully start)
-    setTimeout(keepAlive, 60 * 1000);
-    
-    // Then ping every 14 minutes
-    setInterval(keepAlive, PING_INTERVAL);
-  }
-});
+    // Start keep-alive pings only in production (Render)
+    if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
+      console.log(`🏓 Keep-alive enabled: Self-ping every 14 minutes to ${BACKEND_URL}`);
+      
+      // Initial ping after 1 minute (let server fully start)
+      setTimeout(keepAlive, 60 * 1000);
+      
+      // Then ping every 14 minutes
+      setInterval(keepAlive, PING_INTERVAL);
+    }
+  });
+};
+
+if (require.main === module) {
+  startServer();
+}
 
 // Graceful shutdown handler
 function gracefulShutdown(signal) {
@@ -1184,3 +1474,8 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+module.exports = app;
+module.exports.server = server;
+module.exports.io = io;
+module.exports.startServer = startServer;

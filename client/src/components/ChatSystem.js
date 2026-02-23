@@ -66,6 +66,7 @@ const isDev = process.env.NODE_ENV === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
 const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
+const normalizeId = (id) => String(id || '');
 
 // Helper to resolve avatar URL from backend profilePicture (might be string, object, or JSON string)
 const resolveAvatarUrl = (profilePicture) => {
@@ -106,6 +107,30 @@ const typingBlink = keyframes`
   50% { opacity: 1; transform: translateY(-2px); }
   100% { opacity: 0.3; transform: translateY(0px); }
 `;
+
+const inferMessageTypeFromContent = (content = '', explicitType = null, metadata = {}) => {
+  if (explicitType && explicitType !== 'text') return explicitType;
+  const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
+  const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType && !mimeType.startsWith('text/')) return 'file';
+  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(fileName)) return 'image';
+  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(fileName)) return 'video';
+  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(fileName)) return 'audio';
+  const value = String(content || '').trim().toLowerCase().split('?')[0].split('#')[0];
+  if (value.startsWith('data:image/')) return 'image';
+  if (value.startsWith('data:video/')) return 'video';
+  if (value.startsWith('data:audio/')) return 'audio';
+  if (/\/image\/upload\//.test(value)) return 'image';
+  if (/\/video\/upload\//.test(value)) return 'video';
+  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
+  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(value) || /video|vid/.test(value)) return 'video';
+  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
+  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
+  return explicitType || 'text';
+};
 
 // Swipeable Conversation Item Component
 const SwipeableConversationItem = ({ 
@@ -320,11 +345,14 @@ const ChatSystem = ({
   // After conversations load, query online status for each participant
   useEffect(() => {
     if (!socket || !isConnected || conversations.length === 0) return;
-    conversations.forEach((conv) => {
-      if (conv.participantId) {
-        socket.emit('get_user_status', { userId: conv.participantId });
-      }
-    });
+    const participantIds = [...new Set(conversations
+      .map((conv) => normalizeId(conv.participantId))
+      .filter(Boolean))];
+
+    if (participantIds.length > 0) {
+      socket.emit('get_users_status', { userIds: participantIds });
+    }
+
     // Only run when conversations list length changes (initial load / refresh), not on every update
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, isConnected, conversations.length]);
@@ -426,8 +454,8 @@ const ChatSystem = ({
           if (String(messageData.senderId || '') === currentUserId) {
             const tempIndex = prev.findIndex(
               (m) => m.status === 'sending' &&
-                m.senderId === user?.id &&
-                m.conversationId === messageData.conversationId &&
+                normalizeId(m.senderId) === currentUserId &&
+                normalizeId(m.conversationId) === normalizeId(messageData.conversationId) &&
                 m.content === messageData.content
             );
             if (tempIndex >= 0) {
@@ -456,9 +484,10 @@ const ChatSystem = ({
             conversationFound = true;
             const isOwn = String(messageData.senderId || '') === currentUserId;
             const isActive = currentConv?.id === conv.id;
+            const resolvedType = inferMessageTypeFromContent(messageData.content, messageData.messageType, messageData.metadata);
             return {
               ...conv,
-              lastMessage: formatMessagePreview(messageData.content, messageData.messageType),
+              lastMessage: formatMessagePreview(messageData.content, resolvedType),
               lastMessageTime: messageTimestamp,
               unreadCount: isOwn || isActive ? 0 : (conv.unreadCount || 0) + 1
             };
@@ -489,6 +518,40 @@ const ChatSystem = ({
     socket.on('typing_start', handleTypingStart);
     socket.on('typing_stop', handleTypingStop);
 
+    const handleMessageDeleted = ({ messageId, conversationId }) => {
+      setMessages((prev) => prev.filter((msg) => String(msg.id || msg._id || '') !== String(messageId)));
+
+      // Refresh conversation previews when the affected thread changes
+      if (normalizeId(selectedConversationRef.current?.id) === normalizeId(conversationId)) {
+        loadConversations({ silent: true });
+      }
+    };
+
+    socket.on('message_deleted', handleMessageDeleted);
+
+    const handleJoinError = (payload) => {
+      const message = payload?.error || 'Failed to join conversation';
+      toast.error(message);
+    };
+
+    const handleMessageError = (payload) => {
+      const reason = payload?.message || payload?.error || 'Failed to send message';
+      if (payload?.error === 'subscription_required') {
+        toast.warning(reason);
+        navigate('/subscription');
+        return;
+      }
+      toast.error(reason);
+    };
+
+    const handleMessageBlocked = (payload) => {
+      toast.warning(payload?.error || 'Message blocked due to policy violation');
+    };
+
+    socket.on('join_error', handleJoinError);
+    socket.on('message_error', handleMessageError);
+    socket.on('message_blocked', handleMessageBlocked);
+
     // Handle read receipts — other participant read our messages
     const handleMessageRead = ({ conversationId, userId: readerId, timestamp }) => {
       if (String(readerId || '') === currentUserId) return; // Ignore our own read events
@@ -507,15 +570,16 @@ const ChatSystem = ({
     // Handle user online/offline status updates
     const handleUserStatus = ({ userId, isOnline }) => {
       debugLog('👤 User status update:', userId, isOnline ? 'online' : 'offline');
+      const normalizedTargetUserId = normalizeId(userId);
       setConversations((prev) =>
         prev.map((conv) =>
-          conv.participantId === userId
+          normalizeId(conv.participantId) === normalizedTargetUserId
             ? { ...conv, participantOnline: isOnline }
             : conv
         )
       );
       // Update selected conversation if it's with this user
-      if (selectedConversationRef.current?.participantId === userId) {
+      if (normalizeId(selectedConversationRef.current?.participantId) === normalizedTargetUserId) {
         setSelectedConversation((prev) =>
           prev ? { ...prev, participantOnline: isOnline } : prev
         );
@@ -523,14 +587,48 @@ const ChatSystem = ({
     };
     socket.on('user_status', handleUserStatus);
 
+    const handleUsersStatus = ({ users = [] }) => {
+      if (!Array.isArray(users) || users.length === 0) return;
+
+      const statusMap = new Map(users.map((entry) => [normalizeId(entry.userId), !!entry.isOnline]));
+
+      setConversations((prev) =>
+        prev.map((conv) => {
+          const participantId = normalizeId(conv.participantId);
+          if (!participantId || !statusMap.has(participantId)) return conv;
+          return {
+            ...conv,
+            participantOnline: statusMap.get(participantId)
+          };
+        })
+      );
+
+      setSelectedConversation((prev) => {
+        if (!prev?.participantId) return prev;
+        const participantId = normalizeId(prev.participantId);
+        if (!statusMap.has(participantId)) return prev;
+        return {
+          ...prev,
+          participantOnline: statusMap.get(participantId)
+        };
+      });
+    };
+
+    socket.on('users_status', handleUsersStatus);
+
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('typing_start', handleTypingStart);
       socket.off('typing_stop', handleTypingStop);
+      socket.off('message_deleted', handleMessageDeleted);
+      socket.off('join_error', handleJoinError);
+      socket.off('message_error', handleMessageError);
+      socket.off('message_blocked', handleMessageBlocked);
       socket.off('user_status', handleUserStatus);
+      socket.off('users_status', handleUsersStatus);
       socket.off('message_read', handleMessageRead);
     };
-  }, [socket, isConnected, currentUserId]);
+  }, [socket, isConnected, currentUserId, navigate]);
 
   // Bootstrap target recipient or conversation from props / navigation state
   useEffect(() => {
@@ -573,8 +671,9 @@ const ChatSystem = ({
    * Shows friendly labels for non-text messages instead of raw URLs.
    */
   const formatMessagePreview = (content, messageType) => {
-    if (!messageType || messageType === 'text') return content || '';
-    switch (messageType) {
+    const resolvedType = inferMessageTypeFromContent(content, messageType);
+    if (!resolvedType || resolvedType === 'text') return content || '';
+    switch (resolvedType) {
       case 'image': return '📷 Photo';
       case 'video': return '🎬 Video';
       case 'file': return '📎 File';
@@ -599,30 +698,15 @@ const ChatSystem = ({
         debugLog('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
         const transformedConversations = (data.conversations || []).map(conv => {
-          // Detect URL-like lastMessage from legacy data and replace with friendly preview.
-          // Handles query params, Cloudinary URLs, S3 paths, etc.
-          let preview = conv.lastMessage;
-          if (preview && (
-            preview.startsWith('http://') || preview.startsWith('https://') ||
-            preview.startsWith('/uploads/') || preview.startsWith('data:')
-          )) {
-            // Strip query string / hash before checking extension
-            const cleanUrl = preview.split('?')[0].split('#')[0].toLowerCase();
-            if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/i.test(cleanUrl)) preview = '📷 Photo';
-            else if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/i.test(cleanUrl)) preview = '🎬 Video';
-            else if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/i.test(cleanUrl)) preview = '🎵 Audio';
-            else if (/\.(pdf|doc|docx|xls|xlsx|ppt|zip|rar)$/i.test(cleanUrl)) preview = '📎 File';
-            else if (/image|photo|img/i.test(cleanUrl)) preview = '📷 Photo';
-            else if (/video|vid/i.test(cleanUrl)) preview = '🎬 Video';
-            else preview = '📎 File'; // Default: any URL that isn't text is a file
-          }
+          // Use lastMessageType from server for accurate preview; fall back to inference from content
+          const preview = formatMessagePreview(conv.lastMessage, conv.lastMessageType);
           return {
             id: conv.id,
             participantName: conv.otherUser?.username || 'Unknown',
             participantAvatar: resolveAvatarUrl(conv.otherUser?.profilePicture),
             participantOnline: false, // Will be updated via socket get_user_status
             participantVerified: (conv.otherUser?.verificationTier || 0) >= 2,
-            participantId: conv.otherUser?.id,
+            participantId: normalizeId(conv.otherUser?.id),
             lastMessage: preview,
             lastMessageTime: conv.lastMessageTime,
             unreadCount: conv.unreadCount || 0,
@@ -676,7 +760,7 @@ const ChatSystem = ({
       return null;
     }
     
-    const existing = conversations.find(c => c.participantId === recipientId || String(c.participantId) === String(recipientId));
+    const existing = conversations.find(c => normalizeId(c.participantId) === normalizeId(recipientId));
     if (existing) {
       debugLog('💬 Found existing conversation:', existing.id);
       selectConversation(existing);
@@ -720,7 +804,7 @@ const ChatSystem = ({
       debugLog('💬 Chat start success:', data);
       
       const convList = await loadConversations({ silent: true });
-      const created = convList?.find(c => c.participantId === recipientId || String(c.participantId) === String(recipientId) || c.id === data.conversationId);
+      const created = convList?.find(c => normalizeId(c.participantId) === normalizeId(recipientId) || normalizeId(c.id) === normalizeId(data.conversationId));
       if (created) {
         selectConversation(created);
       }
@@ -787,10 +871,19 @@ const ChatSystem = ({
           );
         }
       } else {
-        console.error('📤 Send failed:', response.status, response.statusText);
+        const errData = await response.json().catch(() => ({}));
+        console.error('📤 Send failed:', response.status, response.statusText, errData);
+        setMessages(prev => prev.map(msg => msg.id === tempId ? { ...msg, status: 'failed' } : msg));
+        if (errData?.error === 'subscription_required') {
+          toast.warning(errData?.message || 'Messaging limit reached. Subscribe to continue.');
+          navigate('/subscription');
+        } else {
+          toast.error(errData?.message || errData?.error || 'Failed to send message.');
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
+      setMessages(prev => prev.map(msg => msg.id === tempId ? { ...msg, status: 'failed' } : msg));
       toast.error('Failed to send message.');
     }
   };
@@ -1264,10 +1357,11 @@ const ChatSystem = ({
   const selectConversation = (conv) => {
     if (!conv) return;
     const decrementBy = Number(conv.unreadCount || 0);
+    const isTargetRecipient = normalizeId(conv.participantId) === normalizeId(targetRecipientId);
     const mergedConv = {
       ...conv,
-      participantName: conv.participantName || (conv.participantId === targetRecipientId ? targetRecipientName : conv.participantName),
-      participantAvatar: conv.participantAvatar || (conv.participantId === targetRecipientId ? targetRecipientAvatar : conv.participantAvatar)
+      participantName: conv.participantName || (isTargetRecipient ? targetRecipientName : conv.participantName),
+      participantAvatar: conv.participantAvatar || (isTargetRecipient ? targetRecipientAvatar : conv.participantAvatar)
     };
     setSelectedConversation(mergedConv);
     setShowMobileChat(true);
@@ -1473,35 +1567,68 @@ const ChatSystem = ({
                         }
                       }}
                     >
-                      {message.messageType === 'image' ? (
-                        <Box
-                          component="img"
-                          src={resolveMediaUrl(message.content)}
-                          alt="Shared image"
-                          sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1, cursor: 'pointer' }}
-                          onClick={() => window.open(resolveMediaUrl(message.content), '_blank')}
-                        />
-                      ) : message.messageType === 'video' ? (
-                        <Box
-                          component="video"
-                          src={resolveMediaUrl(message.content)}
-                          controls
-                          sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1 }}
-                        />
-                      ) : message.messageType === 'file' ? (
-                        <Box
-                          component="a"
-                          href={resolveMediaUrl(message.content)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          sx={{ color: 'inherit', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: 0.5 }}
-                        >
-                          <AttachIcon sx={{ fontSize: 16 }} />
-                          <Typography sx={styles.messageText}>{message.metadata?.fileName || message.metadata?.filename || 'Download file'}</Typography>
-                        </Box>
-                      ) : (
-                        <Typography sx={styles.messageText}>{message.content}</Typography>
-                      )}
+                      {(() => {
+                        // Infer message type from content when messageType is missing or 'text'
+                        const effectiveType = inferMessageTypeFromContent(
+                          message.content,
+                          message.messageType,
+                          message.metadata || {}
+                        );
+                        if (effectiveType === 'image') {
+                          return (
+                            <Box
+                              component="img"
+                              src={resolveMediaUrl(message.content)}
+                              alt="Shared image"
+                              sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1, cursor: 'pointer' }}
+                              onClick={() => window.open(resolveMediaUrl(message.content), '_blank')}
+                            />
+                          );
+                        }
+                        if (effectiveType === 'video') {
+                          return (
+                            <Box
+                              component="video"
+                              src={resolveMediaUrl(message.content)}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              sx={{ maxWidth: '100%', maxHeight: 300, borderRadius: 1 }}
+                            />
+                          );
+                        }
+                        if (effectiveType === 'audio') {
+                          return (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 200 }}>
+                              <Box
+                                component="audio"
+                                src={resolveMediaUrl(message.content)}
+                                controls
+                                preload="metadata"
+                                sx={{ width: '100%', maxWidth: 280, height: 40 }}
+                              />
+                            </Box>
+                          );
+                        }
+                        if (effectiveType === 'file') {
+                          return (
+                            <Box
+                              component="a"
+                              href={resolveMediaUrl(message.content)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              sx={{ color: 'inherit', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: 0.5 }}
+                            >
+                              <AttachIcon sx={{ fontSize: 16 }} />
+                              <Typography sx={styles.messageText}>
+                                {message.metadata?.fileName || message.metadata?.filename || 'Download file'}
+                              </Typography>
+                            </Box>
+                          );
+                        }
+                        // Default: plain text
+                        return <Typography sx={styles.messageText}>{message.content}</Typography>;
+                      })()}
                       <Box sx={styles.messageFooter}>
                         <Typography sx={styles.messageTime}>
                           {formatTime(message.createdAt)}
@@ -2146,7 +2273,7 @@ const ChatSystem = ({
         }}>
           <CopyIcon fontSize="small" sx={{ color: '#00f2ea' }} /> Copy
         </MenuItem>
-        {selectedMessage?.senderId === user?.id && (
+        {normalizeId(selectedMessage?.senderId) === currentUserId && (
           <MenuItem 
             onClick={async () => {
               if (!selectedMessage) return;

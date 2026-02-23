@@ -233,37 +233,74 @@ router.post('/register', rateLimitMiddleware, [
     const isSugarAccount = accountType === 'sugar_daddy' || accountType === 'sugar_mommy';
     
     // ============================================
-    // CRITICAL: Detect country/currency from phone number
+    // CRITICAL: Detect country/currency from phone number + IP fallback
     // ============================================
     let detectedCountry = null;
-    let detectedCurrency = 'NGN'; // Default to Nigeria
-    let detectedCountryCode = 'NG';
+    let detectedCurrency = 'USD'; // Default to USD (neutral)
+    let detectedCountryCode = null;
+    let detectedLat = null;
+    let detectedLng = null;
     
+    // Country code → currency mapping (shared between phone + IP detection)
+    const countryCodeToCurrency = {
+      'NG': { currency: 'NGN', name: 'Nigeria' },
+      'GH': { currency: 'GHS', name: 'Ghana' },
+      'KE': { currency: 'KES', name: 'Kenya' },
+      'ZA': { currency: 'ZAR', name: 'South Africa' },
+      'UG': { currency: 'UGX', name: 'Uganda' },
+      'TZ': { currency: 'TZS', name: 'Tanzania' },
+      'RW': { currency: 'RWF', name: 'Rwanda' },
+      'BW': { currency: 'BWP', name: 'Botswana' },
+      'ZM': { currency: 'ZMW', name: 'Zambia' },
+      'MW': { currency: 'MWK', name: 'Malawi' },
+    };
+
     if (phone) {
       // Phone code to country mapping
       const phoneCodeMap = {
-        '+234': { code: 'NG', currency: 'NGN', name: 'Nigeria' },
-        '+233': { code: 'GH', currency: 'GHS', name: 'Ghana' },
-        '+254': { code: 'KE', currency: 'KES', name: 'Kenya' },
-        '+27': { code: 'ZA', currency: 'ZAR', name: 'South Africa' },
-        '+256': { code: 'UG', currency: 'UGX', name: 'Uganda' },
-        '+255': { code: 'TZ', currency: 'TZS', name: 'Tanzania' },
-        '+250': { code: 'RW', currency: 'RWF', name: 'Rwanda' },
-        '+267': { code: 'BW', currency: 'BWP', name: 'Botswana' },
-        '+260': { code: 'ZM', currency: 'ZMW', name: 'Zambia' },
-        '+265': { code: 'MW', currency: 'MWK', name: 'Malawi' },
+        '+234': 'NG', '+233': 'GH', '+254': 'KE', '+27': 'ZA',
+        '+256': 'UG', '+255': 'TZ', '+250': 'RW', '+267': 'BW',
+        '+260': 'ZM', '+265': 'MW',
       };
       
       const cleanPhone = phone.replace(/\s+/g, '').replace(/-/g, '');
-      for (const [code, countryInfo] of Object.entries(phoneCodeMap)) {
+      for (const [code, countryCodeStr] of Object.entries(phoneCodeMap)) {
         if (cleanPhone.startsWith(code)) {
-          detectedCountry = countryInfo.name;
-          detectedCurrency = countryInfo.currency;
-          detectedCountryCode = countryInfo.code;
-          console.log(`🌍 Country detected from phone ${cleanPhone}: ${countryInfo.name} (${countryInfo.currency})`);
+          detectedCountryCode = countryCodeStr;
+          const info = countryCodeToCurrency[countryCodeStr];
+          detectedCountry = info.name;
+          detectedCurrency = info.currency;
+          console.log(`🌍 Country detected from phone ${cleanPhone}: ${info.name} (${info.currency})`);
           break;
         }
       }
+    }
+
+    // IP-BASED GEOLOCATION FALLBACK — fills gaps when phone detection fails
+    if (!detectedCountry && req.locationTrackingService) {
+      try {
+        const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+        const ipLocation = await req.locationTrackingService.processIPLocation(ip);
+        if (ipLocation && ipLocation.country) {
+          const ipCountryCode = ipLocation.countryCode?.toUpperCase();
+          const currencyInfo = ipCountryCode ? countryCodeToCurrency[ipCountryCode] : null;
+          detectedCountry = ipLocation.country;
+          detectedCountryCode = ipCountryCode || null;
+          detectedCurrency = currencyInfo?.currency || 'USD';
+          detectedLat = ipLocation.lat || null;
+          detectedLng = ipLocation.lng || null;
+          console.log(`🌍 Country detected from IP ${ip}: ${ipLocation.country} (${detectedCurrency})`);
+        }
+      } catch (ipErr) {
+        console.warn('⚠️ IP geolocation failed during registration:', ipErr.message);
+      }
+    }
+    
+    // If still no country, default to Nigeria (primary market)
+    if (!detectedCountry) {
+      detectedCountry = 'Nigeria';
+      detectedCountryCode = 'NG';
+      detectedCurrency = 'NGN';
     }
     
     const profileData = {
@@ -272,13 +309,19 @@ router.post('/register', rateLimitMiddleware, [
       accountType: accountType || 'client',
       gender: gender || null,
       dateOfBirth: dateOfBirth || null,
-      // Country and currency detected from phone number
+      // Country and currency detected from phone number + IP geolocation
       country: detectedCountry,
       countryCode: detectedCountryCode,
       currency: detectedCurrency,
       location: {
         country: detectedCountry,
-        countryCode: detectedCountryCode
+        countryCode: detectedCountryCode,
+        // Store coordinates from IP geolocation if available
+        ...(detectedLat && detectedLng ? {
+          coordinates: { lat: detectedLat, lng: detectedLng },
+          // GeoJSON Point for MongoDB 2dsphere index (Uber-style proximity queries)
+          geoPoint: { type: 'Point', coordinates: [detectedLng, detectedLat] }
+        } : {})
       },
       faceVerification: {
         verified: false,

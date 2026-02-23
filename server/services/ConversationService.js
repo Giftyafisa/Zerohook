@@ -120,6 +120,7 @@ class ConversationService {
       // Update conversation's last message info
       await Conversation.findByIdAndUpdate(conversationId, {
         lastMessage: lastMessagePreview,
+        lastMessageType: messageType,
         lastMessageTime: message.createdAt,
         updatedAt: new Date()
       });

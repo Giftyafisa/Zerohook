@@ -21,7 +21,11 @@ router.get('/', authMiddleware, async (req, res) => {
       .limit(50)
       .lean();
 
+    // Count total unread for badge display
+    const unreadCount = await Notification.countDocuments({ user_id: userId, read: false });
+
     res.json({
+      success: true,
       notifications: notifications.map((notification) => ({
         id: notification._id.toString(),
         type: notification.type,
@@ -30,7 +34,8 @@ router.get('/', authMiddleware, async (req, res) => {
         is_read: Boolean(notification.read),
         created_at: notification.created_at,
         metadata: notification.data || {}
-      }))
+      })),
+      unreadCount
     });
 
   } catch (error) {

@@ -1,86 +1,208 @@
-const ConversationService = require('../services/ConversationService');
+/**
+ * ConversationService Unit Tests — MongoDB/Mongoose
+ * Tests the MongoDB-native ConversationService methods
+ */
+const mongoose = require('mongoose');
+
+// Mock all Mongoose models used by ConversationService
+const mockConversationFindById = jest.fn();
+const mockConversationFindOne = jest.fn();
+const mockConversationCreate = jest.fn();
+const mockConversationFindByIdAndUpdate = jest.fn();
+const mockConversationUpdateMany = jest.fn();
+
+const mockMessageCreate = jest.fn();
+
+const mockBlockedUserFindOne = jest.fn();
+const mockBlockedUserFindOneAndUpdate = jest.fn();
+const mockBlockedUserDeleteOne = jest.fn();
+const mockBlockedUserFind = jest.fn();
 
 jest.mock('../config/database', () => ({
-  query: jest.fn(),
-  getClient: jest.fn()
+  Conversation: {
+    findById: (...args) => mockConversationFindById(...args),
+    findOne: (...args) => mockConversationFindOne(...args),
+    create: (...args) => mockConversationCreate(...args),
+    findByIdAndUpdate: (...args) => mockConversationFindByIdAndUpdate(...args),
+    updateMany: (...args) => mockConversationUpdateMany(...args),
+  },
+  Message: {
+    create: (...args) => mockMessageCreate(...args),
+  },
+  BlockedUser: {
+    findOne: (...args) => mockBlockedUserFindOne(...args),
+    findOneAndUpdate: (...args) => mockBlockedUserFindOneAndUpdate(...args),
+    deleteOne: (...args) => mockBlockedUserDeleteOne(...args),
+    find: (...args) => mockBlockedUserFind(...args),
+  },
 }));
 
-const { query, getClient } = require('../config/database');
+const ConversationService = require('../services/ConversationService');
 
-describe('ConversationService', () => {
+describe('ConversationService (MongoDB)', () => {
   let cs;
+  const fakeId = new mongoose.Types.ObjectId();
+  const userId1 = new mongoose.Types.ObjectId();
+  const userId2 = new mongoose.Types.ObjectId();
 
   beforeEach(() => {
     jest.clearAllMocks();
     cs = new ConversationService();
   });
 
-  test('isMember returns true when conversation exists', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'conv-1' }] });
-    const res = await cs.isMember('conv-1', 'user-1');
+  // --- isMember ---
+  test('isMember returns true when user is participant1', async () => {
+    mockConversationFindById.mockResolvedValueOnce({
+      _id: fakeId,
+      participant1Id: userId1,
+      participant2Id: userId2,
+    });
+    const res = await cs.isMember(fakeId.toString(), userId1.toString());
     expect(res).toBe(true);
-    expect(query).toHaveBeenCalledWith(expect.any(String), ['conv-1', 'user-1']);
   });
 
-  test('isMember returns false when not member', async () => {
-    query.mockResolvedValueOnce({ rows: [] });
-    const res = await cs.isMember('conv-1', 'user-1');
+  test('isMember returns true when user is participant2', async () => {
+    mockConversationFindById.mockResolvedValueOnce({
+      _id: fakeId,
+      participant1Id: userId1,
+      participant2Id: userId2,
+    });
+    const res = await cs.isMember(fakeId.toString(), userId2.toString());
+    expect(res).toBe(true);
+  });
+
+  test('isMember returns false when conversation not found', async () => {
+    mockConversationFindById.mockResolvedValueOnce(null);
+    const res = await cs.isMember(fakeId.toString(), userId1.toString());
     expect(res).toBe(false);
   });
 
-  test('isBlockedBetween returns true when blocked', async () => {
-    query.mockResolvedValueOnce({ rows: [{ '1': 1 }] });
-    const res = await cs.isBlockedBetween('a', 'b');
+  test('isMember returns false on error', async () => {
+    mockConversationFindById.mockRejectedValueOnce(new Error('db error'));
+    const res = await cs.isMember(fakeId.toString(), userId1.toString());
+    expect(res).toBe(false);
+  });
+
+  // --- isBlockedBetween ---
+  test('isBlockedBetween returns true when a block record exists', async () => {
+    mockBlockedUserFindOne.mockResolvedValueOnce({ blocker_id: userId1, blocked_id: userId2 });
+    const res = await cs.isBlockedBetween(userId1.toString(), userId2.toString());
     expect(res).toBe(true);
+    expect(mockBlockedUserFindOne).toHaveBeenCalledWith({
+      $or: [
+        { blocker_id: userId1.toString(), blocked_id: userId2.toString() },
+        { blocker_id: userId2.toString(), blocked_id: userId1.toString() },
+      ],
+    });
   });
 
-  test('createOrGetConversation returns existing conversation', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'conv-existing', created_at: '2025-01-01' }] });
-    const res = await cs.createOrGetConversation('a', 'b');
-    expect(res).toEqual({ id: 'conv-existing', created_at: '2025-01-01' });
+  test('isBlockedBetween returns false when no block record', async () => {
+    mockBlockedUserFindOne.mockResolvedValueOnce(null);
+    const res = await cs.isBlockedBetween(userId1.toString(), userId2.toString());
+    expect(res).toBe(false);
   });
 
-  test('createOrGetConversation inserts when none exists', async () => {
-    // First call: check existing -> none
-    // Second call: insert and return
-    query.mockResolvedValueOnce({ rows: [] })
-         .mockResolvedValueOnce({ rows: [{ id: 'conv-new', created_at: '2025-01-02' }] });
-    const res = await cs.createOrGetConversation('a', 'b');
-    expect(res).toEqual({ id: 'conv-new', created_at: '2025-01-02' });
-    expect(query).toHaveBeenCalledTimes(2);
+  // --- createOrGetConversation ---
+  test('returns existing conversation when found', async () => {
+    const now = new Date();
+    mockConversationFindOne.mockResolvedValueOnce({
+      _id: fakeId,
+      createdAt: now,
+    });
+    const res = await cs.createOrGetConversation(userId1.toString(), userId2.toString());
+    expect(res).toEqual({ id: fakeId, created_at: now });
+    expect(mockConversationCreate).not.toHaveBeenCalled();
   });
 
-  test('insertMessageTx creates message and updates conversation when no client passed', async () => {
-    const fakeClient = {
-      query: jest.fn()
-    };
-    // getClient returns fake client
-    getClient.mockResolvedValueOnce(fakeClient);
-    // Simulate calls: BEGIN -> insert -> update -> COMMIT
-    fakeClient.query.mockResolvedValueOnce({}) // BEGIN
-                  .mockResolvedValueOnce({ rows: [{ id: 'msg-1', created_at: '2025-01-03' }] }) // insert
-                  .mockResolvedValueOnce({}) // update conversation
-                  .mockResolvedValueOnce({}); // COMMIT
-
-    const message = await cs.insertMessageTx({ conversationId: 'conv-1', senderId: 'u1', content: 'hi', messageType: 'text', metadata: {} });
-    expect(message).toEqual({ id: 'msg-1', created_at: '2025-01-03' });
-    expect(getClient).toHaveBeenCalled();
-    expect(fakeClient.query).toHaveBeenCalled();
+  test('creates new conversation when none exists', async () => {
+    const now = new Date();
+    mockConversationFindOne.mockResolvedValueOnce(null);
+    mockConversationCreate.mockResolvedValueOnce({
+      _id: fakeId,
+      createdAt: now,
+    });
+    const res = await cs.createOrGetConversation(userId1.toString(), userId2.toString());
+    expect(res).toEqual({ id: fakeId, created_at: now });
+    expect(mockConversationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        participant1Id: userId1.toString(),
+        participant2Id: userId2.toString(),
+        status: 'active',
+      })
+    );
   });
 
-  test('blockUser uses client transaction and commits', async () => {
-    const fakeClient = {
-      query: jest.fn(),
-      release: jest.fn()
-    };
-    getClient.mockResolvedValueOnce(fakeClient);
-    fakeClient.query.mockResolvedValue({ rows: [] });
+  // --- insertMessageTx ---
+  test('creates message and updates conversation', async () => {
+    const msgId = new mongoose.Types.ObjectId();
+    const now = new Date();
+    mockMessageCreate.mockResolvedValueOnce({
+      _id: msgId,
+      createdAt: now,
+      metadata: { foo: 'bar' },
+    });
+    mockConversationFindByIdAndUpdate.mockResolvedValueOnce({});
 
-    const res = await cs.blockUser('u1', 'u2');
+    const res = await cs.insertMessageTx({
+      conversationId: fakeId.toString(),
+      senderId: userId1.toString(),
+      content: 'hello',
+      messageType: 'text',
+      metadata: { foo: 'bar' },
+    });
+
+    expect(res._id).toEqual(msgId);
+    expect(res.id).toEqual(msgId);
+    expect(mockMessageCreate).toHaveBeenCalled();
+    expect(mockConversationFindByIdAndUpdate).toHaveBeenCalledWith(
+      fakeId.toString(),
+      expect.objectContaining({ lastMessage: 'hello' })
+    );
+  });
+
+  test('insertMessageTx formats image preview', async () => {
+    const msgId = new mongoose.Types.ObjectId();
+    mockMessageCreate.mockResolvedValueOnce({ _id: msgId, createdAt: new Date(), metadata: {} });
+    mockConversationFindByIdAndUpdate.mockResolvedValueOnce({});
+
+    await cs.insertMessageTx({
+      conversationId: fakeId.toString(),
+      senderId: userId1.toString(),
+      content: 'image.jpg',
+      messageType: 'image',
+    });
+
+    expect(mockConversationFindByIdAndUpdate).toHaveBeenCalledWith(
+      fakeId.toString(),
+      expect.objectContaining({ lastMessage: '📷 Photo' })
+    );
+  });
+
+  // --- blockUser ---
+  test('blockUser creates block record and marks conversations', async () => {
+    mockBlockedUserFindOneAndUpdate.mockResolvedValueOnce({});
+    mockConversationUpdateMany.mockResolvedValueOnce({});
+
+    const res = await cs.blockUser(userId1.toString(), userId2.toString());
     expect(res).toEqual({ success: true, message: 'User blocked successfully' });
-    // Expect BEGIN, then at least one operation, then COMMIT
-    expect(fakeClient.query).toHaveBeenCalled();
-    expect(fakeClient.release).toHaveBeenCalled();
+    expect(mockBlockedUserFindOneAndUpdate).toHaveBeenCalledWith(
+      { blocker_id: userId1.toString(), blocked_id: userId2.toString() },
+      expect.objectContaining({ blocker_id: userId1.toString(), blocked_id: userId2.toString() }),
+      { upsert: true, new: true }
+    );
+    expect(mockConversationUpdateMany).toHaveBeenCalled();
   });
 
+  // --- unblockUser ---
+  test('unblockUser removes block record and restores conversations', async () => {
+    mockBlockedUserDeleteOne.mockResolvedValueOnce({});
+    mockConversationUpdateMany.mockResolvedValueOnce({});
+
+    const res = await cs.unblockUser(userId1.toString(), userId2.toString());
+    expect(res).toEqual({ success: true, message: 'User unblocked successfully' });
+    expect(mockBlockedUserDeleteOne).toHaveBeenCalledWith({
+      blocker_id: userId1.toString(),
+      blocked_id: userId2.toString(),
+    });
+  });
 });

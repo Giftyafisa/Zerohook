@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import { selectIsAuthenticated } from '../../store/slices/authSlice';
+import { selectUnreadNotifications } from '../../store/slices/uiSlice';
 import tokens from '../../theme/tokens';
 
 // Header container with glass effect
@@ -177,6 +178,9 @@ const MobileHeader = ({
   const navigate = useNavigate();
   const location = useLocation();
   const isAuthenticated = useSelector(selectIsAuthenticated);
+  const reduxNotificationCount = useSelector(selectUnreadNotifications);
+  // Use Redux count if caller didn't pass an explicit count
+  const effectiveNotificationCount = notificationCount || reduxNotificationCount;
   
   const handleBack = () => {
     if (onBack) {
@@ -244,8 +248,8 @@ const MobileHeader = ({
         )}
         
         {showNotifications && isAuthenticated && (
-          <NotificationBadge badgeContent={notificationCount} max={99}>
-            <ActionButton onClick={onNotifications} aria-label="Notifications">
+          <NotificationBadge badgeContent={effectiveNotificationCount} max={99}>
+            <ActionButton onClick={onNotifications || (() => navigate('/notifications'))} aria-label="Notifications">
               <Notifications fontSize="small" />
             </ActionButton>
           </NotificationBadge>

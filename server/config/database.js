@@ -249,6 +249,7 @@ const conversationSchema = new mongoose.Schema({
   participant1Id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   participant2Id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   lastMessage: String,
+  lastMessageType: { type: String, default: 'text' },
   lastMessageTime: Date,
   status: { type: String, default: 'active' }
 }, { timestamps: true });

@@ -227,6 +227,16 @@ router.put('/me', authMiddleware, async (req, res) => {
         }
         const sanitizedData = sanitizeProfileValues(whitelisted);
         updateObj.profile_data = { ...existingProfileData, ...sanitizedData };
+
+        // AUTO-GENERATE GeoJSON geoPoint for 2dsphere index (Uber-style proximity)
+        const loc = updateObj.profile_data.location;
+        if (loc) {
+          const lat = parseFloat(loc.coordinates?.lat);
+          const lng = parseFloat(loc.coordinates?.lng);
+          if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            updateObj.profile_data.location.geoPoint = { type: 'Point', coordinates: [lng, lat] };
+          }
+        }
       } else {
         const whitelisted = {};
         for (const key of ALLOWED_PROFILE_FIELDS) {
@@ -326,6 +336,17 @@ router.put('/profile', authMiddleware, async (req, res) => {
     }
     const sanitizedData = sanitizeProfileValues(whitelisted);
     const mergedProfileData = { ...existingProfileData, ...sanitizedData };
+
+    // AUTO-GENERATE GeoJSON geoPoint for 2dsphere index (Uber-style proximity)
+    // If location has coordinates, ensure geoPoint is set for MongoDB geospatial queries
+    const loc = mergedProfileData.location;
+    if (loc) {
+      const lat = parseFloat(loc.coordinates?.lat);
+      const lng = parseFloat(loc.coordinates?.lng);
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        mergedProfileData.location.geoPoint = { type: 'Point', coordinates: [lng, lat] };
+      }
+    }
 
     debugLog('📝 Profile update:', { userId, incoming: Object.keys(incomingData), merged: Object.keys(mergedProfileData) });
 

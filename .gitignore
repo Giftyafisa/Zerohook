@@ -18,3 +18,8 @@ node_modules
 # Archive/legacy folder
 /server/legacy/
 Zerohook/
+
+# Claude Code temp files
+tmpclaude-*
+client/tmpclaude-*
+nul

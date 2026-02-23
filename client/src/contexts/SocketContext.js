@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { useDispatch } from 'react-redux';
@@ -6,12 +6,43 @@ import { toast } from 'react-toastify';
 import { 
   incrementUnreadMessages, 
   incrementUnreadNotifications,
-  addToNotificationsList 
+  addToNotificationsList,
+  setUnreadMessages,
+  setUnreadNotifications 
 } from '../store/slices/uiSlice';
+import { setSubscriptionStatus } from '../store/slices/authSlice';
 
 const SocketContext = createContext({});
 
 const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
+
+const inferMessageType = (data = {}) => {
+  const explicitType = data.messageType || data.type;
+  if (explicitType && explicitType !== 'text') return explicitType;
+
+  const mimeType = String(data?.metadata?.mimeType || data?.metadata?.mimetype || '').toLowerCase();
+  const fileName = String(data?.metadata?.filename || data?.metadata?.fileName || data?.metadata?.name || '').toLowerCase();
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType && !mimeType.startsWith('text/')) return 'file';
+  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(fileName)) return 'image';
+  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(fileName)) return 'video';
+  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(fileName)) return 'audio';
+
+  const content = String(data?.content || '').toLowerCase().split('?')[0].split('#')[0];
+  if (content.startsWith('data:image/')) return 'image';
+  if (content.startsWith('data:video/')) return 'video';
+  if (content.startsWith('data:audio/')) return 'audio';
+  if (/\/image\/upload\//.test(content)) return 'image';
+  if (/\/video\/upload\//.test(content)) return 'video';
+  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(content) || /image|photo|img/.test(content)) return 'image';
+  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(content) || /video|vid/.test(content)) return 'video';
+  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(content) || /audio|voice/.test(content)) return 'audio';
+  if (content.startsWith('http://') || content.startsWith('https://') || content.startsWith('/uploads/') || content.startsWith('data:')) return 'file';
+
+  return explicitType || 'text';
+};
 
 export const useSocket = () => {
   const context = useContext(SocketContext);
@@ -37,6 +68,21 @@ const showNotification = (title, message, type = 'info') => {
   }
 };
 
+const showDeviceNotification = (title, message) => {
+  try {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (document.visibilityState === 'visible') return;
+    if (Notification.permission === 'granted') {
+      new Notification(title, {
+        body: message,
+        icon: '/favicon.ico'
+      });
+    }
+  } catch (_) {
+    // Non-critical: browser/device notifications should never crash app flow
+  }
+};
+
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -52,6 +98,10 @@ export const SocketProvider = ({ children }) => {
 
     // Only attempt connection if authenticated and have user data
     if (isAuthenticated && user && localStorage.getItem('token')) {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+
       // Prevent reconnect churn: only reconnect if user ID actually changed
       if (socket && userIdRef.current === currentUserId) {
         return; // Same user, same socket — no action needed
@@ -77,14 +127,41 @@ export const SocketProvider = ({ children }) => {
         },
         timeout: 10000, // 10 second timeout
         reconnection: true,
-        reconnectionAttempts: 3,
-        reconnectionDelay: 1000
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 10000
       });
 
       newSocket.on('connect', () => {
         setIsConnected(true);
         if (process.env.NODE_ENV !== 'production') {
           console.log('✅ Connected to server');
+        }
+        // Fetch initial unread counts on connect/reconnect so badges are accurate
+        const apiUrl = process.env.REACT_APP_API_URL
+          || (process.env.NODE_ENV === 'production' ? 'https://zerohook-api.onrender.com/api' : '/api');
+        const token = localStorage.getItem('token');
+        if (token) {
+          fetch(`${apiUrl}/chat/unread-count`, { headers: { 'Authorization': `Bearer ${token}` } })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (data && typeof data.unreadCount === 'number') {
+                dispatch(setUnreadMessages(data.unreadCount));
+              }
+            })
+            .catch(() => {}); // Non-critical
+          fetch(`${apiUrl}/notifications`, { headers: { 'Authorization': `Bearer ${token}` } })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (data && typeof data.unreadCount === 'number') {
+                dispatch({ type: 'ui/setUnreadNotifications', payload: data.unreadCount });
+              } else if (data?.notifications) {
+                // Fallback: count from list
+                const unreadCount = data.notifications.filter(n => !n.is_read).length;
+                dispatch({ type: 'ui/setUnreadNotifications', payload: unreadCount });
+              }
+            })
+            .catch(() => {}); // Non-critical
         }
       });
 
@@ -121,24 +198,27 @@ export const SocketProvider = ({ children }) => {
           // Always increment unread badge (ChatSystem handles per-conversation decrement when opened)
           dispatch(incrementUnreadMessages());
 
+          // Format preview based on message type — never show raw URLs for media
+          let preview = 'New message';
+          const mType = inferMessageType(data);
+          if (mType === 'image') preview = '📷 Photo';
+          else if (mType === 'video') preview = '🎬 Video';
+          else if (mType === 'file') preview = '📎 File';
+          else if (mType === 'audio') preview = '🎵 Audio';
+          else if (data.content) preview = data.content.substring(0, 50);
+
           // Only show toast notification when NOT on the chat page
           if (!isChatRoute) {
             const sender = data.senderName || data.senderUsername;
-            // Format preview based on message type — never show raw URLs for media
-            let preview = 'New message';
-            const mType = data.messageType || 'text';
-            if (mType === 'image') preview = '📷 Photo';
-            else if (mType === 'video') preview = '🎬 Video';
-            else if (mType === 'file') preview = '📎 File';
-            else if (mType === 'audio') preview = '🎵 Audio';
-            else if (data.content) preview = data.content.substring(0, 50);
-
             showNotification(
               '💬 New Message',
               sender ? `${sender}: ${preview}` : 'You have a new message',
               'info'
             );
           }
+
+          const sender = data.senderName || data.senderUsername || 'Someone';
+          showDeviceNotification('💬 New Message', `${sender}: ${preview}`);
         }
       });
 
@@ -158,6 +238,7 @@ export const SocketProvider = ({ children }) => {
         if (data.type !== 'message') {
           showNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification', 'info');
         }
+        showDeviceNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification');
       });
 
       // CONNECTION REQUEST notification
@@ -186,6 +267,8 @@ export const SocketProvider = ({ children }) => {
           const callTypeLabel = data.type === 'audio' ? '📞 Incoming Call' : '📹 Incoming Video Call';
           showNotification(callTypeLabel, `${data.callerName || 'Someone'} is calling you`, 'warning');
         }
+        const callTypeLabel = data.type === 'audio' ? '📞 Incoming Call' : '📹 Incoming Video Call';
+        showDeviceNotification(callTypeLabel, `${data.callerName || 'Someone'} is calling you`);
       });
 
       // Escrow notification handlers
@@ -236,6 +319,16 @@ export const SocketProvider = ({ children }) => {
           `Your payment request was ${statusText}`,
           data.status === 'accepted' ? 'success' : 'warning'
         );
+      });
+
+      // Subscription status update (from payment verification)
+      newSocket.on('subscription_updated', (data) => {
+        if (data.isSubscribed != null) {
+          dispatch(setSubscriptionStatus(data.isSubscribed));
+        }
+        if (data.status === 'active') {
+          showNotification('🌟 Subscription Active', 'Your premium subscription is now active!', 'success');
+        }
       });
 
       setSocket(newSocket);

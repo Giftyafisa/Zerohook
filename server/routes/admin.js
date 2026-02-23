@@ -1046,4 +1046,237 @@ router.post('/subscriptions/:id/activate', authMiddleware, adminMiddleware, asyn
   }
 });
 
+// ─── USER MANAGEMENT ENDPOINTS ───────────────────────────────────────────────
+
+/**
+ * @route   GET /api/admin/users
+ * @desc    List all users with search, pagination, and filtering
+ * @access  Admin only
+ */
+router.get('/users', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { User } = require('../config/database');
+    const { search, page = 1, limit = 25, sort = '-created_at', status, accountType } = req.query;
+    const skip = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+
+    const filter = {};
+    if (search) {
+      const regex = new RegExp(search, 'i');
+      filter.$or = [
+        { username: regex },
+        { email: regex },
+        { phone: regex },
+        { 'profile_data.firstName': regex },
+        { 'profile_data.lastName': regex }
+      ];
+    }
+    if (status) filter.status = status;
+    if (accountType) filter['profile_data.accountType'] = accountType;
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .select('username email phone status is_subscribed subscription_tier verification_tier reputation_score trust_score is_banned is_admin role profile_data.accountType profile_data.firstName profile_data.lastName profile_data.age profile_data.country profile_data.city last_active created_at')
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      User.countDocuments(filter)
+    ]);
+
+    res.json({
+      success: true,
+      users: users.map(u => ({
+        _id: u._id.toString(),
+        username: u.username,
+        email: u.email,
+        phone: u.phone || '',
+        status: u.status,
+        is_subscribed: u.is_subscribed,
+        subscription_tier: u.subscription_tier,
+        verification_tier: u.verification_tier,
+        reputation_score: u.reputation_score,
+        trust_score: u.trust_score,
+        is_banned: u.is_banned,
+        is_admin: u.is_admin,
+        role: u.role,
+        accountType: u.profile_data?.accountType || 'user',
+        firstName: u.profile_data?.firstName || '',
+        lastName: u.profile_data?.lastName || '',
+        age: u.profile_data?.age || '',
+        country: u.profile_data?.country || '',
+        city: u.profile_data?.city || '',
+        last_active: u.last_active,
+        created_at: u.created_at
+      })),
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit))
+    });
+  } catch (error) {
+    console.error('Admin list users error:', error);
+    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to list users' });
+  }
+});
+
+/**
+ * @route   PUT /api/admin/users/:userId
+ * @desc    Edit user information (admin can update core fields)
+ * @access  Admin only
+ */
+router.put('/users/:userId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { User } = require('../config/database');
+    const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const {
+      username, email, phone, status,
+      is_subscribed, subscription_tier,
+      verification_tier, is_admin, role,
+      accountType, firstName, lastName, age, country, city
+    } = req.body;
+
+    const updates = {};
+
+    // Core fields
+    if (username !== undefined) updates.username = username;
+    if (email !== undefined) updates.email = email;
+    if (phone !== undefined) updates.phone = phone;
+    if (status !== undefined) updates.status = status;
+    if (is_subscribed !== undefined) updates.is_subscribed = is_subscribed;
+    if (subscription_tier !== undefined) updates.subscription_tier = subscription_tier;
+    if (verification_tier !== undefined) updates.verification_tier = parseInt(verification_tier);
+    if (is_admin !== undefined) updates.is_admin = is_admin;
+    if (role !== undefined) updates.role = role;
+
+    // Profile data fields (merged with existing)
+    const profileUpdates = {};
+    if (accountType !== undefined) profileUpdates['profile_data.accountType'] = accountType;
+    if (firstName !== undefined) profileUpdates['profile_data.firstName'] = firstName;
+    if (lastName !== undefined) profileUpdates['profile_data.lastName'] = lastName;
+    if (age !== undefined) profileUpdates['profile_data.age'] = age;
+    if (country !== undefined) profileUpdates['profile_data.country'] = country;
+    if (city !== undefined) profileUpdates['profile_data.city'] = city;
+
+    const $set = { ...updates, ...profileUpdates };
+    if (Object.keys($set).length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    const updated = await User.findByIdAndUpdate(userId, { $set }, { new: true })
+      .select('-password_hash')
+      .lean();
+
+    console.log(`✏️ Admin ${req.user.userId} edited user ${userId}: ${Object.keys($set).join(', ')}`);
+
+    // Notify user of profile changes via socket
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('profile_updated', {
+        message: 'Your profile has been updated by an administrator.',
+        fields: Object.keys($set)
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      user: {
+        _id: updated._id.toString(),
+        username: updated.username,
+        email: updated.email,
+        phone: updated.phone || '',
+        status: updated.status,
+        is_subscribed: updated.is_subscribed,
+        subscription_tier: updated.subscription_tier,
+        verification_tier: updated.verification_tier,
+        reputation_score: updated.reputation_score,
+        trust_score: updated.trust_score,
+        is_banned: updated.is_banned,
+        is_admin: updated.is_admin,
+        role: updated.role,
+        accountType: updated.profile_data?.accountType || 'user',
+        firstName: updated.profile_data?.firstName || '',
+        lastName: updated.profile_data?.lastName || '',
+        age: updated.profile_data?.age || '',
+        country: updated.profile_data?.country || '',
+        city: updated.profile_data?.city || '',
+        last_active: updated.last_active,
+        created_at: updated.created_at
+      }
+    });
+  } catch (error) {
+    console.error('Admin edit user error:', error);
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
+      return res.status(409).json({ error: `${field || 'Field'} already taken by another user` });
+    }
+    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to update user' });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin/users/:userId
+ * @desc    Permanently delete a user and their associated data
+ * @access  Admin only
+ */
+router.delete('/users/:userId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { User, Conversation } = require('../config/database');
+    const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    // Prevent self-deletion
+    if (userId === req.user.userId) {
+      return res.status(400).json({ error: 'You cannot delete your own admin account' });
+    }
+
+    const user = await User.findById(userId).select('username email is_admin').lean();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent deleting other admins (safety)
+    if (user.is_admin || user.role === 'admin' || user.profile_data?.accountType === 'admin') {
+      return res.status(403).json({ error: 'Cannot delete admin accounts. Remove admin privileges first.' });
+    }
+
+    // Delete user's conversations (where they are participant)
+    const deletedConvos = await Conversation.deleteMany({
+      $or: [{ participant1_id: userId }, { participant2_id: userId }]
+    });
+
+    // Delete the user
+    await User.findByIdAndDelete(userId);
+
+    // Disconnect user's socket if online
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('account_deleted', {
+        message: 'Your account has been permanently deleted by an administrator.'
+      });
+    }
+
+    console.log(`🗑️ Admin ${req.user.userId} deleted user ${userId} (${user.username} / ${user.email}). Conversations removed: ${deletedConvos.deletedCount}`);
+
+    res.json({
+      success: true,
+      message: `User ${user.username} deleted permanently`,
+      deletedConversations: deletedConvos.deletedCount
+    });
+  } catch (error) {
+    console.error('Admin delete user error:', error);
+    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to delete user' });
+  }
+});
+
 module.exports = router;

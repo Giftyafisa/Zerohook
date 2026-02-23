@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { selectUser, selectIsAuthenticated } from '../../store/slices/authSlice';
@@ -27,6 +27,19 @@ const S = {
   section: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 24, marginBottom: 24 },
   refresh: { padding: '8px 18px', borderRadius: 8, border: '1px solid rgba(0,242,234,0.3)', background: 'transparent', color: '#00f2ea', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
   spinner: { display: 'inline-block', width: 20, height: 20, border: '3px solid rgba(0,242,234,0.2)', borderTop: '3px solid #00f2ea', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
+  // User management styles
+  input: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '8px 12px', color: '#fff', fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box' },
+  select: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '8px 12px', color: '#fff', fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box', appearance: 'auto' },
+  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 },
+  modal: { background: '#111118', border: '1px solid rgba(0,242,234,0.25)', borderRadius: 16, padding: 28, width: '95%', maxWidth: 600, maxHeight: '85vh', overflowY: 'auto', position: 'relative' },
+  modalClose: { position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 22, cursor: 'pointer', padding: 4 },
+  formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 },
+  formLabel: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4, display: 'block' },
+  formField: { marginBottom: 2 },
+  searchBar: { display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' },
+  pagination: { display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
+  pageBtn: (active) => ({ padding: '6px 14px', borderRadius: 6, border: active ? '1px solid #00f2ea' : '1px solid rgba(255,255,255,0.1)', background: active ? 'rgba(0,242,234,0.15)' : 'transparent', color: active ? '#00f2ea' : 'rgba(255,255,255,0.5)', cursor: 'pointer', fontWeight: 600, fontSize: 13 }),
+  dangerBtn: { padding: '7px 16px', borderRadius: 7, border: 'none', background: '#e53935', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', transition: 'opacity .2s', marginRight: 6 },
 };
 
 // ─── Check admin from multiple sources ────────────────────────────────────────
@@ -74,6 +87,20 @@ export default function AdminPanel() {
   const [bannedUsers, setBannedUsers] = useState([]);
   const [unbanReqs, setUnbanReqs] = useState([]);
   const [actionLoading, setActionLoading] = useState('');
+
+  // ── User management state ─────────────────────────────────────────────────
+  const [allUsers, setAllUsers] = useState([]);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersPages, setUsersPages] = useState(1);
+  const [usersSearch, setUsersSearch] = useState('');
+  const [usersFilter, setUsersFilter] = useState('');
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [editUser, setEditUser] = useState(null); // user object being edited
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // userId to confirm delete
+  const searchTimeout = useRef(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -151,6 +178,120 @@ export default function AdminPanel() {
     else toast.error(r.data.error || 'Failed');
     setActionLoading('');
   };
+
+  // ── User management actions ────────────────────────────────────────────────
+  const loadUsers = useCallback(async (page = 1, search = '', filter = '') => {
+    setUsersLoading(true);
+    try {
+      const params = new URLSearchParams({ page, limit: 25 });
+      if (search) params.set('search', search);
+      if (filter) params.set('accountType', filter);
+      const r = await adminFetch(`users?${params.toString()}`);
+      if (r.ok) {
+        setAllUsers(r.data.users || []);
+        setUsersTotal(r.data.total || 0);
+        setUsersPage(r.data.page || 1);
+        setUsersPages(r.data.pages || 1);
+      } else {
+        toast.error(r.data.error || 'Failed to load users');
+      }
+    } catch (e) {
+      toast.error('Error loading users: ' + e.message);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
+
+  const handleUserSearch = useCallback((val) => {
+    setUsersSearch(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => {
+      loadUsers(1, val, usersFilter);
+    }, 400);
+  }, [loadUsers, usersFilter]);
+
+  const handleFilterChange = useCallback((val) => {
+    setUsersFilter(val);
+    loadUsers(1, usersSearch, val);
+  }, [loadUsers, usersSearch]);
+
+  const openEditModal = (u) => {
+    setEditUser(u);
+    setEditForm({
+      username: u.username || '',
+      email: u.email || '',
+      phone: u.phone || '',
+      status: u.status || 'active',
+      is_subscribed: u.is_subscribed || false,
+      subscription_tier: u.subscription_tier || 'free',
+      verification_tier: u.verification_tier || 1,
+      is_admin: u.is_admin || false,
+      role: u.role || 'user',
+      accountType: u.accountType || 'user',
+      firstName: u.firstName || '',
+      lastName: u.lastName || '',
+      age: u.age || '',
+      country: u.country || '',
+      city: u.city || '',
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editUser) return;
+    setEditSaving(true);
+    try {
+      const r = await adminFetch(`users/${editUser._id}`, {
+        method: 'PUT',
+        body: JSON.stringify(editForm)
+      });
+      if (r.ok) {
+        toast.success('User updated successfully');
+        setEditUser(null);
+        loadUsers(usersPage, usersSearch, usersFilter);
+      } else {
+        toast.error(r.data.error || 'Failed to update user');
+      }
+    } catch (e) {
+      toast.error('Error: ' + e.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deleteUser = async (userId) => {
+    setActionLoading(userId);
+    try {
+      const r = await adminFetch(`users/${userId}`, { method: 'DELETE' });
+      if (r.ok) {
+        toast.success(r.data.message || 'User deleted');
+        setDeleteConfirm(null);
+        loadUsers(usersPage, usersSearch, usersFilter);
+      } else {
+        toast.error(r.data.error || 'Failed to delete user');
+      }
+    } catch (e) {
+      toast.error('Error: ' + e.message);
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const banUser = async (userId, username) => {
+    const reason = window.prompt(`Ban reason for ${username}:`);
+    if (!reason) return;
+    setActionLoading(userId);
+    const r = await adminFetch(`manual-ban/${userId}`, { method: 'POST', body: JSON.stringify({ reason }) });
+    if (r.ok) { toast.success('User banned'); loadUsers(usersPage, usersSearch, usersFilter); }
+    else toast.error(r.data.error || 'Failed to ban');
+    setActionLoading('');
+  };
+
+  // Load users when switching to users tab
+  useEffect(() => {
+    if (activeTab === 'users' && allUsers.length === 0 && apiAdmin === true) {
+      loadUsers(1, '', '');
+    }
+  }, [activeTab, allUsers.length, apiAdmin, loadUsers]);
 
   // ── Access checks ──────────────────────────────────────────────────────────
   if (!isAuthenticated) {
@@ -393,60 +534,272 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {/* ── USERS ── */}
+      {/* ── USERS (Full Management) ── */}
       {activeTab === 'users' && (
         <div style={S.section}>
-          <h2 style={S.h2}>Banned Users ({bannedUsers.length})</h2>
-          {bannedUsers.length === 0 ? (
-            <p style={{ color: 'rgba(255,255,255,0.4)' }}>No banned users.</p>
+          <h2 style={S.h2}>User Management ({usersTotal} total)</h2>
+
+          {/* Search & Filter Bar */}
+          <div style={S.searchBar}>
+            <input
+              type="text"
+              placeholder="Search by username, email, name, phone…"
+              value={usersSearch}
+              onChange={(e) => handleUserSearch(e.target.value)}
+              style={{ ...S.input, maxWidth: 360, flex: 1 }}
+            />
+            <select value={usersFilter} onChange={(e) => handleFilterChange(e.target.value)} style={{ ...S.select, maxWidth: 180 }}>
+              <option value="">All Types</option>
+              <option value="client">Client</option>
+              <option value="provider">Provider</option>
+              <option value="sugar_daddy">Sugar Daddy</option>
+              <option value="sugar_mommy">Sugar Mommy</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button style={S.refresh} onClick={() => loadUsers(usersPage, usersSearch, usersFilter)}>↻ Refresh</button>
+          </div>
+
+          {/* Users Table */}
+          {usersLoading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}><div style={S.spinner} /></div>
+          ) : allUsers.length === 0 ? (
+            <p style={{ color: 'rgba(255,255,255,0.4)' }}>No users found.</p>
           ) : (
-            <table style={S.table}>
-              <thead>
-                <tr>
-                  {['Username','Email','Banned At','Reason','Actions'].map(h => <th key={h} style={S.th}>{h}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {bannedUsers.map(u => (
-                  <tr key={u._id}>
-                    <td style={S.td}>{u.username}</td>
-                    <td style={S.td}>{u.email}</td>
-                    <td style={S.td}>{fmtDate(u.ban_data?.bannedAt)}</td>
-                    <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.ban_data?.reason || '—'}</td>
-                    <td style={S.td}>
-                      <button style={S.btn('#4caf50')} disabled={actionLoading === String(u._id)} onClick={() => unbanUser(u._id)}>Unban</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {unbanReqs.length > 0 && (
             <>
-              <h2 style={{ ...S.h2, marginTop: 32 }}>Unban Requests ({unbanReqs.length})</h2>
-              <table style={S.table}>
-                <thead>
-                  <tr>
-                    {['User','Reason','Requested','Actions'].map(h => <th key={h} style={S.th}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {unbanReqs.map(r => (
-                    <tr key={r._id}>
-                      <td style={S.td}>{r.username}</td>
-                      <td style={S.td}>{r.reason || '—'}</td>
-                      <td style={S.td}>{fmtDate(r.createdAt)}</td>
-                      <td style={S.td}>
-                        <button style={S.btn('#4caf50')} disabled={actionLoading === String(r.userId)} onClick={() => unbanUser(r.userId)}>✓ Grant</button>
-                      </td>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={S.table}>
+                  <thead>
+                    <tr>
+                      {['User', 'Email', 'Type', 'Status', 'Sub', 'Trust', 'Joined', 'Actions'].map(h => (
+                        <th key={h} style={S.th}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {allUsers.map(u => (
+                      <tr key={u._id} style={u.is_banned ? { background: 'rgba(229,57,53,0.08)' } : {}}>
+                        <td style={S.td}>
+                          <div>
+                            <b style={{ color: u.is_admin ? '#ff0055' : '#fff' }}>{u.username}</b>
+                            {u.is_admin && <span style={{ ...S.badge('#ff0055'), marginLeft: 6 }}>ADMIN</span>}
+                          </div>
+                          {(u.firstName || u.lastName) && (
+                            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{u.firstName} {u.lastName}</div>
+                          )}
+                        </td>
+                        <td style={{ ...S.td, fontSize: 13 }}>{u.email}</td>
+                        <td style={S.td}><span style={S.badge('#9c27b0')}>{u.accountType}</span></td>
+                        <td style={S.td}>
+                          {u.is_banned
+                            ? <span style={S.badge('#e53935')}>Banned</span>
+                            : <span style={S.badge(u.status === 'active' ? '#4caf50' : '#ff9800')}>{u.status}</span>
+                          }
+                        </td>
+                        <td style={S.td}>
+                          {u.is_subscribed
+                            ? <span style={S.badge('#00f2ea')}>{u.subscription_tier}</span>
+                            : <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>free</span>
+                          }
+                        </td>
+                        <td style={S.td}>
+                          <span style={{ color: u.trust_score >= 70 ? '#4caf50' : u.trust_score >= 40 ? '#ff9800' : '#e53935', fontWeight: 700 }}>
+                            {Math.round(u.trust_score || 0)}
+                          </span>
+                        </td>
+                        <td style={{ ...S.td, fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{fmtDate(u.created_at)}</td>
+                        <td style={S.td}>
+                          <button
+                            style={S.btn('#2196f3')}
+                            onClick={() => openEditModal(u)}
+                            title="Edit user"
+                          >✏️ Edit</button>
+                          {!u.is_banned && !u.is_admin && (
+                            <button
+                              style={S.btn('#ff9800')}
+                              disabled={actionLoading === u._id}
+                              onClick={() => banUser(u._id, u.username)}
+                              title="Ban user"
+                            >🚫 Ban</button>
+                          )}
+                          {u.is_banned && (
+                            <button
+                              style={S.btn('#4caf50')}
+                              disabled={actionLoading === u._id}
+                              onClick={() => unbanUser(u._id)}
+                              title="Unban user"
+                            >✓ Unban</button>
+                          )}
+                          {!u.is_admin && (
+                            deleteConfirm === u._id ? (
+                              <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                                <button style={S.dangerBtn} disabled={actionLoading === u._id} onClick={() => deleteUser(u._id)}>
+                                  {actionLoading === u._id ? '…' : 'Confirm Delete'}
+                                </button>
+                                <button style={{ ...S.btn(), padding: '7px 10px' }} onClick={() => setDeleteConfirm(null)}>✕</button>
+                              </span>
+                            ) : (
+                              <button
+                                style={S.dangerBtn}
+                                onClick={() => setDeleteConfirm(u._id)}
+                                title="Delete user permanently"
+                              >🗑️ Delete</button>
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {usersPages > 1 && (
+                <div style={S.pagination}>
+                  <button
+                    style={S.pageBtn(false)}
+                    disabled={usersPage <= 1}
+                    onClick={() => { setUsersPage(p => p - 1); loadUsers(usersPage - 1, usersSearch, usersFilter); }}
+                  >← Prev</button>
+                  {Array.from({ length: Math.min(usersPages, 7) }, (_, i) => {
+                    let p;
+                    if (usersPages <= 7) p = i + 1;
+                    else if (usersPage <= 4) p = i + 1;
+                    else if (usersPage >= usersPages - 3) p = usersPages - 6 + i;
+                    else p = usersPage - 3 + i;
+                    return (
+                      <button key={p} style={S.pageBtn(p === usersPage)} onClick={() => { setUsersPage(p); loadUsers(p, usersSearch, usersFilter); }}>
+                        {p}
+                      </button>
+                    );
+                  })}
+                  <button
+                    style={S.pageBtn(false)}
+                    disabled={usersPage >= usersPages}
+                    onClick={() => { setUsersPage(p => p + 1); loadUsers(usersPage + 1, usersSearch, usersFilter); }}
+                  >Next →</button>
+                </div>
+              )}
             </>
           )}
         </div>
       )}
+
+      {/* ── EDIT USER MODAL ── */}
+      {editUser && (
+        <div style={S.overlay} onClick={(e) => { if (e.target === e.currentTarget) setEditUser(null); }}>
+          <div style={S.modal}>
+            <button style={S.modalClose} onClick={() => setEditUser(null)}>✕</button>
+            <h2 style={{ ...S.h2, marginBottom: 4 }}>Edit User</h2>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 0, marginBottom: 20 }}>
+              ID: {editUser._id} &nbsp;·&nbsp; Joined: {fmtDate(editUser.created_at)}
+            </p>
+
+            <div style={S.formGrid}>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Username</label>
+                <input style={S.input} value={editForm.username} onChange={e => setEditForm(f => ({ ...f, username: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Email</label>
+                <input style={S.input} type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>First Name</label>
+                <input style={S.input} value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Last Name</label>
+                <input style={S.input} value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Phone</label>
+                <input style={S.input} value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Age</label>
+                <input style={S.input} type="number" value={editForm.age} onChange={e => setEditForm(f => ({ ...f, age: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Country</label>
+                <input style={S.input} value={editForm.country} onChange={e => setEditForm(f => ({ ...f, country: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>City</label>
+                <input style={S.input} value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} />
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Account Type</label>
+                <select style={S.select} value={editForm.accountType} onChange={e => setEditForm(f => ({ ...f, accountType: e.target.value }))}>
+                  <option value="user">User</option>
+                  <option value="client">Client</option>
+                  <option value="provider">Provider</option>
+                  <option value="sugar_daddy">Sugar Daddy</option>
+                  <option value="sugar_mommy">Sugar Mommy</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Status</label>
+                <select style={S.select} value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}>
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="banned">Banned</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Subscription Tier</label>
+                <select style={S.select} value={editForm.subscription_tier} onChange={e => setEditForm(f => ({ ...f, subscription_tier: e.target.value }))}>
+                  <option value="free">Free</option>
+                  <option value="basic">Basic</option>
+                  <option value="premium">Premium</option>
+                  <option value="vip">VIP</option>
+                </select>
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Verification Tier</label>
+                <select style={S.select} value={editForm.verification_tier} onChange={e => setEditForm(f => ({ ...f, verification_tier: parseInt(e.target.value) }))}>
+                  <option value={1}>Tier 1 (Basic)</option>
+                  <option value={2}>Tier 2 (ID Verified)</option>
+                  <option value={3}>Tier 3 (Full)</option>
+                </select>
+              </div>
+              <div style={S.formField}>
+                <label style={S.formLabel}>Role</label>
+                <select style={S.select} value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}>
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Toggle switches */}
+            <div style={{ display: 'flex', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>
+                <input type="checkbox" checked={editForm.is_subscribed} onChange={e => setEditForm(f => ({ ...f, is_subscribed: e.target.checked }))} />
+                Subscribed
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: editForm.is_admin ? '#ff0055' : 'rgba(255,255,255,0.7)', fontSize: 14 }}>
+                <input type="checkbox" checked={editForm.is_admin} onChange={e => setEditForm(f => ({ ...f, is_admin: e.target.checked }))} />
+                Admin
+              </label>
+            </div>
+
+            {/* Save / Cancel */}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button style={{ ...S.btn(), background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.15)' }} onClick={() => setEditUser(null)}>
+                Cancel
+              </button>
+              <button style={S.btn('#4caf50')} disabled={editSaving} onClick={saveEdit}>
+                {editSaving ? 'Saving…' : '✓ Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE CONFIRMATION MODAL ── */}
+      {deleteConfirm && !allUsers.find(u => u._id === deleteConfirm) && setDeleteConfirm(null)}
     </div>
   );
 }

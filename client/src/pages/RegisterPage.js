@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { registerUser } from '../store/slices/authSlice';
@@ -66,6 +66,9 @@ const RegisterPage = () => {
   const [localError, setLocalError] = useState('');
   const [selectedCountry, setSelectedCountry] = useState(AFRICAN_COUNTRIES[0]); // Default to Nigeria
   const [detectingLocation, setDetectingLocation] = useState(true);
+  const formRef = useRef(null);
+  const errorRef = useRef(null);
+  const bottomErrorRef = useRef(null);
 
   // Detect user's country on mount
   useEffect(() => {
@@ -105,33 +108,72 @@ const RegisterPage = () => {
     setLocalError(''); // Clear error when user types
   };
 
+  // Scroll to error message so user can see what's wrong
+  const scrollToError = () => {
+    setTimeout(() => {
+      if (bottomErrorRef.current) {
+        bottomErrorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (errorRef.current) {
+        errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
+
   const validateForm = () => {
+    // Check required fields first
+    if (!formData.firstName.trim()) {
+      setLocalError('Please enter your first name');
+      scrollToError();
+      return false;
+    }
+    if (!formData.lastName.trim()) {
+      setLocalError('Please enter your last name');
+      scrollToError();
+      return false;
+    }
+    if (!formData.email.trim()) {
+      setLocalError('Please enter your email address');
+      scrollToError();
+      return false;
+    }
+    if (!formData.phone.trim()) {
+      setLocalError('Please enter your phone number');
+      scrollToError();
+      return false;
+    }
     if (formData.password !== formData.confirmPassword) {
       setLocalError('Passwords do not match');
+      scrollToError();
       return false;
     }
     if (formData.password.length < 8) {
       setLocalError('Password must be at least 8 characters long');
+      scrollToError();
       return false;
     }
     if (!/[A-Z]/.test(formData.password)) {
       setLocalError('Password must contain at least one uppercase letter');
+      scrollToError();
       return false;
     }
     if (!/[a-z]/.test(formData.password)) {
       setLocalError('Password must contain at least one lowercase letter');
+      scrollToError();
       return false;
     }
     if (!/\d/.test(formData.password)) {
       setLocalError('Password must contain at least one number');
+      scrollToError();
       return false;
     }
     if (!formData.gender) {
       setLocalError('Please select your gender');
+      scrollToError();
       return false;
     }
     if (!formData.dateOfBirth) {
       setLocalError('Please enter your date of birth');
+      scrollToError();
       return false;
     }
     // Validate age (must be 18+)
@@ -144,10 +186,12 @@ const RegisterPage = () => {
     }
     if (age < 18) {
       setLocalError('You must be at least 18 years old to register');
+      scrollToError();
       return false;
     }
     if (!formData.agreeTerms) {
-      setLocalError('You must agree to the Terms of Service');
+      setLocalError('You must agree to the Terms of Service and Privacy Policy');
+      scrollToError();
       return false;
     }
     return true;
@@ -182,9 +226,11 @@ const RegisterPage = () => {
         navigate('/subscription');
       } else {
         console.error('Registration failed:', resultAction.error);
+        scrollToError();
       }
     } catch (err) {
       setLocalError('Registration failed. Please try again.');
+      scrollToError();
     }
   };
 
@@ -242,6 +288,7 @@ const RegisterPage = () => {
         {/* Error Alert */}
         {(authError || localError) && (
           <Box 
+            ref={errorRef}
             sx={{ 
               mb: 3,
               p: 2,
@@ -257,7 +304,7 @@ const RegisterPage = () => {
         )}
 
         {/* Registration Form */}
-        <Box component="form" onSubmit={handleSubmit}>
+        <Box component="form" onSubmit={handleSubmit} ref={formRef} noValidate>
           {/* Section 1: Personal Information */}
           <Box sx={{ mb: 4 }}>
             <Typography 
@@ -284,7 +331,6 @@ const RegisterPage = () => {
                   label="First Name"
                   value={formData.firstName}
                   onChange={handleChange}
-                  required
                   startIcon={<Person sx={{ color: '#00f2ea' }} />}
                   placeholder="Enter first name"
                 />
@@ -296,7 +342,6 @@ const RegisterPage = () => {
                   label="Last Name"
                   value={formData.lastName}
                   onChange={handleChange}
-                  required
                   startIcon={<Person sx={{ color: '#00f2ea' }} />}
                   placeholder="Enter last name"
                 />
@@ -412,7 +457,6 @@ const RegisterPage = () => {
                       type="date"
                       value={formData.dateOfBirth}
                       onChange={handleChange}
-                      required
                       min="1940-01-01"
                       max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
                       placeholder="YYYY-MM-DD"
@@ -494,7 +538,6 @@ const RegisterPage = () => {
                       type="email"
                       value={formData.email}
                       onChange={handleChange}
-                      required
                       autoComplete="off"
                       placeholder="Enter your email"
                       style={{
@@ -613,7 +656,6 @@ const RegisterPage = () => {
                     type="tel"
                     value={formData.phone}
                     onChange={handleChange}
-                    required
                     autoComplete="off"
                     placeholder="Enter phone number"
                     style={{
@@ -800,7 +842,6 @@ const RegisterPage = () => {
                 type="password"
                 value={formData.password}
                 onChange={handleChange}
-                required
                 startIcon={<Lock sx={{ color: '#00f2ea' }} />}
                 placeholder="Min 8 chars, A-Z, a-z, 0-9"
               />
@@ -870,7 +911,6 @@ const RegisterPage = () => {
                 type="password"
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                required
                 startIcon={<Lock sx={{ color: '#00f2ea' }} />}
                 placeholder="Confirm password"
               />
@@ -979,37 +1019,54 @@ const RegisterPage = () => {
                       }}
                     >
                       I agree to the{' '}
-                      <Link 
-                        to="/terms" 
+                      <a 
+                        href="/terms" 
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
                         style={{ 
                           color: '#00f2ea', 
                           textDecoration: 'none',
-                          minHeight: '44px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '12px 4px',
                         }}
                       >
                         Terms of Service
-                      </Link>{' '}
+                      </a>{' '}
                       and{' '}
-                      <Link 
-                        to="/privacy" 
+                      <a 
+                        href="/privacy" 
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
                         style={{ 
                           color: '#00f2ea', 
                           textDecoration: 'none',
-                          minHeight: '44px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '12px 4px',
                         }}
                       >
                         Privacy Policy
-                      </Link>
+                      </a>
                     </Typography>
                   }
                 />
               </Grid>
+
+              {/* Error near submit button (so users see it without scrolling up) */}
+              {(authError || localError) && (
+                <Grid item xs={12}>
+                  <Box 
+                    ref={bottomErrorRef}
+                    sx={{ 
+                      p: 2,
+                      borderRadius: '12px',
+                      background: 'rgba(255, 0, 85, 0.1)',
+                      border: '1px solid rgba(255, 0, 85, 0.3)',
+                    }}
+                  >
+                    <Typography sx={{ color: '#ff0055', fontFamily: '"Outfit", sans-serif', fontSize: '14px', textAlign: 'center' }}>
+                      ⚠️ {authError || localError}
+                    </Typography>
+                  </Box>
+                </Grid>
+              )}
 
               {/* Submit Button */}
               <Grid item xs={12}>
@@ -1024,7 +1081,7 @@ const RegisterPage = () => {
                     fontSize: '16px',
                   }}
                 >
-                  Create Account
+                  {loading ? 'Creating Account...' : 'Create Account'}
                 </GlassButton>
               </Grid>
             </Grid>

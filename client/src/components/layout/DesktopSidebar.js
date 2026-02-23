@@ -199,6 +199,7 @@ const DesktopSidebar = () => {
   
   const user = useSelector(selectUser);
   const isAuthenticated = useSelector(selectIsAuthenticated);
+  const isAdmin = user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin';
   const isSubscribed = useSelector(selectIsSubscribed);
   const unreadMessages = useSelector(selectUnreadMessages);
   const unreadNotifications = useSelector(selectUnreadNotifications);
@@ -392,6 +393,29 @@ const DesktopSidebar = () => {
             </NavItem>
           ))}
           
+          {/* Admin Dashboard - visible only to admins */}
+          {isAdmin && (
+            <>
+              <SectionLabel sx={{ color: 'rgba(255, 0, 85, 0.7)' }}>Admin</SectionLabel>
+              <NavItem
+                active={isActive('/admin')}
+                onClick={() => navigate('/admin')}
+                sx={{
+                  border: '1px solid rgba(255, 0, 85, 0.3) !important',
+                  background: 'rgba(255, 0, 85, 0.08) !important',
+                  '&:hover': { background: 'rgba(255, 0, 85, 0.18) !important' },
+                }}
+              >
+                <Box className="nav-icon" component="span" sx={{ color: '#ff0055 !important' }}>
+                  <Security />
+                </Box>
+                <Typography className="nav-label" sx={{ color: '#ff0055 !important', fontWeight: 700 }}>
+                  Admin Dashboard
+                </Typography>
+              </NavItem>
+            </>
+          )}
+
           <Divider sx={{ my: 2, borderColor: 'rgba(255, 255, 255, 0.08)' }} />
           
           {/* Logout */}

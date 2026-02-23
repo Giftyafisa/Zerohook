@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
-const { Transaction, Service } = require('../config/database');
+const { Transaction, Service, CryptoInvoice, Subscription, User: UserModel } = require('../config/database');
 const NotificationService = require('../services/NotificationService');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
@@ -657,295 +657,6 @@ router.get('/wallet', authMiddleware, async (req, res) => {
 
 // ============ DEPOSIT & WITHDRAW (Crypto) ============
 
-// ============ PAYSTACK PAYMENT ENDPOINTS ============
-
-/**
- * @route   POST /api/payments/paystack/initialize
- * @desc    Initialize Paystack payment for wallet deposit
- * @access  Private
- */
-router.post('/paystack/initialize', authMiddleware, paymentRateLimit, async (req, res) => {
-  try {
-    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
-      return res.status(503).json({ success: false, error: 'Paystack is not available. Please use crypto payment.' });
-    }
-
-    const userId = req.user.userId;
-    const { amount, currency: clientCurrency } = req.body;
-
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ success: false, error: 'Invalid amount' });
-    }
-
-    // Get user email and country
-    const user = await require('../config/database').User.findById(userId).select('email').lean();
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    // Determine currency
-    let currency = clientCurrency?.toUpperCase();
-    let countryCode = 'NG';
-    if (!currency) {
-      const userCountry = await req.countryManager.getUserCountry(userId);
-      countryCode = userCountry.success && userCountry.country ? userCountry.country.code : 'NG';
-      const country = req.countryManager.getCountryByCode(countryCode);
-      currency = country ? country.currency : 'NGN';
-    } else {
-      const currencyToCountry = { NGN: 'NG', GHS: 'GH', KES: 'KE', ZAR: 'ZA', USD: 'US' };
-      countryCode = currencyToCountry[currency] || 'NG';
-    }
-
-    const reference = `DEP_PS_${Date.now()}_${require('crypto').randomBytes(4).toString('hex')}`;
-    const callbackUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/wallet?payment_status=success&reference=${reference}&method=paystack`;
-
-    // Paystack channels based on country
-    const channelMap = {
-      NG: ['card', 'bank', 'ussd', 'bank_transfer'],
-      GH: ['card', 'mobile_money'],
-      KE: ['card', 'mobile_money'],
-      ZA: ['card', 'eft'],
-    };
-    const channels = channelMap[countryCode] || ['card'];
-
-    const paystackResult = await req.paystackManager.initializeTransaction({
-      amount,
-      email: user.email,
-      currency,
-      reference,
-      callback_url: callbackUrl,
-      channels,
-      metadata: {
-        type: 'deposit',
-        userId,
-        countryCode
-      }
-    });
-
-    if (!paystackResult.success) {
-      return res.status(500).json({ success: false, error: 'Failed to initialize Paystack payment' });
-    }
-
-    // Create pending transaction record
-    let userObjId;
-    try {
-      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
-    } catch (e) {
-      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
-    }
-
-    await Transaction.create({
-      user_id: userObjId,
-      amount,
-      currency,
-      payment_method: 'paystack',
-      reference,
-      status: 'pending',
-      country_code: countryCode,
-      type: 'deposit',
-      metadata: {
-        type: 'deposit',
-        paymentMethod: 'paystack',
-        description: `Wallet deposit via Paystack`
-      }
-    });
-
-    console.log(`💳 Paystack deposit initialized: ${reference} - ${currency} ${amount}`);
-
-    res.json({
-      success: true,
-      reference,
-      authorizationUrl: paystackResult.authorizationUrl,
-      accessCode: paystackResult.accessCode,
-      amount,
-      currency
-    });
-  } catch (error) {
-    console.error('Paystack initialize error:', error);
-    res.status(500).json({ success: false, error: 'Failed to initialize payment' });
-  }
-});
-
-/**
- * @route   POST /api/payments/paystack/inline-initialize
- * @desc    Initialize Paystack inline popup payment
- * @access  Private
- */
-router.post('/paystack/inline-initialize', authMiddleware, paymentRateLimit, async (req, res) => {
-  try {
-    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
-      return res.status(503).json({ success: false, error: 'Paystack is not available' });
-    }
-
-    const userId = req.user.userId;
-    const { amount, email, reference: clientRef, metadata = {}, channels } = req.body;
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ success: false, error: 'Invalid amount' });
-    }
-
-    // Get user email
-    const user = await require('../config/database').User.findById(userId).select('email').lean();
-    const userEmail = email || user?.email;
-    if (!userEmail) {
-      return res.status(400).json({ success: false, error: 'Email not found' });
-    }
-
-    const currencyCode = metadata.currencyCode || 'NGN';
-    const reference = clientRef || `INL_PS_${Date.now()}_${require('crypto').randomBytes(4).toString('hex')}`;
-
-    const paystackResult = await req.paystackManager.initializeTransaction({
-      amount,
-      email: userEmail,
-      currency: currencyCode,
-      reference,
-      channels: channels || ['card'],
-      metadata: { ...metadata, userId, type: metadata.type || 'deposit' }
-    });
-
-    if (!paystackResult.success) {
-      return res.status(500).json({ success: false, error: 'Failed to initialize payment' });
-    }
-
-    res.json({
-      success: true,
-      reference: paystackResult.reference,
-      accessCode: paystackResult.accessCode,
-      authorizationUrl: paystackResult.authorizationUrl,
-      currency: paystackResult.currency || currencyCode
-    });
-  } catch (error) {
-    console.error('Paystack inline-initialize error:', error);
-    res.status(500).json({ success: false, error: 'Failed to initialize payment' });
-  }
-});
-
-/**
- * @route   POST /api/payments/paystack/verify
- * @desc    Verify Paystack payment and credit wallet
- * @access  Private
- */
-router.post('/paystack/verify', authMiddleware, async (req, res) => {
-  try {
-    const { reference } = req.body;
-    const userId = req.user.userId;
-
-    if (!reference) {
-      return res.status(400).json({ success: false, error: 'Payment reference is required' });
-    }
-
-    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
-      return res.status(503).json({ success: false, error: 'Paystack is not available' });
-    }
-
-    let userObjId;
-    try {
-      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
-    } catch (e) {
-      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
-    }
-
-    // Check if already verified
-    const existing = await Transaction.findOne({ reference, user_id: userObjId });
-    if (existing && existing.status === 'completed') {
-      return res.json({
-        success: true,
-        status: 'already_verified',
-        message: 'Payment already verified and credited',
-        amount: existing.amount,
-        currency: existing.currency
-      });
-    }
-
-    // Verify with Paystack
-    const verification = await req.paystackManager.verifyTransaction(reference);
-
-    if (!verification.success || verification.status !== 'success') {
-      return res.json({
-        success: false,
-        status: verification.status || 'pending',
-        error: verification.status === 'abandoned' ? 'Payment was abandoned' :
-               verification.status === 'failed' ? 'Payment failed' :
-               'Payment not yet confirmed'
-      });
-    }
-
-    // Update transaction as completed
-    const transaction = await Transaction.findOneAndUpdate(
-      { reference, user_id: userObjId },
-      {
-        $set: {
-          status: 'completed',
-          confirmed_at: new Date(),
-          'metadata.paystack_verification': {
-            gateway_response: verification.gateway_response,
-            paid_at: verification.paid_at,
-            paystackAmount: verification.amount,
-            paystackCurrency: verification.currency
-          }
-        }
-      },
-      { new: true }
-    );
-
-    // Emit real-time payment confirmation
-    if (req.io && transaction) {
-      req.io.to(`user_${userId}`).emit('payment_verified', {
-        reference,
-        status: 'confirmed',
-        amount: transaction.amount,
-        currency: transaction.currency,
-        type: transaction.type,
-        timestamp: new Date().toISOString()
-      });
-
-      await NotificationService.createAndEmit(req.io, {
-        userId,
-        type: 'payment',
-        title: 'Payment Confirmed',
-        message: `${transaction.currency} ${transaction.amount} has been credited to your wallet.`,
-        data: { reference, type: 'deposit', status: 'confirmed' }
-      });
-    }
-
-    console.log(`✅ Paystack deposit verified: ${reference} - ${verification.currency} ${verification.amount}`);
-
-    res.json({
-      success: true,
-      status: 'confirmed',
-      message: 'Payment verified and credited',
-      amount: verification.amount,
-      currency: verification.currency
-    });
-  } catch (error) {
-    console.error('Paystack verify error:', error);
-    res.status(500).json({ success: false, error: 'Failed to verify payment' });
-  }
-});
-
-/**
- * @route   GET /api/payments/paystack/available
- * @desc    Check if Paystack is available and get supported channels
- * @access  Public
- */
-router.get('/paystack/available', (req, res) => {
-  const available = req.paystackManager && req.paystackManager.isHealthy();
-  res.json({
-    success: true,
-    available,
-    publicKey: available ? process.env.PAYSTACK_PUBLIC_KEY : null,
-    channels: {
-      NG: ['card', 'bank', 'ussd', 'bank_transfer'],
-      GH: ['card', 'mobile_money'],
-      KE: ['card', 'mobile_money'],
-      ZA: ['card', 'eft'],
-      DEFAULT: ['card']
-    }
-  });
-});
-
-// ============ CRYPTO DEPOSIT & WITHDRAW ============
-
 /**
  * @route   POST /api/payments/deposit
  * @desc    Create crypto deposit invoice for wallet top-up
@@ -1246,7 +957,7 @@ router.post('/withdraw', authMiddleware, async (req, res) => {
 
 /**
  * @route   POST /api/payments/verify-inline
- * @desc    Verify a crypto payment by reference (backward compatibility)
+ * @desc    Verify a crypto payment by reference — auto-activates subscriptions & deposits
  * @access  Private
  */
 router.post('/verify-inline', authMiddleware, async (req, res) => {
@@ -1299,6 +1010,43 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
         { new: true }
       );
 
+      // ===== AUTO-ACTIVATE SUBSCRIPTION if this payment belongs to one =====
+      let subscriptionActivated = false;
+      try {
+        const invoice = await CryptoInvoice.findOne({ reference }).lean();
+        if (invoice && invoice.metadata && invoice.metadata.type === 'subscription') {
+          // This is a subscription payment — auto-activate it
+          const sub = await Subscription.findOneAndUpdate(
+            { crypto_reference: reference, user_id: userObjId, status: 'pending' },
+            { $set: { status: 'active', activated_at: new Date() } },
+            { new: true }
+          );
+          if (sub) {
+            const sixMonthsFromNow = new Date();
+            sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+            await UserModel.findByIdAndUpdate(userObjId, {
+              is_subscribed: true,
+              subscription_tier: 'premium',
+              subscription_expires_at: sixMonthsFromNow
+            });
+            subscriptionActivated = true;
+            console.log(`✅ Auto-activated subscription for user ${userId} via verify-inline`);
+
+            // Emit subscription update
+            if (req.io) {
+              req.io.to(`user_${userId}`).emit('subscription_updated', {
+                isSubscribed: true,
+                status: 'active',
+                tier: 'premium',
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        }
+      } catch (subErr) {
+        console.error('Subscription auto-activation error (non-fatal):', subErr.message);
+      }
+
       if (req.io && transaction) {
         req.io.to(`user_${userId}`).emit('payment_verified', {
           reference,
@@ -1306,19 +1054,23 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
           amount: transaction.amount,
           currency: transaction.currency,
           type: transaction.type,
+          subscriptionActivated,
           timestamp: new Date().toISOString()
         });
 
         await NotificationService.createAndEmit(req.io, {
           userId,
           type: 'payment',
-          title: 'Payment Verified',
-          message: `${transaction.currency}${transaction.amount} payment was verified successfully.`,
+          title: subscriptionActivated ? 'Subscription Activated' : 'Payment Verified',
+          message: subscriptionActivated 
+            ? 'Your premium subscription is now active!'
+            : `${transaction.currency}${transaction.amount} payment was verified successfully.`,
           data: {
             transactionId: transaction._id.toString(),
             reference,
             type: transaction.type,
-            status: 'confirmed'
+            status: 'confirmed',
+            subscriptionActivated
           }
         });
       }
@@ -1327,7 +1079,8 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
         success: true,
         status: 'confirmed',
         amount: transaction?.amount,
-        currency: transaction?.currency
+        currency: transaction?.currency,
+        subscriptionActivated
       });
     }
 
@@ -1370,6 +1123,102 @@ router.get('/supported-cryptos', (req, res) => {
     res.json({ success: true, cryptos });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to get supported cryptos' });
+  }
+});
+
+/**
+ * @route   POST /api/payments/test-confirm
+ * @desc    Simulate blockchain payment confirmation (development/testing only)
+ * @access  Private (non-production or admin)
+ */
+router.post('/test-confirm', authMiddleware, async (req, res) => {
+  try {
+    const { reference } = req.body;
+    const userId = req.user.userId;
+
+    // Only allow in non-production, or for admin users
+    if (process.env.NODE_ENV === 'production') {
+      const adminUser = await UserModel.findById(userId).select('is_admin role').lean();
+      if (!adminUser?.is_admin && adminUser?.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'Test endpoint not available in production' });
+      }
+    }
+
+    if (!reference) {
+      return res.status(400).json({ success: false, error: 'Payment reference is required' });
+    }
+
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+
+    // Find and update the CryptoInvoice
+    const invoice = await CryptoInvoice.findOneAndUpdate(
+      { reference, status: 'pending' },
+      { $set: { status: 'confirmed', confirmedAt: new Date() } },
+      { new: true }
+    );
+
+    if (!invoice) {
+      return res.status(404).json({ success: false, error: 'Pending invoice not found for this reference' });
+    }
+
+    // Update the Transaction record
+    const tx = await Transaction.findOneAndUpdate(
+      { reference, user_id: userObjId },
+      { $set: { status: 'completed', confirmed_at: new Date(), 'metadata.confirmedBy': 'test_endpoint' } },
+      { new: true }
+    );
+
+    // Handle subscription activation
+    let subscriptionActivated = false;
+    if (invoice.metadata?.type === 'subscription') {
+      const sub = await Subscription.findOneAndUpdate(
+        { crypto_reference: reference, user_id: userObjId, status: 'pending' },
+        { $set: { status: 'active', activated_at: new Date() } },
+        { new: true }
+      );
+      if (sub) {
+        const sixMonthsFromNow = new Date();
+        sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+        await UserModel.findByIdAndUpdate(userObjId, {
+          is_subscribed: true,
+          subscription_tier: 'premium',
+          subscription_expires_at: sixMonthsFromNow
+        });
+        subscriptionActivated = true;
+      }
+    }
+
+    // Emit real-time events
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('payment_verified', {
+        reference,
+        status: 'confirmed',
+        amount: tx?.amount,
+        currency: tx?.currency,
+        type: invoice.metadata?.type || 'unknown',
+        subscriptionActivated,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    console.log(`🧪 Test-confirmed payment ${reference} (type: ${invoice.metadata?.type}, sub activated: ${subscriptionActivated})`);
+
+    res.json({
+      success: true,
+      message: 'Payment simulated as confirmed',
+      invoiceStatus: 'confirmed',
+      transactionStatus: tx?.status || 'not_found',
+      subscriptionActivated,
+      invoiceType: invoice.metadata?.type || 'unknown'
+    });
+  } catch (error) {
+    console.error('Test confirm error:', error);
+    res.status(500).json({ success: false, error: 'Failed to simulate payment confirmation' });
   }
 });
 

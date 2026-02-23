@@ -52,7 +52,6 @@ const TrustEngine = require('./services/TrustEngine');
 const FraudDetection = require('./services/FraudDetection');
 const EscrowManager = require('./services/EscrowManager');
 const CryptoPaymentManager = require('./services/CryptoPaymentManager');
-const PaystackManager = require('./services/PaystackManager');
 const CountryManager = require('./services/CountryManager');
 const CurrencyManager = require('./services/CurrencyManager');
 const UserConnectionManager = require('./services/UserConnectionManager');
@@ -221,7 +220,6 @@ const trustEngine = new TrustEngine();
 const fraudDetection = new FraudDetection();
 const escrowManager = new EscrowManager();
 const cryptoPaymentManager = new CryptoPaymentManager();
-const paystackManager = new PaystackManager();
 const countryManager = new CountryManager();
 const currencyManager = new CurrencyManager();
 const userConnectionManager = new UserConnectionManager();
@@ -320,13 +318,6 @@ const initializeRuntimeServices = async () => {
   }
 
   try {
-    await paystackManager.initialize();
-    console.log('✅ Paystack Manager initialized');
-  } catch (error) {
-    console.log('⚠️  Paystack initialization skipped:', error.message);
-  }
-
-  try {
     await currencyManager.initialize();
     console.log('✅ Currency Manager initialized');
   } catch (error) {
@@ -394,7 +385,6 @@ app.use((req, res, next) => {
   req.fraudDetection = fraudDetection;
   req.escrowManager = escrowManager;
   req.cryptoPaymentManager = cryptoPaymentManager;
-  req.paystackManager = paystackManager;
   req.countryManager = countryManager;
   req.currencyManager = currencyManager;
   req.userActivityMonitor = userActivityMonitor;

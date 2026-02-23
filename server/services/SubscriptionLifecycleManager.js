@@ -51,7 +51,7 @@ class SubscriptionLifecycleManager {
   }
 
   /**
-   * C5 FIX: Check all pending crypto invoices and activate subscriptions
+   * C5 FIX: Check all pending crypto invoices and activate subscriptions/deposits
    * if payment has been confirmed on the blockchain.
    * 
    * This catches payments made after the user closed their browser.
@@ -76,8 +76,18 @@ class SubscriptionLifecycleManager {
           const paymentStatus = await this.cryptoPaymentManager.checkPaymentStatus(invoice.reference);
 
           if (paymentStatus && paymentStatus.success && paymentStatus.status === 'confirmed') {
-            console.log(`✅ Payment confirmed for invoice ${invoice._id} (${invoice.cryptoSymbol})`);
-            await this.activateSubscription(invoice);
+            const invoiceType = invoice.metadata?.type || 'unknown';
+            console.log(`✅ Payment confirmed for invoice ${invoice._id} (${invoice.cryptoSymbol}, type: ${invoiceType})`);
+
+            if (invoiceType === 'subscription') {
+              await this.activateSubscription(invoice);
+            } else if (invoiceType === 'deposit') {
+              await this.confirmDeposit(invoice);
+            } else {
+              // Unknown type — just mark invoice as confirmed
+              await CryptoInvoice.findByIdAndUpdate(invoice._id, { status: 'confirmed' });
+              console.log(`⚠️ Unknown invoice type '${invoiceType}' for ${invoice._id}, marked as confirmed`);
+            }
           }
         } catch (err) {
           console.error(`Error checking invoice ${invoice._id}:`, err.message);
@@ -95,7 +105,8 @@ class SubscriptionLifecycleManager {
   }
 
   /**
-   * Activate subscription after confirmed payment
+   * Activate subscription after confirmed payment.
+   * Matches by crypto_reference to avoid activating the wrong subscription.
    */
   async activateSubscription(invoice) {
     try {
@@ -107,10 +118,10 @@ class SubscriptionLifecycleManager {
         status: 'confirmed'
       });
 
-      // Update subscription record
-      await Subscription.findOneAndUpdate(
+      // Update subscription record — match by crypto_reference, NOT generic user_id
+      const sub = await Subscription.findOneAndUpdate(
         { 
-          user_id: invoice.userId,
+          crypto_reference: invoice.reference,
           status: 'pending'
         },
         {
@@ -120,8 +131,13 @@ class SubscriptionLifecycleManager {
           payment_confirmed_at: now,
           payment_method: 'crypto_background_check'
         },
-        { sort: { created_at: -1 } }
+        { new: true }
       );
+
+      if (!sub) {
+        console.warn(`⚠️ No pending subscription found for reference ${invoice.reference}`);
+        return;
+      }
 
       // Update user record
       await User.findByIdAndUpdate(invoice.userId, {
@@ -130,23 +146,26 @@ class SubscriptionLifecycleManager {
         subscription_expires_at: sixMonthsLater
       });
 
-      // Create transaction record
-      await Transaction.create({
-        user_id: invoice.userId,
-        amount: invoice.fiatAmount || invoice.cryptoAmount,
-        currency: invoice.fiatCurrency || invoice.cryptoSymbol,
-        payment_method: 'crypto',
-        reference: `bg_confirm_${invoice.reference}`,
-        status: 'completed',
-        type: 'subscription',
-        metadata: {
-          invoiceId: invoice._id,
-          cryptoSymbol: invoice.cryptoSymbol,
-          expectedAmount: invoice.cryptoAmount,
-          paymentAddress: invoice.address,
-          confirmedBy: 'background_monitor'
-        }
-      });
+      // Create transaction record (idempotent via reference check)
+      const existingTx = await Transaction.findOne({ reference: invoice.reference, type: 'subscription' });
+      if (!existingTx) {
+        await Transaction.create({
+          user_id: invoice.userId,
+          amount: invoice.fiatAmount || invoice.cryptoAmount,
+          currency: invoice.fiatCurrency || invoice.cryptoSymbol,
+          payment_method: 'crypto',
+          reference: invoice.reference,
+          status: 'completed',
+          type: 'subscription',
+          metadata: {
+            invoiceId: invoice._id,
+            cryptoSymbol: invoice.cryptoSymbol,
+            expectedAmount: invoice.cryptoAmount,
+            paymentAddress: invoice.address,
+            confirmedBy: 'background_monitor'
+          }
+        });
+      }
 
       // Notify user via socket
       if (this.io) {
@@ -172,6 +191,59 @@ class SubscriptionLifecycleManager {
       console.log(`🎉 Subscription activated for user ${invoice.userId} via background payment check`);
     } catch (error) {
       console.error('Subscription activation error:', error.message);
+    }
+  }
+
+  /**
+   * Confirm a deposit payment after blockchain verification.
+   * Updates the Transaction record to 'completed' so wallet balance reflects it.
+   */
+  async confirmDeposit(invoice) {
+    try {
+      // Update invoice status
+      await CryptoInvoice.findByIdAndUpdate(invoice._id, {
+        status: 'confirmed'
+      });
+
+      // Update the deposit Transaction to 'completed'
+      const tx = await Transaction.findOneAndUpdate(
+        { reference: invoice.reference, status: { $ne: 'completed' } },
+        { $set: { status: 'completed', confirmed_at: new Date(), 'metadata.confirmedBy': 'background_monitor' } },
+        { new: true }
+      );
+
+      if (!tx) {
+        console.log(`ℹ️ Deposit ${invoice.reference} already completed or not found`);
+        return;
+      }
+
+      // Notify user via socket
+      if (this.io) {
+        this.io.to(`user_${invoice.userId}`).emit('payment_verified', {
+          reference: invoice.reference,
+          status: 'confirmed',
+          amount: tx.amount,
+          currency: tx.currency,
+          type: 'deposit',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Create in-app notification
+      try {
+        await NotificationService.createNotification(invoice.userId, {
+          type: 'payment',
+          title: 'Deposit Confirmed',
+          message: `Your ${tx.currency} ${tx.amount} deposit has been confirmed and credited to your wallet.`,
+          data: { amount: tx.amount, currency: tx.currency, reference: invoice.reference }
+        });
+      } catch (notifErr) {
+        console.warn('Failed to create deposit notification:', notifErr.message);
+      }
+
+      console.log(`💰 Deposit confirmed for user ${invoice.userId}: ${tx.currency} ${tx.amount} via background check`);
+    } catch (error) {
+      console.error('Deposit confirmation error:', error.message);
     }
   }
 

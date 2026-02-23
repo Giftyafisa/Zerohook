@@ -11,8 +11,8 @@ const adminMiddleware = async (req, res, next) => {
     const { User } = require('../config/database');
     const user = await User.findById(req.user.userId);
     
-    // Check if user is admin using dedicated field ONLY (not verification_tier which users could potentially manipulate)
-    const isAdmin = user?.is_admin === true || user?.role === 'admin';
+    // Check if user is admin — supports root-level is_admin/role fields AND profile_data.accountType for legacy accounts
+    const isAdmin = user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin';
     
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });

@@ -183,7 +183,7 @@ const Navbar = () => {
   const isSugarDaddy = accountType === 'sugar_daddy';
   const isSugarMommy = accountType === 'sugar_mommy';
   const isSugarAccount = isSugarDaddy || isSugarMommy;
-  const isAdmin = user?.is_admin === true || user?.role === 'admin';
+  const isAdmin = user?.is_admin === true || user?.role === 'admin' || user?.profile_data?.accountType === 'admin';
 
   // Get account type label for display
   const getAccountTypeLabel = () => {

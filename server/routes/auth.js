@@ -77,7 +77,7 @@ function generateAccessToken(user) {
       userId: user._id.toString(),
       username: user.username,
       verificationTier: user.verification_tier,
-      isAdmin: user.is_admin === true
+      isAdmin: user.is_admin === true || user.role === 'admin' || user.profile_data?.accountType === 'admin'
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRE }
@@ -787,8 +787,8 @@ router.post('/validate-token', async (req, res) => {
           subscription_tier: subTierValidate,
           subscription_expires_at: user.subscription_expires_at,
           profile_data: user.profile_data || {},
-          is_admin: user.is_admin === true,
-          role: user.role || 'user'
+          is_admin: user.is_admin === true || user.role === 'admin' || user.profile_data?.accountType === 'admin',
+          role: user.role || (user.profile_data?.accountType === 'admin' ? 'admin' : 'user')
         }
       });
 
@@ -855,8 +855,8 @@ router.get('/me', authMiddleware, async (req, res) => {
         status: user.status,
         createdAt: user.created_at,
         lastActive: user.last_active,
-        is_admin: user.is_admin === true,
-        role: user.role || 'user'
+        is_admin: user.is_admin === true || user.role === 'admin' || user.profile_data?.accountType === 'admin',
+        role: user.role || (user.profile_data?.accountType === 'admin' ? 'admin' : 'user')
       }
     });
 

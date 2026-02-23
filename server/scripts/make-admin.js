@@ -3,7 +3,20 @@
  * Usage: node server/scripts/make-admin.js <email>
  * Example: node server/scripts/make-admin.js your@email.com
  */
-require("dotenv").config({ path: "./env.local" });
+const path = require("path");
+// Try multiple env file locations so the script works from project root OR server/
+const envPaths = [
+  path.resolve(__dirname, "../env.local"),
+  path.resolve(__dirname, "../.env.local"),
+  path.resolve(__dirname, "../.env"),
+  path.resolve(process.cwd(), "env.local"),
+  path.resolve(process.cwd(), ".env.local"),
+  path.resolve(process.cwd(), ".env"),
+];
+for (const p of envPaths) {
+  const result = require("dotenv").config({ path: p });
+  if (!result.error) { console.log("Loaded env from:", p); break; }
+}
 const mongoose = require("mongoose");
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/zerohook";
 

@@ -622,7 +622,183 @@ router.get('/plans', async (req, res) => {
   }
 });
 
-// Crypto payment verification callback (replaces old Paystack callback)
+// ============ PAYSTACK SUBSCRIPTION ENDPOINTS ============
+
+/**
+ * @route   POST /api/subscriptions/create-paystack
+ * @desc    Create subscription via Paystack (card, mobile money, bank transfer)
+ * @access  Private
+ */
+router.post('/create-paystack', authMiddleware, subRateLimit, [
+  body('planId').isString().notEmpty(),
+  body('currency').isString().isLength({ min: 3, max: 3 }),
+  body('countryCode').isString().isLength({ min: 2, max: 2 }),
+  body('amount').isFloat({ min: 0.01 }).withMessage('Amount required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
+    }
+
+    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
+      return res.status(503).json({ success: false, error: 'Paystack is not available. Please use crypto payment.' });
+    }
+
+    const { planId, currency, countryCode, amount } = req.body;
+    const userId = req.user.userId;
+
+    // Resolve plan from DB
+    let plan;
+    if (!mongoose.Types.ObjectId.isValid(planId)) {
+      plan = await SubscriptionPlan.findOne({ plan_name: planId, is_active: true }).lean();
+    } else {
+      plan = await SubscriptionPlan.findOne({ _id: planId, is_active: true }).lean();
+    }
+    if (!plan) {
+      return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
+    }
+
+    // Get user email
+    const user = await User.findById(userId).select('email').lean();
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const reference = `SUB_PS_${Date.now()}_${require('crypto').randomBytes(4).toString('hex')}`;
+    const callbackUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/subscription/success?reference=${reference}&method=paystack`;
+
+    // Paystack channels based on country
+    const channelMap = {
+      NG: ['card', 'bank', 'ussd', 'bank_transfer'],
+      GH: ['card', 'mobile_money'],
+      KE: ['card', 'mobile_money'],
+      ZA: ['card', 'eft'],
+    };
+    const channels = channelMap[countryCode.toUpperCase()] || ['card'];
+
+    // Initialize Paystack transaction
+    const paystackResult = await req.paystackManager.initializeTransaction({
+      amount: amount,
+      email: user.email,
+      currency: currency.toUpperCase(),
+      reference,
+      callback_url: callbackUrl,
+      channels,
+      metadata: {
+        type: 'subscription',
+        planId: plan._id.toString(),
+        userId,
+        countryCode
+      }
+    });
+
+    if (!paystackResult.success) {
+      return res.status(500).json({ success: false, error: 'Failed to initialize Paystack payment' });
+    }
+
+    // Create subscription record
+    const subscription = await Subscription.create({
+      user_id: mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : null,
+      plan_id: plan._id,
+      amount: amount,
+      currency: currency.toUpperCase(),
+      country_code: countryCode,
+      crypto_reference: reference,
+      status: 'pending'
+    });
+
+    console.log(`💳 Paystack subscription created: ${reference} - ${currency} ${amount}`);
+
+    res.json({
+      success: true,
+      message: 'Paystack payment initialized',
+      subscriptionId: subscription._id.toString(),
+      paymentData: {
+        reference,
+        authorizationUrl: paystackResult.authorizationUrl,
+        accessCode: paystackResult.accessCode,
+        amount,
+        currency: currency.toUpperCase()
+      }
+    });
+  } catch (error) {
+    console.error('Create Paystack subscription error:', error);
+    res.status(500).json({ success: false, error: 'Failed to create subscription' });
+  }
+});
+
+/**
+ * @route   POST /api/subscriptions/verify-paystack
+ * @desc    Verify Paystack payment and activate subscription
+ * @access  Private
+ */
+router.post('/verify-paystack', authMiddleware, [
+  body('reference').isString().notEmpty()
+], async (req, res) => {
+  try {
+    const { reference } = req.body;
+    const userId = req.user.userId;
+
+    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
+      return res.status(503).json({ success: false, error: 'Paystack is not available' });
+    }
+
+    // Verify with Paystack API
+    const verification = await req.paystackManager.verifyTransaction(reference);
+
+    if (!verification.success || verification.status !== 'success') {
+      return res.json({
+        success: false,
+        error: verification.status === 'abandoned' ? 'Payment was abandoned' :
+               verification.status === 'failed' ? 'Payment failed' :
+               'Payment not yet confirmed',
+        status: verification.status || 'pending'
+      });
+    }
+
+    // Activate subscription using centralized function
+    const result = await activateSubscription({ paymentReference: reference, userId, io: req.io });
+
+    if (result.alreadyActive) {
+      return res.json({ success: true, message: 'Subscription already active', isSubscribed: true });
+    }
+    if (!result.activated) {
+      return res.status(404).json({ success: false, error: 'Subscription not found for this reference' });
+    }
+
+    // Record the Paystack-specific transaction
+    await Transaction.updateOne(
+      { reference, user_id: new mongoose.Types.ObjectId(userId), type: 'subscription' },
+      {
+        $set: {
+          payment_method: 'paystack',
+          'metadata.paystack_verification': {
+            gateway_response: verification.gateway_response,
+            paid_at: verification.paid_at,
+            paystackAmount: verification.amount,
+            paystackCurrency: verification.currency
+          }
+        }
+      }
+    );
+
+    console.log(`✅ Paystack subscription activated for user: ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'Subscription activated successfully',
+      isSubscribed: true
+    });
+  } catch (error) {
+    console.error('Verify Paystack subscription error:', error);
+    res.status(500).json({ success: false, error: 'Failed to verify payment' });
+  }
+});
+
+// ============ CRYPTO CALLBACKS ============
+
+// Crypto payment verification callback
 // SECURITY: This endpoint verifies the blockchain state before activating anything.
 // The reference alone is not enough — the blockchain must confirm the payment.
 // A timing verification ensures stale/replayed callbacks are rejected.

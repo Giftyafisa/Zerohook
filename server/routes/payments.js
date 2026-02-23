@@ -657,6 +657,295 @@ router.get('/wallet', authMiddleware, async (req, res) => {
 
 // ============ DEPOSIT & WITHDRAW (Crypto) ============
 
+// ============ PAYSTACK PAYMENT ENDPOINTS ============
+
+/**
+ * @route   POST /api/payments/paystack/initialize
+ * @desc    Initialize Paystack payment for wallet deposit
+ * @access  Private
+ */
+router.post('/paystack/initialize', authMiddleware, paymentRateLimit, async (req, res) => {
+  try {
+    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
+      return res.status(503).json({ success: false, error: 'Paystack is not available. Please use crypto payment.' });
+    }
+
+    const userId = req.user.userId;
+    const { amount, currency: clientCurrency } = req.body;
+
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid amount' });
+    }
+
+    // Get user email and country
+    const user = await require('../config/database').User.findById(userId).select('email').lean();
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Determine currency
+    let currency = clientCurrency?.toUpperCase();
+    let countryCode = 'NG';
+    if (!currency) {
+      const userCountry = await req.countryManager.getUserCountry(userId);
+      countryCode = userCountry.success && userCountry.country ? userCountry.country.code : 'NG';
+      const country = req.countryManager.getCountryByCode(countryCode);
+      currency = country ? country.currency : 'NGN';
+    } else {
+      const currencyToCountry = { NGN: 'NG', GHS: 'GH', KES: 'KE', ZAR: 'ZA', USD: 'US' };
+      countryCode = currencyToCountry[currency] || 'NG';
+    }
+
+    const reference = `DEP_PS_${Date.now()}_${require('crypto').randomBytes(4).toString('hex')}`;
+    const callbackUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/wallet?payment_status=success&reference=${reference}&method=paystack`;
+
+    // Paystack channels based on country
+    const channelMap = {
+      NG: ['card', 'bank', 'ussd', 'bank_transfer'],
+      GH: ['card', 'mobile_money'],
+      KE: ['card', 'mobile_money'],
+      ZA: ['card', 'eft'],
+    };
+    const channels = channelMap[countryCode] || ['card'];
+
+    const paystackResult = await req.paystackManager.initializeTransaction({
+      amount,
+      email: user.email,
+      currency,
+      reference,
+      callback_url: callbackUrl,
+      channels,
+      metadata: {
+        type: 'deposit',
+        userId,
+        countryCode
+      }
+    });
+
+    if (!paystackResult.success) {
+      return res.status(500).json({ success: false, error: 'Failed to initialize Paystack payment' });
+    }
+
+    // Create pending transaction record
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+
+    await Transaction.create({
+      user_id: userObjId,
+      amount,
+      currency,
+      payment_method: 'paystack',
+      reference,
+      status: 'pending',
+      country_code: countryCode,
+      type: 'deposit',
+      metadata: {
+        type: 'deposit',
+        paymentMethod: 'paystack',
+        description: `Wallet deposit via Paystack`
+      }
+    });
+
+    console.log(`💳 Paystack deposit initialized: ${reference} - ${currency} ${amount}`);
+
+    res.json({
+      success: true,
+      reference,
+      authorizationUrl: paystackResult.authorizationUrl,
+      accessCode: paystackResult.accessCode,
+      amount,
+      currency
+    });
+  } catch (error) {
+    console.error('Paystack initialize error:', error);
+    res.status(500).json({ success: false, error: 'Failed to initialize payment' });
+  }
+});
+
+/**
+ * @route   POST /api/payments/paystack/inline-initialize
+ * @desc    Initialize Paystack inline popup payment
+ * @access  Private
+ */
+router.post('/paystack/inline-initialize', authMiddleware, paymentRateLimit, async (req, res) => {
+  try {
+    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
+      return res.status(503).json({ success: false, error: 'Paystack is not available' });
+    }
+
+    const userId = req.user.userId;
+    const { amount, email, reference: clientRef, metadata = {}, channels } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid amount' });
+    }
+
+    // Get user email
+    const user = await require('../config/database').User.findById(userId).select('email').lean();
+    const userEmail = email || user?.email;
+    if (!userEmail) {
+      return res.status(400).json({ success: false, error: 'Email not found' });
+    }
+
+    const currencyCode = metadata.currencyCode || 'NGN';
+    const reference = clientRef || `INL_PS_${Date.now()}_${require('crypto').randomBytes(4).toString('hex')}`;
+
+    const paystackResult = await req.paystackManager.initializeTransaction({
+      amount,
+      email: userEmail,
+      currency: currencyCode,
+      reference,
+      channels: channels || ['card'],
+      metadata: { ...metadata, userId, type: metadata.type || 'deposit' }
+    });
+
+    if (!paystackResult.success) {
+      return res.status(500).json({ success: false, error: 'Failed to initialize payment' });
+    }
+
+    res.json({
+      success: true,
+      reference: paystackResult.reference,
+      accessCode: paystackResult.accessCode,
+      authorizationUrl: paystackResult.authorizationUrl,
+      currency: paystackResult.currency || currencyCode
+    });
+  } catch (error) {
+    console.error('Paystack inline-initialize error:', error);
+    res.status(500).json({ success: false, error: 'Failed to initialize payment' });
+  }
+});
+
+/**
+ * @route   POST /api/payments/paystack/verify
+ * @desc    Verify Paystack payment and credit wallet
+ * @access  Private
+ */
+router.post('/paystack/verify', authMiddleware, async (req, res) => {
+  try {
+    const { reference } = req.body;
+    const userId = req.user.userId;
+
+    if (!reference) {
+      return res.status(400).json({ success: false, error: 'Payment reference is required' });
+    }
+
+    if (!req.paystackManager || !req.paystackManager.isHealthy()) {
+      return res.status(503).json({ success: false, error: 'Paystack is not available' });
+    }
+
+    let userObjId;
+    try {
+      userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
+    }
+
+    // Check if already verified
+    const existing = await Transaction.findOne({ reference, user_id: userObjId });
+    if (existing && existing.status === 'completed') {
+      return res.json({
+        success: true,
+        status: 'already_verified',
+        message: 'Payment already verified and credited',
+        amount: existing.amount,
+        currency: existing.currency
+      });
+    }
+
+    // Verify with Paystack
+    const verification = await req.paystackManager.verifyTransaction(reference);
+
+    if (!verification.success || verification.status !== 'success') {
+      return res.json({
+        success: false,
+        status: verification.status || 'pending',
+        error: verification.status === 'abandoned' ? 'Payment was abandoned' :
+               verification.status === 'failed' ? 'Payment failed' :
+               'Payment not yet confirmed'
+      });
+    }
+
+    // Update transaction as completed
+    const transaction = await Transaction.findOneAndUpdate(
+      { reference, user_id: userObjId },
+      {
+        $set: {
+          status: 'completed',
+          confirmed_at: new Date(),
+          'metadata.paystack_verification': {
+            gateway_response: verification.gateway_response,
+            paid_at: verification.paid_at,
+            paystackAmount: verification.amount,
+            paystackCurrency: verification.currency
+          }
+        }
+      },
+      { new: true }
+    );
+
+    // Emit real-time payment confirmation
+    if (req.io && transaction) {
+      req.io.to(`user_${userId}`).emit('payment_verified', {
+        reference,
+        status: 'confirmed',
+        amount: transaction.amount,
+        currency: transaction.currency,
+        type: transaction.type,
+        timestamp: new Date().toISOString()
+      });
+
+      await NotificationService.createAndEmit(req.io, {
+        userId,
+        type: 'payment',
+        title: 'Payment Confirmed',
+        message: `${transaction.currency} ${transaction.amount} has been credited to your wallet.`,
+        data: { reference, type: 'deposit', status: 'confirmed' }
+      });
+    }
+
+    console.log(`✅ Paystack deposit verified: ${reference} - ${verification.currency} ${verification.amount}`);
+
+    res.json({
+      success: true,
+      status: 'confirmed',
+      message: 'Payment verified and credited',
+      amount: verification.amount,
+      currency: verification.currency
+    });
+  } catch (error) {
+    console.error('Paystack verify error:', error);
+    res.status(500).json({ success: false, error: 'Failed to verify payment' });
+  }
+});
+
+/**
+ * @route   GET /api/payments/paystack/available
+ * @desc    Check if Paystack is available and get supported channels
+ * @access  Public
+ */
+router.get('/paystack/available', (req, res) => {
+  const available = req.paystackManager && req.paystackManager.isHealthy();
+  res.json({
+    success: true,
+    available,
+    publicKey: available ? process.env.PAYSTACK_PUBLIC_KEY : null,
+    channels: {
+      NG: ['card', 'bank', 'ussd', 'bank_transfer'],
+      GH: ['card', 'mobile_money'],
+      KE: ['card', 'mobile_money'],
+      ZA: ['card', 'eft'],
+      DEFAULT: ['card']
+    }
+  });
+});
+
+// ============ CRYPTO DEPOSIT & WITHDRAW ============
+
 /**
  * @route   POST /api/payments/deposit
  * @desc    Create crypto deposit invoice for wallet top-up

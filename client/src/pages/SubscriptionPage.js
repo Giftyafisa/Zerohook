@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import CryptoPayment from '../components/payments/CryptoPayment';
+import PaystackPop from '@paystack/inline-js';
 import {
   Box,
   Container,
@@ -25,7 +26,9 @@ import {
   Chip,
   LinearProgress,
   Avatar,
-  IconButton
+  IconButton,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@mui/material';
 import { 
   CheckCircle, 
@@ -42,7 +45,11 @@ import {
   AutoAwesome,
   Bolt,
   ArrowForward,
-  Close
+  Close,
+  CreditCard,
+  PhoneAndroid,
+  AccountBalance,
+  CurrencyBitcoin
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { toast } from 'react-toastify';
@@ -88,6 +95,8 @@ const SubscriptionPage = () => {
   const [error, setError] = useState('');
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [detectingLocation, setDetectingLocation] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState('paystack'); // 'paystack' or 'crypto'
+  const [paystackAvailable, setPaystackAvailable] = useState(true);
 
   // Detect country on mount
   useEffect(() => {
@@ -138,6 +147,23 @@ const SubscriptionPage = () => {
     }
   }, [user, navigate]);
 
+  // Check Paystack availability on mount
+  useEffect(() => {
+    const checkPaystack = async () => {
+      try {
+        const result = await subscriptionAPI.getPaystackAvailability();
+        setPaystackAvailable(result.available === true);
+        if (!result.available) {
+          setPaymentMethod('crypto');
+        }
+      } catch {
+        setPaystackAvailable(false);
+        setPaymentMethod('crypto');
+      }
+    };
+    checkPaystack();
+  }, []);
+
   const handleSubscribe = async () => {
     if (!selectedCountry) {
       toast.error('Please select your country first');
@@ -148,23 +174,74 @@ const SubscriptionPage = () => {
       setPaymentLoading(true);
       setError('');
 
-      // Create crypto subscription
-      const response = await subscriptionAPI.createSubscription({
-        planId: 'Basic Access',
-        amount: selectedCountry.price,
-        currency: selectedCountry.currency,
-        countryCode: selectedCountry.code,
-        cryptoSymbol: 'USDT'
-      });
+      if (paymentMethod === 'paystack') {
+        // === PAYSTACK FLOW ===
+        const response = await subscriptionAPI.createPaystackSubscription({
+          planId: 'Basic Access',
+          amount: selectedCountry.price,
+          currency: selectedCountry.currency,
+          countryCode: selectedCountry.code
+        });
 
-      if (response.success && response.paymentData) {
-        // Store payment data for the CryptoPayment dialog
-        setPaymentData(response.paymentData);
-        setShowPaymentDialog(true);
-        toast.info('Crypto payment invoice created. Send the exact amount to the address shown.');
+        if (response.success && response.accessCode) {
+          // Launch Paystack popup
+          const popup = new PaystackPop();
+          popup.resumeTransaction(response.accessCode, {
+            onSuccess: async (transaction) => {
+              // Verify the payment on backend
+              try {
+                toast.info('Verifying payment...');
+                const verification = await subscriptionAPI.verifyPaystackPayment(response.reference);
+                if (verification.success) {
+                  dispatch(setSubscriptionStatus(true));
+                  toast.success('🎉 Subscription activated successfully!');
+                  setTimeout(() => navigate('/dashboard'), 2000);
+                } else {
+                  setError('Payment verification failed. Contact support with reference: ' + response.reference);
+                  toast.error('Payment verification failed');
+                }
+              } catch (verifyError) {
+                console.error('Verification error:', verifyError);
+                setError('Payment received but verification pending. Reference: ' + response.reference);
+                toast.warning('Payment received! Verification in progress...');
+              }
+            },
+            onCancel: () => {
+              toast.info('Payment cancelled');
+              setPaymentLoading(false);
+            },
+            onError: (error) => {
+              console.error('Paystack error:', error);
+              setError('Payment failed. Please try again.');
+              toast.error('Payment failed');
+              setPaymentLoading(false);
+            }
+          });
+        } else if (response.success && response.authorizationUrl) {
+          // Fallback: redirect to Paystack hosted page
+          window.location.href = response.authorizationUrl;
+        } else {
+          setError(response.error || 'Failed to initialize payment');
+          toast.error('Failed to initialize payment');
+        }
       } else {
-        setError(response.error || 'Failed to create subscription');
-        toast.error('Failed to create subscription');
+        // === CRYPTO FLOW (existing) ===
+        const response = await subscriptionAPI.createSubscription({
+          planId: 'Basic Access',
+          amount: selectedCountry.price,
+          currency: selectedCountry.currency,
+          countryCode: selectedCountry.code,
+          cryptoSymbol: 'USDT'
+        });
+
+        if (response.success && response.paymentData) {
+          setPaymentData(response.paymentData);
+          setShowPaymentDialog(true);
+          toast.info('Crypto payment invoice created. Send the exact amount to the address shown.');
+        } else {
+          setError(response.error || 'Failed to create subscription');
+          toast.error('Failed to create subscription');
+        }
       }
     } catch (error) {
       console.error('Subscription error:', error);
@@ -412,7 +489,7 @@ const SubscriptionPage = () => {
                       for 6 months
                     </Typography>
                     <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', mt: 1 }}>
-                      ≈ ${BASE_PRICE_USD} USD • Manual renewal required (crypto)
+                      ≈ ${BASE_PRICE_USD} USD • {paymentMethod === 'paystack' ? 'Pay with card, mobile money, or bank' : 'Manual renewal required (crypto)'}
                     </Typography>
                   </Box>
                 )}
@@ -451,7 +528,7 @@ const SubscriptionPage = () => {
                   ))}
                 </List>
 
-                {/* Crypto Payment Methods */}
+                {/* Payment Method Selector */}
                 <Box sx={{ 
                   mt: 3, 
                   p: 2, 
@@ -459,27 +536,117 @@ const SubscriptionPage = () => {
                   background: 'rgba(255,255,255,0.03)',
                   border: '1px solid rgba(255,255,255,0.08)'
                 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                    <Lock sx={{ fontSize: 16, color: '#00ff88' }} />
-                    <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem' }}>
-                      Fee-free crypto payment:
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <Payment sx={{ fontSize: 18, color: '#00f2ea' }} />
+                    <Typography sx={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem', fontWeight: 600 }}>
+                      Choose Payment Method
                     </Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {SUPPORTED_CRYPTOS.map((crypto) => (
-                      <Chip
-                        key={crypto}
-                        label={crypto}
-                        size="small"
+                  
+                  <ToggleButtonGroup
+                    value={paymentMethod}
+                    exclusive
+                    onChange={(e, val) => val && setPaymentMethod(val)}
+                    fullWidth
+                    sx={{ gap: 1 }}
+                  >
+                    {paystackAvailable && (
+                      <ToggleButton 
+                        value="paystack" 
                         sx={{ 
-                          bgcolor: 'rgba(255,255,255,0.08)',
-                          color: 'rgba(255,255,255,0.7)',
-                          fontSize: '0.7rem',
-                          height: 26,
+                          flex: 1,
+                          borderRadius: '12px !important',
+                          border: '1px solid rgba(255,255,255,0.1) !important',
+                          color: 'rgba(255,255,255,0.6)',
+                          py: 1.5,
+                          textTransform: 'none',
+                          '&.Mui-selected': {
+                            bgcolor: 'rgba(0, 242, 234, 0.15)',
+                            color: '#00f2ea',
+                            border: '1px solid #00f2ea !important',
+                          },
+                          '&:hover': { bgcolor: 'rgba(0, 242, 234, 0.08)' }
                         }}
-                      />
-                    ))}
-                  </Box>
+                      >
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', mb: 0.5 }}>
+                            <CreditCard sx={{ fontSize: 18 }} />
+                            <PhoneAndroid sx={{ fontSize: 18 }} />
+                            <AccountBalance sx={{ fontSize: 18 }} />
+                          </Box>
+                          <Typography sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                            Card / Mobile Money
+                          </Typography>
+                          <Typography sx={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                            Instant • Local Currency
+                          </Typography>
+                        </Box>
+                      </ToggleButton>
+                    )}
+                    <ToggleButton 
+                      value="crypto"
+                      sx={{ 
+                        flex: 1,
+                        borderRadius: '12px !important',
+                        border: '1px solid rgba(255,255,255,0.1) !important',
+                        color: 'rgba(255,255,255,0.6)',
+                        py: 1.5,
+                        textTransform: 'none',
+                        '&.Mui-selected': {
+                          bgcolor: 'rgba(255, 152, 0, 0.15)',
+                          color: '#ffa726',
+                          border: '1px solid #ffa726 !important',
+                        },
+                        '&:hover': { bgcolor: 'rgba(255, 152, 0, 0.08)' }
+                      }}
+                    >
+                      <Box sx={{ textAlign: 'center' }}>
+                        <CurrencyBitcoin sx={{ fontSize: 22, mb: 0.5 }} />
+                        <Typography sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                          Crypto
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                          BTC, ETH, USDT
+                        </Typography>
+                      </Box>
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+
+                  {/* Payment method details */}
+                  {paymentMethod === 'paystack' && selectedCountry && (
+                    <Box sx={{ mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {(() => {
+                        const channelMap = {
+                          'NG': ['💳 Card', '🏦 Bank Transfer', '📱 USSD'],
+                          'GH': ['💳 Card', '📱 Mobile Money'],
+                          'KE': ['💳 Card', '📱 M-PESA'],
+                          'ZA': ['💳 Card', '🏦 EFT', '📱 QR Code']
+                        };
+                        const channels = channelMap[selectedCountry.code] || ['💳 Card'];
+                        return channels.map(ch => (
+                          <Chip key={ch} label={ch} size="small" sx={{ 
+                            bgcolor: 'rgba(0, 242, 234, 0.08)', 
+                            color: 'rgba(255,255,255,0.6)', 
+                            fontSize: '0.7rem', 
+                            height: 24 
+                          }} />
+                        ));
+                      })()}
+                    </Box>
+                  )}
+
+                  {paymentMethod === 'crypto' && (
+                    <Box sx={{ mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {SUPPORTED_CRYPTOS.map((crypto) => (
+                        <Chip key={crypto} label={crypto} size="small" sx={{ 
+                          bgcolor: 'rgba(255, 152, 0, 0.08)', 
+                          color: 'rgba(255,255,255,0.6)', 
+                          fontSize: '0.7rem', 
+                          height: 24 
+                        }} />
+                      ))}
+                    </Box>
+                  )}
                 </Box>
               </CardContent>
 
@@ -513,8 +680,10 @@ const SubscriptionPage = () => {
                 >
                   {paymentLoading ? (
                     <CircularProgress size={24} sx={{ color: '#000' }} />
+                  ) : paymentMethod === 'paystack' ? (
+                    `Pay ${selectedCountry ? selectedCountry.symbol + formatPrice(selectedCountry.price) : ''} Now`
                   ) : (
-                    `Get Access Now`
+                    `Pay with Crypto`
                   )}
                 </Button>
               </CardActions>

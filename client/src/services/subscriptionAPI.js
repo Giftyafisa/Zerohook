@@ -89,6 +89,45 @@ const subscriptionAPI = {
   },
 
   /**
+   * Create subscription via Paystack (card, mobile money, bank transfer)
+   */
+  async createPaystackSubscription(data) {
+    try {
+      const response = await apiClient.post('/subscriptions/create-paystack', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating Paystack subscription:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Verify Paystack subscription payment
+   */
+  async verifyPaystackPayment(reference) {
+    try {
+      const response = await apiClient.post('/subscriptions/verify-paystack', { reference });
+      return response.data;
+    } catch (error) {
+      console.error('Error verifying Paystack payment:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Check if Paystack is available and get config
+   */
+  async getPaystackAvailability() {
+    try {
+      const response = await apiClient.get('/payments/paystack/available');
+      return response.data;
+    } catch (error) {
+      console.error('Error checking Paystack availability:', error);
+      return { success: false, available: false };
+    }
+  },
+
+  /**
    * Get user's current plan details
    * @deprecated Backend route not yet implemented
    */
@@ -108,26 +147,25 @@ const subscriptionAPI = {
 
   /**
    * Get payment methods
-   * @deprecated Crypto-only system - no stored payment methods
    */
   async getPaymentMethods() {
-    return { success: true, data: [], message: 'Crypto-only system - no stored payment methods' };
+    return { success: true, data: ['paystack', 'crypto'], message: 'Paystack + Crypto payments supported' };
   },
 
   /**
    * Add payment method
-   * @deprecated Crypto-only system
+   * @deprecated Not applicable - Paystack handles payment method selection inline
    */
   async addPaymentMethod(paymentMethodData) {
-    return { success: false, error: 'Crypto-only system - payment methods not applicable' };
+    return { success: false, error: 'Not applicable' };
   },
 
   /**
    * Remove payment method
-   * @deprecated Crypto-only system
+   * @deprecated Not applicable
    */
   async removePaymentMethod(paymentMethodId) {
-    return { success: false, error: 'Crypto-only system - payment methods not applicable' };
+    return { success: false, error: 'Not applicable' };
   },
 
   /**

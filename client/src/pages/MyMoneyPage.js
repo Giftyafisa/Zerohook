@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import CryptoPayment from '../components/payments/CryptoPayment';
+import PaystackPop from '@paystack/inline-js';
 import {
   Box,
   Typography,
@@ -95,6 +96,7 @@ const MyMoneyPage = () => {
   const [withdrawAddress, setWithdrawAddress] = useState('');
   const [withdrawCrypto, setWithdrawCrypto] = useState('USDT');
   const [paymentMethod, setPaymentMethod] = useState('crypto'); // 'crypto', 'wallet'
+  const [depositMethod, setDepositMethod] = useState('paystack'); // 'paystack' or 'crypto' for deposit dialog
   const [cryptoSymbol, setCryptoSymbol] = useState('USDT');
   const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
   const [showCryptoPayment, setShowCryptoPayment] = useState(false);
@@ -662,6 +664,100 @@ const MyMoneyPage = () => {
 
   // Add money via Crypto - Fee-free blockchain deposit
   const handleAddMoney = async () => {
+    // Route to correct handler based on deposit method
+    if (depositMethod === 'paystack') {
+      return handlePaystackDeposit();
+    }
+    return handleCryptoDeposit();
+  };
+
+  // Paystack deposit - Card, Mobile Money, Bank Transfer
+  const handlePaystackDeposit = async () => {
+    const minAmount = symbol === '₵' ? 1 : 100;
+    if (!addAmount || Number(addAmount) < minAmount) {
+      toast.warning(`Minimum amount is ${symbol}${minAmount}`);
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+
+      const response = await fetch(`${API_BASE_URL}/payments/paystack/inline-initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: Number(addAmount),
+          currency: currencyCode
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to initialize Paystack payment');
+      }
+
+      if (data.success && data.accessCode) {
+        setAddMoneyDialog(false);
+        setAddAmount('');
+
+        // Launch Paystack popup
+        const popup = new PaystackPop();
+        popup.resumeTransaction(data.accessCode, {
+          onSuccess: async (transaction) => {
+            try {
+              toast.info('Verifying payment...');
+              const verifyRes = await fetch(`${API_BASE_URL}/payments/paystack/verify`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ reference: data.reference })
+              });
+              const verifyData = await verifyRes.json();
+
+              if (verifyData.success) {
+                toast.success(`${symbol}${Number(addAmount).toLocaleString()} deposited successfully!`);
+                setSuccessMessage(`${symbol}${Number(addAmount).toLocaleString()} added to wallet!`);
+                setTimeout(() => {
+                  fetchAllData();
+                  setSuccessMessage(null);
+                }, 2000);
+              } else {
+                toast.warning('Payment received, verification pending. Reference: ' + data.reference);
+              }
+            } catch (err) {
+              console.error('Verify error:', err);
+              toast.warning('Payment received! Verification in progress...');
+            }
+            setActionLoading(false);
+          },
+          onCancel: () => {
+            toast.info('Payment cancelled');
+            setActionLoading(false);
+          },
+          onError: (error) => {
+            console.error('Paystack error:', error);
+            toast.error('Payment failed. Please try again.');
+            setActionLoading(false);
+          }
+        });
+      } else {
+        throw new Error(data.error || 'Failed to get payment access code');
+      }
+    } catch (error) {
+      console.error('Paystack deposit error:', error);
+      toast.error(error.message || 'Payment failed. Try again.');
+      setActionLoading(false);
+    }
+  };
+
+  // Add money via Crypto - Fee-free blockchain deposit
+  const handleCryptoDeposit = async () => {
     const minAmount = symbol === '₵' ? 1 : 100; // GHS min is 1, NGN min is 100
     if (!addAmount || Number(addAmount) < minAmount) {
       toast.warning(`Minimum amount is ${symbol}${minAmount}`);
@@ -1319,7 +1415,44 @@ const MyMoneyPage = () => {
           </Box>
         </Box>
 
-        {/* Crypto Method Tabs */}
+        {/* Payment Method Tabs - Paystack vs Crypto */}
+        <Box sx={{ px: 2, pt: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+            <Box 
+              sx={{ 
+                flex: 1, py: 1.5, borderRadius: '12px', textAlign: 'center', cursor: 'pointer',
+                bgcolor: depositMethod === 'paystack' ? 'rgba(0, 242, 234, 0.15)' : 'rgba(255,255,255,0.05)',
+                border: depositMethod === 'paystack' ? '1px solid #00f2ea' : '1px solid rgba(255,255,255,0.1)',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => setDepositMethod('paystack')}
+            >
+              <CardIcon sx={{ fontSize: 20, color: depositMethod === 'paystack' ? '#00f2ea' : '#888', mb: 0.5, display: 'block', mx: 'auto' }} />
+              <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: depositMethod === 'paystack' ? '#00f2ea' : '#aaa' }}>
+                Card / Mobile Money
+              </Typography>
+              <Typography sx={{ fontSize: '0.65rem', color: '#666' }}>Instant</Typography>
+            </Box>
+            <Box 
+              sx={{ 
+                flex: 1, py: 1.5, borderRadius: '12px', textAlign: 'center', cursor: 'pointer',
+                bgcolor: depositMethod === 'crypto' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255,255,255,0.05)',
+                border: depositMethod === 'crypto' ? '1px solid #ffa726' : '1px solid rgba(255,255,255,0.1)',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => setDepositMethod('crypto')}
+            >
+              <Typography sx={{ fontSize: 20, mb: 0.5 }}>₿</Typography>
+              <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: depositMethod === 'crypto' ? '#ffa726' : '#aaa' }}>
+                Crypto
+              </Typography>
+              <Typography sx={{ fontSize: '0.65rem', color: '#666' }}>Fee-free</Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Crypto Symbol Tabs (only show when crypto selected) */}
+        {depositMethod === 'crypto' && (
         <Box sx={styles.paymentTabs}>
           {['BTC', 'ETH', 'USDT', 'USDC'].map((crypto) => (
             <Box 
@@ -1334,6 +1467,7 @@ const MyMoneyPage = () => {
             </Box>
           ))}
         </Box>
+        )}
 
         {/* Content */}
         <Box sx={styles.depositContent}>
@@ -1341,7 +1475,9 @@ const MyMoneyPage = () => {
           <Box sx={styles.infoBanner}>
             <InfoIcon sx={{ color: '#ffa726', fontSize: 20 }} />
             <Typography sx={styles.infoBannerText}>
-              Crypto deposits are fee-free and powered by blockchain.
+              {depositMethod === 'paystack' 
+                ? 'Pay instantly with card, mobile money, or bank transfer.' 
+                : 'Crypto deposits are fee-free and powered by blockchain.'}
             </Typography>
           </Box>
 
@@ -1405,8 +1541,17 @@ const MyMoneyPage = () => {
           <Box sx={styles.infoList}>
             <Typography sx={styles.infoItem}>1. Maximum per transaction is {symbol}50,000.00</Typography>
             <Typography sx={styles.infoItem}>2. Minimum per transaction is {symbol}1.00</Typography>
-            <Typography sx={styles.infoItem}>3. Deposit is free, no transaction fees.</Typography>
-            <Typography sx={styles.infoItem}>4. Powered by blockchain - secure & fee-free.</Typography>
+            {depositMethod === 'paystack' ? (
+              <>
+                <Typography sx={styles.infoItem}>3. Supports Card, Mobile Money, Bank Transfer & USSD.</Typography>
+                <Typography sx={styles.infoItem}>4. Funds arrive instantly after payment confirmation.</Typography>
+              </>
+            ) : (
+              <>
+                <Typography sx={styles.infoItem}>3. Deposit is free, no transaction fees.</Typography>
+                <Typography sx={styles.infoItem}>4. Powered by blockchain - secure & fee-free.</Typography>
+              </>
+            )}
           </Box>
         </Box>
       </Dialog>

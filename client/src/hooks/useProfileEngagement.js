@@ -219,17 +219,8 @@ const useProfileEngagement = (profileId) => {
  */
 const sendEngagementAPI = async (data) => {
   try {
-    const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
-    const token = localStorage.getItem('token');
-    
-    await fetch(`${API_BASE_URL}/users/engagement`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` })
-      },
-      body: JSON.stringify(data)
-    });
+    const { default: apiClient } = await import('../services/apiClient');
+    await apiClient.post('/users/engagement', data);
   } catch (error) {
     // Silent fail - engagement tracking shouldn't interrupt UX
     console.debug('Engagement API fallback failed:', error);

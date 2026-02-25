@@ -30,7 +30,7 @@ import {
   selectUnreadMessages,
   setUnreadMessages 
 } from '../../store/slices/uiSlice';
-import { API_BASE_URL } from '../../config/constants';
+import apiClient from '../../services/apiClient';
 import tokens from '../../theme/tokens';
 
 // TikTok/Telegram style bottom nav - fixed position, proper touch targets
@@ -160,15 +160,8 @@ const MobileBottomNav = () => {
       if (!isAuthenticated) return;
       
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/chat/unread-count`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          dispatch(setUnreadMessages(data.unreadCount || 0));
-        }
+        const response = await apiClient.get('/chat/unread-count');
+        dispatch(setUnreadMessages(response.data.unreadCount || 0));
       } catch (error) {
         console.error('Failed to fetch unread count:', error);
       }

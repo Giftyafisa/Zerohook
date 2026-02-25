@@ -10,10 +10,12 @@ import {
   Container,
   Grid,
   IconButton,
+  InputAdornment,
   Skeleton,
   Stack,
   Tab,
   Tabs,
+  TextField,
   Typography,
   useMediaQuery,
   useTheme
@@ -24,7 +26,8 @@ import {
   Star,
   VerifiedUser,
   Search,
-  Tune
+  Tune,
+  Close
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -53,6 +56,9 @@ const itemVariants = {
 
 const categoryTabs = [
   { value: 'all', label: 'For You' },
+  { value: 'showcase', label: '✨ Showcase' },
+  { value: 'promo', label: '🔥 Promo' },
+  { value: 'lifestyle', label: '💫 Lifestyle' },
   { value: 'long-term', label: 'Long Term' },
   { value: 'short-term', label: 'Short Term' },
   { value: 'oral-services', label: 'Oral' },
@@ -72,6 +78,7 @@ const AdultServiceBrowse = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [priceRange] = useState([0, 2000]);
   const [sortMode] = useState('trending');
@@ -94,10 +101,10 @@ const AdultServiceBrowse = () => {
       if (priceRange[1]) params.append('maxPrice', String(priceRange[1]));
 
       try {
-        const res = await fetch(`${API_BASE_URL}/adult-services?${params.toString()}`, { headers });
+        const res = await fetch(`${API_BASE_URL}/content/feed?${params.toString()}`, { headers });
         if (!res.ok) throw new Error(`Request failed: ${res.status}`);
         const data = await res.json();
-        const items = data.services || data.data || [];
+        const items = data.feed || data.services || data.data || [];
         setServices(items);
       } catch (err) {
         console.error('Service fetch failed', err);
@@ -139,14 +146,16 @@ const AdultServiceBrowse = () => {
   }, [services, searchQuery, sortMode, isAuthenticated, currentUser]);
 
   const renderServiceCard = (service) => {
-    const image = service.images?.[0] || getDefaultImage('SERVICE');
-    const hasVideo = service.images?.some((m) => typeof m === 'string' && m.match(/\.mp4|\.mov|\.webm/i));
-    const categoryLabel = categoryTabs.find((c) => c.value === service.category)?.label || 'Service';
+    const image = service.images?.[0] || service.media?.[0] || getDefaultImage('SERVICE');
+    const hasVideo = (service.mediaType === 'video') || service.images?.some((m) => typeof m === 'string' && m.match(/\.mp4|\.mov|\.webm/i));
+    const categoryLabel = categoryTabs.find((c) => c.value === service.category)?.label || service.category || 'Post';
     const price = service.price;
     const duration = service.duration_minutes || service.duration;
     const providerName = service.provider?.username || service.username || 'Provider';
     const verificationTier = service.provider?.verification_tier || service.verification_tier;
     const trustScore = service.provider?.trust_score || service.trust_score;
+    const isContentPost = service.feedType === 'post';
+    const detailUrl = isContentPost ? `/profile/${service.provider?.id || service.user_id}` : `/adult-services/${service.id}`;
 
     return (
       <Card
@@ -159,7 +168,7 @@ const AdultServiceBrowse = () => {
           '&:hover': { transform: 'translateY(-6px)', boxShadow: '0 18px 52px rgba(0,0,0,0.22)' }
         }}
       >
-        <CardActionArea onClick={() => navigate(`/adult-services/${service.id}`)}>
+        <CardActionArea onClick={() => navigate(detailUrl)}>
           <Box sx={{ position: 'relative' }}>
             <CardMedia
               component="img"
@@ -229,7 +238,16 @@ const AdultServiceBrowse = () => {
                 <Button
                   variant="outlined"
                   sx={{ minWidth: 52, borderRadius: 2.5, borderColor: '#d1d5db', color: '#6b7280' }}
-                  onClick={(e) => { e.stopPropagation(); navigate('/chat'); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate('/chat', {
+                      state: {
+                        recipientId: service.provider?.id || service.providerId || service.provider_id || service.user_id,
+                        recipientName: providerName,
+                        recipientAvatar: service.provider?.profilePicture || service.providerAvatar || null
+                      }
+                    });
+                  }}
                 >
                   Msg
                 </Button>
@@ -312,16 +330,48 @@ const AdultServiceBrowse = () => {
             </Tabs>
 
             <Stack direction="row" spacing={1} alignItems="center">
-              <IconButton
-                size="small"
-                sx={{ color: 'rgba(255,255,255,0.8)' }}
-                onClick={() => {
-                  const query = prompt('Search services:');
-                  if (query) setSearchQuery(query);
-                }}
-              >
-                <Search fontSize="small" />
-              </IconButton>
+              {showSearch ? (
+                <TextField
+                  size="small"
+                  placeholder="Search services..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  autoFocus
+                  sx={{
+                    width: 200,
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: 'rgba(255,255,255,0.08)',
+                      borderRadius: 2,
+                      color: '#fff',
+                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
+                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                      '&.Mui-focused fieldset': { borderColor: '#60a5fa' },
+                    },
+                    '& .MuiInputBase-input::placeholder': { color: 'rgba(255,255,255,0.5)' },
+                  }}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => { setSearchQuery(''); setShowSearch(false); }}
+                          sx={{ color: 'rgba(255,255,255,0.6)' }}
+                        >
+                          <Close fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              ) : (
+                <IconButton
+                  size="small"
+                  sx={{ color: 'rgba(255,255,255,0.8)' }}
+                  onClick={() => setShowSearch(true)}
+                >
+                  <Search fontSize="small" />
+                </IconButton>
+              )}
               <IconButton
                 size="small"
                 sx={{ color: 'rgba(255,255,255,0.8)' }}

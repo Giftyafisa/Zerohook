@@ -70,6 +70,15 @@
             android:foregroundServiceType="camera|microphone"
             android:exported="false" />
 
+        <!-- Firebase Cloud Messaging (push notifications when app is killed) -->
+        <service
+            android:name=".services.ZerohookFirebaseMessaging"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Background Sync Worker -->
         <provider
             android:name="androidx.startup.InitializationProvider"

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
 import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
-import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import useCurrency from './useCurrency';
 
@@ -76,19 +76,13 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
           if (userLocation.accuracy)   qp.set('locationAccuracy', userLocation.accuracy);
         }
 
-        const headers = {};
-        const token = localStorage.getItem('token');
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-
-        const res = await fetch(`${API_BASE_URL}/users/profiles?${qp}`, {
-          headers,
+        const res = await apiClient.get(`/users/profiles?${qp}`, {
           signal: abortControllerRef.current.signal,
         });
 
         if (currentRequestId !== requestIdRef.current) return;
-        if (!res.ok) throw new Error('Failed to fetch profiles');
 
-        const data = await res.json();
+        const data = res.data;
         if (!data.users || !Array.isArray(data.users)) throw new Error('Invalid response');
 
         const processed = data.users

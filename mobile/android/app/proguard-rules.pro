@@ -33,10 +33,36 @@
 -keep class * implements com.google.gson.JsonSerializer
 -keep class * implements com.google.gson.JsonDeserializer
 
-# Socket.IO
+# Socket.IO + Engine.IO (comprehensive)
 -keep class io.socket.** { *; }
+-keep class io.socket.client.** { *; }
+-keep class io.socket.engineio.** { *; }
+-keep class io.socket.emitter.** { *; }
+-keep class io.socket.parser.** { *; }
 -keep class org.json.** { *; }
 -dontwarn io.socket.**
+-dontwarn io.socket.engineio.**
+
+# WebRTC (stream-webrtc-android)
+-keep class org.webrtc.** { *; }
+-keepclassmembers class org.webrtc.** { *; }
+-dontwarn org.webrtc.**
+-keep class io.getstream.webrtc.** { *; }
+-dontwarn io.getstream.webrtc.**
+
+# Keep WebRTC JNI native methods
+-keepclassmembers class org.webrtc.** {
+    native <methods>;
+}
+
+# Keep WebRTC callback interfaces
+-keep interface org.webrtc.** { *; }
+
+# Firebase Messaging
+-keep class com.google.firebase.** { *; }
+-dontwarn com.google.firebase.**
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.android.gms.**
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
@@ -73,6 +99,12 @@
 -keepattributes RuntimeVisibleAnnotations
 -keepattributes RuntimeVisibleParameterAnnotations
 -keepattributes RuntimeVisibleTypeAnnotations
+
+# Security Crypto (EncryptedSharedPreferences)
+-keep class androidx.security.crypto.** { *; }
+-keepclassmembers class * extends com.google.crypto.tink.shaded.protobuf.GeneratedMessageLite {
+    <fields>;
+}
 
 # R8 full mode
 -allowaccessmodification

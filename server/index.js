@@ -7,6 +7,7 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
+const { inferMessageType } = require('./utils/inferMessageType');
 // Load environment variables based on NODE_ENV
 const envPath = process.env.NODE_ENV === 'production' ? './env.production' : './env.local';
 require('dotenv').config({ path: envPath });
@@ -46,6 +47,7 @@ const bookingsRoutes = require('./routes/bookings');
 const milestoneRoutes = require('./routes/milestone');
 const sugarAccessRoutes = require('./routes/sugarAccess');
 const adminRoutes = require('./routes/admin');
+const contentRoutes = require('./routes/content');
 
 // Import services
 const TrustEngine = require('./services/TrustEngine');
@@ -476,6 +478,7 @@ app.use('/api/calls', callRoutes);
 app.use('/api/geolocation', geolocationRoutes);
 app.use('/api/sugar-access', sugarAccessRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/content', contentRoutes);
 app.use('/api/status', require('./routes/status'));
 
 // Health check endpoint
@@ -509,33 +512,7 @@ app.get('/api/health/simple', (req, res) => {
 io.on('connection', async (socket) => {
   console.log(`User ${socket.username} (${socket.userId}) connected:`, socket.id);
 
-  const inferMessageType = ({ messageType, type, content, metadata }) => {
-    const directType = messageType || type;
-    if (directType && directType !== 'text') return directType;
-
-    const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
-    const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
-    if (mimeType.startsWith('image/')) return 'image';
-    if (mimeType.startsWith('video/')) return 'video';
-    if (mimeType.startsWith('audio/')) return 'audio';
-    if (mimeType && !mimeType.startsWith('text/')) return 'file';
-    if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(fileName)) return 'image';
-    if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(fileName)) return 'video';
-    if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(fileName)) return 'audio';
-
-    const value = String(content || '').toLowerCase().split('?')[0].split('#')[0];
-    if (value.startsWith('data:image/')) return 'image';
-    if (value.startsWith('data:video/')) return 'video';
-    if (value.startsWith('data:audio/')) return 'audio';
-    if (/\/image\/upload\//.test(value)) return 'image';
-    if (/\/video\/upload\//.test(value)) return 'video';
-    if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
-    if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(value) || /video|vid/.test(value)) return 'video';
-    if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
-    if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
-
-    return 'text';
-  };
+  // Use shared utility (single source of truth for message type inference)
   
   try {
     // Create user session and update presence

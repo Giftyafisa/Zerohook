@@ -60,6 +60,7 @@ import VideoSystem from '../components/video/VideoSystem';
 import CryptoPayment from '../components/payments/CryptoPayment';
 import { useAuth } from '../contexts/AuthContext';
 import useCurrency from '../hooks/useCurrency';
+import { toast } from 'react-toastify';
 
 const AdultServiceDetail = () => {
   const theme = useTheme();
@@ -100,14 +101,13 @@ const AdultServiceDetail = () => {
         
         if (response.ok) {
           const data = await response.json();
-          console.log('🔍 Fetched service:', data);
           
           // Add null check for data.service
           if (data && data.service) {
             // Validate service data structure
             const validatedService = {
               ...data.service,
-              photos: data.service.photos || [],
+              photos: data.service.photos || data.service.images || [],
               title: data.service.title || 'Untitled Service',
               description: data.service.description || 'No description available',
               price: data.service.price || 0,
@@ -122,7 +122,22 @@ const AdultServiceDetail = () => {
               verificationTier: data.service.verificationTier || 'Basic',
               trustScore: data.service.trustScore || 0,
               privacyLevel: data.service.privacyLevel || 'standard',
-              provider: data.service.provider || null,
+              provider: (() => {
+                const raw = data.service.provider || null;
+                if (!raw) return null;
+                const pd = raw.profile_data || {};
+                return {
+                  ...raw,
+                  name: raw.username || pd.firstName || 'Provider',
+                  age: pd.age || raw.age || null,
+                  height: pd.height || raw.height || null,
+                  bodyType: pd.bodyType || raw.bodyType || null,
+                  languages: pd.languages || raw.languages || [],
+                  responseTime: pd.responseTime || raw.responseTime || null,
+                  memberSince: raw.created_at ? new Date(raw.created_at).toLocaleDateString() : null,
+                  profile_image: pd.profilePicture || pd.photos?.[0] || raw.profile_image || null,
+                };
+              })(),
               services: data.service.services || [],
               requirements: data.service.requirements || [],
               safety: data.service.safety || [],
@@ -155,9 +170,21 @@ const AdultServiceDetail = () => {
     setSelectedPhoto(index);
   };
 
-  const handleFavorite = () => {
+  const handleFavorite = async () => {
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: `/adult-services/${id}` } });
+      return;
+    }
     setIsFavorite(!isFavorite);
-    // In real app, this would update the backend
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_BASE_URL}/content/posts/${id}/bookmark`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch (err) {
+      setIsFavorite(isFavorite); // revert
+    }
   };
 
   const handleShare = () => {
@@ -171,10 +198,31 @@ const AdultServiceDetail = () => {
     }
   };
 
-  const handleReport = () => {
-    // In real app, this would open report dialog
+  const handleReport = async () => {
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: `/adult-services/${id}` } });
+      return;
+    }
     if (service) {
-      console.log('Report service:', service.id);
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/content/posts/${service.id}/report`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ reason: 'Reported by user' }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          toast.success(data.message || 'Report submitted');
+        } else {
+          toast.info(data.error || 'Already reported');
+        }
+      } catch (err) {
+        toast.error('Failed to submit report');
+      }
     }
   };
 

@@ -4,6 +4,7 @@ plugins {
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -170,6 +171,10 @@ dependencies {
     
     // Biometric Authentication
     implementation("androidx.biometric:biometric:1.1.0")
+
+    // Firebase (free Spark plan — FCM for push notifications)
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
     
     // Paging 3 for infinite scroll
     implementation("androidx.paging:paging-runtime-ktx:3.2.1")

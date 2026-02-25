@@ -96,6 +96,12 @@ const LegacyServiceRedirect = () => {
   return <Navigate to={targetUrl} replace />;
 };
 
+// Messages redirect — forwards location.state so recipient context isn't lost
+const MessagesRedirect = () => {
+  const location = useLocation();
+  return <Navigate to={`/chat${location.search}`} state={location.state} replace />;
+};
+
 function App() {
   // Global error handler for unhandled errors
   useEffect(() => {
@@ -302,7 +308,7 @@ function AppContent() {
             <ErrorBoundary><MessagesPage /></ErrorBoundary>
           </ProtectedRoute>
         } />
-        <Route path="/messages" element={<Navigate to="/chat" replace />} />
+        <Route path="/messages" element={<MessagesRedirect />} />
         
         {/* Notifications Route */}
         <Route path="/notifications" element={

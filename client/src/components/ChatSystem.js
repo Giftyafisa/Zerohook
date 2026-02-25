@@ -57,7 +57,8 @@ import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useCall } from '../contexts/CallContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import { getUploadUrl } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { useDispatch } from 'react-redux';
 import { decrementUnreadMessages } from '../store/slices/uiSlice';
 
@@ -443,7 +444,7 @@ const ChatSystem = ({
       const messageTimestamp = messageData.createdAt || messageData.timestamp || new Date().toISOString();
       const currentConv = selectedConversationRef.current;
 
-      if (currentConv && messageData.conversationId === currentConv.id) {
+      if (currentConv && normalizeId(messageData.conversationId) === normalizeId(currentConv.id)) {
         setMessages((prev) => {
           // Deduplicate by message id
           if (prev.some((m) => m.id === messageData.id)) {
@@ -480,10 +481,10 @@ const ChatSystem = ({
       setConversations((prev) =>
         sortConversations(
           prev.map((conv) => {
-            if (conv.id !== messageData.conversationId) return conv;
+            if (normalizeId(conv.id) !== normalizeId(messageData.conversationId)) return conv;
             conversationFound = true;
             const isOwn = String(messageData.senderId || '') === currentUserId;
-            const isActive = currentConv?.id === conv.id;
+            const isActive = normalizeId(currentConv?.id) === normalizeId(conv.id);
             const resolvedType = inferMessageTypeFromContent(messageData.content, messageData.messageType, messageData.metadata);
             return {
               ...conv,
@@ -555,7 +556,8 @@ const ChatSystem = ({
     // Handle read receipts — other participant read our messages
     const handleMessageRead = ({ conversationId, userId: readerId, timestamp }) => {
       if (String(readerId || '') === currentUserId) return; // Ignore our own read events
-      if (selectedConversationRef.current?.id === conversationId) {
+      // Update messages in currently viewed conversation
+      if (normalizeId(selectedConversationRef.current?.id) === normalizeId(conversationId)) {
         setMessages((prev) =>
           prev.map((msg) =>
             String(msg.senderId || '') === currentUserId && !msg.readAt
@@ -564,6 +566,14 @@ const ChatSystem = ({
           )
         );
       }
+      // Also update the conversation list to reflect read status (clear unread for other user's perspective)
+      setConversations((prev) =>
+        prev.map((conv) =>
+          normalizeId(conv.id) === normalizeId(conversationId)
+            ? { ...conv, lastReadAt: timestamp }
+            : conv
+        )
+      );
     };
     socket.on('message_read', handleMessageRead);
 
@@ -630,6 +640,18 @@ const ChatSystem = ({
     };
   }, [socket, isConnected, currentUserId, navigate]);
 
+  // Reset bootstrap flag when the target recipient or conversation changes
+  // (e.g. user clicks "Message" on a different profile without unmounting)
+  const prevTargetRef = useRef(null);
+  useEffect(() => {
+    const currentTarget = targetRecipientId || initialConversationId || null;
+    if (prevTargetRef.current !== null && currentTarget !== prevTargetRef.current) {
+      debugLog('💬 Target changed, resetting bootstrap flag:', prevTargetRef.current, '->', currentTarget);
+      hasBootstrappedRef.current = false;
+    }
+    prevTargetRef.current = currentTarget;
+  }, [targetRecipientId, initialConversationId]);
+
   // Bootstrap target recipient or conversation from props / navigation state
   useEffect(() => {
     debugLog('💬 Bootstrap effect:', { user: !!user, loading, hasBootstrapped: hasBootstrappedRef.current, targetRecipientId, initialConversationId });
@@ -643,7 +665,7 @@ const ChatSystem = ({
           hasBootstrappedRef.current = true;
           await startConversationWithRecipient(targetRecipientId);
         } else if (initialConversationId) {
-          const existing = conversations.find(c => c.id === initialConversationId);
+          const existing = conversations.find(c => normalizeId(c.id) === normalizeId(initialConversationId));
           if (existing) {
             hasBootstrappedRef.current = true;
             selectConversation(existing);
@@ -688,13 +710,10 @@ const ChatSystem = ({
     try {
       debugLog('🔄 Loading conversations...');
       if (!silent) setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      debugLog('📡 Conversations API response:', response.status, response.ok);
-      if (response.ok) {
-        const data = await response.json();
+      const response = await apiClient.get('/chat/conversations');
+      debugLog('📡 Conversations API response:', response.status);
+      {
+        const data = response.data;
         debugLog('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
         const transformedConversations = (data.conversations || []).map(conv => {
@@ -719,8 +738,6 @@ const ChatSystem = ({
         setConversations(sorted);
         debugLog('✅ Conversations loaded successfully:', sorted.length, 'conversations');
         return sorted;
-      } else {
-        console.error('❌ Conversations API failed:', response.status, response.statusText);
       }
     } catch (error) {
       console.error('❌ Failed to load conversations:', error);
@@ -733,19 +750,14 @@ const ChatSystem = ({
   const loadMessages = async (conversationId) => {
     try {
       debugLog('📨 Loading messages for conversation:', conversationId);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/chat/messages/${conversationId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      debugLog('📨 Messages API response:', response.status, response.ok);
-      if (response.ok) {
-        const data = await response.json();
-        debugLog('💬 Messages data:', data);
-        setMessages(data.messages || []);
-        debugLog('💬 Messages set to state:', data.messages?.length || 0);
-        setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
-        // Note: markConversationRead is already called by `selectConversation`; no need to call again here.
-      }
+      const response = await apiClient.get(`/chat/messages/${conversationId}`);
+      debugLog('📨 Messages API response:', response.status);
+      const data = response.data;
+      debugLog('💬 Messages data:', data);
+      setMessages(data.messages || []);
+      debugLog('💬 Messages set to state:', data.messages?.length || 0);
+      setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
+      // Note: markConversationRead is already called by `selectConversation`; no need to call again here.
     } catch (error) {
       console.error('Failed to load messages:', error);
       toast.error('Unable to load messages right now.');
@@ -769,38 +781,13 @@ const ChatSystem = ({
 
     try {
       setStartingConversation(true);
-      const token = localStorage.getItem('token');
       
       // Ensure recipientId is sent correctly
       const payload = { otherUserId: recipientId };
-      const apiUrl = `${API_BASE_URL}/chat/start`;
       debugLog('💬 Sending chat/start with payload:', payload);
-      debugLog('💬 API URL:', apiUrl, '| API_BASE_URL:', API_BASE_URL);
       
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('💬 Chat start failed:', response.status, errorData);
-        
-        // Handle subscription limit error - redirect to subscribe page
-        if (response.status === 403 && errorData.error === 'subscription_required') {
-          toast.warning('You have reached your free messaging limit. Subscribe to message unlimited people! 🌟');
-          navigate('/subscription');
-          return null;
-        }
-        
-        throw new Error(errorData.message || 'Failed to start conversation');
-      }
-      
-      const data = await response.json();
+      const response = await apiClient.post('/chat/start', payload);
+      const data = response.data;
       debugLog('💬 Chat start success:', data);
       
       const convList = await loadConversations({ silent: true });
@@ -810,8 +797,14 @@ const ChatSystem = ({
       }
       return created || null;
     } catch (error) {
+      // Handle subscription limit error - redirect to subscribe page
+      if (error.response?.status === 403 && error.response?.data?.error === 'subscription_required') {
+        toast.warning('You have reached your free messaging limit. Subscribe to message unlimited people! 🌟');
+        navigate('/subscription');
+        return null;
+      }
       console.error('Failed to start conversation:', error);
-      toast.error(error.message || 'Unable to start conversation right now.');
+      toast.error(error.response?.data?.message || error.message || 'Unable to start conversation right now.');
       return null;
     } finally {
       setStartingConversation(false);
@@ -836,55 +829,41 @@ const ChatSystem = ({
 
     try {
       debugLog('📤 Sending message payload:', { content, messageType, metadata }, 'to conversation:', selectedConversation.id);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/chat/send`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          conversationId: selectedConversation.id,
-          content,
-          messageType,
-          metadata
-        })
+      const response = await apiClient.post('/chat/send', {
+        conversationId: selectedConversation.id,
+        content,
+        messageType,
+        metadata
       });
 
       debugLog('📤 Send API response:', response.status);
-      if (response.ok) {
-        const data = await response.json();
-        debugLog('📤 Message sent successfully, data:', data);
-        const saved = data.message;
-        if (saved) {
-          setMessages(prev =>
-            prev.map(msg =>
-              msg.id === tempId ? { ...saved, status: 'sent' } : msg
-            )
-          );
-          setConversations(prev =>
-            prev
-              .map(conv => conv.id === selectedConversation.id
-                ? { ...conv, lastMessage: formatMessagePreview(saved.content, messageType), lastMessageTime: saved.createdAt }
-                : conv)
-              .sort((a, b) => new Date(b.lastMessageTime || b.createdAt || 0) - new Date(a.lastMessageTime || a.createdAt || 0))
-          );
-        }
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        console.error('📤 Send failed:', response.status, response.statusText, errData);
-        setMessages(prev => prev.map(msg => msg.id === tempId ? { ...msg, status: 'failed' } : msg));
-        if (errData?.error === 'subscription_required') {
-          toast.warning(errData?.message || 'Messaging limit reached. Subscribe to continue.');
-          navigate('/subscription');
-        } else {
-          toast.error(errData?.message || errData?.error || 'Failed to send message.');
-        }
+      const data = response.data;
+      debugLog('📤 Message sent successfully, data:', data);
+      const saved = data.message;
+      if (saved) {
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === tempId ? { ...saved, status: 'sent' } : msg
+          )
+        );
+        setConversations(prev =>
+          prev
+            .map(conv => conv.id === selectedConversation.id
+              ? { ...conv, lastMessage: formatMessagePreview(saved.content, messageType), lastMessageTime: saved.createdAt }
+              : conv)
+            .sort((a, b) => new Date(b.lastMessageTime || b.createdAt || 0) - new Date(a.lastMessageTime || a.createdAt || 0))
+        );
       }
     } catch (error) {
       console.error('Failed to send message:', error);
       setMessages(prev => prev.map(msg => msg.id === tempId ? { ...msg, status: 'failed' } : msg));
-      toast.error('Failed to send message.');
+      const errData = error.response?.data;
+      if (errData?.error === 'subscription_required') {
+        toast.warning(errData?.message || 'Messaging limit reached. Subscribe to continue.');
+        navigate('/subscription');
+      } else {
+        toast.error(errData?.message || errData?.error || 'Failed to send message.');
+      }
     }
   };
 
@@ -897,7 +876,7 @@ const ChatSystem = ({
 
   // File validation constants
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-  const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'audio/mpeg', 'audio/wav', 'application/pdf'];
+  const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'video/mp4', 'video/quicktime', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac', 'application/pdf'];
 
   // Show preview before uploading attachment
   const handleFilePreview = (event) => {
@@ -936,33 +915,29 @@ const ChatSystem = ({
   };
 
   const handleFileSelect = async (event) => {
-    const file = event.target.files?.[0];
+    const file = event?.target?.files?.[0] || (event instanceof File ? event : null);
     if (!file || !selectedConversation) return;
     
     // Validate file size and type
     if (file.size > MAX_FILE_SIZE) {
       alert('File is too large. Maximum size is 10MB.');
-      event.target.value = '';
+      if (event?.target) event.target.value = '';
       return;
     }
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
       alert('File type not supported.');
-      event.target.value = '';
+      if (event?.target) event.target.value = '';
       return;
     }
     
     try {
-      const token = localStorage.getItem('token');
       const formData = new FormData();
       formData.append('file', file);
-      const uploadRes = await fetch(`${API_BASE_URL}/uploads/chat-attachment`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
+      const uploadRes = await apiClient.post('/uploads/chat-attachment', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
-      if (!uploadRes.ok) throw new Error('Upload failed');
-      const data = await uploadRes.json();
-      const fileType = data.fileType || (file.type.startsWith('video/') ? 'video' : file.type.startsWith('image/') ? 'image' : 'file');
+      const data = uploadRes.data;
+      const fileType = data.fileType || (file.type.startsWith('video/') ? 'video' : file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : 'file');
       const contentUrl = resolveMediaUrl(data.url || data.path || data.publicUrl);
       const metadata = {
         filename: data.filename || file.name,
@@ -974,7 +949,7 @@ const ChatSystem = ({
       console.error('Attachment upload failed:', err);
       toast.error('Failed to upload attachment.');
     } finally {
-      event.target.value = '';
+      if (event?.target) event.target.value = '';
     }
   };
 
@@ -1045,15 +1020,7 @@ const ChatSystem = ({
     if (!selectedConversation?.participantId) return;
     
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/chat/block-user`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ userId: selectedConversation.participantId })
-      });
+      await apiClient.post('/chat/block-user', { userId: selectedConversation.participantId });
       // Remove conversation from list
       setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
       setSelectedConversation(null);
@@ -1077,11 +1044,7 @@ const ChatSystem = ({
     if (!selectedConversation) return;
     
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/chat/conversations/${selectedConversation.id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      await apiClient.delete(`/chat/conversations/${selectedConversation.id}`);
       setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
       setSelectedConversation(null);
       setShowMobileChat(false);
@@ -1094,11 +1057,7 @@ const ChatSystem = ({
   // Delete conversation by ID (for swipe action)
   const handleDeleteConversationById = async (conversationId) => {
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/chat/conversations/${conversationId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      await apiClient.delete(`/chat/conversations/${conversationId}`);
       setConversations(prev => prev.filter(c => c.id !== conversationId));
       if (selectedConversation?.id === conversationId) {
         setSelectedConversation(null);
@@ -1135,35 +1094,25 @@ const ChatSystem = ({
         return;
       }
       try {
-        const token = localStorage.getItem('token');
-        
         // Check escrow
-        const escrowResponse = await fetch(`${API_BASE_URL}/escrow/list`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (escrowResponse.ok) {
-          const data = await escrowResponse.json();
-          // Find escrow with this participant
-          const escrow = (data.escrows || []).find(e => 
-            (e.provider_id === selectedParticipantId || 
-             e.client_id === selectedParticipantId) &&
-            e.status === 'held'
-          );
-          setActiveEscrow(escrow || null);
-          
-          // Check if current user is the provider in any escrow
-          const isUserProvider = (data.escrows || []).some(e => e.provider_id === user?.id);
-          setIsProvider(isUserProvider);
-        }
+        const escrowResponse = await apiClient.get('/escrow/list');
+        const data = escrowResponse.data;
+        // Find escrow with this participant
+        const escrow = (data.escrows || []).find(e => 
+          (e.provider_id === selectedParticipantId || 
+           e.client_id === selectedParticipantId) &&
+          e.status === 'held'
+        );
+        setActiveEscrow(escrow || null);
+        
+        // Check if current user is the provider in any escrow
+        const isUserProvider = (data.escrows || []).some(e => e.provider_id === user?.id);
+        setIsProvider(isUserProvider);
         
         // Check pending milestone requests
-        const milestoneResponse = await fetch(`${API_BASE_URL}/milestone/pending/${selectedParticipantId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (milestoneResponse.ok) {
-          const milestoneData = await milestoneResponse.json();
-          setPendingMilestones(milestoneData.requests || []);
-        }
+        const milestoneResponse = await apiClient.get(`/milestone/pending/${selectedParticipantId}`);
+        const milestoneData = milestoneResponse.data;
+        setPendingMilestones(milestoneData.requests || []);
       } catch (error) {
         console.error('Failed to check escrow/milestones:', error);
       }
@@ -1191,30 +1140,18 @@ const ChatSystem = ({
     if (!activeEscrow) return;
     setEscrowLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ escrowId: activeEscrow.id })
-      });
-      if (response.ok) {
-        setActiveEscrow(null);
-        // Update conversation
-        if (selectedConversation) {
-          setConversations(prev => prev.map(c => 
-            c.id === selectedConversation.id 
-              ? { ...c, hasActiveEscrow: false, escrowAmount: null }
-              : c
-          ));
-          setSelectedConversation(prev => prev ? { ...prev, hasActiveEscrow: false, escrowAmount: null } : prev);
-        }
-        toast.success('Payment released! The provider has received the funds.');
-      } else {
-        toast.error('Failed to release payment. Please try again.');
+      await apiClient.post('/escrow/complete', { escrowId: activeEscrow.id });
+      setActiveEscrow(null);
+      // Update conversation
+      if (selectedConversation) {
+        setConversations(prev => prev.map(c => 
+          c.id === selectedConversation.id 
+            ? { ...c, hasActiveEscrow: false, escrowAmount: null }
+            : c
+        ));
+        setSelectedConversation(prev => prev ? { ...prev, hasActiveEscrow: false, escrowAmount: null } : prev);
       }
+      toast.success('Payment released! The provider has received the funds.');
     } catch (error) {
       console.error('Failed to release payment:', error);
       toast.error('Error releasing payment.');
@@ -1237,21 +1174,9 @@ const ChatSystem = ({
     
     setEscrowLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ escrowId: activeEscrow.id, reason: disputeReason.trim() })
-      });
-      if (response.ok) {
-        setActiveEscrow(prev => prev ? { ...prev, status: 'disputed' } : null);
-        toast.info('Issue reported. Our support team will review and contact you soon.');
-      } else {
-        toast.error('Failed to report issue. Please try again.');
-      }
+      await apiClient.post('/escrow/dispute', { escrowId: activeEscrow.id, reason: disputeReason.trim() });
+      setActiveEscrow(prev => prev ? { ...prev, status: 'disputed' } : null);
+      toast.info('Issue reported. Our support team will review and contact you soon.');
     } catch (error) {
       console.error('Failed to report problem:', error);
       toast.error('Error reporting issue.');
@@ -1270,20 +1195,10 @@ const ChatSystem = ({
   // Accept milestone request
   const handleAcceptMilestone = async (requestId) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/milestone/respond`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ requestId, action: 'accept' })
-      });
-      if (response.ok) {
-        setPendingMilestones(prev => prev.map(m => 
-          m.id === requestId ? { ...m, status: 'accepted' } : m
-        ));
-      }
+      await apiClient.post('/milestone/respond', { requestId, action: 'accept' });
+      setPendingMilestones(prev => prev.map(m => 
+        m.id === requestId ? { ...m, status: 'accepted' } : m
+      ));
     } catch (error) {
       console.error('Failed to accept milestone:', error);
       toast.error('Failed to accept request');
@@ -1293,18 +1208,8 @@ const ChatSystem = ({
   // Decline milestone request
   const handleDeclineMilestone = async (requestId) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/milestone/respond`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ requestId, action: 'decline' })
-      });
-      if (response.ok) {
-        setPendingMilestones(prev => prev.filter(m => m.id !== requestId));
-      }
+      await apiClient.post('/milestone/respond', { requestId, action: 'decline' });
+      setPendingMilestones(prev => prev.filter(m => m.id !== requestId));
     } catch (error) {
       console.error('Failed to decline milestone:', error);
       toast.error('Failed to decline request');
@@ -1314,21 +1219,11 @@ const ChatSystem = ({
   // Pay for accepted milestone
   const handlePayMilestone = async (request) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/milestone/pay`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ requestId: request.id })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setActiveEscrow(data.escrow);
-        setPendingMilestones(prev => prev.filter(m => m.id !== request.id));
-        toast.success('Payment held successfully!');
-      }
+      const response = await apiClient.post('/milestone/pay', { requestId: request.id });
+      const data = response.data;
+      setActiveEscrow(data.escrow);
+      setPendingMilestones(prev => prev.filter(m => m.id !== request.id));
+      toast.success('Payment held successfully!');
     } catch (error) {
       console.error('Failed to pay milestone:', error);
       toast.error('Payment failed. Try again.');
@@ -1341,11 +1236,7 @@ const ChatSystem = ({
 
   const markConversationRead = async (conversationId) => {
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/chat/read/${conversationId}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      await apiClient.post(`/chat/read/${conversationId}`);
       // NOTE: The REST endpoint already emits 'message_read' via socket.
       // Do NOT also emit 'mark_read' here — that causes double emission
       // (4 events per read to the other participant).
@@ -2278,11 +2169,7 @@ const ChatSystem = ({
             onClick={async () => {
               if (!selectedMessage) return;
               try {
-                const token = localStorage.getItem('token');
-                await fetch(`${API_BASE_URL}/chat/messages/${selectedMessage.id}`, {
-                  method: 'DELETE',
-                  headers: { 'Authorization': `Bearer ${token}` }
-                });
+                await apiClient.delete(`/chat/messages/${selectedMessage.id}`);
                 setMessages(prev => prev.filter(m => m.id !== selectedMessage.id));
               } catch (error) {
                 console.error('Failed to delete message:', error);
@@ -2361,9 +2248,8 @@ const ChatSystem = ({
           <IconButton 
             onClick={async () => {
               if (pendingFile) {
-                // Create a synthetic event for handleFileSelect
-                const syntheticEvent = { target: { files: [pendingFile], value: '' } };
-                await handleFileSelect(syntheticEvent);
+                // Pass the File object directly to handleFileSelect
+                await handleFileSelect(pendingFile);
               }
               setAttachmentPreview(null);
               setPendingFile(null);

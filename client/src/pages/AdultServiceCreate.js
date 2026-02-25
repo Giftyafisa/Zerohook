@@ -247,7 +247,7 @@ const AdultServiceCreate = () => {
       };
       
       // Create service first to get serviceId
-      const serviceResponse = await fetch(`${API_BASE_URL}/services`, {
+      const serviceResponse = await fetch(`${API_BASE_URL}/adult-services`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -286,8 +286,6 @@ const AdultServiceCreate = () => {
         }
       }
       
-             console.log('Service created successfully:', serviceResult);
-       
        // Clear any previous errors and set success message
        setError('');
        setSuccess('Service created successfully! Redirecting...');

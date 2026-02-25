@@ -1,90 +1,15 @@
-import axios from 'axios';
+import apiClient, { API_BASE_URL } from './apiClient';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
-// Create axios instance
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  timeout: 10000, // 10 second timeout
-  withCredentials: true
-});
-
-// Add token to requests automatically
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
-
-// Handle token expiration and network errors
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      
-      try {
-        // Try to refresh via the rotation endpoint (cookie carries the refresh token for web)
-        const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include', // Send httpOnly cookie
-          body: JSON.stringify({})
-        });
-        
-        if (refreshResponse.ok) {
-          const refreshData = await refreshResponse.json();
-          if (refreshData.token) {
-            localStorage.setItem('token', refreshData.token);
-            originalRequest.headers.Authorization = `Bearer ${refreshData.token}`;
-            return api(originalRequest);
-          }
-        }
-        
-        // Refresh failed, redirect to login
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-      } catch (refreshError) {
-        console.error('Token refresh failed:', refreshError);
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-      }
-    }
-    
-    // Enhanced error logging for debugging
-    if (error.response) {
-      console.error('API Error Response:', {
-        status: error.response.status,
-        data: error.response.data,
-        url: error.config?.url
-      });
-    } else if (error.request) {
-      console.error('API Network Error:', {
-        message: error.message,
-        url: error.config?.url
-      });
-    } else {
-      console.error('API Error:', error.message);
-    }
-    
-    return Promise.reject(error);
-  }
-);
+/**
+ * Auth API service — uses the shared apiClient for consistent token refresh
+ * and 401 handling via the centralized mutex-based queue.
+ */
 
 const authAPI = {
   // Register new user
   register: async (userData) => {
     try {
-      const response = await api.post('/auth/register', userData);
+      const response = await apiClient.post('/auth/register', userData);
       return response.data;
     } catch (error) {
       console.error('Registration API error:', error);
@@ -95,7 +20,7 @@ const authAPI = {
   // Login user
   login: async (credentials) => {
     try {
-      const response = await api.post('/auth/login', credentials);
+      const response = await apiClient.post('/auth/login', credentials);
       return response.data;
     } catch (error) {
       console.error('Login API error:', error);
@@ -106,7 +31,7 @@ const authAPI = {
   // Refresh token (with rotation - pass refresh token)
   refresh: async (refreshToken) => {
     try {
-      const response = await api.post('/auth/refresh', {
+      const response = await apiClient.post('/auth/refresh', {
         refreshToken: refreshToken || undefined
       });
       return response.data;
@@ -141,7 +66,7 @@ const authAPI = {
   // Verify identity tier
   verifyTier: async (verificationData) => {
     try {
-      const response = await api.post('/auth/verify-tier', verificationData);
+      const response = await apiClient.post('/auth/verify-tier', verificationData);
       return response.data;
     } catch (error) {
       throw error;
@@ -151,7 +76,7 @@ const authAPI = {
   // Logout (client-side only for now)
   logout: async () => {
     try {
-      const response = await api.post('/auth/logout');
+      const response = await apiClient.post('/auth/logout');
       return response.data;
     } catch (error) {
       // Logout should always succeed even if API fails
@@ -162,7 +87,7 @@ const authAPI = {
   // Get user profile
   getProfile: async () => {
     try {
-      const response = await api.get('/users/profile');
+      const response = await apiClient.get('/users/profile');
       return response.data;
     } catch (error) {
       throw error;
@@ -172,7 +97,7 @@ const authAPI = {
   // Update user profile
   updateProfile: async (profileData) => {
     try {
-      const response = await api.put('/users/profile', { profile_data: profileData });
+      const response = await apiClient.put('/users/profile', { profile_data: profileData });
       return response.data;
     } catch (error) {
       throw error;
@@ -182,7 +107,7 @@ const authAPI = {
   // Get dashboard stats
   getDashboardStats: async () => {
     try {
-      const response = await api.get('/dashboard/stats');
+      const response = await apiClient.get('/dashboard/stats');
       return response.data;
     } catch (error) {
       throw error;
@@ -192,7 +117,7 @@ const authAPI = {
   // Get user transactions
   getTransactions: async () => {
     try {
-      const response = await api.get('/transactions');
+      const response = await apiClient.get('/transactions');
       return response.data;
     } catch (error) {
       throw error;
@@ -202,7 +127,7 @@ const authAPI = {
   // Create new service
   createService: async (serviceData) => {
     try {
-      const response = await api.post('/services', serviceData);
+      const response = await apiClient.post('/services', serviceData);
       return response.data;
     } catch (error) {
       throw error;
@@ -215,7 +140,7 @@ const authAPI = {
       const formData = new FormData();
       formData.append('profilePicture', file);
       
-      const response = await api.post('/uploads/profile-picture', formData, {
+      const response = await apiClient.post('/uploads/profile-picture', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

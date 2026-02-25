@@ -500,6 +500,92 @@ const privacyConsentSchema = new mongoose.Schema({
 
 privacyConsentSchema.index({ user_id: 1, consent_type: 1 }, { unique: true });
 
+// ========================================
+// ContentPost Schema - TikTok-style posts
+// ========================================
+const contentPostSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  username: { type: String, required: true },
+  media_url: { type: String, required: true },
+  media_type: { type: String, enum: ['image', 'video'], required: true },
+  thumbnail_url: String,
+  caption: { type: String, default: '', maxlength: 2000 },
+  category: { type: String, default: 'showcase', enum: ['showcase', 'promo', 'lifestyle', 'behind-scenes', 'announcement', 'long-term', 'short-term', 'oral-services', 'special-services'] },
+  tags: { type: [String], default: [] },
+  price: { type: Number, default: 0 },
+  location: { type: String, default: '' },
+  // Engagement
+  likes_count: { type: Number, default: 0 },
+  liked_by: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  comments_count: { type: Number, default: 0 },
+  shares_count: { type: Number, default: 0 },
+  views_count: { type: Number, default: 0 },
+  bookmarks_count: { type: Number, default: 0 },
+  bookmarked_by: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  // Linked service (optional - link post to a service listing)
+  linked_service_id: { type: mongoose.Schema.Types.ObjectId, ref: 'AdultService' },
+  // Moderation
+  status: { type: String, default: 'active', enum: ['active', 'pending_review', 'flagged', 'removed'] },
+  reported_count: { type: Number, default: 0 },
+  reported_by: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  // Storage
+  storage_type: { type: String, default: 'local', enum: ['local', 'cloudinary'] },
+  cloudinary_public_id: String,
+  file_size: Number,
+  // Engagement score for algorithm
+  engagement_score: { type: Number, default: 0 },
+  is_pinned: { type: Boolean, default: false }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+contentPostSchema.index({ user_id: 1, created_at: -1 });
+contentPostSchema.index({ category: 1, status: 1, created_at: -1 });
+contentPostSchema.index({ status: 1, engagement_score: -1 });
+contentPostSchema.index({ status: 1, created_at: -1 });
+contentPostSchema.index({ tags: 1 });
+
+// ========================================
+// Comment Schema
+// ========================================
+const commentSchema = new mongoose.Schema({
+  post_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ContentPost', required: true },
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  username: { type: String, required: true },
+  text: { type: String, required: true, maxlength: 1000 },
+  parent_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null },
+  likes_count: { type: Number, default: 0 },
+  liked_by: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  status: { type: String, default: 'active', enum: ['active', 'flagged', 'removed'] }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+commentSchema.index({ post_id: 1, created_at: -1 });
+commentSchema.index({ user_id: 1 });
+commentSchema.index({ parent_id: 1 });
+
+// ========================================
+// Follow Schema
+// ========================================
+const followSchema = new mongoose.Schema({
+  follower_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  following_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  status: { type: String, default: 'active', enum: ['active', 'blocked'] }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+followSchema.index({ follower_id: 1, following_id: 1 }, { unique: true });
+followSchema.index({ following_id: 1 });
+followSchema.index({ follower_id: 1 });
+
+// ========================================
+// Bookmark Schema
+// ========================================
+const bookmarkSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  post_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ContentPost', required: true },
+  collection_name: { type: String, default: 'default' }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+bookmarkSchema.index({ user_id: 1, post_id: 1 }, { unique: true });
+bookmarkSchema.index({ user_id: 1, created_at: -1 });
+
 // Create Models
 const User = mongoose.model('User', userSchema);
 const ServiceCategory = mongoose.model('ServiceCategory', serviceCategorySchema);
@@ -528,6 +614,10 @@ const UserEngagementEvent = mongoose.model('UserEngagementEvent', userEngagement
 const AdultService = mongoose.model('AdultService', adultServiceSchema);
 const UserPrivacySettings = mongoose.model('UserPrivacySettings', userPrivacySettingsSchema);
 const PrivacyConsent = mongoose.model('PrivacyConsent', privacyConsentSchema);
+const ContentPost = mongoose.model('ContentPost', contentPostSchema);
+const Comment = mongoose.model('Comment', commentSchema);
+const Follow = mongoose.model('Follow', followSchema);
+const Bookmark = mongoose.model('Bookmark', bookmarkSchema);
 
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
@@ -731,5 +821,9 @@ module.exports = {
   RefreshToken,
   Notification,
   MilestoneRequest,
-  UserConnection
+  UserConnection,
+  ContentPost,
+  Comment,
+  Follow,
+  Bookmark
 };

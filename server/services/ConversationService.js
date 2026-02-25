@@ -116,6 +116,21 @@ class ConversationService {
       else if (messageType === 'audio') lastMessagePreview = '🎵 Audio';
       else if (messageType === 'location') lastMessagePreview = '📍 Location';
       else if (messageType === 'contact') lastMessagePreview = '👤 Contact';
+      else {
+        // Safety net: even if messageType is 'text', check if content is a URL
+        // (e.g. when type inference missed it) — never show raw URLs in inbox
+        const trimmed = (content || '').trim();
+        if (
+          trimmed.startsWith('http://') || trimmed.startsWith('https://') ||
+          trimmed.startsWith('/uploads/') || trimmed.startsWith('data:')
+        ) {
+          const clean = trimmed.split('?')[0].split('#')[0].toLowerCase();
+          if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(clean) || /\/image\/upload\//.test(clean)) lastMessagePreview = '📷 Photo';
+          else if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(clean) || /\/video\/upload\//.test(clean)) lastMessagePreview = '🎬 Video';
+          else if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(clean)) lastMessagePreview = '🎵 Audio';
+          else lastMessagePreview = '📎 File';
+        }
+      }
 
       // Update conversation's last message info
       await Conversation.findByIdAndUpdate(conversationId, {

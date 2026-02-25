@@ -769,23 +769,30 @@ const CallSystem = () => {
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
+        // Additional public STUN servers for reliability
+        { urls: 'stun:stun.stunprotocol.org:3478' },
         // TURN servers — REQUIRED for NAT traversal when STUN fails
         // (symmetric NAT, mobile carriers, corporate firewalls)
-        // Free relay servers from Open Relay Project
+        // Free Metered TURN servers (official, actively maintained)
         {
-          urls: 'turn:openrelay.metered.ca:80',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'turn:a.relay.metered.ca:80',
+          username: 'e8dd65d092cce3e7e2c12e40',
+          credential: '1XJPMhft/LkYMqOy'
         },
         {
-          urls: 'turn:openrelay.metered.ca:443',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+          username: 'e8dd65d092cce3e7e2c12e40',
+          credential: '1XJPMhft/LkYMqOy'
         },
         {
-          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'turn:a.relay.metered.ca:443',
+          username: 'e8dd65d092cce3e7e2c12e40',
+          credential: '1XJPMhft/LkYMqOy'
+        },
+        {
+          urls: 'turns:a.relay.metered.ca:443?transport=tcp',
+          username: 'e8dd65d092cce3e7e2c12e40',
+          credential: '1XJPMhft/LkYMqOy'
         },
         // Custom TURN from environment (overrides above if provided)
         ...(process.env.REACT_APP_TURN_URL ? [{
@@ -847,6 +854,18 @@ const CallSystem = () => {
         endCall();
       } else if (pc.connectionState === 'disconnected') {
         console.warn('⚠️ WebRTC connection disconnected (may recover) — not ending call yet');
+      }
+    };
+
+    // ICE connection state — fires more reliably in some browsers (Firefox, older Chrome)
+    pc.oniceconnectionstatechange = () => {
+      console.log('🧊 ICE connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        // Attempt ICE restart before giving up
+        console.warn('🔄 ICE failed — attempting ICE restart');
+        if (isCallerRef.current && !negotiationBusy.current) {
+          pc.restartIce();
+        }
       }
     };
 

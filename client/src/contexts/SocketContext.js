@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { useDispatch } from 'react-redux';
 import { toast } from 'react-toastify';
+import apiClient from '../services/apiClient';
 import { 
   incrementUnreadMessages, 
   incrementUnreadNotifications,
@@ -138,31 +139,25 @@ export const SocketProvider = ({ children }) => {
           console.log('✅ Connected to server');
         }
         // Fetch initial unread counts on connect/reconnect so badges are accurate
-        const apiUrl = process.env.REACT_APP_API_URL
-          || (process.env.NODE_ENV === 'production' ? 'https://zerohook-api.onrender.com/api' : '/api');
-        const token = localStorage.getItem('token');
-        if (token) {
-          fetch(`${apiUrl}/chat/unread-count`, { headers: { 'Authorization': `Bearer ${token}` } })
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-              if (data && typeof data.unreadCount === 'number') {
-                dispatch(setUnreadMessages(data.unreadCount));
-              }
-            })
-            .catch(() => {}); // Non-critical
-          fetch(`${apiUrl}/notifications`, { headers: { 'Authorization': `Bearer ${token}` } })
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-              if (data && typeof data.unreadCount === 'number') {
-                dispatch({ type: 'ui/setUnreadNotifications', payload: data.unreadCount });
-              } else if (data?.notifications) {
-                // Fallback: count from list
-                const unreadCount = data.notifications.filter(n => !n.is_read).length;
-                dispatch({ type: 'ui/setUnreadNotifications', payload: unreadCount });
-              }
-            })
-            .catch(() => {}); // Non-critical
-        }
+        apiClient.get('/chat/unread-count')
+          .then(res => {
+            if (res.data && typeof res.data.unreadCount === 'number') {
+              dispatch(setUnreadMessages(res.data.unreadCount));
+            }
+          })
+          .catch(() => {}); // Non-critical
+        apiClient.get('/notifications')
+          .then(res => {
+            const data = res.data;
+            if (data && typeof data.unreadCount === 'number') {
+              dispatch({ type: 'ui/setUnreadNotifications', payload: data.unreadCount });
+            } else if (data?.notifications) {
+              // Fallback: count from list
+              const unreadCount = data.notifications.filter(n => !n.is_read).length;
+              dispatch({ type: 'ui/setUnreadNotifications', payload: unreadCount });
+            }
+          })
+          .catch(() => {}); // Non-critical
       });
 
       newSocket.on('disconnect', (reason) => {

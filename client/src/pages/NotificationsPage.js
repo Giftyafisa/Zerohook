@@ -329,7 +329,13 @@ const NotificationsPage = () => {
         // Check both conversationId and conversation_id for compatibility
         const convId = notification.metadata?.conversationId || notification.metadata?.conversation_id;
         if (convId) {
-          navigate(`/chat?conversation=${convId}`);
+          navigate('/chat', {
+            state: {
+              conversationId: convId,
+              recipientId: notification.metadata?.senderId || notification.metadata?.sender_id || null,
+              recipientName: notification.metadata?.senderName || notification.metadata?.sender_name || null
+            }
+          });
         } else {
           navigate(config.route);
         }

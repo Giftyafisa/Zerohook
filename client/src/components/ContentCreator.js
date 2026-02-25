@@ -58,10 +58,6 @@ const CONTENT_CATEGORIES = [
 const ContentCreator = ({ open, onClose, onSuccess }) => {
   const { user, isAuthenticated } = useAuth();
   const fileInputRef = useRef(null);
-  
-  // Debug logging - ALWAYS executes when component is rendered
-  console.log('📝 ContentCreator component mounted/rendered');
-  console.log('📝 ContentCreator props:', { open, hasOnClose: !!onClose, hasOnSuccess: !!onSuccess });
   const videoRef = useRef(null);
   
   // State
@@ -147,14 +143,14 @@ const ContentCreator = ({ open, onClose, onSuccess }) => {
         xhr.onerror = () => reject(new Error('Network error'));
       });
 
-      xhr.open('POST', `${API_BASE_URL}/uploads/content`);
+      xhr.open('POST', `${API_BASE_URL}/content/posts`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(formData);
 
       const result = await uploadPromise;
       
       toast.success('Content uploaded successfully!');
-      onSuccess?.(result);
+      onSuccess?.(result.content || result);
       handleClose();
       
     } catch (error) {
@@ -168,6 +164,9 @@ const ContentCreator = ({ open, onClose, onSuccess }) => {
 
   // Reset and close
   const handleClose = useCallback(() => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
     setStep(1);
     setSelectedFile(null);
     setPreviewUrl(null);
@@ -177,7 +176,7 @@ const ContentCreator = ({ open, onClose, onSuccess }) => {
     setPrice('');
     setLocation('');
     onClose?.();
-  }, [onClose]);
+  }, [onClose, previewUrl]);
 
   // Remove selected file
   const handleRemoveFile = useCallback(() => {

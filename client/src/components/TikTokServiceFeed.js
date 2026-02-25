@@ -592,16 +592,19 @@ const TikTokServiceFeed = () => {
   const touchEndY = useRef(0);
   const lastSwipeTime = useRef(0);
 
-  // Categories
+  // Categories (unified — content + service categories)
   const categories = [
     { id: 'all', label: 'For You', color: '#00f2ea' },
+    { id: 'showcase', label: '✨ Showcase', color: '#00d4d4' },
+    { id: 'promo', label: '🔥 Promo', color: '#ff0055' },
+    { id: 'lifestyle', label: '💫 Lifestyle', color: '#ffd700' },
     { id: 'long-term', label: 'Long Term', color: '#ff6b9d' },
     { id: 'short-term', label: 'Short Term', color: '#ffa726' },
     { id: 'oral-services', label: 'Oral', color: '#ab47bc' },
     { id: 'special-services', label: 'Special', color: '#00bcd4' },
   ];
 
-  // Fetch services
+  // Fetch unified feed (content posts + service listings)
   const fetchServices = useCallback(async (pageNum = 1, append = false) => {
     try {
       if (pageNum === 1) setLoading(true);
@@ -622,20 +625,20 @@ const TikTokServiceFeed = () => {
       };
 
       const response = await fetch(
-        `${API_BASE_URL}/adult-services?${params}`,
+        `${API_BASE_URL}/content/feed?${params}`,
         { headers }
       );
 
       if (!response.ok) throw new Error('Failed to load content');
       
       const data = await response.json();
-      let items = data.services || data.data || [];
+      let items = data.feed || data.services || data.data || [];
 
-      // Filter out current user's services
+      // Filter out current user's content
       if (currentUser?.id) {
         items = items.filter(s => {
           const providerId = s.provider?.id || s.provider_id || s.user_id;
-          return providerId !== currentUser.id;
+          return providerId?.toString() !== currentUser.id?.toString();
         });
       }
 
@@ -649,7 +652,6 @@ const TikTokServiceFeed = () => {
       setHasMore(items.length === 10);
       setPage(pageNum);
     } catch (err) {
-      console.error('Fetch error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -667,6 +669,33 @@ const TikTokServiceFeed = () => {
       fetchServices(page + 1, true);
     }
   }, [currentIndex, services.length, hasMore, loading, page, fetchServices]);
+
+  // Track views when active card changes
+  useEffect(() => {
+    const currentService = services[currentIndex];
+    if (currentService?.id && currentService.feedType === 'post') {
+      const timer = setTimeout(() => {
+        fetch(`${API_BASE_URL}/content/posts/${currentService.id}/view`, {
+          method: 'POST',
+        }).catch(() => {});
+      }, 1500); // Count as view after 1.5s
+      return () => clearTimeout(timer);
+    }
+  }, [currentIndex, services]);
+
+  // Initialize liked state from server data
+  useEffect(() => {
+    const liked = new Set();
+    services.forEach(s => {
+      if (s.isLiked) liked.add(s.id);
+    });
+    if (liked.size > 0) {
+      setLikedServices(prev => {
+        const merged = new Set([...prev, ...liked]);
+        return merged;
+      });
+    }
+  }, [services]);
 
   // Swipe navigation with debounce
   const handleSwipe = useCallback((direction) => {
@@ -716,8 +745,15 @@ const TikTokServiceFeed = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSwipe]);
 
-  // Handle like
-  const handleLike = useCallback((serviceId) => {
+  // Handle like (persistent via API)
+  const handleLike = useCallback(async (serviceId) => {
+    if (!isAuthenticated) {
+      toast.info('Please login to like posts');
+      navigate('/login', { state: { from: '/adult-services' } });
+      return;
+    }
+
+    // Optimistic update
     setLikedServices(prev => {
       const newSet = new Set(prev);
       if (newSet.has(serviceId)) {
@@ -727,7 +763,45 @@ const TikTokServiceFeed = () => {
       }
       return newSet;
     });
-  }, []);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/content/posts/${serviceId}/like`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        // Update local likes_count
+        setServices(prev => prev.map(s =>
+          s.id === serviceId ? { ...s, likes_count: data.likes_count, isLiked: data.liked } : s
+        ));
+        if (data.liked) {
+          setLikedServices(prev => new Set([...prev, serviceId]));
+        } else {
+          setLikedServices(prev => {
+            const ns = new Set(prev);
+            ns.delete(serviceId);
+            return ns;
+          });
+        }
+      }
+    } catch (err) {
+      // Revert optimistic update on error
+      setLikedServices(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(serviceId)) {
+          newSet.delete(serviceId);
+        } else {
+          newSet.add(serviceId);
+        }
+        return newSet;
+      });
+    }
+  }, [isAuthenticated, navigate]);
 
   // Handle message
   const handleMessage = useCallback((service) => {
@@ -747,38 +821,45 @@ const TikTokServiceFeed = () => {
 
   // Handle share
   const handleShare = useCallback(async (service) => {
-    const url = `${window.location.origin}/adult-services/${service.id}`;
+    const shareUrl = service.feedType === 'post'
+      ? `${window.location.origin}/content/${service.id}`
+      : `${window.location.origin}/adult-services/${service.id}`;
     if (navigator.share) {
       try {
         await navigator.share({
           title: service.title,
           text: service.description,
-          url,
+          url: shareUrl,
         });
       } catch (err) {
         // User cancelled
       }
     } else {
-      navigator.clipboard.writeText(url);
-      // Could show a toast here
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('Link copied to clipboard!');
     }
   }, []);
 
   // Handle view details
   const handleViewDetails = useCallback((service) => {
-    navigate(`/adult-services/${service.id}`);
+    if (service.feedType === 'post') {
+      // For content posts, navigate to provider profile or the post page
+      const userId = service.provider?.id || service.user_id;
+      if (userId) {
+        navigate(`/profile/${userId}`);
+      }
+    } else {
+      navigate(`/adult-services/${service.id}`);
+    }
   }, [navigate]);
 
   // Handle create - Opens content creator modal for TikTok-style posting
   const handleCreate = () => {
-    console.log('📸 Create Post clicked, isAuthenticated:', isAuthenticated);
     if (!isAuthenticated) {
       toast.info('Please login to create a post');
       navigate('/login', { state: { from: '/adult-services' } });
       return;
     }
-    // Open the content creator modal instead of navigating
-    console.log('📸 Opening ContentCreator modal');
     setShowContentCreator(true);
   };
 
@@ -809,11 +890,10 @@ const TikTokServiceFeed = () => {
     }
   };
 
-  // Handle category change
+  // Handle category change — only set state, useEffect handles the fetch
   const handleCategoryChange = (categoryId) => {
     setActiveCategory(categoryId);
     setShowCategories(false);
-    fetchServices(1);
   };
 
   // Loading state
@@ -891,7 +971,6 @@ const TikTokServiceFeed = () => {
         <ContentCreator
           open={showContentCreator}
           onClose={() => {
-            console.log('📸 ContentCreator onClose called');
             setShowContentCreator(false);
           }}
           onSuccess={handleContentCreated}

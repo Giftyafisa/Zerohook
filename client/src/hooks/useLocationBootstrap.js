@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../store/slices/authSlice';
 import { selectUserCountry, selectDetectedCountry } from '../store/slices/countrySlice';
-import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { LOCATIONS, calculateDistance } from '../config/locations';
 
 // Environment-gated debug logger
@@ -117,29 +117,22 @@ const useLocationBootstrap = () => {
           const { data, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < IP_CACHE_TTL) { debugLog('📍 Using cached IP location'); return data; }
         }
-        const token = localStorage.getItem('token');
         const controller = new AbortController();
         const tid = setTimeout(() => controller.abort(), 5000);
-        const res = await fetch(`${API_BASE_URL}/geolocation/ip-detect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({}),
+        const res = await apiClient.post('/geolocation/ip-detect', {}, {
           signal: controller.signal,
         });
         clearTimeout(tid);
-        if (res.ok) {
-          const body = await res.json();
-          const ip = body?.data;
-          if (ip) {
-            const loc = {
-              lat: ip.lat ?? ip.latitude ?? null,
-              lng: ip.lng ?? ip.longitude ?? null,
-              city: ip.city, country: ip.country, countryCode: ip.countryCode, region: ip.region,
-              source: ip.source || 'ip-proxy', confidence: ip.confidence ?? 'medium',
-            };
-            sessionStorage.setItem(IP_CACHE_KEY, JSON.stringify({ data: loc, timestamp: Date.now() }));
-            return loc;
-          }
+        const ip = res.data?.data;
+        if (ip) {
+          const loc = {
+            lat: ip.lat ?? ip.latitude ?? null,
+            lng: ip.lng ?? ip.longitude ?? null,
+            city: ip.city, country: ip.country, countryCode: ip.countryCode, region: ip.region,
+            source: ip.source || 'ip-proxy', confidence: ip.confidence ?? 'medium',
+          };
+          sessionStorage.setItem(IP_CACHE_KEY, JSON.stringify({ data: loc, timestamp: Date.now() }));
+          return loc;
         }
       } catch (e) {
         if (e.name !== 'AbortError') debugError('IP geolocation failed:', e);
@@ -196,14 +189,9 @@ const useLocationBootstrap = () => {
             setLocationLoading(false);
 
             // Uber-style: persist GPS location to backend for proximity queries (fire-and-forget)
-            const token = localStorage.getItem('token');
-            if (token) {
-              fetch(`${API_BASE_URL}/geolocation/update-location`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ lat: latitude, lng: longitude, accuracy: 'gps', city: gpsLocation.city, country: gpsLocation.country }),
-              }).catch(() => {});
-            }
+            apiClient.post('/geolocation/update-location', {
+              lat: latitude, lng: longitude, accuracy: 'gps', city: gpsLocation.city, country: gpsLocation.country
+            }).catch(() => {});
           },
           async () => {
             clearTimeout(timeout);
@@ -240,17 +228,10 @@ const useLocationBootstrap = () => {
       localStorage.setItem('userManualLocation', JSON.stringify(locationData));
 
       // Persist to backend
-      const token = localStorage.getItem('token');
-      if (token) {
-        try {
-          const res = await fetch(`${API_BASE_URL}/users/me`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ profile_data: { location: locationData } }),
-          });
-          if (res.ok) debugLog('✅ Location saved to profile');
-        } catch (e) { debugError('Failed to save location to backend:', e); }
-      }
+      try {
+        await apiClient.put('/users/me', { profile_data: { location: locationData } });
+        debugLog('✅ Location saved to profile');
+      } catch (e) { debugError('Failed to save location to backend:', e); }
 
       setUserLocation({
         lat: location.lat, lng: location.lng,

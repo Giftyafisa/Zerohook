@@ -372,8 +372,10 @@ router.post('/register', rateLimitMiddleware, [
 
     // Return user data (excluding sensitive info)
     res.status(201).json({
+      success: true,
       message: 'Registration successful',
       token,
+      refreshToken, // Mobile clients can't access HttpOnly cookies
       user: {
         id: user._id,
         username: user.username,
@@ -426,11 +428,16 @@ router.post('/login', rateLimitMiddleware, [
     }
 
     // Support both email and username login
-    const loginIdentifier = req.body.email || req.body.username;
+    // SECURITY: Enforce string type to prevent NoSQL injection via operator objects
+    const rawEmail = req.body.email;
+    const rawUsername = req.body.username;
+    const loginIdentifier = (typeof rawEmail === 'string' && rawEmail.trim())
+      || (typeof rawUsername === 'string' && rawUsername.trim())
+      || null;
     const { password } = req.body;
     
-    if (!loginIdentifier) {
-      return res.status(400).json({ success: false, error: 'Email or username is required'
+    if (!loginIdentifier || typeof password !== 'string') {
+      return res.status(400).json({ success: false, error: 'Email or username and password are required'
       });
     }
 
@@ -512,8 +519,10 @@ router.post('/login', rateLimitMiddleware, [
     }
 
     res.json({
+      success: true,
       message: 'Login successful',
       token,
+      refreshToken, // Mobile clients can't access HttpOnly cookies
       user: {
         id: user._id,
         username: user.username,
@@ -590,6 +599,7 @@ router.post('/verify-tier', authMiddleware, [
     }
 
     res.json({
+      success: true,
       message: 'Verification tier upgraded successfully',
       newTier: tier,
       verificationResults: verificationResult.results
@@ -690,8 +700,10 @@ router.post('/refresh', async (req, res) => {
     }
 
     res.json({
+      success: true,
       message: 'Token refreshed successfully',
       token,
+      refreshToken: newRawRefreshToken, // Mobile clients can't access HttpOnly cookies
       user: {
         id: user._id,
         username: user.username,

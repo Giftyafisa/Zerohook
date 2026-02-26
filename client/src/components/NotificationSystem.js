@@ -16,6 +16,7 @@ import {
   useMediaQuery
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   Notifications,
   NotificationsActive,
@@ -81,21 +82,12 @@ const NotificationSystem = () => {
   const loadNotifications = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/notifications`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const notifs = data.notifications || [];
-        setNotifications(notifs);
-        dispatch(setNotificationsList(notifs));
-        const unreadTotal = notifs.filter(n => !n.read).length || 0;
-        dispatch(setUnreadNotifications(unreadTotal));
-      }
+      const response = await apiClient.get('/notifications');
+      const notifs = response.data.notifications || [];
+      setNotifications(notifs);
+      dispatch(setNotificationsList(notifs));
+      const unreadTotal = notifs.filter(n => !n.read).length || 0;
+      dispatch(setUnreadNotifications(unreadTotal));
     } catch (error) {
       console.error('Failed to load notifications:', error);
     } finally {
@@ -141,13 +133,7 @@ const NotificationSystem = () => {
 
   const markAsRead = async (notificationId) => {
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      await apiClient.put(`/notifications/${notificationId}/read`);
 
       setNotifications(prev => 
         prev.map(n => 
@@ -164,13 +150,7 @@ const NotificationSystem = () => {
 
   const markAllAsRead = async () => {
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/notifications/mark-all-read`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      await apiClient.put('/notifications/mark-all-read');
 
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       // Update Redux state

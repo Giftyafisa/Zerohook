@@ -53,6 +53,7 @@ import {
 import { getDefaultImage } from '../config/images';
 import ChatSystem from '../components/ChatSystem';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { extractProfileImagePath } from '../utils/imageUtils';
 
 const ProfileBrowse = () => {
@@ -308,64 +309,65 @@ const ProfileBrowse = () => {
       }
       
       // Fetch profiles with filters, pagination, and AbortController signal
-      const response = await fetch(`${API_BASE_URL}/users/profiles?${queryParams.toString()}`, {
-        signal: controller.signal
-      });
+      let response;
+      try {
+        response = await apiClient.get(`/users/profiles?${queryParams.toString()}`, {
+          signal: controller.signal
+        });
+      } catch (fetchError) {
+        // Re-throw abort/cancel errors
+        if (fetchError.name === 'AbortError' || fetchError.code === 'ERR_CANCELED') {
+          throw fetchError;
+        }
+        // Handle 500 with fallback data
+        if (fetchError.response?.status === 500) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('⚠️ API returned 500 error, using fallback data');
+          }
+          setApiUnavailable(true);
+          
+          const processedFallbackProfiles = fallbackProfiles.map(user => {
+            try {
+              if (isAuthenticated && currentUser && currentUser.id === user.id) {
+                return null;
+              }
+              
+              return {
+                id: user.id,
+                username: user.username,
+                email: 'sample@example.com',
+                profileData: user.profileData,
+                verificationTier: user.verificationTier,
+                trustScore: user.trustScore,
+                createdAt: user.created_at,
+                lastActive: user.lastActive,
+                subscriptionStatus: user.is_subscribed ? 'subscribed' : 'free',
+                subscriptionTier: user.subscription_tier || 'basic',
+                isPremium: user.is_subscribed && (user.subscription_tier === 'premium' || user.subscription_tier === 'elite'),
+                distance: null
+              };
+            } catch (profileError) {
+              console.error('Error processing fallback profile:', profileError);
+              return null;
+            }
+          }).filter(Boolean);
+          
+          setProfiles(processedFallbackProfiles);
+          setTotalPages(1);
+          setPage(1);
+          setError('API temporarily unavailable. Showing sample profiles for demonstration.');
+          setLoading(false);
+          return;
+        }
+        throw new Error(fetchError.response?.data?.error || `HTTP ${fetchError.response?.status}: Request failed`);
+      }
       
       // Ignore stale responses
       if (currentRequestId !== requestIdRef.current || !mountedRef.current) {
         return;
       }
       
-      if (response.status === 500) {
-        // API is unavailable, use fallback data
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('⚠️ API returned 500 error, using fallback data');
-        }
-        setApiUnavailable(true);
-        
-        // Process fallback profiles with the same logic
-        const processedFallbackProfiles = fallbackProfiles.map(user => {
-          try {
-            // Skip the logged-in user's own profile
-            if (isAuthenticated && currentUser && currentUser.id === user.id) {
-              return null;
-            }
-            
-            return {
-              id: user.id,
-              username: user.username,
-              email: 'sample@example.com',
-              profileData: user.profileData,
-              verificationTier: user.verificationTier,
-              trustScore: user.trustScore,
-              createdAt: user.created_at,
-              lastActive: user.lastActive,
-              subscriptionStatus: user.is_subscribed ? 'subscribed' : 'free',
-              subscriptionTier: user.subscription_tier || 'basic',
-              isPremium: user.is_subscribed && (user.subscription_tier === 'premium' || user.subscription_tier === 'elite'),
-              distance: null
-            };
-          } catch (profileError) {
-            console.error('Error processing fallback profile:', profileError);
-            return null;
-          }
-        }).filter(Boolean);
-        
-        setProfiles(processedFallbackProfiles);
-        setTotalPages(1);
-        setPage(1);
-        setError('API temporarily unavailable. Showing sample profiles for demonstration.');
-        setLoading(false);
-        return;
-      }
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
+      const data = response.data;
       if (process.env.NODE_ENV !== 'production') {
         console.log('🔍 Fetched profiles:', data);
       }
@@ -441,8 +443,8 @@ const ProfileBrowse = () => {
       setTotalPages(data.pagination.pages);
       setPage(data.pagination.page);
     } catch (error) {
-      // Silently ignore abort errors - these are expected when cancelling requests
-      if (error.name === 'AbortError') {
+      // Silently ignore abort/cancel errors - these are expected when cancelling requests
+      if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
         return;
       }
       

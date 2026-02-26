@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { selectUser, selectIsAuthenticated } from '../../store/slices/authSlice';
 import { API_BASE_URL } from '../../config/constants';
+import apiClient from '../../services/apiClient';
 import { toast } from 'react-toastify';
 
 // ─── Inline styles (no MUI dependency issues) ─────────────────────────────────
@@ -55,13 +56,14 @@ function checkIsAdmin(user) {
 
 // ─── API helper ───────────────────────────────────────────────────────────────
 async function adminFetch(path, options = {}) {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/admin/${path}`, {
-    ...options,
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
-  });
-  const data = await res.json();
-  return { ok: res.ok, status: res.status, data };
+  try {
+    const method = (options.method || 'GET').toLowerCase();
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    const res = await apiClient[method === 'delete' ? 'delete' : method](`/admin/${path}`, method === 'get' || method === 'delete' ? undefined : body);
+    return { ok: true, status: res.status, data: res.data };
+  } catch (error) {
+    return { ok: false, status: error.response?.status || 500, data: error.response?.data || {} };
+  }
 }
 
 // ─── Format helpers ───────────────────────────────────────────────────────────

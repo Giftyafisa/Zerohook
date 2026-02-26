@@ -35,6 +35,7 @@ import {
   useTheme
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   Security,
   Visibility,
@@ -195,31 +196,23 @@ const PrivacySettings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
+        const response = await apiClient.get('/users/profile');
+        const data = response.data;
+        const profileData = data.user?.profile_data || data.user?.profileData || {};
+        const savedSettings = profileData.privacySettings || {};
+        const commPrefs = profileData.communicationPreferences || {};
         
-        const response = await fetch(`${API_BASE_URL}/users/profile`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const profileData = data.user?.profile_data || data.user?.profileData || {};
-          const savedSettings = profileData.privacySettings || {};
-          const commPrefs = profileData.communicationPreferences || {};
-          
-          setPrivacySettings(prev => ({
-            ...prev,
-            ...savedSettings,
-            basePrice: profileData.basePrice || '',
-            priceCurrency: profileData.priceCurrency || 'USD',
-            allowDirectMessages: commPrefs.allowDirectMessages ?? prev.allowDirectMessages,
-            allowPhoneCalls: commPrefs.allowPhoneCalls ?? prev.allowPhoneCalls,
-            allowWhatsApp: commPrefs.allowWhatsApp ?? prev.allowWhatsApp,
-            allowTelegram: commPrefs.allowTelegram ?? prev.allowTelegram,
-            allowEmail: commPrefs.allowEmail ?? prev.allowEmail
-          }));
-        }
+        setPrivacySettings(prev => ({
+          ...prev,
+          ...savedSettings,
+          basePrice: profileData.basePrice || '',
+          priceCurrency: profileData.priceCurrency || 'USD',
+          allowDirectMessages: commPrefs.allowDirectMessages ?? prev.allowDirectMessages,
+          allowPhoneCalls: commPrefs.allowPhoneCalls ?? prev.allowPhoneCalls,
+          allowWhatsApp: commPrefs.allowWhatsApp ?? prev.allowWhatsApp,
+          allowTelegram: commPrefs.allowTelegram ?? prev.allowTelegram,
+          allowEmail: commPrefs.allowEmail ?? prev.allowEmail
+        }));
       } catch (error) {
         console.error('Failed to load privacy settings:', error);
       }
@@ -238,50 +231,38 @@ const PrivacySettings = () => {
     setLoading(true);
     
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/users/me`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          profile_data: {
-            // Privacy visibility settings
-            privacySettings: {
-              privacyLevel: privacySettings.privacyLevel,
-              showPhotos: privacySettings.showPhotos,
-              showAge: privacySettings.showAge,
-              showLocation: privacySettings.showLocation,
-              showContactInfo: privacySettings.showContactInfo,
-              showVerificationStatus: privacySettings.showVerificationStatus,
-              showTrustScore: privacySettings.showTrustScore,
-              showBookingHistory: privacySettings.showBookingHistory,
-              showReviews: privacySettings.showReviews,
-              showPriceOnProfile: privacySettings.showPriceOnProfile,
-              locationPrecision: privacySettings.locationPrecision,
-              showFaceInPhotos: privacySettings.showFaceInPhotos,
-              allowPhotoDownload: privacySettings.allowPhotoDownload
-            },
-            // Price settings
-            basePrice: privacySettings.basePrice,
-            priceCurrency: privacySettings.priceCurrency,
-            // Communication preferences
-            communicationPreferences: {
-              allowDirectMessages: privacySettings.allowDirectMessages,
-              allowPhoneCalls: privacySettings.allowPhoneCalls,
-              allowWhatsApp: privacySettings.allowWhatsApp,
-              allowTelegram: privacySettings.allowTelegram,
-              allowEmail: privacySettings.allowEmail
-            }
+      const response = await apiClient.put('/users/me', {
+        profile_data: {
+          // Privacy visibility settings
+          privacySettings: {
+            privacyLevel: privacySettings.privacyLevel,
+            showPhotos: privacySettings.showPhotos,
+            showAge: privacySettings.showAge,
+            showLocation: privacySettings.showLocation,
+            showContactInfo: privacySettings.showContactInfo,
+            showVerificationStatus: privacySettings.showVerificationStatus,
+            showTrustScore: privacySettings.showTrustScore,
+            showBookingHistory: privacySettings.showBookingHistory,
+            showReviews: privacySettings.showReviews,
+            showPriceOnProfile: privacySettings.showPriceOnProfile,
+            locationPrecision: privacySettings.locationPrecision,
+            showFaceInPhotos: privacySettings.showFaceInPhotos,
+            allowPhotoDownload: privacySettings.allowPhotoDownload
           },
-          profile_visibility: privacySettings.privacyLevel === 'minimal' ? 'private' : 'public'
-        })
+          // Price settings
+          basePrice: privacySettings.basePrice,
+          priceCurrency: privacySettings.priceCurrency,
+          // Communication preferences
+          communicationPreferences: {
+            allowDirectMessages: privacySettings.allowDirectMessages,
+            allowPhoneCalls: privacySettings.allowPhoneCalls,
+            allowWhatsApp: privacySettings.allowWhatsApp,
+            allowTelegram: privacySettings.allowTelegram,
+            allowEmail: privacySettings.allowEmail
+          }
+        },
+        profile_visibility: privacySettings.privacyLevel === 'minimal' ? 'private' : 'public'
       });
-      
-      if (!response.ok) {
-        throw new Error('Failed to save settings');
-      }
       
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);

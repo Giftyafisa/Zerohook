@@ -827,15 +827,20 @@ io.on('connection', async (socket) => {
           }
         }
 
-        socket.to(`user_${otherUserId}`).emit('call_ended', {
+        const endPayload = {
           id: data.callId,
           callId: data.callId,
           endedBy: socket.userId,
           timestamp: new Date().toISOString()
-        });
-        
-        // Leave call room (normalized)
+        };
+
+        // Primary: emit to the other user's personal room
+        socket.to(`user_${otherUserId}`).emit('call_ended', endPayload);
+
+        // Secondary: also broadcast to the call room as a redundant delivery
+        // path in case the user_${id} room has a stale socket reference.
         const callRoomId = getCallRoomId(socket.userId, otherUserId);
+        socket.to(callRoomId).emit('call_ended', endPayload);
         socket.leave(callRoomId);
         
       } catch (error) {
@@ -1354,6 +1359,43 @@ io.on('connection', async (socket) => {
       if (stillConnectedElsewhere) {
         console.log(`ℹ️ ${socket.username} still has active socket(s), skipping offline broadcast`);
         return;
+      }
+
+      // If this user had an active/ringing call, notify the other party.
+      // Without this, the remote user's call screen stays stuck forever
+      // when the peer closes the browser or loses network.
+      try {
+        const activeCalls = await Call.find({
+          $or: [
+            { caller_id: socket.userId },
+            { target_user_id: socket.userId }
+          ],
+          status: { $in: ['calling', 'connected'] }
+        }).select('_id caller_id target_user_id status').lean();
+
+        for (const call of activeCalls) {
+          const otherUserId = String(call.caller_id) === String(socket.userId)
+            ? String(call.target_user_id)
+            : String(call.caller_id);
+
+          io.to(`user_${otherUserId}`).emit('call_ended', {
+            id: String(call._id),
+            callId: String(call._id),
+            endedBy: socket.userId,
+            reason: 'peer_disconnected',
+            timestamp: new Date().toISOString()
+          });
+
+          await Call.findByIdAndUpdate(call._id, {
+            $set: {
+              status: 'ended',
+              ended_at: new Date(),
+              updated_at: new Date()
+            }
+          }).catch(e => console.error('Failed to end call on disconnect:', e.message));
+        }
+      } catch (callCleanupErr) {
+        console.error('Error cleaning up calls on disconnect:', callCleanupErr.message);
       }
 
       await userActivityMonitor.updateUserPresence(socket.userId, 'offline');

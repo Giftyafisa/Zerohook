@@ -48,6 +48,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { calculateDistance } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
 import { VerificationBadge, TrustScoreBreakdown } from '../components/ui/StatusBadge';
@@ -329,14 +330,7 @@ class ActivityTracker {
     try {
       const results = await Promise.allSettled(
         activities.map(activity =>
-          fetch(`${API_BASE_URL}/users/track-activity`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify(activity),
-          })
+          apiClient.post('/users/track-activity', activity)
         )
       );
 

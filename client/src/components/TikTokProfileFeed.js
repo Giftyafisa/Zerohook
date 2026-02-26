@@ -52,6 +52,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../store/slices/authSlice';
 import { selectDetectedCountry, selectUserCountry } from '../store/slices/countrySlice';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import { VerificationBadge } from './ui/StatusBadge';
 import ProfileCompletionReminder from './ProfileCompletionReminder';
@@ -266,8 +267,8 @@ const SearchOverlay = ({ open, onClose }) => {
     
     try {
       const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      
+      if (!token) return; // Only track for authenticated users — can't use apiClient without token context
+
       const params = new URLSearchParams({
         search: query,
         limit: '20',
@@ -278,14 +279,9 @@ const SearchOverlay = ({ open, onClose }) => {
       if (tab === 'online') params.set('filter', 'online');
       if (tab === 'nearby') params.set('filter', 'nearby');
 
-      const response = await fetch(
-        `${API_BASE_URL}/users/browse?${params}`,
-        { headers }
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        const profiles = (data.data || data.users || []).map(profile => {
+      const response = await apiClient.get(`/users/browse?${params}`);
+      const data = response.data;
+      const profiles = (data.data || data.users || []).map(profile => {
           const profileData = profile.profile_data || profile.profileData || {};
           const basePrice = profileData.basePrice != null ? parseFloat(profileData.basePrice) : null;
           const converted = basePrice != null ? convertFromUSD(basePrice) : null;
@@ -296,8 +292,7 @@ const SearchOverlay = ({ open, onClose }) => {
           };
         });
         setSearchResults(profiles);
-      }
-    } catch (e) {
+      } catch (e) {
       console.log('Search failed:', e);
       setSearchResults([]);
     }
@@ -1077,6 +1072,9 @@ const TikTokProfileFeed = () => {
   // Track view time for current profile (for skip/swipe engagement)
   const viewStartTimeRef = useRef(Date.now());
   const currentProfileIdRef = useRef(null);
+  
+  // AbortController for cancelling stale API requests on tab change
+  const abortControllerRef = useRef(null);
 
   // Refs
   const containerRef = useRef(null);
@@ -1105,10 +1103,9 @@ const TikTokProfileFeed = () => {
           
           // Find nearest city using the API
           try {
-            const cityResponse = await fetch(
-              `${API_BASE_URL}/geolocation/nearest-city?lat=${position.coords.latitude}&lng=${position.coords.longitude}&country=${country}`
+            const { data: cityData } = await apiClient.get(
+              `/geolocation/nearest-city?lat=${position.coords.latitude}&lng=${position.coords.longitude}&country=${country}`
             );
-            const cityData = await cityResponse.json();
             
             setUserLocation({
               lat: position.coords.latitude,
@@ -1173,7 +1170,12 @@ const TikTokProfileFeed = () => {
 
   // Fetch profiles with location data
   const fetchProfiles = useCallback(async (pageNum = 1, append = false) => {
+    // Abort any in-flight request to prevent race conditions
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+    
     try {
+      setError(null); // Clear previous errors
       if (pageNum === 1) setLoading(true);
       
       // Map tab IDs to API filter parameters
@@ -1221,17 +1223,14 @@ const TikTokProfileFeed = () => {
         }
       }
 
-      const token = localStorage.getItem('token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
-      const response = await fetch(
-        `${API_BASE_URL}/users/browse?${params}`,
-        { headers }
+      const response = await apiClient.get(
+        `/users/browse?${params}`,
+        { signal: abortControllerRef.current.signal }
       );
 
-      if (!response.ok) throw new Error('Failed to load profiles');
+      if (!response.data) throw new Error('Failed to load profiles');
       
-      const data = await response.json();
+      const data = response.data;
       let newProfiles = data.data || data.users || [];
 
       // Filter out current user
@@ -1267,11 +1266,16 @@ const TikTokProfileFeed = () => {
       setHasMore(processedProfiles.length === 10);
       setPage(pageNum);
     } catch (err) {
+      // Ignore aborted requests (from tab/filter changes)
+      if (err.name === 'AbortError') return;
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }, [activeTab, currentUser?.id, userLocation, convertFromUSD]);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => () => { if (abortControllerRef.current) abortControllerRef.current.abort(); }, []);
 
   // Initial load - wait for location
   useEffect(() => {
@@ -1287,12 +1291,16 @@ const TikTokProfileFeed = () => {
     }
   }, [currentIndex, profiles.length, hasMore, loading, page, fetchProfiles]);
 
-  // Handle tab change
+  // Handle tab change — DO NOT call fetchProfiles here.
+  // Setting activeTab triggers useCallback to recreate fetchProfiles,
+  // which triggers the useEffect [fetchProfiles, locationLoading] to re-fetch
+  // with the CORRECT tab value (avoids stale-closure race condition).
   const handleTabChange = (tabId) => {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     setActiveTab(tabId);
     setProfiles([]);
     setCurrentIndex(0);
-    fetchProfiles(1);
+    setError(null);
   };
 
   // Handle swipe navigation with engagement tracking

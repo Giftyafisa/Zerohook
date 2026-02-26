@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
 import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
+import axios from 'axios';
 import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import useCurrency from './useCurrency';
@@ -53,6 +54,7 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
       const currentRequestId = ++requestIdRef.current;
 
       try {
+        setError(null); // Clear any previous error (e.g. stale "canceled")
         if (pageNum === 1) setLoading(true);
         else setLoadingMore(true);
 
@@ -129,7 +131,10 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
         setPage(pageNum);
         if (data.metadata) setSearchMetadata(data.metadata);
       } catch (err) {
-        if (err.name === 'AbortError') return;
+        // Axios throws CanceledError (not AbortError) when AbortController fires
+        if (axios.isCancel(err) || err.name === 'AbortError' || err.name === 'CanceledError') return;
+        // Ignore errors from stale requests that were superseded
+        if (currentRequestId !== requestIdRef.current) return;
         debugError('Error fetching profiles:', err);
         setError(err.message);
       } finally {

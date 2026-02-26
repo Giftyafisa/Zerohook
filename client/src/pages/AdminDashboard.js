@@ -29,6 +29,7 @@ import {
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   Dashboard as DashIcon,
   AttachMoney as MoneyIcon,
@@ -87,63 +88,42 @@ const AdminDashboard = () => {
   const [depositTxHash, setDepositTxHash] = useState('');
   const [depositNotes, setDepositNotes] = useState('');
 
-  const getHeaders = () => {
-    const token = localStorage.getItem('token');
-    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-  };
-
   // Check admin status and fetch data
   const fetchAdminData = useCallback(async () => {
     setLoading(true);
     try {
-      const headers = getHeaders();
       // Fetch stats first to verify admin access
-      const statsRes = await fetch(`${API_BASE_URL}/admin/stats`, { headers });
-      if (statsRes.status === 403) {
-        setIsAdmin(false);
-        setLoading(false);
-        return;
+      let statsRes;
+      try {
+        statsRes = await apiClient.get('/admin/stats');
+      } catch (err) {
+        if (err.response?.status === 403) {
+          setIsAdmin(false);
+          setLoading(false);
+          return;
+        }
+        throw err;
       }
-      if (!statsRes.ok) throw new Error('Failed to fetch stats');
       setIsAdmin(true);
-      const statsData = await statsRes.json();
-      setStats(statsData.stats);
+      setStats(statsRes.data.stats);
 
-      // Fetch revenue
-      const revRes = await fetch(`${API_BASE_URL}/admin/revenue`, { headers });
-      if (revRes.ok) {
-        const revData = await revRes.json();
-        setRevenue(revData.revenue);
-        setPendingWithdrawals(revData.revenue?.pendingWithdrawals?.items || []);
-      }
+      // Fetch remaining data in parallel
+      const [revRes, dispRes, banRes, unbanRes, depRes] = await Promise.allSettled([
+        apiClient.get('/admin/revenue'),
+        apiClient.get('/admin/disputes'),
+        apiClient.get('/admin/banned-users'),
+        apiClient.get('/admin/unban-requests'),
+        apiClient.get('/admin/pending-deposits')
+      ]);
 
-      // Fetch disputes
-      const dispRes = await fetch(`${API_BASE_URL}/admin/disputes`, { headers });
-      if (dispRes.ok) {
-        const dispData = await dispRes.json();
-        setDisputes(dispData.disputes || []);
+      if (revRes.status === 'fulfilled') {
+        setRevenue(revRes.value.data.revenue);
+        setPendingWithdrawals(revRes.value.data.revenue?.pendingWithdrawals?.items || []);
       }
-
-      // Fetch banned users
-      const banRes = await fetch(`${API_BASE_URL}/admin/banned-users`, { headers });
-      if (banRes.ok) {
-        const banData = await banRes.json();
-        setBannedUsers(banData.users || []);
-      }
-
-      // Fetch unban requests
-      const unbanRes = await fetch(`${API_BASE_URL}/admin/unban-requests`, { headers });
-      if (unbanRes.ok) {
-        const unbanData = await unbanRes.json();
-        setUnbanRequests(unbanData.requests || []);
-      }
-
-      // Fetch pending deposits
-      const depRes = await fetch(`${API_BASE_URL}/admin/pending-deposits`, { headers });
-      if (depRes.ok) {
-        const depData = await depRes.json();
-        setPendingDeposits(depData.deposits || []);
-      }
+      if (dispRes.status === 'fulfilled') setDisputes(dispRes.value.data.disputes || []);
+      if (banRes.status === 'fulfilled') setBannedUsers(banRes.value.data.users || []);
+      if (unbanRes.status === 'fulfilled') setUnbanRequests(unbanRes.value.data.requests || []);
+      if (depRes.status === 'fulfilled') setPendingDeposits(depRes.value.data.deposits || []);
     } catch (error) {
       console.error('Admin data fetch error:', error);
       toast.error('Failed to load admin data');
@@ -165,25 +145,19 @@ const AdminDashboard = () => {
       toast.warning('Amount and wallet address required');
       return;
     }
-    const headers = getHeaders();
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/withdraw-fees`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ amount: parseFloat(feeAmount), destinationAddress: feeAddress, cryptoSymbol: feeCrypto })
+      const res = await apiClient.post('/admin/withdraw-fees', {
+        amount: parseFloat(feeAmount), destinationAddress: feeAddress, cryptoSymbol: feeCrypto
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success(data.message || 'Fee withdrawal requested!');
-        setWithdrawFeeDialog(false);
-        setFeeAmount('');
-        setFeeAddress('');
-        fetchAdminData();
-      } else {
-        toast.error(data.error || 'Failed to withdraw fees');
-      }
+      const data = res.data;
+      toast.success(data.message || 'Fee withdrawal requested!');
+      setWithdrawFeeDialog(false);
+      setFeeAmount('');
+      setFeeAddress('');
+      fetchAdminData();
     } catch (error) {
-      toast.error('Failed to withdraw fees');
+      toast.error(error.response?.data?.error || 'Failed to withdraw fees');
     } finally {
       setActionLoading(false);
     }
@@ -192,26 +166,19 @@ const AdminDashboard = () => {
   // Approve/Reject user withdrawal
   const handleApproveWithdrawal = async (approve) => {
     if (!selectedWithdrawal) return;
-    const headers = getHeaders();
     setActionLoading(true);
     try {
       const endpoint = approve ? 'approve' : 'reject';
       const body = approve ? { txHash: txHash || undefined } : { reason: 'Rejected by admin' };
-      const res = await fetch(`${API_BASE_URL}/admin/withdrawals/${selectedWithdrawal.id}/${endpoint}`, {
-        method: 'POST', headers, body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success(data.message || `Withdrawal ${approve ? 'approved' : 'rejected'}`);
-        setApprovalDialog(false);
-        setSelectedWithdrawal(null);
-        setTxHash('');
-        fetchAdminData();
-      } else {
-        toast.error(data.error || 'Action failed');
-      }
+      const res = await apiClient.post(`/admin/withdrawals/${selectedWithdrawal.id}/${endpoint}`, body);
+      const data = res.data;
+      toast.success(data.message || `Withdrawal ${approve ? 'approved' : 'rejected'}`);
+      setApprovalDialog(false);
+      setSelectedWithdrawal(null);
+      setTxHash('');
+      fetchAdminData();
     } catch (error) {
-      toast.error('Action failed');
+      toast.error(error.response?.data?.error || 'Action failed');
     } finally {
       setActionLoading(false);
     }
@@ -223,26 +190,20 @@ const AdminDashboard = () => {
       toast.warning('Select winner and provide reasoning');
       return;
     }
-    const headers = getHeaders();
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/disputes/${selectedDispute.id}/resolve`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ winner: resolveWinner, reasoning: resolveReasoning })
+      const res = await apiClient.post(`/admin/disputes/${selectedDispute.id}/resolve`, {
+        winner: resolveWinner, reasoning: resolveReasoning
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success(data.message || 'Dispute resolved');
-        setResolveDialog(false);
-        setSelectedDispute(null);
-        setResolveWinner('');
-        setResolveReasoning('');
-        fetchAdminData();
-      } else {
-        toast.error(data.error || 'Failed to resolve dispute');
-      }
+      const data = res.data;
+      toast.success(data.message || 'Dispute resolved');
+      setResolveDialog(false);
+      setSelectedDispute(null);
+      setResolveWinner('');
+      setResolveReasoning('');
+      fetchAdminData();
     } catch (error) {
-      toast.error('Failed to resolve dispute');
+      toast.error(error.response?.data?.error || 'Failed to resolve dispute');
     } finally {
       setActionLoading(false);
     }
@@ -251,26 +212,20 @@ const AdminDashboard = () => {
   // Confirm deposit manually
   const handleConfirmDeposit = async () => {
     if (!selectedDeposit) return;
-    const headers = getHeaders();
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/deposits/${selectedDeposit.id}/confirm`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ txHash: depositTxHash || undefined, notes: depositNotes || undefined })
+      const res = await apiClient.post(`/admin/deposits/${selectedDeposit.id}/confirm`, {
+        txHash: depositTxHash || undefined, notes: depositNotes || undefined
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success(data.message || 'Deposit confirmed & credited!');
-        setConfirmDepositDialog(false);
-        setSelectedDeposit(null);
-        setDepositTxHash('');
-        setDepositNotes('');
-        fetchAdminData();
-      } else {
-        toast.error(data.error || 'Failed to confirm deposit');
-      }
+      const data = res.data;
+      toast.success(data.message || 'Deposit confirmed & credited!');
+      setConfirmDepositDialog(false);
+      setSelectedDeposit(null);
+      setDepositTxHash('');
+      setDepositNotes('');
+      fetchAdminData();
     } catch (error) {
-      toast.error('Failed to confirm deposit');
+      toast.error(error.response?.data?.error || 'Failed to confirm deposit');
     } finally {
       setActionLoading(false);
     }
@@ -278,22 +233,15 @@ const AdminDashboard = () => {
 
   // Process unban request
   const handleUnbanDecision = async (userId, approved) => {
-    const headers = getHeaders();
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/unban/${userId}`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ approved, adminNotes: approved ? 'Approved by admin' : 'Rejected by admin' })
+      const res = await apiClient.post(`/admin/unban/${userId}`, {
+        approved, adminNotes: approved ? 'Approved by admin' : 'Rejected by admin'
       });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(approved ? 'User unbanned!' : 'Unban request rejected');
-        fetchAdminData();
-      } else {
-        toast.error(data.error || 'Action failed');
-      }
+      toast.success(approved ? 'User unbanned!' : 'Unban request rejected');
+      fetchAdminData();
     } catch (error) {
-      toast.error('Action failed');
+      toast.error(error.response?.data?.error || 'Action failed');
     } finally {
       setActionLoading(false);
     }

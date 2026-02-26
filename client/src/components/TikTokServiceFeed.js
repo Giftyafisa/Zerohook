@@ -43,6 +43,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { getDefaultImage } from '../config/images';
 import useCurrency from '../hooks/useCurrency';
 import ContentCreator from './ContentCreator';
@@ -618,20 +619,11 @@ const TikTokServiceFeed = () => {
         params.append('category', activeCategory);
       }
 
-      const token = localStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      };
-
-      const response = await fetch(
-        `${API_BASE_URL}/content/feed?${params}`,
-        { headers }
+      const response = await apiClient.get(
+        `/content/feed?${params}`
       );
 
-      if (!response.ok) throw new Error('Failed to load content');
-      
-      const data = await response.json();
+      const data = response.data;
       let items = data.feed || data.services || data.data || [];
 
       // Filter out current user's content
@@ -675,9 +667,7 @@ const TikTokServiceFeed = () => {
     const currentService = services[currentIndex];
     if (currentService?.id && currentService.feedType === 'post') {
       const timer = setTimeout(() => {
-        fetch(`${API_BASE_URL}/content/posts/${currentService.id}/view`, {
-          method: 'POST',
-        }).catch(() => {});
+        apiClient.post(`/content/posts/${currentService.id}/view`).catch(() => {});
       }, 1500); // Count as view after 1.5s
       return () => clearTimeout(timer);
     }
@@ -765,29 +755,20 @@ const TikTokServiceFeed = () => {
     });
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/content/posts/${serviceId}/like`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        // Update local likes_count
-        setServices(prev => prev.map(s =>
-          s.id === serviceId ? { ...s, likes_count: data.likes_count, isLiked: data.liked } : s
-        ));
-        if (data.liked) {
-          setLikedServices(prev => new Set([...prev, serviceId]));
-        } else {
-          setLikedServices(prev => {
-            const ns = new Set(prev);
-            ns.delete(serviceId);
-            return ns;
-          });
-        }
+      const response = await apiClient.post(`/content/posts/${serviceId}/like`);
+      const data = response.data;
+      // Update local likes_count
+      setServices(prev => prev.map(s =>
+        s.id === serviceId ? { ...s, likes_count: data.likes_count, isLiked: data.liked } : s
+      ));
+      if (data.liked) {
+        setLikedServices(prev => new Set([...prev, serviceId]));
+      } else {
+        setLikedServices(prev => {
+          const ns = new Set(prev);
+          ns.delete(serviceId);
+          return ns;
+        });
       }
     } catch (err) {
       // Revert optimistic update on error

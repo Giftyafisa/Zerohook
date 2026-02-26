@@ -10,6 +10,7 @@ import {
   Avatar
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   CalendarToday as CalendarIcon,
   AccessTime as TimeIcon,
@@ -62,28 +63,15 @@ const BookingsPage = () => {
       }, 10000);
 
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/bookings`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-          signal: AbortSignal.timeout(10000) // Browser API timeout
+        const response = await apiClient.get('/bookings', {
+          signal: AbortSignal.timeout(10000)
         });
         
         clearTimeout(timeoutId);
         
-        if (response.ok) {
-          const data = await response.json();
-          setBookings(data.bookings || []);
-          setError(null);
-        } else {
-          const message = `Failed to load bookings (${response.status})`;
-          console.error(message);
-          if (process.env.NODE_ENV === 'development') {
-            setBookings(mockBookings);
-          } else {
-            setBookings([]);
-          }
-          setError(message);
-        }
+        const data = response.data;
+        setBookings(data.bookings || []);
+        setError(null);
       } catch (error) {
         clearTimeout(timeoutId);
         console.error('Bookings fetch error:', error);

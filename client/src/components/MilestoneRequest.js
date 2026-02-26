@@ -21,6 +21,7 @@ import {
   AccountBalanceWallet as WalletIcon
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 
 /**
@@ -68,35 +69,21 @@ export const MilestoneRequestDialog = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/milestone/request`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          recipientId,
-          amount: Number(amount),
-          currency: currencyCode,
-          description: description || (isProvider ? 'Service payment' : 'Payment request'),
-          requestType: isProvider ? 'provider_request' : 'client_request'
-        })
+      const response = await apiClient.post('/milestone/request', {
+        recipientId,
+        amount: Number(amount),
+        currency: currencyCode,
+        description: description || (isProvider ? 'Service payment' : 'Payment request'),
+        requestType: isProvider ? 'provider_request' : 'client_request'
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        onSuccess?.(data);
-        onClose();
-        setAmount('');
-        setDescription('');
-      } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to send request');
-      }
+      onSuccess?.(response.data);
+      onClose();
+      setAmount('');
+      setDescription('');
     } catch (err) {
       console.error('Milestone request error:', err);
-      setError('Failed to send request. Try again.');
+      setError(err.response?.data?.error || 'Failed to send request. Try again.');
     } finally {
       setLoading(false);
     }

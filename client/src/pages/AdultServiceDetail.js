@@ -56,6 +56,7 @@ import {
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import VideoSystem from '../components/video/VideoSystem';
 import CryptoPayment from '../components/payments/CryptoPayment';
 import { useAuth } from '../contexts/AuthContext';
@@ -97,10 +98,8 @@ const AdultServiceDetail = () => {
     const fetchService = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/adult-services/${id}`);
-        
-        if (response.ok) {
-          const data = await response.json();
+        const response = await apiClient.get(`/adult-services/${id}`);
+        const data = response.data;
           
           // Add null check for data.service
           if (data && data.service) {
@@ -149,10 +148,6 @@ const AdultServiceDetail = () => {
             console.error('Service data is missing or malformed');
             setService(null);
           }
-        } else {
-          console.error('Failed to fetch service:', response.status);
-          setService(null);
-        }
       } catch (error) {
         console.error('Error fetching service:', error);
         setService(null);
@@ -177,11 +172,7 @@ const AdultServiceDetail = () => {
     }
     setIsFavorite(!isFavorite);
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/content/posts/${id}/bookmark`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
+      await apiClient.post(`/content/posts/${id}/bookmark`);
     } catch (err) {
       setIsFavorite(isFavorite); // revert
     }
@@ -205,23 +196,15 @@ const AdultServiceDetail = () => {
     }
     if (service) {
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch(`${API_BASE_URL}/content/posts/${service.id}/report`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ reason: 'Reported by user' }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          toast.success(data.message || 'Report submitted');
-        } else {
-          toast.info(data.error || 'Already reported');
-        }
+        const res = await apiClient.post(`/content/posts/${service.id}/report`, { reason: 'Reported by user' });
+        toast.success(res.data.message || 'Report submitted');
       } catch (err) {
-        toast.error('Failed to submit report');
+        const msg = err.response?.data?.error;
+        if (err.response?.status === 409 || msg?.toLowerCase()?.includes('already')) {
+          toast.info(msg || 'Already reported');
+        } else {
+          toast.error('Failed to submit report');
+        }
       }
     }
   };
@@ -252,56 +235,43 @@ const AdultServiceDetail = () => {
     setBookingError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      
       // Create escrow transaction
-      const response = await fetch(`${API_BASE_URL}/escrow/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          serviceId: service.id,
-          providerId: service.provider?.id,
-          amount: service.price,
-          scheduledTime: `${bookingData.date}T${bookingData.time}`,
-          location: bookingData.location,
-          duration: bookingData.duration,
-          specialRequests: bookingData.specialRequests,
-          contactMethod: bookingData.contactMethod,
-          paymentMethod: bookingData.paymentMethod
-        })
+      const response = await apiClient.post('/escrow/create', {
+        serviceId: service.id,
+        providerId: service.provider?.id,
+        amount: service.price,
+        scheduledTime: `${bookingData.date}T${bookingData.time}`,
+        location: bookingData.location,
+        duration: bookingData.duration,
+        specialRequests: bookingData.specialRequests,
+        contactMethod: bookingData.contactMethod,
+        paymentMethod: bookingData.paymentMethod
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
-        // If the backend returned crypto payment details, show payment dialog
-        if (data.walletAddress) {
-          setCryptoPaymentData({
-            walletAddress: data.walletAddress,
-            cryptoAmount: data.cryptoAmount,
-            cryptoSymbol: data.cryptoSymbol || 'USDT',
-            reference: data.reference,
-            expiresAt: data.expiresAt,
-            fiatAmount: service.price,
-            fiatCurrency: data.transaction?.currency || 'USD',
-            network: data.network
-          });
-          setShowCryptoPayment(true);
-          setBookingLoading(false);
-          return;
-        }
-        setBookingSuccess(true);
-        // Move to confirmation step
-        setBookingStep(2);
-      } else {
-        setBookingError(data.error || 'Failed to create booking. Please try again.');
+      // If the backend returned crypto payment details, show payment dialog
+      if (data.walletAddress) {
+        setCryptoPaymentData({
+          walletAddress: data.walletAddress,
+          cryptoAmount: data.cryptoAmount,
+          cryptoSymbol: data.cryptoSymbol || 'USDT',
+          reference: data.reference,
+          expiresAt: data.expiresAt,
+          fiatAmount: service.price,
+          fiatCurrency: data.transaction?.currency || 'USD',
+          network: data.network
+        });
+        setShowCryptoPayment(true);
+        setBookingLoading(false);
+        return;
       }
+      setBookingSuccess(true);
+      // Move to confirmation step
+      setBookingStep(2);
     } catch (error) {
       console.error('Booking error:', error);
-      setBookingError('Something went wrong. Please try again.');
+      setBookingError(error.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
       setBookingLoading(false);
     }

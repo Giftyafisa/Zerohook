@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { API_BASE_URL } from '../../config/constants';
+import apiClient from '../../services/apiClient';
 
 const CRYPTO_INFO = {
   BTC: { name: 'Bitcoin', logo: '₿', color: '#f7931a' },
@@ -58,11 +59,8 @@ const CryptoMethodSelector = ({
   const fetchRates = async () => {
     try {
       setLoadingRates(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/payments/rates?fiatCurrency=${currency}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      const data = await response.json();
+      const response = await apiClient.get(`/payments/rates?fiatCurrency=${currency}`);
+      const data = response.data;
       if (data.success && data.rates) {
         setRates(data.rates);
       }

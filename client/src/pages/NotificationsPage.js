@@ -44,6 +44,7 @@ import {
   removeFromNotificationsList
 } from '../store/slices/uiSlice';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import tokens from '../theme/tokens';
 
@@ -247,40 +248,29 @@ const NotificationsPage = () => {
         return;
       }
       
-      const response = await fetch(`${API_BASE_URL}/notifications`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await apiClient.get('/notifications');
+      const notifications = response.data.notifications || [];
+        
+      // Transform backend data to match UI format
+      const transformedNotifications = notifications.map(n => ({
+        id: n.id,
+        type: n.type || 'system',
+        title: n.title || 'Notification',
+        body: n.message || '',
+        time: formatTimeAgo(n.created_at),
+        createdAt: n.created_at,
+        read: n.is_read || false,
+        metadata: n.metadata || {},
+        username: n.metadata?.from_username || null,
+      }));
       
-      if (response.ok) {
-        const data = await response.json();
-        const notifications = data.notifications || [];
-        
-        // Transform backend data to match UI format
-        const transformedNotifications = notifications.map(n => ({
-          id: n.id,
-          type: n.type || 'system',
-          title: n.title || 'Notification',
-          body: n.message || '',
-          time: formatTimeAgo(n.created_at),
-          createdAt: n.created_at,
-          read: n.is_read || false,
-          metadata: n.metadata || {},
-          username: n.metadata?.from_username || null,
-        }));
-        
-        dispatch(setNotificationsList(transformedNotifications));
-        
-        // Update unread count
-        const unread = transformedNotifications.filter(n => !n.read).length;
-        dispatch(setUnreadNotifications(unread));
-        
-        setError(null);
-      } else {
-        throw new Error('Failed to fetch notifications');
-      }
+      dispatch(setNotificationsList(transformedNotifications));
+      
+      // Update unread count
+      const unread = transformedNotifications.filter(n => !n.read).length;
+      dispatch(setUnreadNotifications(unread));
+      
+      setError(null);
     } catch (err) {
       console.error('Fetch notifications error:', err);
       setError('Failed to load notifications');
@@ -304,14 +294,7 @@ const NotificationsPage = () => {
     // Mark as read in backend
     if (!notification.read) {
       try {
-        const token = localStorage.getItem('token');
-        await fetch(`${API_BASE_URL}/notifications/${notification.id}/read`, {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
+        await apiClient.put(`/notifications/${notification.id}/read`);
         
         // Update local state
         dispatch(markNotificationRead(notification.id));
@@ -355,14 +338,7 @@ const NotificationsPage = () => {
   // Mark all as read
   const handleMarkAllRead = async () => {
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/notifications/mark-all-read`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      await apiClient.put('/notifications/mark-all-read');
       
       // Update local state - mark all notifications as read
       const updatedList = notificationsList.map(n => ({ ...n, read: true }));
@@ -381,13 +357,7 @@ const NotificationsPage = () => {
     e.stopPropagation();
     
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`${API_BASE_URL}/notifications/${notificationId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      await apiClient.delete(`/notifications/${notificationId}`);
       
       // Decrement unread count if the deleted notification was unread
       const deletedNotification = notificationsList.find(n => n.id === notificationId);

@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   AccountBalanceWallet as WalletIcon,
   Add as AddIcon,
@@ -55,29 +56,18 @@ const TransactionsPage = () => {
   // Extracted fetch logic so it can be re-called after escrow actions
   const fetchWalletData = React.useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      
-      // Fetch wallet data
-      const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      // Fetch transactions
-      const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      // Fetch escrows
-      const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const [walletResult, txResult, escrowResult] = await Promise.allSettled([
+        apiClient.get('/payments/wallet'),
+        apiClient.get('/payments/transactions'),
+        apiClient.get('/escrow/list')
+      ]);
 
       let wallet = { balance: 0, escrowHeld: 0, pendingWithdrawal: 0 };
       let transactions = defaultTransactions;
       let escrows = [];
 
-      if (walletRes.ok) {
-        const data = await walletRes.json();
+      if (walletResult.status === 'fulfilled') {
+        const data = walletResult.value.data;
         wallet = {
           balance: data.wallet?.balance || data.balance || 0,
           escrowHeld: data.wallet?.escrowHeld || data.escrowHeld || 0,
@@ -85,13 +75,13 @@ const TransactionsPage = () => {
         };
       }
 
-      if (txRes.ok) {
-        const data = await txRes.json();
+      if (txResult.status === 'fulfilled') {
+        const data = txResult.value.data;
         transactions = data.transactions || data.data || defaultTransactions;
       }
 
-      if (escrowRes.ok) {
-        const data = await escrowRes.json();
+      if (escrowResult.status === 'fulfilled') {
+        const data = escrowResult.value.data;
         escrows = data.escrows || data.data || [];
       }
 
@@ -126,27 +116,12 @@ const TransactionsPage = () => {
   const handleRelease = async (escrowId) => {
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ escrowId })
-      });
-
-      if (response.ok) {
-        // Refresh data without full page reload
-        toast.success('Payment released successfully!');
-        await fetchWalletData();
-      } else {
-        const data = await response.json();
-        toast.error(data.error || 'Failed to release payment');
-      }
+      await apiClient.post('/escrow/complete', { escrowId });
+      toast.success('Payment released successfully!');
+      await fetchWalletData();
     } catch (error) {
       console.error('Release error:', error);
-      toast.error('Failed to release payment. Please try again.');
+      toast.error(error.response?.data?.error || 'Failed to release payment. Please try again.');
     } finally {
       setActionLoading(false);
       setReleaseDialog({ open: false, escrowId: null });
@@ -157,26 +132,12 @@ const TransactionsPage = () => {
   const handleDispute = async (escrowId) => {
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ escrowId, reason: 'Service not as described' })
-      });
-
-      if (response.ok) {
-        toast.info('Dispute submitted. Our team will review and contact you.');
-        await fetchWalletData();
-      } else {
-        const data = await response.json();
-        toast.error(data.error || 'Failed to submit dispute');
-      }
+      await apiClient.post('/escrow/dispute', { escrowId, reason: 'Service not as described' });
+      toast.info('Dispute submitted. Our team will review and contact you.');
+      await fetchWalletData();
     } catch (error) {
       console.error('Dispute error:', error);
-      toast.error('Failed to submit dispute. Please try again.');
+      toast.error(error.response?.data?.error || 'Failed to submit dispute. Please try again.');
     } finally {
       setActionLoading(false);
       setDisputeDialog({ open: false, escrowId: null });

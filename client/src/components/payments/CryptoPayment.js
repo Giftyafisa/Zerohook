@@ -42,6 +42,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../../config/constants';
+import apiClient from '../../services/apiClient';
 
 const CRYPTO_LOGOS = {
   BTC: '₿',
@@ -95,33 +96,13 @@ const CryptoPayment = ({
     
     try {
       setStatus('checking');
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Your session has expired. Please login again.');
-        setStatus('failed');
-        return false;
-      }
 
-      const response = await fetch(`${API_BASE_URL}/payments/verify-inline`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ reference: paymentData.reference }),
-      });
-      
-      const data = await response.json();
+      const response = await apiClient.post('/payments/verify-inline', { reference: paymentData.reference });
+      const data = response.data;
 
       if (data?.status === 'expired') {
         setStatus('expired');
         setError(data?.error || data?.message || 'Invoice has expired. Create a new deposit invoice.');
-        return false;
-      }
-
-      if (response.status === 401) {
-        setStatus('failed');
-        setError('Authentication failed. Please login again.');
         return false;
       }
       
@@ -136,8 +117,13 @@ const CryptoPayment = ({
       }
     } catch (err) {
       console.error('Payment check error:', err);
-      setStatus('failed');
-      setError('Could not verify payment right now. Please try again.');
+      if (err.response?.status === 401) {
+        setStatus('failed');
+        setError('Authentication failed. Please login again.');
+      } else {
+        setStatus('failed');
+        setError('Could not verify payment right now. Please try again.');
+      }
       return false;
     }
   }, [paymentData?.reference, onSuccess]);

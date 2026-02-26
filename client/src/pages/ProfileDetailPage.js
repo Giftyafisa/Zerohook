@@ -37,6 +37,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getDefaultImage } from '../config/images';
 import { useSocket } from '../contexts/SocketContext';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import useCurrency from '../hooks/useCurrency';
 
@@ -67,21 +68,12 @@ const ProfileDetailPage = () => {
     if (!isAuthenticated || !user || !profile) return;
     
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/connections/check-status/${profile.id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setConnectionStatus(data);
-      }
+      const response = await apiClient.get(`/connections/check-status/${profile.id}`);
+      setConnectionStatus(response.data);
     } catch (error) {
       console.error('Error checking connection status:', error);
     }
-  }, [isAuthenticated, user, profile, API_BASE_URL]);
+  }, [isAuthenticated, user, profile]);
 
   useEffect(() => {
     if (profile) {
@@ -101,16 +93,8 @@ const ProfileDetailPage = () => {
         return;
       }
       
-      const response = await fetch(`${API_BASE_URL}/users/${profileId}`);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('Profile not found');
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
+      const response = await apiClient.get(`/users/${profileId}`);
+      const data = response.data;
       
       if (!data.user) {
         throw new Error('Invalid response format: missing user data');
@@ -123,7 +107,7 @@ const ProfileDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [profileId, API_BASE_URL, isAuthenticated, user]);
+  }, [profileId, isAuthenticated, user]);
 
   useEffect(() => {
     if (profileId) {
@@ -166,48 +150,29 @@ const ProfileDetailPage = () => {
 
     setSendingMessage(true);
     try {
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        throw new Error('Authentication token not found. Please login again.');
-      }
-      
-      const response = await fetch(`${API_BASE_URL}/connections/contact-request`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          toUserId: profile.id,
-          message: contactMessage,
-          connectionType: contactType
-        })
+      const response = await apiClient.post('/connections/contact-request', {
+        toUserId: profile.id,
+        message: contactMessage,
+        connectionType: contactType
       });
 
-      if (response.ok) {
-        toast.success('Contact request sent successfully!');
-        setContactDialog(false);
-        setContactMessage('');
-        // Refresh connection status
-        checkConnectionStatus();
-      } else {
-        const errorData = await response.json();
-        
-        // Handle specific error cases
-        if (response.status === 409) {
-          toast.info('You are already connected with this user!');
-        } else if (response.status === 403) {
-          toast.error('Cannot connect with this user due to blocking.');
-        } else if (response.status === 404) {
-          toast.error('User not found. Please try again.');
-        } else {
-          throw new Error(errorData.message || 'Failed to send contact request');
-        }
-      }
+      toast.success('Contact request sent successfully!');
+      setContactDialog(false);
+      setContactMessage('');
+      // Refresh connection status
+      checkConnectionStatus();
     } catch (error) {
       console.error('Send contact request error:', error);
-      toast.error(`Failed to send contact request: ${error.message}`);
+      const status = error.response?.status;
+      if (status === 409) {
+        toast.info('You are already connected with this user!');
+      } else if (status === 403) {
+        toast.error('Cannot connect with this user due to blocking.');
+      } else if (status === 404) {
+        toast.error('User not found. Please try again.');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to send contact request');
+      }
     } finally {
       setSendingMessage(false);
     }

@@ -9,6 +9,7 @@ import {
   ArrowBack as BackIcon
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 
 const devMock = {
@@ -42,26 +43,9 @@ const BookingDetails = () => {
   useEffect(() => {
     const fetchBooking = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch(`${API_BASE_URL}/bookings/${id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setBooking(data.booking || null);
-          setError(null);
-        } else {
-          const msg = `Failed to load booking (${res.status})`;
-          console.error(msg);
-          if (process.env.NODE_ENV === 'development') {
-            setBooking(devMock);
-          } else {
-            setBooking(null);
-          }
-          setError(msg);
-        }
+        const res = await apiClient.get(`/bookings/${id}`);
+        setBooking(res.data.booking || null);
+        setError(null);
       } catch (err) {
         console.error('Booking fetch error:', err);
         if (process.env.NODE_ENV === 'development') {

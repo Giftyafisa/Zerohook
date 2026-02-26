@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material';
 import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 
 // Supported African countries with phone codes
 const AFRICAN_COUNTRIES = [
@@ -74,19 +75,12 @@ const RegisterPage = () => {
   useEffect(() => {
     const detectCountry = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/countries/detect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.detectedCountry) {
-            const detected = AFRICAN_COUNTRIES.find(c => c.code === data.detectedCountry.code);
-            if (detected) {
-              setSelectedCountry(detected);
-              console.log('📍 Country detected for phone:', detected.name, detected.phoneCode);
-            }
+        const { data } = await apiClient.post('/countries/detect');
+        if (data.success && data.detectedCountry) {
+          const detected = AFRICAN_COUNTRIES.find(c => c.code === data.detectedCountry.code);
+          if (detected) {
+            setSelectedCountry(detected);
+            console.log('📍 Country detected for phone:', detected.name, detected.phoneCode);
           }
         }
       } catch (error) {

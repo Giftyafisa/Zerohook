@@ -49,6 +49,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { isSugarAccount, getAccountType } from '../utils/accountTypeUtils';
 
 // Modern TikTok-style design system
@@ -316,18 +317,9 @@ const PrivacySettings = () => {
       setIsLoading(true);
       setLoadError(null);
       
-      const response = await fetch(`${API_BASE_URL}/users/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await apiClient.get('/users/me');
 
-      if (!response.ok) {
-        throw new Error('Failed to load settings');
-      }
-
-      const data = await response.json();
+      const data = response.data;
       const profileData = data.user?.profile_data || {};
       const userSettings = profileData.settings || {};
 
@@ -376,25 +368,13 @@ const PrivacySettings = () => {
       setIsSaving(true);
       setSaveError(null);
 
-      const response = await fetch(`${API_BASE_URL}/users/me`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          profile_data: {
-            settings: settings,
-            basePrice: settings.basePrice,
-            currency: settings.priceCurrency,
-          }
-        })
+      const response = await apiClient.put('/users/me', {
+        profile_data: {
+          settings: settings,
+          basePrice: settings.basePrice,
+          currency: settings.priceCurrency,
+        }
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to save settings');
-      }
 
       setHasChanges(false);
       setShowSaveSnackbar(true);

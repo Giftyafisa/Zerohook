@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 
 const AdultServiceCreate = () => {
@@ -85,10 +86,9 @@ const AdultServiceCreate = () => {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/services/categories`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success) {
+        const response = await apiClient.get('/services/categories');
+        const data = response.data;
+        if (data.success) {
             setCategories(data.categories.map(cat => ({
               id: cat.id,
               value: cat.name,
@@ -106,9 +106,6 @@ const AdultServiceCreate = () => {
               { id: 'special_services', value: 'special_services', label: 'Special Services', description: 'Premium services' }
             ]);
           }
-        } else {
-          throw new Error('Failed to fetch categories');
-        }
       } catch (error) {
         console.error('Failed to fetch categories:', error?.message || error);
         console.log('Using fallback categories due to API error');
@@ -247,20 +244,9 @@ const AdultServiceCreate = () => {
       };
       
       // Create service first to get serviceId
-      const serviceResponse = await fetch(`${API_BASE_URL}/adult-services`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(serviceData)
-      });
+      const serviceResponse = await apiClient.post('/adult-services', serviceData);
       
-      if (!serviceResponse.ok) {
-        throw new Error('Failed to create service');
-      }
-      
-      const serviceResult = await serviceResponse.json();
+      const serviceResult = serviceResponse.data;
       const serviceId = serviceResult.service.id;
       
       // Upload photos if any
@@ -271,17 +257,13 @@ const AdultServiceCreate = () => {
         });
         formDataPhotos.append('serviceId', serviceId);
         
-        const uploadResponse = await fetch(`${API_BASE_URL}/uploads/service-media`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: formDataPhotos
-        });
-        
-        if (!uploadResponse.ok) {
-          const uploadError = await uploadResponse.json();
-          setError(`Photo upload failed: ${uploadError.error || 'Unknown error'}. Service was created but without photos.`);
+        try {
+          await apiClient.post('/uploads/service-media', formDataPhotos, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+        } catch (uploadErr) {
+          const uploadError = uploadErr.response?.data;
+          setError(`Photo upload failed: ${uploadError?.error || 'Unknown error'}. Service was created but without photos.`);
           // Continue with service creation even if photos fail
         }
       }

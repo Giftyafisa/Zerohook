@@ -32,6 +32,7 @@ import {
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { getDefaultImage } from '../config/images';
 import { useAuth } from '../contexts/AuthContext';
 import useCurrency from '../hooks/useCurrency';
@@ -101,9 +102,8 @@ const AdultServiceBrowse = () => {
       if (priceRange[1]) params.append('maxPrice', String(priceRange[1]));
 
       try {
-        const res = await fetch(`${API_BASE_URL}/content/feed?${params.toString()}`, { headers });
-        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-        const data = await res.json();
+        const res = await apiClient.get(`/content/feed?${params.toString()}`);
+        const data = res.data;
         const items = data.feed || data.services || data.data || [];
         setServices(items);
       } catch (err) {

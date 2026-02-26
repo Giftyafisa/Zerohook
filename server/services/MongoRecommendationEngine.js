@@ -531,6 +531,31 @@ class MongoRecommendationEngine {
    */
   sortUberBoltStyle(profiles, filterMode = 'forYou') {
     return profiles.sort((a, b) => {
+      // NEARBY mode: distance is the sole sorting factor
+      if (filterMode === 'nearby') {
+        const distA = a.distance ?? 9999;
+        const distB = b.distance ?? 9999;
+        return distA - distB;
+      }
+
+      // TRENDING / TOP-RATED mode: reputation & score first
+      if (filterMode === 'trending') {
+        const scoreA = (a.trustScore || 0) + (a.recommendationScore || 0);
+        const scoreB = (b.trustScore || 0) + (b.recommendationScore || 0);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        // Break ties by distance
+        return (a.distance ?? 9999) - (b.distance ?? 9999);
+      }
+
+      // ONLINE mode: already filtered to active users; sort by last-active then distance
+      if (filterMode === 'online') {
+        const activeA = a.lastActive ? new Date(a.lastActive).getTime() : 0;
+        const activeB = b.lastActive ? new Date(b.lastActive).getTime() : 0;
+        if (activeA !== activeB) return activeB - activeA; // most recent first
+        return (a.distance ?? 9999) - (b.distance ?? 9999);
+      }
+
+      // DEFAULT (forYou / all): Uber/Bolt-style
       // 1. Same country ALWAYS first
       if (a.sameCountry && !b.sameCountry) return -1;
       if (!a.sameCountry && b.sameCountry) return 1;
@@ -627,6 +652,29 @@ class MongoRecommendationEngine {
           $or: [
             { last_active: { $gte: fifteenMinutesAgo } },
             { lastActive: { $gte: fifteenMinutesAgo } }
+          ]
+        });
+      }
+
+      // Apply nearby filter — only include profiles that have location data
+      // so distance-based sorting can work meaningfully
+      if (filters.filterMode === 'nearby') {
+        mongoQuery.$and = mongoQuery.$and || [];
+        mongoQuery.$and.push({
+          $or: [
+            { 'profile_data.location': { $exists: true, $ne: null } },
+            { 'profileData.location': { $exists: true, $ne: null } }
+          ]
+        });
+      }
+
+      // Apply trending / top-rated filter — show highly-rated profiles
+      if (filters.filterMode === 'trending') {
+        mongoQuery.$and = mongoQuery.$and || [];
+        mongoQuery.$and.push({
+          $or: [
+            { reputation_score: { $gte: 50 } },
+            { reputationScore: { $gte: 50 } }
           ]
         });
       }

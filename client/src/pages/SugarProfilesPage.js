@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { GlassCard, GlassButton } from '../components/ui';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import CryptoPayment from '../components/payments/CryptoPayment';
 
 const SugarProfilesPage = () => {
@@ -48,17 +49,9 @@ const SugarProfilesPage = () => {
     if (!token) return;
     
     try {
-      const response = await fetch(`${API_BASE_URL}/sugar-access/status`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setAccessStatus(data);
-        setPricing(data.pricing);
-      }
+      const { data } = await apiClient.get('/sugar-access/status');
+      setAccessStatus(data);
+      setPricing(data.pricing);
     } catch (err) {
       console.error('Error fetching access status:', err);
     }
@@ -80,26 +73,15 @@ const SugarProfilesPage = () => {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/users/sugar-profiles?type=${type}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setProfiles(data.profiles || []);
-      } else {
-        const errorData = await response.json();
-        if (errorData.requiresPayment) {
-          setProfiles([]);
-        } else {
-          setError(errorData.error);
-        }
-      }
+      const { data } = await apiClient.get(`/users/sugar-profiles?type=${type}`);
+      setProfiles(data.profiles || []);
     } catch (err) {
       console.error('Error fetching profiles:', err);
-      setError('Failed to load profiles');
+      if (err.response?.data?.requiresPayment) {
+        setProfiles([]);
+      } else {
+        setError(err.response?.data?.error || 'Failed to load profiles');
+      }
     } finally {
       setLoading(false);
     }
@@ -108,38 +90,24 @@ const SugarProfilesPage = () => {
   // Initialize payment via crypto
   const initializePayment = async (accessType) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/sugar-access/initialize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ accessType, cryptoSymbol: 'USDT' })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.paymentData?.address) {
-          setCryptoPaymentData({
-            walletAddress: data.paymentData.address,
-            cryptoAmount: data.paymentData.cryptoAmount,
-            cryptoSymbol: data.paymentData.cryptoSymbol,
-            network: data.paymentData.network,
-            qrData: data.paymentData.qrData,
-            reference: data.paymentData.reference,
-            expiresAt: data.paymentData.expiresAt,
-            fiatAmount: data.amount,
-            fiatCurrency: data.currency
-          });
-          setShowCryptoPayment(true);
-        }
-      } else {
-        const errorData = await response.json();
-        setError(errorData.error);
+      const { data } = await apiClient.post('/sugar-access/initialize', { accessType, cryptoSymbol: 'USDT' });
+      if (data.paymentData?.address) {
+        setCryptoPaymentData({
+          walletAddress: data.paymentData.address,
+          cryptoAmount: data.paymentData.cryptoAmount,
+          cryptoSymbol: data.paymentData.cryptoSymbol,
+          network: data.paymentData.network,
+          qrData: data.paymentData.qrData,
+          reference: data.paymentData.reference,
+          expiresAt: data.paymentData.expiresAt,
+          fiatAmount: data.amount,
+          fiatCurrency: data.currency
+        });
+        setShowCryptoPayment(true);
       }
     } catch (err) {
       console.error('Payment initialization error:', err);
-      setError('Failed to initialize payment');
+      setError(err.response?.data?.error || 'Failed to initialize payment');
     }
   };
 
@@ -154,19 +122,8 @@ const SugarProfilesPage = () => {
   // Verify payment (for development/testing)
   const verifyPayment = async (reference) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/sugar-access/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ reference })
-      });
-      
-      if (response.ok) {
-        // Refresh access status
-        await fetchAccessStatus();
-      }
+      await apiClient.post('/sugar-access/verify', { reference });
+      await fetchAccessStatus();
     } catch (err) {
       console.error('Payment verification error:', err);
     }

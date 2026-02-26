@@ -6,6 +6,7 @@ import {
   LinearProgress
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   Verified as VerifiedIcon,
   Shield as ShieldIcon,
@@ -43,39 +44,19 @@ const TrustScorePage = () => {
   useEffect(() => {
     const fetchTrustData = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/trust/score`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+        const { data } = await apiClient.get('/trust/score');
+        setTrustData({
+          score: data.score || user?.reputationScore || 75,
+          level: data.level || getLevel(user?.reputationScore || 75),
+          nextLevel: data.nextLevel || 'Advanced',
+          pointsToNext: data.pointsToNext || 25,
+          metrics: {
+            responseRate: data.responseRate || 95,
+            completionRate: data.completionRate || 98,
+            customerSatisfaction: data.customerSatisfaction || 4.8
+          },
+          badges: data.badges || defaultBadges
         });
-        if (response.ok) {
-          const data = await response.json();
-          setTrustData({
-            score: data.score || user?.reputationScore || 75,
-            level: data.level || getLevel(user?.reputationScore || 75),
-            nextLevel: data.nextLevel || 'Advanced',
-            pointsToNext: data.pointsToNext || 25,
-            metrics: {
-              responseRate: data.responseRate || 95,
-              completionRate: data.completionRate || 98,
-              customerSatisfaction: data.customerSatisfaction || 4.8
-            },
-            badges: data.badges || defaultBadges
-          });
-        } else {
-          // Use defaults
-          setTrustData({
-            score: user?.reputationScore || 75,
-            level: getLevel(user?.reputationScore || 75),
-            nextLevel: 'Advanced',
-            pointsToNext: 25,
-            metrics: {
-              responseRate: 95,
-              completionRate: 98,
-              customerSatisfaction: 4.8
-            },
-            badges: defaultBadges
-          });
-        }
       } catch (error) {
         console.error('Trust data fetch error:', error);
       } finally {

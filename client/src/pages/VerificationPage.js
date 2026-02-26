@@ -37,6 +37,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../store/slices/authSlice';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { toast } from 'react-toastify';
 
 const MotionBox = motion(Box);
@@ -73,23 +74,16 @@ const VerificationPage = () => {
 
   const fetchVerificationStatus = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/verification/full-status`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const { data } = await apiClient.get('/verification/full-status');
+      setVerificationStatus({
+        isSubscribed: data.fullVerification?.isSubscribed || false,
+        emailVerified: data.fullVerification?.emailVerified || false,
+        idVerified: data.fullVerification?.idVerified || false,
+        faceVerified: data.fullVerification?.faceVerified || false,
+        isFullyVerified: data.fullVerification?.isFullyVerified || false,
+        verificationTier: data.currentTier || 1,
+        requirements: data.requirements || {}
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setVerificationStatus({
-          isSubscribed: data.fullVerification?.isSubscribed || false,
-          emailVerified: data.fullVerification?.emailVerified || false,
-          idVerified: data.fullVerification?.idVerified || false,
-          faceVerified: data.fullVerification?.faceVerified || false,
-          isFullyVerified: data.fullVerification?.isFullyVerified || false,
-          verificationTier: data.currentTier || 1,
-          requirements: data.requirements || {}
-        });
-      }
     } catch (error) {
       console.error('Failed to fetch verification status:', error);
     } finally {
@@ -100,21 +94,8 @@ const VerificationPage = () => {
   const handleSendEmailOtp = async () => {
     setSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/verification/send-email-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ email: user?.email })
-      });
-      
-      if (response.ok) {
-        toast.success('OTP sent to your email!');
-      } else {
-        toast.info('OTP sent! (Demo mode)');
-      }
+      await apiClient.post('/verification/send-email-otp', { email: user?.email });
+      toast.success('OTP sent to your email!');
     } catch (error) {
       toast.info('OTP sent! (Demo mode)');
     } finally {
@@ -130,23 +111,10 @@ const VerificationPage = () => {
     
     setSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/verification/verify-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ email: user?.email, otp: emailOtp })
-      });
-      
-      if (response.ok) {
-        toast.success('Email verified successfully!');
-        setVerificationStatus(prev => ({ ...prev, emailVerified: true }));
-        setExpandedStep(null);
-      } else {
-        toast.error('Verification failed');
-      }
+      await apiClient.post('/verification/verify-email', { email: user?.email, otp: emailOtp });
+      toast.success('Email verified successfully!');
+      setVerificationStatus(prev => ({ ...prev, emailVerified: true }));
+      setExpandedStep(null);
     } catch (error) {
       toast.error('Verification failed');
     } finally {
@@ -162,28 +130,14 @@ const VerificationPage = () => {
     
     setSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/verification/submit-documents`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          documentType: idData.idType,
-          documentNumber: idData.idNumber,
-          documentImages: [],
-          verificationTier: 2
-        })
+      await apiClient.post('/verification/submit-documents', {
+        documentType: idData.idType,
+        documentNumber: idData.idNumber,
+        documentImages: [],
+        verificationTier: 2
       });
-      
-      if (response.ok) {
-        toast.success('ID verification submitted! Pending review.');
-        setExpandedStep(null);
-      } else {
-        toast.info('Submitted for review (Demo mode)');
-        setExpandedStep(null);
-      }
+      toast.success('ID verification submitted! Pending review.');
+      setExpandedStep(null);
     } catch (error) {
       toast.info('Submitted for review (Demo mode)');
       setExpandedStep(null);

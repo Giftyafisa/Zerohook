@@ -21,6 +21,7 @@ import {
   CurrencyBitcoin as CryptoIcon
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 import CryptoPayment from './payments/CryptoPayment';
 
@@ -82,29 +83,19 @@ const PaymentSheet = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      
-      const response = await fetch(`${API_BASE_URL}/escrow/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          providerId,
-          amount: parseFloat(amount),
-          currency: currencyCode,
-          paymentMethod: payMethod === 'crypto' ? 'crypto' : 'wallet',
-          cryptoSymbol: payMethod === 'crypto' ? cryptoSymbol : undefined,
-          conversationId,
-          description: `Payment to ${providerName}`
-        })
+      const response = await apiClient.post('/escrow/create', {
+        providerId,
+        amount: parseFloat(amount),
+        currency: currencyCode,
+        paymentMethod: payMethod === 'crypto' ? 'crypto' : 'wallet',
+        cryptoSymbol: payMethod === 'crypto' ? cryptoSymbol : undefined,
+        conversationId,
+        description: `Payment to ${providerName}`
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
-        if (payMethod === 'crypto' && data.walletAddress) {
+      if (payMethod === 'crypto' && data.walletAddress) {
           // Show crypto payment dialog
           setCryptoPaymentData({
             walletAddress: data.walletAddress,
@@ -130,12 +121,9 @@ const PaymentSheet = ({
           });
           onClose();
         }, 1500);
-      } else {
-        setError(data.error || 'Failed to hold money. Please try again.');
-      }
     } catch (err) {
       console.error('Payment error:', err);
-      setError('Something went wrong. Please try again.');
+      setError(err.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }

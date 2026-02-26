@@ -26,6 +26,7 @@ import {
   Chip
 } from '@mui/material';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import {
   Edit as EditIcon,
@@ -94,11 +95,8 @@ const ProfilePage = () => {
   useEffect(() => {
     const fetchCountries = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/countries`);
-        if (response.ok) {
-          const data = await response.json();
-          setCountries(data.countries || []);
-        }
+        const response = await apiClient.get('/countries');
+        setCountries(response.data.countries || []);
       } catch (error) {
         console.error('Failed to fetch countries:', error);
       }
@@ -116,11 +114,8 @@ const ProfilePage = () => {
       
       setLoadingRegions(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/regions`);
-        if (response.ok) {
-          const data = await response.json();
-          setRegions(data.regions || []);
-        }
+        const response = await apiClient.get(`/countries/${editData.countryCode}/regions`);
+        setRegions(response.data.regions || []);
       } catch (error) {
         console.error('Failed to fetch regions:', error);
         setRegions([]);
@@ -144,11 +139,8 @@ const ProfilePage = () => {
       try {
         // Fetch all cities for the country (search param filters on server side)
         const searchParam = cityInputValue ? `?search=${encodeURIComponent(cityInputValue)}` : '';
-        const response = await fetch(`${API_BASE_URL}/countries/${editData.countryCode}/cities${searchParam}`);
-        if (response.ok) {
-          const data = await response.json();
-          setCities(data.cities || []);
-        }
+        const response = await apiClient.get(`/countries/${editData.countryCode}/cities${searchParam}`);
+        setCities(response.data.cities || []);
       } catch (error) {
         console.error('Failed to fetch cities:', error);
         setCities([]);
@@ -169,10 +161,7 @@ const ProfilePage = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await apiClient.get('/dashboard/stats');
 
       const data = {
         firstName: user.profile_data?.firstName || user.username || '',
@@ -193,8 +182,8 @@ const ProfilePage = () => {
         profileVisibility: user.profile_visibility || user.profile_data?.profileVisibility || 'public'
       };
 
-      if (response.ok) {
-        const dashboardData = await response.json();
+      if (response.status === 200) {
+        const dashboardData = response.data;
         data.trustScore = dashboardData.trustScore || data.trustScore;
         data.completedServices = dashboardData.stats?.completedTransactions || data.completedServices;
       }
@@ -220,15 +209,10 @@ const ProfilePage = () => {
     setLocationSuggestion(null);
     try {
       // Try to get coordinates from geolocation API if available
-      const url = `${API_BASE_URL}/geolocation/lookup-city?city=${encodeURIComponent(city)}${country ? `&country=${encodeURIComponent(country)}` : ''}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        console.warn('Geolocation lookup not available, saving location without coordinates');
-        return null;
-      }
-      const data = await response.json();
-      setLocationSuggestion(data?.data || null);
-      return data?.data || null;
+      const url = `/geolocation/lookup-city?city=${encodeURIComponent(city)}${country ? `&country=${encodeURIComponent(country)}` : ''}`;
+      const response = await apiClient.get(url);
+      setLocationSuggestion(response.data?.data || null);
+      return response.data?.data || null;
     } catch (error) {
       console.warn('Location lookup failed, saving location without coordinates:', error);
       return null;
@@ -246,46 +230,33 @@ const ProfilePage = () => {
         resolvedLocation = await resolveLocationCoordinates(editData.city, editData.country);
       }
 
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/users/me`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+      const response = await apiClient.put('/users/me', {
+        profile_data: {
+          firstName: editData.firstName,
+          lastName: editData.lastName,
+          bio: editData.bio,
+          age: editData.age,
+          basePrice: editData.basePrice,
+          priceCurrency: editData.priceCurrency,
+          location: {
+            city: editData.city,
+            region: editData.region,
+            country: editData.country,
+            countryCode: editData.countryCode,
+            coordinates: resolvedLocation ? { lat: resolvedLocation.lat, lng: resolvedLocation.lng } : undefined,
+            preferProfileLocation: Boolean(editData.preferProfileLocation)
+          }
         },
-        body: JSON.stringify({
-          profile_data: {
-            firstName: editData.firstName,
-            lastName: editData.lastName,
-            bio: editData.bio,
-            age: editData.age,
-            basePrice: editData.basePrice,
-            priceCurrency: editData.priceCurrency,
-            location: {
-              city: editData.city,
-              region: editData.region,
-              country: editData.country,
-              countryCode: editData.countryCode,
-              coordinates: resolvedLocation ? { lat: resolvedLocation.lat, lng: resolvedLocation.lng } : undefined,
-              preferProfileLocation: Boolean(editData.preferProfileLocation)
-            }
-          },
-          profile_visibility: editData.profileVisibility || 'public'
-        })
+        profile_visibility: editData.profileVisibility || 'public'
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        setProfileData(editData);
-        setEditing(false);
-        setSnackbar({ open: true, message: 'Profile updated!', severity: 'success' });
-        // Update user context if available
-        if (updateUser && result.user) {
-          updateUser(result.user);
-        }
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Update failed');
+      const result = response.data;
+      setProfileData(editData);
+      setEditing(false);
+      setSnackbar({ open: true, message: 'Profile updated!', severity: 'success' });
+      // Update user context if available
+      if (updateUser && result.user) {
+        updateUser(result.user);
       }
     } catch (error) {
       console.error('Profile update error:', error);

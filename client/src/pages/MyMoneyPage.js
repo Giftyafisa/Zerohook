@@ -23,6 +23,7 @@ import {
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   AccountBalanceWallet as WalletIcon,
   Add as AddIcon,
@@ -132,41 +133,31 @@ const MyMoneyPage = () => {
     }
     
     try {
-      const token = localStorage.getItem('token');
-      
-      // Fetch wallet data
-      const walletRes = await fetch(`${API_BASE_URL}/payments/wallet`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      // Fetch transactions
-      const txRes = await fetch(`${API_BASE_URL}/payments/transactions`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      // Fetch escrows
-      const escrowRes = await fetch(`${API_BASE_URL}/escrow/list`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      // Fetch wallet, transactions, and escrows in parallel
+      const [walletResult, txResult, escrowResult] = await Promise.allSettled([
+        apiClient.get('/payments/wallet'),
+        apiClient.get('/payments/transactions'),
+        apiClient.get('/escrow/list'),
+      ]);
 
       let balance = 0, escrowHeld = 0, pendingWithdrawal = 0;
       let transactions = [];
       let escrows = [];
 
-      if (walletRes.ok) {
-        const data = await walletRes.json();
+      if (walletResult.status === 'fulfilled') {
+        const data = walletResult.value.data;
         balance = data.wallet?.balance || data.balance || 0;
         escrowHeld = data.wallet?.escrowHeld || data.escrowHeld || 0;
         pendingWithdrawal = data.wallet?.pendingWithdrawal || data.pendingWithdrawal || 0;
       }
 
-      if (txRes.ok) {
-        const data = await txRes.json();
+      if (txResult.status === 'fulfilled') {
+        const data = txResult.value.data;
         transactions = data.transactions || data.data || [];
       }
 
-      if (escrowRes.ok) {
-        const data = await escrowRes.json();
+      if (escrowResult.status === 'fulfilled') {
+        const data = escrowResult.value.data;
         escrows = data.escrows || data.data || [];
       }
 
@@ -205,21 +196,10 @@ const MyMoneyPage = () => {
         setLoading(true);
         
         try {
-          const token = localStorage.getItem('token');
+          const response = await apiClient.post('/payments/verify-inline', { reference: paymentRef });
+          const data = response.data;
           
-          // Verify the payment with backend
-          const response = await fetch(`${API_BASE_URL}/payments/verify-inline`, {
-            method: 'POST',
-            headers: { 
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ reference: paymentRef })
-          });
-          
-          const data = await response.json();
-          
-          if (response.ok && data.success) {
+          if (data.success) {
             console.log('✅ Payment verified successfully:', data);
             const amount = data.amount || 0;
             const currency = data.currency || symbol;
@@ -264,32 +244,19 @@ const MyMoneyPage = () => {
     
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ escrowId })
-      });
+      const response = await apiClient.post('/escrow/complete', { escrowId });
 
-      if (response.ok) {
-        // Update local state
-        setWalletData(prev => ({
-          ...prev,
-          escrows: prev.escrows.map(e => 
-            e.id === escrowId ? { ...e, status: 'released' } : e
-          )
-        }));
-        toast.success('Payment released successfully!');
-      } else {
-        const data = await response.json();
-        toast.error(data.error || 'Failed to release payment');
-      }
+      // Update local state
+      setWalletData(prev => ({
+        ...prev,
+        escrows: prev.escrows.map(e => 
+          e.id === escrowId ? { ...e, status: 'released' } : e
+        )
+      }));
+      toast.success('Payment released successfully!');
     } catch (error) {
       console.error('Release error:', error);
-      toast.error('Failed to release payment.');
+      toast.error(error.response?.data?.error || 'Failed to release payment.');
     } finally {
       setActionLoading(false);
     }
@@ -302,28 +269,15 @@ const MyMoneyPage = () => {
     
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ escrowId, reason })
-      });
+      const response = await apiClient.post('/escrow/dispute', { escrowId, reason });
 
-      if (response.ok) {
-        setWalletData(prev => ({
-          ...prev,
-          escrows: prev.escrows.map(e => 
-            e.id === escrowId ? { ...e, status: 'disputed' } : e
-          )
-        }));
-        toast.info('Issue reported. Support will contact you.');
-      } else {
-        const data = await response.json();
-        toast.error(data.error || 'Failed to report issue');
-      }
+      setWalletData(prev => ({
+        ...prev,
+        escrows: prev.escrows.map(e => 
+          e.id === escrowId ? { ...e, status: 'disputed' } : e
+        )
+      }));
+      toast.info('Issue reported. Support will contact you.');
     } catch (error) {
       console.error('Dispute error:', error);
       toast.error('Failed to report issue.');
@@ -356,39 +310,27 @@ const MyMoneyPage = () => {
 
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/enter-pin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          escrowId: selectedEscrow.id, 
-          pin: pinInput 
-        })
+      const response = await apiClient.post('/escrow/enter-pin', {
+        escrowId: selectedEscrow.id, 
+        pin: pinInput 
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
-        // Update local state
-        setWalletData(prev => ({
-          ...prev,
-          escrows: prev.escrows.map(e => 
-            e.id === selectedEscrow.id ? { ...e, status: 'pin_entered', pin_entered_at: new Date().toISOString() } : e
-          )
-        }));
-        toast.success('PIN verified! Waiting for client confirmation.');
-        setPinDialogOpen(false);
-        setPinInput('');
-        setSelectedEscrow(null);
-      } else {
-        toast.error(data.error || 'Invalid PIN');
-      }
+      // Update local state
+      setWalletData(prev => ({
+        ...prev,
+        escrows: prev.escrows.map(e => 
+          e.id === selectedEscrow.id ? { ...e, status: 'pin_entered', pin_entered_at: new Date().toISOString() } : e
+        )
+      }));
+      toast.success('PIN verified! Waiting for client confirmation.');
+      setPinDialogOpen(false);
+      setPinInput('');
+      setSelectedEscrow(null);
     } catch (error) {
       console.error('PIN entry error:', error);
-      toast.error('Failed to verify PIN');
+      toast.error(error.response?.data?.error || 'Failed to verify PIN');
     } finally {
       setActionLoading(false);
     }
@@ -405,34 +347,22 @@ const MyMoneyPage = () => {
 
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/confirm`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ escrowId: selectedEscrow.id })
-      });
+      const response = await apiClient.post('/escrow/confirm', { escrowId: selectedEscrow.id });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
-        setWalletData(prev => ({
-          ...prev,
-          escrows: prev.escrows.map(e => 
-            e.id === selectedEscrow.id ? { ...e, status: 'released' } : e
-          )
-        }));
-        toast.success('Payment released to provider!');
-        setConfirmDialogOpen(false);
-        setSelectedEscrow(null);
-      } else {
-        toast.error(data.error || 'Failed to confirm service');
-      }
+      setWalletData(prev => ({
+        ...prev,
+        escrows: prev.escrows.map(e => 
+          e.id === selectedEscrow.id ? { ...e, status: 'released' } : e
+        )
+      }));
+      toast.success('Payment released to provider!');
+      setConfirmDialogOpen(false);
+      setSelectedEscrow(null);
     } catch (error) {
       console.error('Confirm error:', error);
-      toast.error('Failed to confirm service');
+      toast.error(error.response?.data?.error || 'Failed to confirm service');
     } finally {
       setActionLoading(false);
     }
@@ -455,52 +385,38 @@ const MyMoneyPage = () => {
 
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/dispute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          escrowId: selectedEscrow.id, 
-          reason: disputeReason 
-        })
+      const response = await apiClient.post('/escrow/dispute', {
+        escrowId: selectedEscrow.id, 
+        reason: disputeReason 
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
-        // Upload evidence if provided
-        if (disputeEvidence) {
-          const formData = new FormData();
-          formData.append('file', disputeEvidence);
-          formData.append('description', 'Dispute evidence');
-          
-          await fetch(`${API_BASE_URL}/escrow/${selectedEscrow.id}/evidence`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: formData
-          });
-        }
-
-        setWalletData(prev => ({
-          ...prev,
-          escrows: prev.escrows.map(e => 
-            e.id === selectedEscrow.id ? { ...e, status: 'disputed' } : e
-          )
-        }));
-        toast.info('Dispute submitted. Our team will review and contact you within 24-48 hours.');
-        setDisputeDialogOpen(false);
-        setSelectedEscrow(null);
-        setDisputeReason('');
-        setDisputeEvidence(null);
-      } else {
-        toast.error(data.error || 'Failed to submit dispute');
+      // Upload evidence if provided
+      if (disputeEvidence) {
+        const formData = new FormData();
+        formData.append('file', disputeEvidence);
+        formData.append('description', 'Dispute evidence');
+        
+        await apiClient.post(`/escrow/${selectedEscrow.id}/evidence`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
       }
+
+      setWalletData(prev => ({
+        ...prev,
+        escrows: prev.escrows.map(e => 
+          e.id === selectedEscrow.id ? { ...e, status: 'disputed' } : e
+        )
+      }));
+      toast.info('Dispute submitted. Our team will review and contact you within 24-48 hours.');
+      setDisputeDialogOpen(false);
+      setSelectedEscrow(null);
+      setDisputeReason('');
+      setDisputeEvidence(null);
     } catch (error) {
       console.error('Dispute error:', error);
-      toast.error('Failed to submit dispute');
+      toast.error(error.response?.data?.error || 'Failed to submit dispute');
     } finally {
       setActionLoading(false);
     }
@@ -518,42 +434,30 @@ const MyMoneyPage = () => {
 
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/claim-complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          escrowId: escrow.id,
-          evidenceDescription: 'Service completed as agreed'
-        })
+      const response = await apiClient.post('/escrow/claim-complete', {
+        escrowId: escrow.id,
+        evidenceDescription: 'Service completed as agreed'
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
-        setWalletData(prev => ({
-          ...prev,
-          escrows: prev.escrows.map(e => 
-            e.id === escrow.id ? { 
-              ...e, 
-              provider_claimed_complete: true,
-              provider_claim_data: {
-                client_response_deadline: data.clientResponseDeadline
-              }
-            } : e
-          )
-        }));
-        toast.success('Service completion claimed! Client has been notified.');
-        toast.info('If client doesn\'t respond within 24 hours, payment will auto-release to you.');
-      } else {
-        toast.error(data.error || 'Failed to claim completion');
-      }
+      setWalletData(prev => ({
+        ...prev,
+        escrows: prev.escrows.map(e => 
+          e.id === escrow.id ? { 
+            ...e, 
+            provider_claimed_complete: true,
+            provider_claim_data: {
+              client_response_deadline: data.clientResponseDeadline
+            }
+          } : e
+        )
+      }));
+      toast.success('Service completion claimed! Client has been notified.');
+      toast.info('If client doesn\'t respond within 24 hours, payment will auto-release to you.');
     } catch (error) {
       console.error('Claim complete error:', error);
-      toast.error('Failed to claim completion');
+      toast.error(error.response?.data?.error || 'Failed to claim completion');
     } finally {
       setActionLoading(false);
     }
@@ -562,15 +466,8 @@ const MyMoneyPage = () => {
   // Fetch user's dispute status (warnings/strikes)
   const fetchDisputeStatus = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/escrow/dispute-status`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setDisputeStatus(data);
-      }
+      const response = await apiClient.get('/escrow/dispute-status');
+      setDisputeStatus(response.data);
     } catch (error) {
       console.error('Failed to fetch dispute status:', error);
     }
@@ -670,26 +567,13 @@ const MyMoneyPage = () => {
     
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      
-      const response = await fetch(`${API_BASE_URL}/payments/deposit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          amount: Number(addAmount),
-          cryptoSymbol: cryptoSymbol,
-          currency: currencyCode
-        })
+      const response = await apiClient.post('/payments/deposit', {
+        amount: Number(addAmount),
+        cryptoSymbol: cryptoSymbol,
+        currency: currencyCode
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to initiate deposit');
-      }
+      const data = response.data;
 
       // Show crypto payment dialog
       const depositAddress = data.address || data.walletAddress;
@@ -754,35 +638,22 @@ const MyMoneyPage = () => {
     
     setActionLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/payments/withdraw`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          amount: Number(withdrawAmount),
-          cryptoSymbol: withdrawCrypto,
-          network: withdrawCrypto,
-          destinationAddress: withdrawAddress.trim()
-        })
+      const response = await apiClient.post('/payments/withdraw', {
+        amount: Number(withdrawAmount),
+        cryptoSymbol: withdrawCrypto,
+        network: withdrawCrypto,
+        destinationAddress: withdrawAddress.trim()
       });
 
-      if (response.ok) {
-        toast.success('Withdrawal request submitted! Admin will process within 24 hours.');
-        setWalletData(prev => ({
-          ...prev,
-          balance: prev.balance - Number(withdrawAmount),
-          pendingWithdrawal: prev.pendingWithdrawal + Number(withdrawAmount)
-        }));
-      } else {
-        const data = await response.json();
-        toast.error(data.error || 'Withdrawal failed');
-      }
+      toast.success('Withdrawal request submitted! Admin will process within 24 hours.');
+      setWalletData(prev => ({
+        ...prev,
+        balance: prev.balance - Number(withdrawAmount),
+        pendingWithdrawal: prev.pendingWithdrawal + Number(withdrawAmount)
+      }));
     } catch (error) {
       console.error('Withdraw error:', error);
-      toast.error('Withdrawal failed.');
+      toast.error(error.response?.data?.error || 'Withdrawal failed.');
     } finally {
       setActionLoading(false);
       setWithdrawDialog(false);

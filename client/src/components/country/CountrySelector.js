@@ -32,6 +32,7 @@ import {
 import { motion } from 'framer-motion';
 import { colors } from '../../theme/colors';
 import { API_BASE_URL } from '../../config/constants';
+import apiClient from '../../services/apiClient';
 
 const CountrySelector = ({ 
   onCountryChange, 
@@ -54,9 +55,7 @@ const CountrySelector = ({
 
   const fetchCountries = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/countries`);
-      const data = await response.json();
-      
+      const { data } = await apiClient.get('/countries');
       if (data.success) {
         setCountries(data.countries);
       } else {
@@ -75,16 +74,7 @@ const CountrySelector = ({
       const ipResponse = await fetch('https://api.ipify.org?format=json');
       const ipData = await ipResponse.json();
       
-      const response = await fetch(`${API_BASE_URL}/countries/detect`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ ipAddress: ipData.ip })
-      });
-      
-      const data = await response.json();
+      const { data } = await apiClient.post('/countries/detect', { ipAddress: ipData.ip });
       
       if (data.success) {
         setDetectedCountry(data.detectedCountry);

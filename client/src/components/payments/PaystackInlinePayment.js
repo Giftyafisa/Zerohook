@@ -47,6 +47,7 @@ import {
   Info as InfoIcon,
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../../config/constants';
+import apiClient from '../../services/apiClient';
 import useCurrency from '../../hooks/useCurrency';
 
 // Payment channel configurations by country
@@ -150,33 +151,19 @@ const PaystackInlinePayment = ({
    */
   const initializePayment = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/payments/paystack/inline-initialize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+      const response = await apiClient.post('/payments/paystack/inline-initialize', {
+        amount,
+        email,
+        reference,
+        metadata: {
+          ...metadata,
+          countryCode,
+          currencyCode,
         },
-        body: JSON.stringify({
-          amount,
-          email,
-          reference,
-          metadata: {
-            ...metadata,
-            countryCode,
-            currencyCode,
-          },
-          channels: availableChannels,
-        })
+        channels: availableChannels,
       });
 
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to initialize payment');
-      }
-
-      return data;
+      return response.data;
     } catch (err) {
       console.error('Payment initialization error:', err);
       throw err;
@@ -470,23 +457,16 @@ export const usePaystackInline = () => {
         });
       } else {
         // Initialize from backend first
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/payments/paystack/inline-initialize`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            amount,
-            email,
-            reference,
-            metadata: { ...metadata, countryCode, currencyCode },
-            channels: channels || getPaymentChannelsForCountry(countryCode).channels,
-          })
+        const { default: apiClientModule } = await import('../../services/apiClient');
+        const response = await apiClientModule.post('/payments/paystack/inline-initialize', {
+          amount,
+          email,
+          reference,
+          metadata: { ...metadata, countryCode, currencyCode },
+          channels: channels || getPaymentChannelsForCountry(countryCode).channels,
         });
 
-        const data = await response.json();
+        const data = response.data;
         
         if (data.accessCode || data.access_code) {
           popup.resumeTransaction(data.accessCode || data.access_code, {

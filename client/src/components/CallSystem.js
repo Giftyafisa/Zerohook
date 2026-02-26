@@ -450,11 +450,13 @@ const CallSystem = () => {
     };
 
     const handleCallEnded = () => {
-      console.log('📞 Call ended by remote');
+      console.log('📞 Call ended by remote — cleaning up all call state');
       if (outgoingTimeoutRef.current) {
         clearTimeout(outgoingTimeoutRef.current);
         outgoingTimeoutRef.current = null;
       }
+      // Use endCall(true) to avoid re-emitting end_call back to the remote peer.
+      // This MUST clean up all state immediately so the UI dismisses the call screen.
       endCall(true);
     };
 
@@ -541,17 +543,28 @@ const CallSystem = () => {
     };
   }, [socket, isConnected]);
 
-  // Initialize media — shows user-friendly errors and retries audio-only on camera fail
+  // Initialize media — shows user-friendly errors and retries audio-only on camera fail.
+  // Uses professional audio constraints for clear voice quality.
   const initializeMedia = async (videoEnabled = true) => {
+    const audioConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      sampleRate: 48000,
+      channelCount: 1,          // Mono is better for voice
+    };
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: videoEnabled,
-        audio: true
+        video: videoEnabled ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false,
+        audio: audioConstraints
       });
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
+      // If we already have a PeerConnection, inject the new tracks into it
+      // (handles the case where PC was created before media was ready)
+      addLocalTracksToPeerConnection(stream);
       return stream;
     } catch (error) {
       console.warn('Media access failed:', error);
@@ -559,21 +572,43 @@ const CallSystem = () => {
       if (videoEnabled) {
         console.log('📹 Camera denied — falling back to audio-only');
         try {
-          const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: audioConstraints });
           localStreamRef.current = audioStream;
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = audioStream;
           }
           setIsVideoEnabled(false);
+          addLocalTracksToPeerConnection(audioStream);
           return audioStream;
         } catch (audioError) {
           console.error('🎤 Microphone also denied:', audioError);
         }
       }
-      // If all media access failed, inform the user
       console.error('❌ No media access — call will have no audio/video');
       return null;
     }
+  };
+
+  /**
+   * Inject local media tracks into an existing PeerConnection.
+   * Handles the race condition where acceptCall creates the PC before
+   * getUserMedia has resolved — once the stream arrives, this function
+   * adds the tracks so the remote peer receives our audio/video.
+   */
+  const addLocalTracksToPeerConnection = (stream) => {
+    const pc = peerConnectionRef.current;
+    if (!pc || !stream) return;
+    const existingTrackKinds = new Set(
+      pc.getSenders()
+        .filter(s => s.track)
+        .map(s => s.track.kind)
+    );
+    stream.getTracks().forEach(track => {
+      if (!existingTrackKinds.has(track.kind)) {
+        console.log(`➕ Late-adding ${track.kind} track to PeerConnection`);
+        pc.addTrack(track, stream);
+      }
+    });
   };
 
   // Cleanup media
@@ -667,18 +702,18 @@ const CallSystem = () => {
     setGlobalIsInCall(isInCall);
   }, [isInCall, setGlobalIsInCall]);
 
-  // Accept call
+  // Accept call — IMMEDIATELY sends accept_call via socket, THEN initializes media.
+  // This eliminates the 3-10 second getUserMedia permission delay that made the
+  // pick button feel "slow and stiff". The caller sees the call accepted instantly;
+  // media tracks are injected into the PeerConnection once getUserMedia resolves.
   const acceptCall = useCallback(async () => {
     if (!incomingCall) return;
 
     const resolvedType = incomingCall.type || 'video';
-    const stream = await initializeMedia(resolvedType === 'video');
-    if (!stream) {
-      console.error('❌ Cannot accept call — media access denied');
-      // Still accept so the caller knows, but warn about no media
-    }
-    setCallType(resolvedType);
     const resolvedPeerUserId = String(incomingCall.callerId || incomingCall.peerUserId || incomingCall.targetUserId || '');
+
+    // ── Step 1: IMMEDIATELY accept and update UI (< 1ms)
+    setCallType(resolvedType);
     setActiveCall({
       ...incomingCall,
       peerUserId: resolvedPeerUserId,
@@ -687,18 +722,24 @@ const CallSystem = () => {
     setIncomingCall(null);
     setIsInCall(true);
     peerUserIdRef.current = resolvedPeerUserId;
+    isCallerRef.current = false;
+    startCallTimer();
 
+    // Emit accept IMMEDIATELY — don't wait for getUserMedia
     socket.emit('accept_call', {
       callId: incomingCall.callId || incomingCall.id,
       targetUserId: incomingCall.callerId,
       callType: resolvedType
     });
 
-    startCallTimer();
-
-    // ── CALLEE side: we are "polite" — we do NOT create an offer.
-    // The caller will send us a webrtc_offer and we will answer it.
-    isCallerRef.current = false;
+    // ── Step 2: Initialize media asynchronously (may take 1-10s)
+    // The PeerConnection may already exist by the time this resolves
+    // (the caller sends the offer immediately after getting accept_call).
+    // addLocalTracksToPeerConnection() inside initializeMedia handles this.
+    const stream = await initializeMedia(resolvedType === 'video');
+    if (!stream) {
+      console.warn('⚠️ Media access denied after accepting call — caller won\'t hear/see us');
+    }
   }, [incomingCall, socket]);
 
   // Reject call
@@ -714,21 +755,51 @@ const CallSystem = () => {
   // End call — remoteInitiated=true means the OTHER peer ended, so we
   // must NOT re-emit 'end_call' back to them (would cause infinite loop).
   // Uses activeCallRef to avoid stale closure when called from onconnectionstatechange.
+  //
+  // CRITICAL: This now handles ALL call states — incoming, outgoing, AND active.
+  // Previously, ending a call during the ringing phase (outgoing but not yet accepted)
+  // would leave the remote side ringing forever because only activeCallRef was checked.
   const endCall = useCallback((remoteInitiated = false) => {
+    // Determine what to notify the remote side about
     const call = activeCallRef.current;
-    if (call && !remoteInitiated && socket) {
-      const peerUserId = String(call.peerUserId || call.targetUserId || call.callerId || peerUserIdRef.current || '');
-      socket.emit('end_call', {
-        callId: call.callId || call.id,
-        targetUserId: peerUserId
-      });
+    const outgoing = outgoingCallRef.current;
+    const incoming = incomingCallRef.current;
+    const peerUserId = String(
+      call?.peerUserId || call?.targetUserId || call?.callerId ||
+      outgoing?.targetUserId || outgoing?.peerUserId ||
+      incoming?.callerId || incoming?.peerUserId ||
+      peerUserIdRef.current || ''
+    );
+
+    if (!remoteInitiated && socket && peerUserId) {
+      if (call) {
+        // Active call — send end_call
+        socket.emit('end_call', {
+          callId: call.callId || call.id,
+          targetUserId: peerUserId
+        });
+      } else if (outgoing) {
+        // Still ringing — send cancel_call
+        socket.emit('cancel_call', {
+          callId: outgoing.callId || outgoing.id,
+          targetUserId: peerUserId
+        });
+      }
+      // incoming but not accepted = rejection (handled by rejectCall, but defensive)
     }
+
+    // Clear ALL call state unconditionally
     setIsInCall(false);
     setActiveCall(null);
     activeCallRef.current = null;
     setOutgoingCall(null);
     outgoingCallRef.current = null;
+    setIncomingCall(null);
     setCallDuration(0);
+    if (outgoingTimeoutRef.current) {
+      clearTimeout(outgoingTimeoutRef.current);
+      outgoingTimeoutRef.current = null;
+    }
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
       callTimerRef.current = null;
@@ -807,33 +878,68 @@ const CallSystem = () => {
     });
     peerConnectionRef.current = pc;
 
-    // Add local tracks to connection
+    // Add local tracks to connection (may be empty if getUserMedia hasn't
+    // resolved yet — addLocalTracksToPeerConnection() handles late injection)
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
       });
     } else {
-      console.warn('⚠️ No local media stream when creating PeerConnection — remote peer won\'t hear/see us');
+      console.log('ℹ️ No local media yet — tracks will be added once getUserMedia resolves');
     }
 
-    // Handle remote tracks — this fires when the other peer's media arrives
+    // Handle remote tracks — this fires when the other peer's media arrives.
+    // We use a single MediaStream to collect all incoming tracks (audio + video)
+    // so the <video> element plays both audio and video from one source.
     pc.ontrack = (event) => {
-      console.log('📹 Received remote track:', event.track.kind);
-      const stream = event.streams[0];
+      console.log('📹 Received remote track:', event.track.kind, '| readyState:', event.track.readyState);
+      let stream = remoteStreamRef.current;
       if (!stream) {
-        // Build a stream from the track if streams array is empty (Firefox edge case)
-        const fallbackStream = remoteStreamRef.current || new MediaStream();
-        fallbackStream.addTrack(event.track);
-        remoteStreamRef.current = fallbackStream;
-      } else {
+        stream = event.streams[0] || new MediaStream();
         remoteStreamRef.current = stream;
       }
-      // Attach to DOM element if it exists; the useEffect above handles the
-      // case where the element isn't mounted yet.
+      // Add track to existing stream if not already present
+      const existingTrackIds = new Set(stream.getTracks().map(t => t.id));
+      if (!existingTrackIds.has(event.track.id)) {
+        stream.addTrack(event.track);
+      }
+      // Attach to DOM element if it exists
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStreamRef.current;
-        // Force play — some browsers block autoplay
+        if (remoteVideoRef.current.srcObject !== stream) {
+          remoteVideoRef.current.srcObject = stream;
+        }
         remoteVideoRef.current.play().catch(e => console.warn('Remote video play blocked:', e.message));
+      }
+    };
+
+    // onnegotiationneeded — fires when tracks are added/removed after the
+    // initial offer/answer. ONLY the caller triggers re-negotiation to
+    // prevent glare (simultaneous offers from both peers).
+    pc.onnegotiationneeded = async () => {
+      console.log('🔄 Negotiation needed (caller:', isCallerRef.current, ')');
+      if (!isCallerRef.current) return;
+      if (negotiationBusy.current) return;
+      negotiationBusy.current = true;
+      try {
+        const offer = await pc.createOffer();
+        // Check state again — may have changed while we awaited
+        if (pc.signalingState !== 'stable') {
+          console.log('⏳ onnegotiationneeded: signalingState not stable, skipping');
+          return;
+        }
+        await pc.setLocalDescription(offer);
+        const targetId = peerUserIdRef.current;
+        if (targetId && socket) {
+          socket.emit('webrtc_offer', {
+            offer: pc.localDescription,
+            targetUserId: targetId,
+            callType: callTypeRef.current
+          });
+        }
+      } catch (err) {
+        console.error('onnegotiationneeded error:', err);
+      } finally {
+        negotiationBusy.current = false;
       }
     };
 

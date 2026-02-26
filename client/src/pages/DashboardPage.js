@@ -8,6 +8,7 @@ import {
   CircularProgress
 } from '@mui/material';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import apiClient from '../services/apiClient';
 import {
   Notifications as NotificationsIcon,
   Verified as VerifiedIcon,
@@ -41,21 +42,16 @@ const DashboardPage = () => {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+        const response = await apiClient.get('/dashboard/stats');
+        const data = response.data;
+        setStats({
+          walletBalance: data.walletBalance || 0,
+          escrowHeld: data.escrowHeld || 0,
+          trustScore: data.trustScore || user?.reputationScore || 85,
+          unreadMessages: data.unreadMessages || 0,
+          activeConnections: data.activeConnections || 0,
+          pendingRequests: data.pendingRequests || 0
         });
-        if (response.ok) {
-          const data = await response.json();
-          setStats({
-            walletBalance: data.walletBalance || 0,
-            escrowHeld: data.escrowHeld || 0,
-            trustScore: data.trustScore || user?.reputationScore || 85,
-            unreadMessages: data.unreadMessages || 0,
-            activeConnections: data.activeConnections || 0,
-            pendingRequests: data.pendingRequests || 0
-          });
-        }
       } catch (error) {
         console.error('Dashboard fetch error:', error);
       } finally {

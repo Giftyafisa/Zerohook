@@ -39,6 +39,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config/constants';
+import apiClient from '../services/apiClient';
 import { toast } from 'react-toastify';
 
 // Slide up transition
@@ -120,37 +121,18 @@ const ContentCreator = ({ open, onClose, onSuccess }) => {
       formData.append('location', location);
       formData.append('contentType', isVideo ? 'video' : 'image');
 
-      const token = localStorage.getItem('token');
-      
-      // Use XMLHttpRequest for progress tracking
-      const xhr = new XMLHttpRequest();
-      
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percent = Math.round((e.loaded / e.total) * 100);
-          setUploadProgress(percent);
+      const result = await apiClient.post('/content/posts', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+            setUploadProgress(percent);
+          }
         }
       });
-
-      const uploadPromise = new Promise((resolve, reject) => {
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(JSON.parse(xhr.responseText));
-          } else {
-            reject(new Error(xhr.responseText || 'Upload failed'));
-          }
-        };
-        xhr.onerror = () => reject(new Error('Network error'));
-      });
-
-      xhr.open('POST', `${API_BASE_URL}/content/posts`);
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.send(formData);
-
-      const result = await uploadPromise;
       
       toast.success('Content uploaded successfully!');
-      onSuccess?.(result.content || result);
+      onSuccess?.(result.data.content || result.data);
       handleClose();
       
     } catch (error) {

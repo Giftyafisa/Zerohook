@@ -81,6 +81,13 @@ export const TRUST_TIERS = {
   4: { name: 'Elite', color: '#FFD700' }
 };
 
+// Telegram Payment Configuration
+export const TELEGRAM_CONFIG = {
+  botUsername: process.env.REACT_APP_TELEGRAM_BOT || 'ZerohookPayBot',
+  adminUsername: process.env.REACT_APP_TELEGRAM_ADMIN || 'ZerohookAdmin',
+  supportGroup: process.env.REACT_APP_TELEGRAM_GROUP || 'ZerohookSupport',
+};
+
 // Transaction Statuses
 export const TRANSACTION_STATUS = {
   PENDING: 'pending',

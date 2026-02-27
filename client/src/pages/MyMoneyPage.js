@@ -22,7 +22,7 @@ import {
   Tooltip
 } from '@mui/material';
 import { toast } from 'react-toastify';
-import { API_BASE_URL } from '../config/constants';
+import { API_BASE_URL, TELEGRAM_CONFIG } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   AccountBalanceWallet as WalletIcon,
@@ -47,7 +47,10 @@ import {
   VisibilityOff as VisibilityOffIcon,
   ContentCopy as CopyIcon,
   Gavel as GavelIcon,
-  AttachFile as AttachIcon
+  AttachFile as AttachIcon,
+  Telegram as TelegramIcon,
+  OpenInNew as OpenInNewIcon,
+  Chat as ChatIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
@@ -97,6 +100,8 @@ const MyMoneyPage = () => {
   const [withdrawCrypto, setWithdrawCrypto] = useState('USDT');
   const [paymentMethod, setPaymentMethod] = useState('crypto'); // 'crypto', 'wallet'
   const [cryptoSymbol, setCryptoSymbol] = useState('USDT');
+  const [telegramDialog, setTelegramDialog] = useState(false);
+  const [telegramAmount, setTelegramAmount] = useState('');
   const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
   const [showCryptoPayment, setShowCryptoPayment] = useState(false);
   
@@ -723,6 +728,14 @@ const MyMoneyPage = () => {
               sx={{ ...styles.actionBtn, bgcolor: '#00f2ea', color: '#000' }}
             >
               Add Money
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<TelegramIcon />}
+              onClick={() => setTelegramDialog(true)}
+              sx={{ ...styles.actionBtn, bgcolor: '#0088cc', color: '#fff', '&:hover': { bgcolor: '#006699' } }}
+            >
+              Telegram
             </Button>
             <Button
               variant="outlined"
@@ -1412,6 +1425,235 @@ const MyMoneyPage = () => {
         </Box>
       </Dialog>
 
+      {/* Pay via Telegram - Fullscreen Dialog */}
+      <Dialog
+        open={telegramDialog}
+        onClose={() => setTelegramDialog(false)}
+        fullScreen
+        TransitionComponent={Transition}
+        PaperProps={{ sx: styles.fullscreenDialog }}
+      >
+        {/* Header - Telegram Blue */}
+        <Box sx={{ ...styles.depositHeader, bgcolor: '#0088cc' }}>
+          <IconButton onClick={() => setTelegramDialog(false)} sx={{ color: '#fff' }}>
+            <BackIcon />
+          </IconButton>
+          <Typography sx={styles.depositHeaderTitle}>Pay via Telegram</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <IconButton sx={{ color: '#fff' }}>
+              <HelpIcon />
+            </IconButton>
+          </Box>
+        </Box>
+
+        <Box sx={styles.depositContent}>
+          {/* Telegram Logo & Description */}
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            py: 3,
+            mb: 2
+          }}>
+            <Box sx={{
+              width: 80,
+              height: 80,
+              borderRadius: '50%',
+              bgcolor: '#0088cc',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              mb: 2,
+              boxShadow: '0 4px 20px rgba(0, 136, 204, 0.4)'
+            }}>
+              <TelegramIcon sx={{ fontSize: 44, color: '#fff' }} />
+            </Box>
+            <Typography sx={{ color: '#fff', fontSize: '20px', fontWeight: 700, mb: 1, textAlign: 'center' }}>
+              Pay Any Way You Want
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', maxWidth: 340, lineHeight: 1.6 }}>
+              Chat with our payment admin on Telegram to deposit using mobile money, bank transfer, crypto, or any method available in your country.
+            </Typography>
+          </Box>
+
+          {/* Amount Input (optional) */}
+          <Box sx={styles.amountInputSection}>
+            <Box sx={styles.amountInputRow}>
+              <Typography sx={styles.amountLabel}>Amount to Deposit (optional)</Typography>
+            </Box>
+            <TextField
+              fullWidth
+              value={telegramAmount}
+              onChange={(e) => setTelegramAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder="0.00"
+              sx={styles.amountTextField}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Typography sx={{ color: '#fff', fontWeight: 600 }}>{symbol}</Typography>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
+
+          {/* Quick Amount Buttons */}
+          <Box sx={styles.quickAmountGrid}>
+            {getQuickAmounts().map((amt) => (
+              <Button
+                key={amt}
+                variant="outlined"
+                onClick={() => setTelegramAmount(amt.toString())}
+                sx={{
+                  ...styles.quickAmountBtn,
+                  ...(telegramAmount === amt.toString() && { borderColor: '#0088cc', bgcolor: 'rgba(0, 136, 204, 0.15)', color: '#0088cc' })
+                }}
+              >
+                +{amt}
+              </Button>
+            ))}
+          </Box>
+
+          {/* Payment Methods Accepted */}
+          <Box sx={{
+            bgcolor: 'rgba(0, 136, 204, 0.08)',
+            borderRadius: '12px',
+            p: 2,
+            mb: 2,
+            border: '1px solid rgba(0, 136, 204, 0.2)'
+          }}>
+            <Typography sx={{ color: '#0088cc', fontSize: '13px', fontWeight: 600, mb: 1.5 }}>
+              Accepted Payment Methods
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {[
+                { label: 'Mobile Money', icon: <MobileIcon sx={{ fontSize: 14 }} /> },
+                { label: 'Bank Transfer', icon: <CardIcon sx={{ fontSize: 14 }} /> },
+                { label: 'Crypto', icon: <WalletIcon sx={{ fontSize: 14 }} /> },
+                { label: 'Gift Cards', icon: <ReceiptIcon sx={{ fontSize: 14 }} /> },
+              ].map((method) => (
+                <Chip
+                  key={method.label}
+                  icon={method.icon}
+                  label={method.label}
+                  size="small"
+                  sx={{
+                    bgcolor: 'rgba(255,255,255,0.06)',
+                    color: 'rgba(255,255,255,0.8)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    '& .MuiChip-icon': { color: 'rgba(255,255,255,0.6)' }
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+
+          {/* Open Telegram Button */}
+          <Button
+            fullWidth
+            variant="contained"
+            startIcon={<TelegramIcon />}
+            endIcon={<OpenInNewIcon sx={{ fontSize: 18 }} />}
+            onClick={() => {
+              const message = telegramAmount
+                ? `Hi, I want to deposit ${symbol}${Number(telegramAmount).toLocaleString()} to my Zerohook wallet. My username is ${user?.username || 'N/A'}.`
+                : `Hi, I want to make a deposit to my Zerohook wallet. My username is ${user?.username || 'N/A'}.`;
+              const encodedMessage = encodeURIComponent(message);
+              window.open(`https://t.me/${TELEGRAM_CONFIG.botUsername}?text=${encodedMessage}`, '_blank');
+            }}
+            sx={{
+              bgcolor: '#0088cc',
+              color: '#fff',
+              borderRadius: '12px',
+              padding: '14px',
+              fontSize: '16px',
+              fontWeight: 600,
+              textTransform: 'none',
+              mb: 1.5,
+              '&:hover': { bgcolor: '#006699' },
+            }}
+          >
+            Chat with Payment Bot
+          </Button>
+
+          {/* Or contact admin */}
+          <Button
+            fullWidth
+            variant="outlined"
+            startIcon={<ChatIcon />}
+            onClick={() => {
+              const message = telegramAmount
+                ? `Hi, I want to deposit ${symbol}${Number(telegramAmount).toLocaleString()} to my Zerohook wallet. My username is ${user?.username || 'N/A'}.`
+                : `Hi, I need help with a payment for my Zerohook wallet. My username is ${user?.username || 'N/A'}.`;
+              const encodedMessage = encodeURIComponent(message);
+              window.open(`https://t.me/${TELEGRAM_CONFIG.adminUsername}?text=${encodedMessage}`, '_blank');
+            }}
+            sx={{
+              borderColor: 'rgba(0, 136, 204, 0.5)',
+              color: '#0088cc',
+              borderRadius: '12px',
+              padding: '14px',
+              fontSize: '15px',
+              fontWeight: 600,
+              textTransform: 'none',
+              mb: 3,
+              '&:hover': { borderColor: '#0088cc', bgcolor: 'rgba(0, 136, 204, 0.08)' },
+            }}
+          >
+            Chat with Admin Instead
+          </Button>
+
+          {/* How It Works */}
+          <Box sx={{
+            bgcolor: 'rgba(255,255,255,0.03)',
+            borderRadius: '12px',
+            p: 2,
+            mb: 2,
+            border: '1px solid rgba(255,255,255,0.06)'
+          }}>
+            <Typography sx={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: 600, mb: 1.5 }}>
+              How It Works
+            </Typography>
+            {[
+              { step: '1', text: 'Tap the button above to open Telegram' },
+              { step: '2', text: 'Tell the admin your preferred payment method' },
+              { step: '3', text: 'Send payment as instructed by the admin' },
+              { step: '4', text: 'Your wallet will be credited within minutes' },
+            ].map((item) => (
+              <Box key={item.step} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 1.2 }}>
+                <Box sx={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(0, 136, 204, 0.2)',
+                  color: '#0088cc',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  flexShrink: 0,
+                  mt: 0.2
+                }}>
+                  {item.step}
+                </Box>
+                <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', lineHeight: 1.5 }}>
+                  {item.text}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+
+          {/* Info */}
+          <Box sx={styles.infoList}>
+            <Typography sx={styles.infoItem}>• Available 24/7 — our admin responds within minutes</Typography>
+            <Typography sx={styles.infoItem}>• Supports mobile money (MTN, Vodafone, AirtelTigo), bank transfers, and more</Typography>
+            <Typography sx={styles.infoItem}>• Your wallet is credited as soon as payment is confirmed</Typography>
+            <Typography sx={styles.infoItem}>• No hidden fees — the amount you send is the amount credited</Typography>
+          </Box>
+        </Box>
+      </Dialog>
+
       {/* PIN Entry Dialog (for Provider) */}
       <Dialog
         open={pinDialogOpen}
@@ -1750,13 +1992,18 @@ const styles = {
   },
   quickActions: {
     display: 'flex',
-    gap: '12px'
+    gap: '8px',
+    flexWrap: 'wrap'
   },
   actionBtn: {
     borderRadius: '12px',
-    padding: '10px 20px',
+    padding: '10px 16px',
     fontWeight: 600,
-    textTransform: 'none'
+    textTransform: 'none',
+    fontSize: '13px',
+    flex: '1 1 auto',
+    minWidth: 0,
+    whiteSpace: 'nowrap'
   },
   tabs: {
     marginBottom: '16px',

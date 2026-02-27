@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -40,6 +40,7 @@ import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import useCurrency from '../hooks/useCurrency';
+import usePresence from '../hooks/usePresence';
 
 const ProfileDetailPage = () => {
   const { isAuthenticated, user } = useAuth();
@@ -62,6 +63,11 @@ const ProfileDetailPage = () => {
   const [connectionStatus, setConnectionStatus] = useState(null);
 
   const { isConnected } = useSocket();
+
+  // Real-time online status via socket
+  const presenceIds = useMemo(() => profile ? [profile.id || profileId] : [profileId], [profile, profileId]);
+  const { isUserOnline } = usePresence(presenceIds);
+  const profileOnline = isUserOnline(profile?.id || profileId) ?? profile?.isOnline ?? false;
 
   // Check connection status with the profile user
   const checkConnectionStatus = useCallback(async () => {
@@ -310,10 +316,11 @@ const ProfileDetailPage = () => {
                     width: 16,
                     height: 16,
                     borderRadius: '50%',
-                    bgcolor: profile.isOnline ? 'success.main' : 'grey.500',
+                    bgcolor: profileOnline ? 'success.main' : 'grey.500',
                     border: '3px solid',
                     borderColor: 'background.paper',
-                    boxShadow: 2
+                    boxShadow: profileOnline ? '0 0 8px rgba(76,175,80,0.6)' : 2,
+                    transition: 'background-color 0.3s, box-shadow 0.3s',
                   }}
                 />
               </Box>

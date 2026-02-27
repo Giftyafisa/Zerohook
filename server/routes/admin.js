@@ -1279,4 +1279,204 @@ router.delete('/users/:userId', authMiddleware, adminMiddleware, async (req, res
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADMIN NOTIFICATION / WARNING SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * @route   POST /api/admin/send-notification
+ * @desc    Send a notification or warning to a specific user
+ * @access  Admin only
+ */
+router.post('/send-notification', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { User, Notification } = require('../config/database');
+    const { userId, title, message, type = 'admin_notice' } = req.body;
+
+    // Validate inputs
+    if (!userId || !title || !message) {
+      return res.status(400).json({ error: 'userId, title, and message are required' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const validTypes = ['admin_notice', 'warning', 'account_alert', 'policy_violation', 'info'];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(', ')}` });
+    }
+
+    // Verify target user exists
+    const targetUser = await User.findById(userId).select('username email').lean();
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Create the notification in DB
+    const notification = await new Notification({
+      user_id: userId,
+      type,
+      title,
+      message,
+      data: {
+        sentBy: req.user.userId,
+        sentByUsername: req.user.username || 'Admin',
+        isAdminMessage: true,
+        severity: type === 'warning' || type === 'policy_violation' ? 'high' : 'normal'
+      },
+      read: false
+    }).save();
+
+    // Push via socket for real-time delivery
+    if (req.io) {
+      req.io.to(`user_${userId}`).emit('new_notification', {
+        id: notification._id.toString(),
+        type,
+        title,
+        message,
+        isAdminMessage: true,
+        created_at: notification.created_at
+      });
+    }
+
+    console.log(`📨 Admin ${req.user.userId} sent ${type} to user ${userId} (${targetUser.username}): "${title}"`);
+
+    res.json({
+      success: true,
+      message: `Notification sent to ${targetUser.username}`,
+      notification: {
+        id: notification._id,
+        type,
+        title,
+        sentTo: targetUser.username
+      }
+    });
+  } catch (error) {
+    console.error('Admin send notification error:', error);
+    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to send notification' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/send-bulk-notification
+ * @desc    Send a notification to multiple users (or all users)
+ * @access  Admin only
+ */
+router.post('/send-bulk-notification', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { User, Notification } = require('../config/database');
+    const { userIds, title, message, type = 'admin_notice', filter } = req.body;
+
+    if (!title || !message) {
+      return res.status(400).json({ error: 'title and message are required' });
+    }
+
+    let targetIds = [];
+
+    if (filter === 'all') {
+      // Send to all active users
+      const users = await User.find({ is_active: { $ne: false } }).select('_id').lean();
+      targetIds = users.map(u => u._id);
+    } else if (filter === 'providers') {
+      const users = await User.find({ 'profile_data.accountType': 'provider', is_active: { $ne: false } }).select('_id').lean();
+      targetIds = users.map(u => u._id);
+    } else if (filter === 'clients') {
+      const users = await User.find({ 'profile_data.accountType': 'client', is_active: { $ne: false } }).select('_id').lean();
+      targetIds = users.map(u => u._id);
+    } else if (Array.isArray(userIds) && userIds.length > 0) {
+      targetIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+    } else {
+      return res.status(400).json({ error: 'Provide userIds array or filter (all, providers, clients)' });
+    }
+
+    if (targetIds.length === 0) {
+      return res.status(400).json({ error: 'No valid users found for the given criteria' });
+    }
+
+    // Bulk insert notifications
+    const notifications = targetIds.map(uid => ({
+      user_id: uid,
+      type,
+      title,
+      message,
+      data: {
+        sentBy: req.user.userId,
+        sentByUsername: req.user.username || 'Admin',
+        isAdminMessage: true,
+        isBulk: true,
+        severity: type === 'warning' || type === 'policy_violation' ? 'high' : 'normal'
+      },
+      read: false
+    }));
+
+    await Notification.insertMany(notifications);
+
+    // Push via socket to all online recipients
+    if (req.io) {
+      for (const uid of targetIds) {
+        req.io.to(`user_${uid}`).emit('new_notification', {
+          type,
+          title,
+          message,
+          isAdminMessage: true,
+          created_at: new Date()
+        });
+      }
+    }
+
+    console.log(`📨 Admin ${req.user.userId} sent bulk ${type} to ${targetIds.length} users: "${title}"`);
+
+    res.json({
+      success: true,
+      message: `Notification sent to ${targetIds.length} users`,
+      recipientCount: targetIds.length
+    });
+  } catch (error) {
+    console.error('Admin bulk notification error:', error);
+    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to send bulk notification' });
+  }
+});
+
+/**
+ * @route   GET /api/admin/sent-notifications
+ * @desc    Get history of admin-sent notifications
+ * @access  Admin only
+ */
+router.get('/sent-notifications', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Notification } = require('../config/database');
+    const { page = 1, limit = 30 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const notifications = await Notification.find({ 'data.isAdminMessage': true })
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    const total = await Notification.countDocuments({ 'data.isAdminMessage': true });
+
+    res.json({
+      success: true,
+      notifications: notifications.map(n => ({
+        id: n._id,
+        userId: n.user_id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        read: n.read,
+        sentBy: n.data?.sentByUsername || 'Admin',
+        isBulk: n.data?.isBulk || false,
+        created_at: n.created_at
+      })),
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit))
+    });
+  } catch (error) {
+    console.error('Admin get sent notifications error:', error);
+    res.status(500).json({ error: 'Failed to fetch sent notifications' });
+  }
+});
+
 module.exports = router;

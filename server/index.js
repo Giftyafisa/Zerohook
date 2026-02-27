@@ -593,16 +593,21 @@ io.on('connection', async (socket) => {
       await userActivityMonitor.updateUserPage(socket.userId, data.page);
     });
     
-    // Handle heartbeat/ping
+    // Handle heartbeat/ping — keeps last_active fresh so recommendation engine
+    // accurately marks users as online (hoursSinceActive < 1)
     socket.on('heartbeat', async () => {
-      await userActivityMonitor.logUserActivity(socket.userId, {
-        actionType: 'heartbeat',
-        actionData: { socketId: socket.id },
-        ipAddress: socket.handshake.address,
-        userAgent: socket.handshake.headers['user-agent'],
-        responseTimeMs: 0,
-        success: true
-      });
+      try {
+        const now = new Date();
+        // Primary: keep the User.last_active field current (used by recommendation engine)
+        await User.findByIdAndUpdate(socket.userId, { last_active: now });
+        // Secondary: refresh presence record
+        await userActivityMonitor.updateUserPresence(socket.userId, 'online');
+      } catch (heartbeatErr) {
+        // Non-critical — don't crash for heartbeat failures
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Heartbeat error:', heartbeatErr.message);
+        }
+      }
     });
     
     // Handle existing room events

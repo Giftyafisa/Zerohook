@@ -11,7 +11,7 @@
  * - TikTok-style engagement tracking (view duration, scroll, etc.)
  * - Uber/Bolt-style location sorting (same country first, closest first)
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -59,6 +59,7 @@ import ProfileCompletionReminder from './ProfileCompletionReminder';
 import { motion, AnimatePresence } from 'framer-motion';
 import useCurrency from '../hooks/useCurrency';
 import useProfileEngagement from '../hooks/useProfileEngagement';
+import usePresence from '../hooks/usePresence';
 
 // ============================================
 // TIKTOK-STYLE TOP NAVIGATION
@@ -170,6 +171,10 @@ const SearchOverlay = ({ open, onClose }) => {
   const navigate = useNavigate();
   const searchTimeoutRef = useRef(null);
   const { convertFromUSD } = useCurrency();
+
+  // Real-time online status for search results
+  const searchResultIds = useMemo(() => searchResults.map(p => String(p.id || p._id)), [searchResults]);
+  const { isUserOnline } = usePresence(searchResultIds);
 
   // Trending suggestions (like TikTok's suggestions)
   const trendingSuggestions = [
@@ -487,7 +492,7 @@ const SearchOverlay = ({ open, onClose }) => {
                   const bio = profileData.bio || '';
                   const location = profileData.location?.city || '';
                   const isVerified = (profile.verification_tier || profile.verificationTier || 0) >= 2;
-                  const isOnline = profile.isOnline || profile.is_online;
+                  const isOnline = isUserOnline(profile.id || profile._id) ?? profile.isOnline ?? profile.is_online ?? false;
                   
                   return (
                     <ListItem
@@ -1076,6 +1081,10 @@ const TikTokProfileFeed = () => {
   // AbortController for cancelling stale API requests on tab change
   const abortControllerRef = useRef(null);
 
+  // Real-time online status for all loaded profiles
+  const profileIds = useMemo(() => profiles.map(p => String(p.id)), [profiles]);
+  const { isUserOnline } = usePresence(profileIds);
+
   // Refs
   const containerRef = useRef(null);
   const touchStartY = useRef(0);
@@ -1519,7 +1528,10 @@ const TikTokProfileFeed = () => {
         >
           {profiles[currentIndex] && (
             <FullScreenProfileCard
-              profile={profiles[currentIndex]}
+              profile={{
+                ...profiles[currentIndex],
+                isOnline: isUserOnline(profiles[currentIndex].id) ?? profiles[currentIndex].isOnline,
+              }}
               index={currentIndex}
               onShare={handleShare}
               onMessage={handleMessage}

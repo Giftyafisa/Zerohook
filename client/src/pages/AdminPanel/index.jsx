@@ -104,6 +104,23 @@ export default function AdminPanel() {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // userId to confirm delete
   const searchTimeout = useRef(null);
 
+  // ── Notifications state ───────────────────────────────────────────────────
+  const [notifySearch, setNotifySearch] = useState('');
+  const [notifySearchResults, setNotifySearchResults] = useState([]);
+  const [notifySearching, setNotifySearching] = useState(false);
+  const [notifyRecipient, setNotifyRecipient] = useState(null); // { _id, username, email }
+  const [notifyTitle, setNotifyTitle] = useState('');
+  const [notifyMessage, setNotifyMessage] = useState('');
+  const [notifyType, setNotifyType] = useState('admin_notice');
+  const [notifySending, setNotifySending] = useState(false);
+  const [notifyMode, setNotifyMode] = useState('single'); // 'single' | 'bulk'
+  const [notifyBulkFilter, setNotifyBulkFilter] = useState('all');
+  const [sentNotifications, setSentNotifications] = useState([]);
+  const [sentLoading, setSentLoading] = useState(false);
+  const [sentPage, setSentPage] = useState(1);
+  const [sentPages, setSentPages] = useState(1);
+  const notifySearchTimeout = useRef(null);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -288,12 +305,96 @@ export default function AdminPanel() {
     setActionLoading('');
   };
 
+  // ── Notification functions ────────────────────────────────────────────────
+  const searchUsersForNotify = (query) => {
+    setNotifySearch(query);
+    if (notifySearchTimeout.current) clearTimeout(notifySearchTimeout.current);
+    if (!query || query.length < 2) { setNotifySearchResults([]); return; }
+    notifySearchTimeout.current = setTimeout(async () => {
+      setNotifySearching(true);
+      try {
+        const r = await adminFetch(`users?search=${encodeURIComponent(query)}&limit=8`);
+        if (r.ok) setNotifySearchResults(r.data.users || []);
+      } catch (_) { /* swallow */ }
+      setNotifySearching(false);
+    }, 300);
+  };
+
+  const sendNotification = async () => {
+    if (notifyMode === 'single' && !notifyRecipient) { toast.error('Select a recipient'); return; }
+    if (!notifyTitle.trim()) { toast.error('Title is required'); return; }
+    if (!notifyMessage.trim()) { toast.error('Message is required'); return; }
+
+    setNotifySending(true);
+    try {
+      let r;
+      if (notifyMode === 'single') {
+        r = await adminFetch('send-notification', {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: notifyRecipient._id,
+            title: notifyTitle.trim(),
+            message: notifyMessage.trim(),
+            type: notifyType,
+          }),
+        });
+      } else {
+        r = await adminFetch('send-bulk-notification', {
+          method: 'POST',
+          body: JSON.stringify({
+            filter: notifyBulkFilter,
+            title: notifyTitle.trim(),
+            message: notifyMessage.trim(),
+            type: notifyType,
+          }),
+        });
+      }
+
+      if (r.ok) {
+        const count = r.data.count || r.data.sentCount || 1;
+        toast.success(`Notification sent to ${count} user${count > 1 ? 's' : ''}`);
+        setNotifyTitle('');
+        setNotifyMessage('');
+        setNotifyRecipient(null);
+        setNotifySearch('');
+        setNotifySearchResults([]);
+        loadSentNotifications(1);
+      } else {
+        toast.error(r.data.error || 'Failed to send notification');
+      }
+    } catch (e) {
+      toast.error('Error: ' + e.message);
+    } finally {
+      setNotifySending(false);
+    }
+  };
+
+  const loadSentNotifications = useCallback(async (page = 1) => {
+    setSentLoading(true);
+    try {
+      const r = await adminFetch(`sent-notifications?page=${page}&limit=15`);
+      if (r.ok) {
+        setSentNotifications(r.data.notifications || []);
+        setSentPages(r.data.totalPages || 1);
+        setSentPage(r.data.page || 1);
+      }
+    } catch (_) { /* swallow */ }
+    setSentLoading(false);
+  }, []);
+
   // Load users when switching to users tab
   useEffect(() => {
     if (activeTab === 'users' && allUsers.length === 0 && apiAdmin === true) {
       loadUsers(1, '', '');
     }
   }, [activeTab, allUsers.length, apiAdmin, loadUsers]);
+
+  // Load sent notifications when switching to notifications tab
+  useEffect(() => {
+    if (activeTab === 'notifications' && sentNotifications.length === 0 && apiAdmin === true) {
+      loadSentNotifications(1);
+    }
+  }, [activeTab, apiAdmin, loadSentNotifications]);
 
   // ── Access checks ──────────────────────────────────────────────────────────
   if (!isAuthenticated) {
@@ -335,7 +436,7 @@ export default function AdminPanel() {
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  const TABS = ['overview', 'revenue', 'disputes', 'withdrawals', 'deposits', 'users'];
+  const TABS = ['overview', 'revenue', 'disputes', 'withdrawals', 'deposits', 'users', 'notifications'];
 
   return (
     <div style={S.root}>
@@ -683,6 +784,278 @@ export default function AdminPanel() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* ── NOTIFICATIONS TAB ── */}
+      {activeTab === 'notifications' && (
+        <div>
+          {/* ── Compose Section ── */}
+          <div style={S.section}>
+            <h2 style={S.h2}>📨 Send Notification</h2>
+
+            {/* Mode toggle: Single / Bulk */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              <button
+                style={S.tab(notifyMode === 'single')}
+                onClick={() => setNotifyMode('single')}
+              >👤 Single User</button>
+              <button
+                style={S.tab(notifyMode === 'bulk')}
+                onClick={() => setNotifyMode('bulk')}
+              >👥 Bulk Send</button>
+            </div>
+
+            {/* Recipient: Single user search */}
+            {notifyMode === 'single' && (
+              <div style={{ marginBottom: 16, position: 'relative' }}>
+                <label style={S.formLabel}>Recipient</label>
+                {notifyRecipient ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: 'rgba(0,242,234,0.08)', border: '1px solid rgba(0,242,234,0.25)',
+                    borderRadius: 8, padding: '8px 14px',
+                  }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#00f2ea' }}>
+                      {notifyRecipient.username}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                      {notifyRecipient.email}
+                    </span>
+                    <button
+                      style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 16 }}
+                      onClick={() => { setNotifyRecipient(null); setNotifySearch(''); }}
+                    >✕</button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      style={S.input}
+                      placeholder="Search by username or email…"
+                      value={notifySearch}
+                      onChange={e => searchUsersForNotify(e.target.value)}
+                    />
+                    {notifySearching && (
+                      <span style={{ position: 'absolute', right: 12, top: 30, ...S.spinner ? {} : {} }}>
+                        <span style={S.spinner} />
+                      </span>
+                    )}
+                    {notifySearchResults.length > 0 && (
+                      <div style={{
+                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                        background: '#16161e', border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 8, maxHeight: 240, overflowY: 'auto', marginTop: 4,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                      }}>
+                        {notifySearchResults.map(u => (
+                          <div
+                            key={u._id}
+                            onClick={() => { setNotifyRecipient(u); setNotifySearch(''); setNotifySearchResults([]); }}
+                            style={{
+                              padding: '10px 14px', cursor: 'pointer',
+                              borderBottom: '1px solid rgba(255,255,255,0.05)',
+                              transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,242,234,0.06)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <span style={{ fontWeight: 600, color: '#fff', fontSize: 14 }}>{u.username}</span>
+                            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, marginLeft: 8 }}>{u.email}</span>
+                            {u.accountType && (
+                              <span style={{ ...S.badge('#00f2ea'), marginLeft: 8, fontSize: 10 }}>{u.accountType}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Recipient: Bulk filter */}
+            {notifyMode === 'bulk' && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={S.formLabel}>Send To</label>
+                <select
+                  style={{ ...S.select, maxWidth: 260 }}
+                  value={notifyBulkFilter}
+                  onChange={e => setNotifyBulkFilter(e.target.value)}
+                >
+                  <option value="all">All Users</option>
+                  <option value="providers">All Providers</option>
+                  <option value="clients">All Clients</option>
+                </select>
+              </div>
+            )}
+
+            {/* Type & Title row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 14, marginBottom: 14 }}>
+              <div>
+                <label style={S.formLabel}>Type</label>
+                <select
+                  style={S.select}
+                  value={notifyType}
+                  onChange={e => setNotifyType(e.target.value)}
+                >
+                  <option value="admin_notice">📋 Admin Notice</option>
+                  <option value="warning">⚠️ Warning</option>
+                  <option value="policy_violation">🚨 Policy Violation</option>
+                  <option value="account_alert">🔔 Account Alert</option>
+                  <option value="info">ℹ️ Info</option>
+                </select>
+              </div>
+              <div>
+                <label style={S.formLabel}>Title</label>
+                <input
+                  style={S.input}
+                  placeholder="Notification title…"
+                  value={notifyTitle}
+                  onChange={e => setNotifyTitle(e.target.value)}
+                  maxLength={120}
+                />
+              </div>
+            </div>
+
+            {/* Message */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={S.formLabel}>Message</label>
+              <textarea
+                style={{
+                  ...S.input,
+                  minHeight: 100, resize: 'vertical',
+                  fontFamily: 'inherit', lineHeight: 1.5,
+                }}
+                placeholder="Write the notification message…"
+                value={notifyMessage}
+                onChange={e => setNotifyMessage(e.target.value)}
+                maxLength={2000}
+              />
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', float: 'right', marginTop: 2 }}>
+                {notifyMessage.length}/2000
+              </span>
+            </div>
+
+            {/* Preview */}
+            {(notifyTitle || notifyMessage) && (
+              <div style={{
+                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 10, padding: 16, marginBottom: 18,
+              }}>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Preview
+                </span>
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>
+                    {notifyType === 'warning' ? '⚠️' : notifyType === 'policy_violation' ? '🚨' : notifyType === 'account_alert' ? '🔔' : notifyType === 'info' ? 'ℹ️' : '📋'}
+                  </span>
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>{notifyTitle || '(No title)'}</div>
+                    <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                      {notifyMessage || '(No message)'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Send button */}
+            <button
+              style={{
+                ...S.btn(notifyType === 'warning' || notifyType === 'policy_violation' ? '#ff0055' : '#00f2ea'),
+                padding: '10px 28px', fontSize: 14, opacity: notifySending ? 0.6 : 1,
+              }}
+              disabled={notifySending}
+              onClick={sendNotification}
+            >
+              {notifySending ? '⏳ Sending…' : notifyMode === 'single' ? '📨 Send Notification' : `📨 Send to ${notifyBulkFilter === 'all' ? 'All Users' : notifyBulkFilter === 'providers' ? 'All Providers' : 'All Clients'}`}
+            </button>
+          </div>
+
+          {/* ── Sent History Section ── */}
+          <div style={S.section}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h2 style={{ ...S.h2, margin: 0 }}>📜 Sent History</h2>
+              <button style={S.refresh} onClick={() => loadSentNotifications(sentPage)}>↻ Refresh</button>
+            </div>
+
+            {sentLoading ? (
+              <div style={{ textAlign: 'center', padding: 40 }}>
+                <span style={S.spinner} />
+              </div>
+            ) : sentNotifications.length === 0 ? (
+              <p style={{ color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: 20 }}>
+                No notifications sent yet.
+              </p>
+            ) : (
+              <>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={S.table}>
+                    <thead>
+                      <tr>
+                        <th style={S.th}>Type</th>
+                        <th style={S.th}>Recipient</th>
+                        <th style={S.th}>Title</th>
+                        <th style={S.th}>Message</th>
+                        <th style={S.th}>Read</th>
+                        <th style={S.th}>Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sentNotifications.map(n => (
+                        <tr key={n._id}>
+                          <td style={S.td}>
+                            <span style={S.badge(
+                              n.type === 'warning' ? '#ff9800'
+                              : n.type === 'policy_violation' ? '#e53935'
+                              : n.type === 'account_alert' ? '#2196f3'
+                              : n.type === 'info' ? '#9c27b0'
+                              : '#00f2ea'
+                            )}>
+                              {n.type?.replace(/_/g, ' ') || 'notice'}
+                            </span>
+                          </td>
+                          <td style={S.td}>
+                            <span style={{ fontWeight: 600, color: '#fff' }}>
+                              {n.user_id?.username || n.user_id?.email || n.user_id || '—'}
+                            </span>
+                          </td>
+                          <td style={S.td}>{n.title || '—'}</td>
+                          <td style={{ ...S.td, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {n.message || '—'}
+                          </td>
+                          <td style={S.td}>
+                            <span style={S.badge(n.read ? '#4caf50' : '#ff9800')}>
+                              {n.read ? 'Yes' : 'No'}
+                            </span>
+                          </td>
+                          <td style={S.td}>{fmtDate(n.created_at || n.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {sentPages > 1 && (
+                  <div style={S.pagination}>
+                    <button
+                      style={S.pageBtn(false)}
+                      disabled={sentPage <= 1}
+                      onClick={() => loadSentNotifications(sentPage - 1)}
+                    >← Prev</button>
+                    <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>
+                      Page {sentPage} of {sentPages}
+                    </span>
+                    <button
+                      style={S.pageBtn(false)}
+                      disabled={sentPage >= sentPages}
+                      onClick={() => loadSentNotifications(sentPage + 1)}
+                    >Next →</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 

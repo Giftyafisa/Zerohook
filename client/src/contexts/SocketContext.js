@@ -93,6 +93,10 @@ export const SocketProvider = ({ children }) => {
   const userIdRef = React.useRef(null);
   // Dedup ref to avoid double-counting messages received via both user and conversation rooms
   const processedMessageIds = React.useRef(new Set());
+  // Global presence map — updated by user_status broadcasts, consumed by usePresence hook
+  const onlineUsersRef = React.useRef(new Map());
+  // Heartbeat interval ref for cleanup
+  const heartbeatIntervalRef = React.useRef(null);
 
   useEffect(() => {
     const currentUserId = getUserId(user);
@@ -138,6 +142,12 @@ export const SocketProvider = ({ children }) => {
         if (process.env.NODE_ENV !== 'production') {
           console.log('✅ Connected to server');
         }
+        // ── Heartbeat: keep server-side last_active fresh (30s interval) ──
+        if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = setInterval(() => {
+          if (newSocket.connected) newSocket.emit('heartbeat');
+        }, 30_000);
+
         // Fetch initial unread counts on connect/reconnect so badges are accurate
         apiClient.get('/chat/unread-count')
           .then(res => {
@@ -328,10 +338,16 @@ export const SocketProvider = ({ children }) => {
 
       setSocket(newSocket);
 
+      // ── Global presence listener — keeps onlineUsersRef in sync ──
+      newSocket.on('user_status', ({ userId, isOnline }) => {
+        if (userId) onlineUsersRef.current.set(String(userId), !!isOnline);
+      });
+
       return () => {
         if (process.env.NODE_ENV !== 'production') {
           console.log('🔌 Cleaning up socket connection...');
         }
+        if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         newSocket.disconnect();
         setSocket(null);
         setIsConnected(false);
@@ -354,7 +370,8 @@ export const SocketProvider = ({ children }) => {
 
   const value = {
     socket,
-    isConnected
+    isConnected,
+    onlineUsersRef,
   };
 
   return (

@@ -113,8 +113,8 @@ class UserActivityMonitor {
         { upsert: true, new: true }
       );
 
-      // Update users table last_active
-      await User.findByIdAndUpdate(userId, { lastActive: now });
+      // Update users table last_active (field name MUST match schema: last_active, NOT lastActive)
+      await User.findByIdAndUpdate(userId, { last_active: now });
 
       // Update session if socketId provided - FIX: Avoid duplicate key errors
       if (socketId) {

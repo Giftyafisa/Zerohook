@@ -454,7 +454,13 @@ class MongoRecommendationEngine {
 
     // 6. BEAUTY/COMPLETENESS SCORE
     let beautyScore = 0;
-    if (profileData.profilePicture || profileData.avatar) beautyScore += 35;
+    const hasProfileImage = !!(
+      profile.profile_image ||
+      profileData.profilePicture ||
+      profileData.avatar ||
+      (profile.profile_image_url && profile.profile_image_url !== '')
+    );
+    if (hasProfileImage) beautyScore += 35;
     if (profileData.photos && profileData.photos.length > 0) {
       beautyScore += Math.min(profileData.photos.length * 8, 25);
     }
@@ -463,6 +469,7 @@ class MongoRecommendationEngine {
     if (profileData.services && profileData.services.length > 0) beautyScore += 10;
     if (profile.is_subscribed || profile.isSubscribed) beautyScore += 5;
     scores.beauty = Math.min(100, beautyScore);
+    profile.hasProfileImage = hasProfileImage;
 
     // 7. POPULARITY SCORE (server-authoritative when available)
     const viewCount = srvStats ? srvStats.viewCount : (profileData.viewCount || 0);
@@ -514,6 +521,12 @@ class MongoRecommendationEngine {
       profile.noLocationPenalty = true;
     }
 
+    // Profiles without any profile image get a significant ranking penalty
+    if (!hasProfileImage) {
+      finalScore = finalScore * 0.6; // 40% penalty — images are critical for engagement
+      profile.noImagePenalty = true;
+    }
+
     profile.recommendationScore = Math.round(finalScore * 10) / 10;
     profile.scoreBreakdown = scores;
     profile.completenessPenalty = completenessPenalty > 0 ? Math.round(completenessPenalty * 100) : 0;
@@ -560,7 +573,11 @@ class MongoRecommendationEngine {
       if (a.sameCountry && !b.sameCountry) return -1;
       if (!a.sameCountry && b.sameCountry) return 1;
 
-      // 2. DISTANCE IS PRIMARY (closest first - UBER style)
+      // 2. Profiles WITH images always above those WITHOUT
+      if (a.hasProfileImage && !b.hasProfileImage) return -1;
+      if (!a.hasProfileImage && b.hasProfileImage) return 1;
+
+      // 3. DISTANCE IS PRIMARY (closest first - UBER style)
       const distA = a.distance ?? 9999;
       const distB = b.distance ?? 9999;
       
@@ -568,7 +585,7 @@ class MongoRecommendationEngine {
         return distA - distB; // Closer comes first
       }
 
-      // 3. At similar distances, use recommendation score (quality factors)
+      // 4. At similar distances, use recommendation score (quality factors)
       return (b.recommendationScore || 0) - (a.recommendationScore || 0);
     });
   }

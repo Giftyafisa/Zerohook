@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -55,6 +55,7 @@ import ChatSystem from '../components/ChatSystem';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { extractProfileImagePath } from '../utils/imageUtils';
+import usePresence from '../hooks/usePresence';
 
 const ProfileBrowse = () => {
   const theme = useTheme();
@@ -581,7 +582,17 @@ const ProfileBrowse = () => {
    * For pagination consistency, prefer server-driven filtering.
    * Local filtering here is a UX enhancement, not the source of truth.
    */
-  const filteredProfiles = profiles.filter(profile => {
+  // Real-time online status
+  const profileIds = useMemo(() => profiles.map(p => String(p.id || p._id)), [profiles]);
+  const { isUserOnline } = usePresence(profileIds);
+
+  // Enhance profiles with real-time online status before filtering
+  const liveProfiles = useMemo(() => profiles.map(p => ({
+    ...p,
+    isOnline: isUserOnline(p.id || p._id) ?? p.isOnline ?? false
+  })), [profiles, isUserOnline]);
+
+  const filteredProfiles = liveProfiles.filter(profile => {
     // Handle missing profile data gracefully
     if (!profile.profileData) return false;
     

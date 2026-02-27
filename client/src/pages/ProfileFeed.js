@@ -58,6 +58,7 @@ import useProfileEngagement from '../hooks/useProfileEngagement';
 import useFeedFilters from '../hooks/useFeedFilters';
 import useLocationBootstrap, { getAllLocations, findNearestCity } from '../hooks/useLocationBootstrap';
 import useFeedQuery from '../hooks/useFeedQuery';
+import usePresence from '../hooks/usePresence';
 import TikTokProfileFeed from '../components/TikTokProfileFeed';
 import tokens from '../theme/tokens';
 
@@ -1143,6 +1144,10 @@ const ProfileFeed = () => {
     fetchProfiles, resetProfiles,
   } = useFeedQuery({ activeFilter, searchQuery, userLocation, locationLoading });
 
+  // Real-time online status for all displayed profiles
+  const profileIds = useMemo(() => displayedProfiles.map(p => String(p.id)), [displayedProfiles]);
+  const { isUserOnline } = usePresence(profileIds);
+
   // Local UI state
   const [likedProfiles, setLikedProfiles] = useState(new Set());
 
@@ -1422,7 +1427,7 @@ const ProfileFeed = () => {
               {displayedProfiles.map((profile, index) => (
                 <ProfileCard
                   key={profile.id}
-                  profile={profile}
+                  profile={{ ...profile, isOnline: isUserOnline(profile.id) ?? profile.isOnline }}
                   index={index}
                   isLiked={likedProfiles.has(profile.id)}
                   onLike={handleLike}

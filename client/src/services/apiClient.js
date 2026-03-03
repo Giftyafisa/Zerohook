@@ -1,10 +1,12 @@
 /**
  * Shared Axios instance with centralized token refresh and 401 handling.
  * All API service modules should import this instance instead of creating their own.
+ *
+ * API_BASE_URL is imported from config/constants.js — the single source of truth.
+ * To change the backend URL, update REACT_APP_API_URL in your .env or Render env vars.
  */
 import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import { API_BASE_URL } from '../config/constants';
 
 let isRefreshing = false;
 let failedQueue = [];

@@ -77,18 +77,38 @@ const serviceStatus = {
   redis: false
 };
 
+// Shared CORS origin list — used by both Express and Socket.io
+const sharedAllowedOrigins = [
+  process.env.CLIENT_URL,
+  'https://zerohook.onrender.com',
+  'https://zerohook-web.onrender.com',
+  'https://zerohook-o58h.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:19006',
+  'http://localhost:8081'
+].filter(Boolean);
+
+// Origin checker reused by both Express cors() and Socket.io
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // Allow no-origin requests (mobile apps, curl, etc.)
+  if (sharedAllowedOrigins.includes(origin)) return true;
+  // Accept any zerohook*.onrender.com subdomain (handles Render's dynamic names)
+  if (/^https:\/\/zerohook[\w-]*\.onrender\.com$/.test(origin)) return true;
+  // Dev: any localhost port
+  const isDev = (process.env.NODE_ENV || 'development') === 'development';
+  if (isDev && /^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
+  return false;
+}
+
 // Socket.io setup with CORS for web and mobile
 const io = new Server(server, {
   cors: {
-    origin: [
-      process.env.CLIENT_URL,
-      'https://zerohook.onrender.com',
-      'https://zerohook-web.onrender.com',
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:19006',
-      'http://localhost:8081'
-    ].filter(Boolean),
+    origin: function(origin, callback) {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      console.warn(`Socket.io CORS blocked origin: ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
+    },
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -146,31 +166,10 @@ app.use(helmet({
 // Trust proxy for rate limiting behind reverse proxies (Render, Heroku, etc.)
 app.set('trust proxy', 1);
 
-// CORS configuration - supports web frontend and mobile apps
-const allowedOrigins = [
-  process.env.CLIENT_URL,
-  'https://zerohook.onrender.com',
-  'https://zerohook-web.onrender.com',
-  'http://localhost:3000',
-  'http://localhost:19006', // Expo web
-  'http://localhost:8081',  // Metro bundler
-].filter(Boolean);
-
+// CORS configuration - reuses shared origin checker from above
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    // In development, allow localhost on any port
-    const isDev = (process.env.NODE_ENV || 'development') === 'development';
-    if (isDev && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
-      return callback(null, true);
-    }
-
+    if (isAllowedOrigin(origin)) return callback(null, true);
     console.warn(`CORS blocked origin: ${origin}`);
     return callback(new Error('Not allowed by CORS'));
   },

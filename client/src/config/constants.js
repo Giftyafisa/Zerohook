@@ -1,18 +1,26 @@
-// API Configuration
-// In production, REACT_APP_API_URL should be set to https://zerohook-api.onrender.com/api
-// The fallback uses production URL to ensure API calls work even if env var is missing
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 
-  (process.env.NODE_ENV === 'production' 
-    ? 'https://zerohook-api.onrender.com/api' 
-    : '/api');
-export const SERVER_URL = process.env.REACT_APP_SOCKET_URL || 
-  (process.env.NODE_ENV === 'production'
-    ? 'https://zerohook-api.onrender.com'
-    : window.location.origin);
-export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 
-  (process.env.NODE_ENV === 'production'
-    ? 'https://zerohook-api.onrender.com'
-    : window.location.origin);
+// =============================================================================
+// SINGLE SOURCE OF TRUTH for all API / Socket / Server URLs.
+// Every file in the app should import from here — never define its own URL.
+//
+// To change the backend URL:
+//   1. Set REACT_APP_API_URL in your .env (or Render env vars)
+//      e.g. REACT_APP_API_URL=https://zerohook-api-f3ss.onrender.com/api
+//   2. Optionally set REACT_APP_SOCKET_URL for the WebSocket host
+//      e.g. REACT_APP_SOCKET_URL=https://zerohook-api-f3ss.onrender.com
+//   3. If neither is set, the hardcoded production fallbacks below are used.
+// =============================================================================
+
+const PROD_API_URL    = 'https://zerohook-api-f3ss.onrender.com/api';
+const PROD_SERVER_URL = 'https://zerohook-api-f3ss.onrender.com';
+
+export const API_BASE_URL = process.env.REACT_APP_API_URL ||
+  (process.env.NODE_ENV === 'production' ? PROD_API_URL : '/api');
+
+export const SERVER_URL = process.env.REACT_APP_SOCKET_URL ||
+  (process.env.NODE_ENV === 'production' ? PROD_SERVER_URL : window.location.origin);
+
+export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL ||
+  (process.env.NODE_ENV === 'production' ? PROD_SERVER_URL : window.location.origin);
 
 /**
  * Get the full URL for uploaded files (profile pictures, service images, etc.)

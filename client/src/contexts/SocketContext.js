@@ -121,10 +121,9 @@ export const SocketProvider = ({ children }) => {
         console.log('🔌 Attempting socket connection...');
       }
       
-      // Use API URL as socket URL fallback (same origin), never hardcode localhost
-      const socketUrl = process.env.REACT_APP_SOCKET_URL 
-        || process.env.REACT_APP_API_URL?.replace('/api', '') 
-        || window.location.origin;
+      // Import SOCKET_URL from the single source of truth (config/constants.js)
+      // instead of computing it from env vars here.
+      const { SOCKET_URL: socketUrl } = require('../config/constants');
       
       const newSocket = io(socketUrl, {
         auth: {

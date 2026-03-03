@@ -23,7 +23,7 @@ services:
       - key: JWT_EXPIRE
         value: 7d
       - key: CLIENT_URL
-        value: https://zerohook.onrender.com
+        value: https://zerohook-o58h.onrender.com
       # Crypto Payment Configuration (Fee-Free Direct Blockchain)
       - key: CRYPTO_MASTER_SEED
         value: dust chicken grain obvious culture gather original tube broccoli control together must loan cradle pull neutral tone notable vast funny planet bubble source visual
@@ -63,9 +63,9 @@ services:
         destination: /index.html
     envVars:
       - key: REACT_APP_API_URL
-        value: https://zerohook-api.onrender.com/api
+        value: https://zerohook-api-f3ss.onrender.com/api
       - key: REACT_APP_SOCKET_URL
-        value: https://zerohook-api.onrender.com
+        value: https://zerohook-api-f3ss.onrender.com
       - key: REACT_APP_DEFAULT_COUNTRY
         value: NG
       - key: REACT_APP_SUPPORTED_COUNTRIES

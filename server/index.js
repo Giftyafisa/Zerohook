@@ -80,9 +80,14 @@ const serviceStatus = {
 // Shared CORS origin list — used by both Express and Socket.io
 const sharedAllowedOrigins = [
   process.env.CLIENT_URL,
+  // Custom domain (Namecheap)
+  'https://opue.me',
+  'https://www.opue.me',
+  // Render deployment URLs
   'https://zerohook.onrender.com',
   'https://zerohook-web.onrender.com',
   'https://zerohook-o58h.onrender.com',
+  // Local development
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:19006',

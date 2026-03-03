@@ -23,7 +23,7 @@ services:
       - key: JWT_EXPIRE
         value: 7d
       - key: CLIENT_URL
-        value: https://zerohook-o58h.onrender.com
+        value: https://opue.me
       # Crypto Payment Configuration (Fee-Free Direct Blockchain)
       - key: CRYPTO_MASTER_SEED
         value: dust chicken grain obvious culture gather original tube broccoli control together must loan cradle pull neutral tone notable vast funny planet bubble source visual

@@ -58,6 +58,7 @@ router.get('/', async (req, res) => {
     if (!isDatabaseAvailable()) {
       console.log('⚠️  Database unavailable, returning mock services');
       return res.json({
+        success: true,
         services: mockServices,
         pagination: { page: 1, limit: 20, hasMore: false },
         metadata: { mockData: true, message: 'Database temporarily unavailable' }
@@ -77,6 +78,7 @@ router.get('/', async (req, res) => {
         filter.category_id = categoryDoc._id;
       } else {
         return res.json({
+          success: true,
           services: [],
           pagination: { page: pageNum, limit: limitNum, hasMore: false }
         });
@@ -145,6 +147,7 @@ router.get('/', async (req, res) => {
     if (process.env.NODE_ENV === 'development') {
       console.log('⚠️ [DEV] Returning mock services data due to error:', error.message);
       return res.json({
+        success: true,
         services: mockServices,
         pagination: { page: 1, limit: 20, hasMore: false },
         metadata: { mockData: true, message: 'Database temporarily unavailable' }

@@ -1036,7 +1036,7 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
     });
     
     if (existingBlock) {
-      return res.json({ message: 'User already blocked' });
+      return res.json({ success: true, message: 'User already blocked' });
     }
     
     // Insert block record — match schema fields

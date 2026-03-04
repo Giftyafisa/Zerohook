@@ -191,7 +191,7 @@ app.use(performanceMonitoring);
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 5 * 60 * 1000, // 5 minutes default
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500, // 500 requests per 5 minutes
-  message: { error: 'Too many requests from this IP, please try again later.', retryAfter: '5 minutes' },
+  message: { success: false, error: 'Too many requests from this IP, please try again later.', retryAfter: '5 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false }, // Disable X-Forwarded-For validation warning

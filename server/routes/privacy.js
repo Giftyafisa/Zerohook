@@ -13,7 +13,7 @@ const privacyManager = new PrivacyManager();
 router.get('/levels', async (req, res) => {
   try {
     const privacyLevels = privacyManager.getPrivacyLevels();
-    res.json({ privacyLevels });
+    res.json({ success: true, privacyLevels });
   } catch (error) {
     console.error('Get privacy levels error:', error);
     res.status(500).json({ success: false, error: 'Failed to get privacy levels' });
@@ -28,7 +28,7 @@ router.get('/levels', async (req, res) => {
 router.get('/consent-types', async (req, res) => {
   try {
     const consentTypes = privacyManager.getConsentTypes();
-    res.json({ consentTypes });
+    res.json({ success: true, consentTypes });
   } catch (error) {
     console.error('Get consent types error:', error);
     res.status(500).json({ success: false, error: 'Failed to get consent types' });
@@ -45,7 +45,7 @@ router.get('/settings', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const privacySettings = await privacyManager.getUserPrivacySettings(userId);
     
-    res.json({ privacySettings });
+    res.json({ success: true, privacySettings });
   } catch (error) {
     console.error('Get privacy settings error:', error);
     res.status(500).json({ success: false, error: 'Failed to get privacy settings' });
@@ -78,6 +78,7 @@ router.put('/settings', authMiddleware, async (req, res) => {
     const updatedSettings = await privacyManager.updatePrivacySettings(userId, privacyData);
     
     res.json({ 
+      success: true,
       privacySettings: updatedSettings,
       message: 'Privacy settings updated successfully' 
     });
@@ -98,7 +99,7 @@ router.get('/consents', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const consents = await privacyManager.getUserConsents(userId);
     
-    res.json({ consents });
+    res.json({ success: true, consents });
   } catch (error) {
     console.error('Get consents error:', error);
     res.status(500).json({ success: false, error: 'Failed to get consents' });
@@ -131,6 +132,7 @@ router.post('/consents', authMiddleware, async (req, res) => {
     const updatedConsent = await privacyManager.updateConsent(userId, consentType, granted);
     
     res.json({ 
+      success: true,
       consent: updatedConsent,
       message: `Consent ${granted ? 'granted' : 'revoked'} successfully` 
     });
@@ -156,6 +158,7 @@ router.get('/profile/:userId', authMiddleware, async (req, res) => {
       // Return full profile data for own profile
       // This would typically come from a user profile service
       res.json({ 
+        success: true,
         message: 'Viewing own profile - full data available',
         userId: targetUserId
       });
@@ -166,6 +169,7 @@ router.get('/profile/:userId', authMiddleware, async (req, res) => {
     const visibleData = await privacyManager.getVisibleProfileData(targetUserId);
     
     res.json({ 
+      success: true,
       profile: visibleData,
       message: 'Profile data retrieved with privacy controls applied'
     });
@@ -192,6 +196,7 @@ router.post('/data-deletion', authMiddleware, async (req, res) => {
       const result = await privacyManager.requestDataDeletion(userId);
       
       res.json({ 
+        success: true,
         message: 'Data deletion request submitted successfully',
         scheduled: false,
         result
@@ -201,6 +206,7 @@ router.post('/data-deletion', authMiddleware, async (req, res) => {
       const result = await privacyManager.requestDataDeletion(userId);
       
       res.json({ 
+        success: true,
         message: 'Data deletion scheduled for 30 days from now',
         scheduled: true,
         scheduledDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
@@ -225,6 +231,7 @@ router.get('/data-export', authMiddleware, async (req, res) => {
     const userData = await privacyManager.exportUserData(userId);
     
     res.json({ 
+      success: true,
       userData,
       message: 'Data export completed successfully',
       exportedAt: userData.exported_at
@@ -255,6 +262,7 @@ router.get('/consent-status/:consentType', authMiddleware, async (req, res) => {
     const hasConsent = await privacyManager.hasConsent(userId, consentType);
     
     res.json({ 
+      success: true,
       consentType,
       hasConsent,
       message: `Consent status for ${consentType}: ${hasConsent ? 'Granted' : 'Not granted'}`
@@ -292,7 +300,7 @@ router.get('/privacy-policy', async (req, res) => {
       }
     };
     
-    res.json({ privacyPolicy });
+    res.json({ success: true, privacyPolicy });
 
   } catch (error) {
     console.error('Get privacy policy error:', error);

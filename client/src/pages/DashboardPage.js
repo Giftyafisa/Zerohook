@@ -47,10 +47,10 @@ const DashboardPage = () => {
         setStats({
           walletBalance: data.walletBalance || 0,
           escrowHeld: data.escrowHeld || 0,
-          trustScore: data.trustScore || user?.reputationScore || 85,
+          trustScore: data.user?.trustScore || user?.reputationScore || 85,
           unreadMessages: data.unreadMessages || 0,
-          activeConnections: data.activeConnections || 0,
-          pendingRequests: data.pendingRequests || 0
+          activeConnections: data.stats?.totalTransactions || 0,
+          pendingRequests: data.stats?.pendingTransactions || 0
         });
       } catch (error) {
         console.error('Dashboard fetch error:', error);

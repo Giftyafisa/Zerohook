@@ -49,6 +49,7 @@ router.get('/score', authMiddleware, async (req, res) => {
     const level = finalScore >= 90 ? 'Elite' : finalScore >= 75 ? 'Pro' : finalScore >= 50 ? 'Advanced' : 'Basic';
 
     res.json({
+      success: true,
       username: user.username,
       verificationTier: user.verification_tier,
       score: finalScore,

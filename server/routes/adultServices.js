@@ -102,6 +102,7 @@ router.get('/', async (req, res) => {
       : filteredServices;
 
     res.json({
+      success: true,
       services: visibleServices,
       pagination: {
         page: parseInt(page),
@@ -176,6 +177,7 @@ router.get('/', async (req, res) => {
       ];
       
       return res.json({
+        success: true,
         services: mockServices,
         pagination: { page: 1, limit: 20, hasMore: false },
         _mock: true,
@@ -209,7 +211,7 @@ router.get('/user/:userId', authMiddleware, async (req, res) => {
     }
 
     const userServices = await adultServiceManager.getUserServices(targetUserId);
-    res.json({ services: userServices });
+    res.json({ success: true, services: userServices });
 
   } catch (error) {
     console.error('Get user services error:', error);
@@ -256,6 +258,7 @@ router.get('/search/:term', async (req, res) => {
     );
 
     res.json({ 
+      success: true,
       searchResults: filteredResults,
       searchTerm,
       totalResults: filteredResults.length
@@ -278,6 +281,7 @@ router.get('/stats', async (req, res) => {
     const categories = adultServiceManager.getServiceCategories();
     
     res.json({ 
+      success: true,
       stats,
       categories,
       totalCategories: categories.length
@@ -311,7 +315,7 @@ router.get('/:id', async (req, res) => {
       provider: visibleProviderData
     };
 
-    res.json({ service: serviceWithPrivacy });
+    res.json({ success: true, service: serviceWithPrivacy });
 
   } catch (error) {
     console.error('Get adult service error:', error);

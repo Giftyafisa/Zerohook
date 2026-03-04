@@ -11,7 +11,7 @@ const router = express.Router();
 const publicRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 30, // 30 requests per window
-  message: { error: 'Too many requests, please try again later' },
+  message: { success: false, error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -230,6 +230,7 @@ router.get('/health', async (req, res) => {
   try {
     if (!req.fraudDetection || !req.fraudDetection.getIPGeolocation) {
       return res.json({
+        success: true,
         status: 'unavailable',
         message: 'IP Geolocation service not initialized'
       });
@@ -239,11 +240,13 @@ router.get('/health', async (req, res) => {
     const isHealthy = ipGeolocation.isHealthy();
     
     res.json({
+      success: true,
       status: isHealthy ? 'healthy' : 'degraded',
       initialized: isHealthy
     });
   } catch (error) {
     res.json({
+      success: false,
       status: 'error',
       message: error.message
     });

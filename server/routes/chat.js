@@ -215,7 +215,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     if (!isDatabaseAvailable()) {
-      return res.json({ conversations: [] });
+      return res.json({ success: true, conversations: [] });
     }
 
     // Try to get conversations, return empty array if user doesn't exist or query fails
@@ -233,7 +233,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
       .sort({ lastMessageTime: -1 });
     } catch (dbError) {
       debugLog('Conversations query failed:', dbError.message);
-      return res.json({ conversations: [] });
+      return res.json({ success: true, conversations: [] });
     }
 
     // Batch-fetch unread counts per conversation in a single aggregation
@@ -259,6 +259,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
     }
 
     res.json({
+      success: true,
       conversations: conversations.map(conv => {
         const isParticipant1 = conv.participant1Id?._id?.toString() === userId;
         const otherParticipant = isParticipant1 ? conv.participant2Id : conv.participant1Id;
@@ -379,6 +380,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     const hasMore = messages.length === pageLimit;
     
     res.json({
+      success: true,
       messages: messages.map(msg => ({
         id: msg._id,
         senderId: msg.senderId?._id,
@@ -562,7 +564,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
         // Don't fail the message send if notification fails
       }
 
-      res.json({ message: payload });
+      res.json({ success: true, message: payload });
     } catch (txErr) {
       console.error('Send message transaction error:', txErr);
       res.status(500).json({ success: false, error: 'Failed to send message' });
@@ -637,6 +639,7 @@ router.post('/conversation', authMiddleware, [
     }
     
     res.json({
+      success: true,
       conversationId: conversationData.id,
       createdAt: conversationData.created_at,
       messagingLimit: {
@@ -779,7 +782,7 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
       }
     }
     
-    res.json({ message: 'Messages marked as read' });
+    res.json({ success: true, message: 'Messages marked as read' });
 
   } catch (error) {
     console.error('Mark as read error:', error);

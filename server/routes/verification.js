@@ -356,6 +356,7 @@ router.post('/social-verification', authMiddleware, [
     });
 
     res.json({
+      success: true,
       message: result.message,
       platform: platform,
       username: username,
@@ -391,6 +392,7 @@ router.get('/status', authMiddleware, async (req, res) => {
     const verificationProgress = calculateVerificationProgress(verificationData, user.verification_tier);
 
     res.json({
+      success: true,
       currentTier: user.verification_tier || 1,
       reputationScore: user.reputation_score || 0,
       trustScore: user.trust_score || 0,

@@ -76,6 +76,35 @@ router.get('/stats', authMiddleware, async (req, res) => {
     const earnings = earningsStats[0] || { total_earnings: 0, completed_earnings: 0 };
     const reviews = reviewStats[0] || { total_reviews: 0, average_rating: 0 };
 
+    // Calculate wallet balance: earnings as provider minus spending as client
+    const spendingStats = await Transaction.aggregate([
+      { $match: { client_id: user._id, status: { $in: ['completed', 'held'] } } },
+      { $group: { _id: null, total_spent: { $sum: '$amount' } } }
+    ]);
+    const spending = spendingStats[0] || { total_spent: 0 };
+    const walletBalance = (parseFloat(earnings.total_earnings) || 0) - (parseFloat(spending.total_spent) || 0);
+
+    // Calculate escrow held: sum of transactions currently in 'held' status for this user
+    const escrowStats = await Transaction.aggregate([
+      { $match: { $or: [{ client_id: user._id }, { provider_id: user._id }], status: 'held' } },
+      { $group: { _id: null, total_held: { $sum: '$amount' } } }
+    ]);
+    const escrowHeld = parseFloat(escrowStats[0]?.total_held) || 0;
+
+    // Unread messages count
+    const { Conversation, Message } = require('../config/database');
+    const userConversations = await Conversation.find({
+      $or: [{ participant1Id: user._id }, { participant2Id: user._id }]
+    }).select('_id').lean();
+    const conversationIds = userConversations.map(c => c._id);
+    const unreadMessages = conversationIds.length > 0
+      ? await Message.countDocuments({
+          conversationId: { $in: conversationIds },
+          senderId: { $ne: user._id },
+          read: false
+        })
+      : 0;
+
     // Calculate dashboard statistics
     const dashboardStats = {
       user: {
@@ -97,6 +126,9 @@ router.get('/stats', authMiddleware, async (req, res) => {
         totalReviews: parseInt(reviews.total_reviews) || 0,
         averageRating: parseFloat(reviews.average_rating) || 0
       },
+      walletBalance: Math.max(0, walletBalance),
+      escrowHeld,
+      unreadMessages,
       profile: user.profile_data || {}
     };
 

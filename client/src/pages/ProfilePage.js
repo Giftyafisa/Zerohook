@@ -184,7 +184,7 @@ const ProfilePage = () => {
 
       if (response.status === 200) {
         const dashboardData = response.data;
-        data.trustScore = dashboardData.trustScore || data.trustScore;
+        data.trustScore = dashboardData.user?.trustScore || data.trustScore;
         data.completedServices = dashboardData.stats?.completedTransactions || data.completedServices;
       }
 

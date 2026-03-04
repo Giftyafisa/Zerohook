@@ -179,6 +179,7 @@ router.get('/:userId', async (req, res, next) => {
     }
 
     res.json({
+      success: true,
       user,
       reviewStats,
       recentReviews,
@@ -220,8 +221,7 @@ router.get('/reviews/received', authMiddleware, async (req, res) => {
       transaction_amount: review.transaction_id?.amount || 0
     }));
 
-    res.json({
-      reviews,
+    res.json({      success: true,      reviews,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -264,6 +264,7 @@ router.get('/reviews/given', authMiddleware, async (req, res) => {
     }));
 
     res.json({
+      success: true,
       reviews,
       pagination: {
         page: pageNum,

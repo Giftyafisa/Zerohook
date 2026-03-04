@@ -790,7 +790,7 @@ router.get('/:id/status', authMiddleware, async (req, res) => {
     // Pass userId so PIN visibility can be determined
     const status = await req.escrowManager.getEscrowStatus(transactionId, userId);
 
-    res.json({ status });
+    res.json({ success: true, status });
 
   } catch (error) {
     console.error('Get escrow status error:', error);

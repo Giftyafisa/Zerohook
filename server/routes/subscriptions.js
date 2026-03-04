@@ -463,12 +463,12 @@ router.post('/activate-all-pending', authMiddleware, adminMiddleware, async (req
         subscription_tier: 'premium',
         subscription_expires_at: sixMonthsFromNow
       });
-      console.log(`✅ User subscription status updated for: ${userId} (tier: premium, expires: 6 months)`);
+      console.log(`✅ User subscription status updated for: ${targetUserId} (tier: premium, expires: 6 months)`);
     } catch (userUpdateError) {
       console.log(`⚠️  User update failed: ${userUpdateError.message}`);
     }
 
-    console.log(`✅ Successfully activated ${pendingSubs.length} subscriptions for user: ${userId}`);
+    console.log(`✅ Successfully activated ${pendingSubs.length} subscriptions for user: ${targetUserId}`);
 
     res.json({
       success: true,

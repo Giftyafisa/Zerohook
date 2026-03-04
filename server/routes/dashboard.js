@@ -18,7 +18,7 @@ router.get('/stats', authMiddleware, async (req, res) => {
     );
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
     
     // Get user services count
@@ -100,11 +100,12 @@ router.get('/stats', authMiddleware, async (req, res) => {
       profile: user.profile_data || {}
     };
 
-    res.json(dashboardStats);
+    res.json({ success: true, ...dashboardStats });
 
   } catch (error) {
     console.error('Get dashboard stats error:', error);
     res.status(500).json({
+      success: false,
       error: 'Failed to get dashboard statistics',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });

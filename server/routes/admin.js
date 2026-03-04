@@ -19,11 +19,11 @@ const adminMiddleware = async (req, res, next) => {
       || user?.role === 'admin'
       || user?.profile_data?.accountType === 'admin';
     if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ success: false, error: 'Admin access required' });
     }
     next();
   } catch (error) {
-    res.status(500).json({ error: 'Admin verification failed' });
+    res.status(500).json({ success: false, error: 'Admin verification failed' });
   }
 };
 
@@ -109,7 +109,7 @@ router.get('/disputes', authMiddleware, adminMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get disputes error:', error);
-    res.status(500).json({ error: 'Failed to fetch disputes' });
+    res.status(500).json({ success: false, error: 'Failed to fetch disputes' });
   }
 });
 
@@ -125,11 +125,11 @@ router.post('/disputes/:id/resolve', authMiddleware, adminMiddleware, async (req
     const { winner, reasoning, adminNotes } = req.body;
 
     if (!winner || !['client', 'provider'].includes(winner)) {
-      return res.status(400).json({ error: 'Winner must be either "client" or "provider"' });
+      return res.status(400).json({ success: false, error: 'Winner must be either "client" or "provider"' });
     }
 
     if (!reasoning) {
-      return res.status(400).json({ error: 'Reasoning is required' });
+      return res.status(400).json({ success: false, error: 'Reasoning is required' });
     }
 
     const result = await req.escrowManager.resolveDispute(disputeId, {
@@ -182,7 +182,7 @@ router.post('/disputes/:id/resolve', authMiddleware, adminMiddleware, async (req
   } catch (error) {
     console.error('Resolve dispute error:', error);
     res.status(500).json({ 
-      error: 'Failed to resolve dispute',
+      success: false, error: 'Failed to resolve dispute',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error' 
     });
   }
@@ -234,7 +234,7 @@ router.get('/banned-users', authMiddleware, adminMiddleware, async (req, res) =>
 
   } catch (error) {
     console.error('Get banned users error:', error);
-    res.status(500).json({ error: 'Failed to fetch banned users' });
+    res.status(500).json({ success: false, error: 'Failed to fetch banned users' });
   }
 });
 
@@ -280,7 +280,7 @@ router.get('/unban-requests', authMiddleware, adminMiddleware, async (req, res) 
 
   } catch (error) {
     console.error('Get unban requests error:', error);
-    res.status(500).json({ error: 'Failed to fetch unban requests' });
+    res.status(500).json({ success: false, error: 'Failed to fetch unban requests' });
   }
 });
 
@@ -296,7 +296,7 @@ router.post('/unban/:userId', authMiddleware, adminMiddleware, async (req, res) 
     const { approved, adminNotes } = req.body;
 
     if (typeof approved !== 'boolean') {
-      return res.status(400).json({ error: 'approved must be true or false' });
+      return res.status(400).json({ success: false, error: 'approved must be true or false' });
     }
 
     const result = await req.escrowManager.processUnbanRequest(
@@ -321,7 +321,7 @@ router.post('/unban/:userId', authMiddleware, adminMiddleware, async (req, res) 
   } catch (error) {
     console.error('Process unban error:', error);
     res.status(500).json({ 
-      error: 'Failed to process unban request',
+      success: false, error: 'Failed to process unban request',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error' 
     });
   }
@@ -339,7 +339,7 @@ router.post('/manual-ban/:userId', authMiddleware, adminMiddleware, async (req, 
     const { reason } = req.body;
 
     if (!reason) {
-      return res.status(400).json({ error: 'Ban reason is required' });
+      return res.status(400).json({ success: false, error: 'Ban reason is required' });
     }
 
     const { User } = require('../config/database');
@@ -374,7 +374,7 @@ router.post('/manual-ban/:userId', authMiddleware, adminMiddleware, async (req, 
 
   } catch (error) {
     console.error('Manual ban error:', error);
-    res.status(500).json({ error: 'Failed to ban user' });
+    res.status(500).json({ success: false, error: 'Failed to ban user' });
   }
 });
 
@@ -389,7 +389,7 @@ router.get('/user/:userId/history', authMiddleware, adminMiddleware, async (req,
     const { User, Transaction } = require('../config/database');
     
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid ID format' });
+      return res.status(400).json({ success: false, error: 'Invalid ID format' });
     }
     const userObjId = mongoose.Types.ObjectId.createFromHexString(userId);
     
@@ -398,7 +398,7 @@ router.get('/user/:userId/history', authMiddleware, adminMiddleware, async (req,
     );
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Get all escrow transactions for this user
@@ -444,7 +444,7 @@ router.get('/user/:userId/history', authMiddleware, adminMiddleware, async (req,
 
   } catch (error) {
     console.error('Get user history error:', error);
-    res.status(500).json({ error: 'Failed to fetch user history' });
+    res.status(500).json({ success: false, error: 'Failed to fetch user history' });
   }
 });
 
@@ -505,7 +505,7 @@ router.get('/stats', authMiddleware, adminMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get admin stats error:', error);
-    res.status(500).json({ error: 'Failed to fetch stats' });
+    res.status(500).json({ success: false, error: 'Failed to fetch stats' });
   }
 });
 
@@ -629,7 +629,7 @@ router.get('/revenue', authMiddleware, adminMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Revenue dashboard error:', error);
-    res.status(500).json({ error: 'Failed to fetch revenue data' });
+    res.status(500).json({ success: false, error: 'Failed to fetch revenue data' });
   }
 });
 
@@ -645,7 +645,7 @@ router.post('/withdrawals/:id/approve', authMiddleware, adminMiddleware, async (
     const { txHash, notes } = req.body; // txHash = blockchain transaction hash after admin sends funds
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid ID format' });
+      return res.status(400).json({ success: false, error: 'Invalid ID format' });
     }
     const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
     
@@ -665,7 +665,7 @@ router.post('/withdrawals/:id/approve', authMiddleware, adminMiddleware, async (
     );
 
     if (!withdrawal) {
-      return res.status(404).json({ error: 'Pending withdrawal not found' });
+      return res.status(404).json({ success: false, error: 'Pending withdrawal not found' });
     }
 
     res.json({
@@ -682,7 +682,7 @@ router.post('/withdrawals/:id/approve', authMiddleware, adminMiddleware, async (
 
   } catch (error) {
     console.error('Withdrawal approval error:', error);
-    res.status(500).json({ error: 'Failed to approve withdrawal' });
+    res.status(500).json({ success: false, error: 'Failed to approve withdrawal' });
   }
 });
 
@@ -698,7 +698,7 @@ router.post('/withdrawals/:id/reject', authMiddleware, adminMiddleware, async (r
     const { reason } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid ID format' });
+      return res.status(400).json({ success: false, error: 'Invalid ID format' });
     }
     const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
 
@@ -716,7 +716,7 @@ router.post('/withdrawals/:id/reject', authMiddleware, adminMiddleware, async (r
     );
 
     if (!withdrawal) {
-      return res.status(404).json({ error: 'Pending withdrawal not found' });
+      return res.status(404).json({ success: false, error: 'Pending withdrawal not found' });
     }
 
     // Create explicit refund ledger entry so the balance calculation credits back
@@ -748,7 +748,7 @@ router.post('/withdrawals/:id/reject', authMiddleware, adminMiddleware, async (r
 
   } catch (error) {
     console.error('Withdrawal rejection error:', error);
-    res.status(500).json({ error: 'Failed to reject withdrawal' });
+    res.status(500).json({ success: false, error: 'Failed to reject withdrawal' });
   }
 });
 
@@ -763,10 +763,10 @@ router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) 
     const { amount, destinationAddress, cryptoSymbol = 'USDT', notes } = req.body;
 
     if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Invalid amount' });
+      return res.status(400).json({ success: false, error: 'Invalid amount' });
     }
     if (!destinationAddress) {
-      return res.status(400).json({ error: 'Destination address required' });
+      return res.status(400).json({ success: false, error: 'Destination address required' });
     }
 
     // Calculate total available platform fees (from dedicated platform_fee transactions + legacy metadata)
@@ -790,8 +790,7 @@ router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) 
     const availableFees = totalFees - alreadyWithdrawn;
 
     if (amount > availableFees) {
-      return res.status(400).json({ 
-        error: `Insufficient fee balance. Available: $${availableFees.toFixed(2)}, Requested: $${amount}` 
+      return res.status(400).json({ success: false, error: `Insufficient fee balance. Available: $${availableFees.toFixed(2)}, Requested: $${amount}` 
       });
     }
 
@@ -801,7 +800,7 @@ router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) 
     try {
       adminUserObjId = mongoose.Types.ObjectId.createFromHexString(req.user.userId);
     } catch (e) {
-      return res.status(400).json({ error: 'Invalid user ID format' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID format' });
     }
     const withdrawal = await Transaction.create({
       user_id: adminUserObjId,
@@ -835,7 +834,7 @@ router.post('/withdraw-fees', authMiddleware, adminMiddleware, async (req, res) 
 
   } catch (error) {
     console.error('Admin fee withdrawal error:', error);
-    res.status(500).json({ error: 'Failed to process fee withdrawal' });
+    res.status(500).json({ success: false, error: 'Failed to process fee withdrawal' });
   }
 });
 
@@ -851,7 +850,7 @@ router.post('/deposits/:id/confirm', authMiddleware, adminMiddleware, async (req
     const { txHash, notes } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid ID format' });
+      return res.status(400).json({ success: false, error: 'Invalid ID format' });
     }
     const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
     
@@ -873,7 +872,7 @@ router.post('/deposits/:id/confirm', authMiddleware, adminMiddleware, async (req
     );
 
     if (!deposit) {
-      return res.status(404).json({ error: 'Pending deposit not found' });
+      return res.status(404).json({ success: false, error: 'Pending deposit not found' });
     }
 
     // Notify user via socket
@@ -913,7 +912,7 @@ router.post('/deposits/:id/confirm', authMiddleware, adminMiddleware, async (req
 
   } catch (error) {
     console.error('Manual deposit confirmation error:', error);
-    res.status(500).json({ error: 'Failed to confirm deposit' });
+    res.status(500).json({ success: false, error: 'Failed to confirm deposit' });
   }
 });
 
@@ -957,7 +956,7 @@ router.get('/pending-deposits', authMiddleware, adminMiddleware, async (req, res
 
   } catch (error) {
     console.error('Get pending deposits error:', error);
-    res.status(500).json({ error: 'Failed to fetch pending deposits' });
+    res.status(500).json({ success: false, error: 'Failed to fetch pending deposits' });
   }
 });
 
@@ -973,7 +972,7 @@ router.post('/subscriptions/:id/activate', authMiddleware, adminMiddleware, asyn
 
     const subscription = await Subscription.findById(id);
     if (!subscription) {
-      return res.status(404).json({ error: 'Subscription not found' });
+      return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
 
     const now = new Date();
@@ -1042,7 +1041,7 @@ router.post('/subscriptions/:id/activate', authMiddleware, adminMiddleware, asyn
 
   } catch (error) {
     console.error('Subscription activation error:', error);
-    res.status(500).json({ error: 'Failed to activate subscription' });
+    res.status(500).json({ success: false, error: 'Failed to activate subscription' });
   }
 });
 
@@ -1114,7 +1113,7 @@ router.get('/users', authMiddleware, adminMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('Admin list users error:', error);
-    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to list users' });
+    res.status(500).json({ success: false, error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to list users' });
   }
 });
 
@@ -1129,12 +1128,12 @@ router.put('/users/:userId', authMiddleware, adminMiddleware, async (req, res) =
     const { userId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const {
@@ -1168,7 +1167,7 @@ router.put('/users/:userId', authMiddleware, adminMiddleware, async (req, res) =
 
     const $set = { ...updates, ...profileUpdates };
     if (Object.keys($set).length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
+      return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
     const updated = await User.findByIdAndUpdate(userId, { $set }, { new: true })
@@ -1216,9 +1215,9 @@ router.put('/users/:userId', authMiddleware, adminMiddleware, async (req, res) =
     console.error('Admin edit user error:', error);
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern || {})[0];
-      return res.status(409).json({ error: `${field || 'Field'} already taken by another user` });
+      return res.status(409).json({ success: false, error: `${field || 'Field'} already taken by another user` });
     }
-    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to update user' });
+    res.status(500).json({ success: false, error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to update user' });
   }
 });
 
@@ -1233,22 +1232,22 @@ router.delete('/users/:userId', authMiddleware, adminMiddleware, async (req, res
     const { userId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     // Prevent self-deletion
     if (userId === req.user.userId) {
-      return res.status(400).json({ error: 'You cannot delete your own admin account' });
+      return res.status(400).json({ success: false, error: 'You cannot delete your own admin account' });
     }
 
     const user = await User.findById(userId).select('username email is_admin').lean();
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Prevent deleting other admins (safety)
     if (user.is_admin || user.role === 'admin' || user.profile_data?.accountType === 'admin') {
-      return res.status(403).json({ error: 'Cannot delete admin accounts. Remove admin privileges first.' });
+      return res.status(403).json({ success: false, error: 'Cannot delete admin accounts. Remove admin privileges first.' });
     }
 
     // Delete user's conversations (where they are participant)
@@ -1275,7 +1274,7 @@ router.delete('/users/:userId', authMiddleware, adminMiddleware, async (req, res
     });
   } catch (error) {
     console.error('Admin delete user error:', error);
-    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to delete user' });
+    res.status(500).json({ success: false, error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to delete user' });
   }
 });
 
@@ -1295,21 +1294,21 @@ router.post('/send-notification', authMiddleware, adminMiddleware, async (req, r
 
     // Validate inputs
     if (!userId || !title || !message) {
-      return res.status(400).json({ error: 'userId, title, and message are required' });
+      return res.status(400).json({ success: false, error: 'userId, title, and message are required' });
     }
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     const validTypes = ['admin_notice', 'warning', 'account_alert', 'policy_violation', 'info'];
     if (!validTypes.includes(type)) {
-      return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(', ')}` });
+      return res.status(400).json({ success: false, error: `Invalid type. Must be one of: ${validTypes.join(', ')}` });
     }
 
     // Verify target user exists
     const targetUser = await User.findById(userId).select('username email').lean();
     if (!targetUser) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Create the notification in DB
@@ -1353,7 +1352,7 @@ router.post('/send-notification', authMiddleware, adminMiddleware, async (req, r
     });
   } catch (error) {
     console.error('Admin send notification error:', error);
-    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to send notification' });
+    res.status(500).json({ success: false, error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to send notification' });
   }
 });
 
@@ -1368,7 +1367,7 @@ router.post('/send-bulk-notification', authMiddleware, adminMiddleware, async (r
     const { userIds, title, message, type = 'admin_notice', filter } = req.body;
 
     if (!title || !message) {
-      return res.status(400).json({ error: 'title and message are required' });
+      return res.status(400).json({ success: false, error: 'title and message are required' });
     }
 
     let targetIds = [];
@@ -1386,11 +1385,11 @@ router.post('/send-bulk-notification', authMiddleware, adminMiddleware, async (r
     } else if (Array.isArray(userIds) && userIds.length > 0) {
       targetIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(id));
     } else {
-      return res.status(400).json({ error: 'Provide userIds array or filter (all, providers, clients)' });
+      return res.status(400).json({ success: false, error: 'Provide userIds array or filter (all, providers, clients)' });
     }
 
     if (targetIds.length === 0) {
-      return res.status(400).json({ error: 'No valid users found for the given criteria' });
+      return res.status(400).json({ success: false, error: 'No valid users found for the given criteria' });
     }
 
     // Bulk insert notifications
@@ -1433,7 +1432,7 @@ router.post('/send-bulk-notification', authMiddleware, adminMiddleware, async (r
     });
   } catch (error) {
     console.error('Admin bulk notification error:', error);
-    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to send bulk notification' });
+    res.status(500).json({ success: false, error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to send bulk notification' });
   }
 });
 
@@ -1475,7 +1474,7 @@ router.get('/sent-notifications', authMiddleware, adminMiddleware, async (req, r
     });
   } catch (error) {
     console.error('Admin get sent notifications error:', error);
-    res.status(500).json({ error: 'Failed to fetch sent notifications' });
+    res.status(500).json({ success: false, error: 'Failed to fetch sent notifications' });
   }
 });
 

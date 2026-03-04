@@ -791,11 +791,24 @@ const TikTokServiceFeed = () => {
       return;
     }
     const provider = service.provider || {};
+    const recipientId =
+      provider.id ||
+      provider._id ||
+      service.provider_id ||
+      service.providerId ||
+      service.user_id ||
+      service.userId;
+
+    if (!recipientId) {
+      toast.error('Unable to open chat for this provider right now.');
+      return;
+    }
+
     navigate('/messages', {
       state: {
-        recipientId: provider.id || service.provider_id || service.user_id,
+        recipientId,
         recipientName: provider.username || service.username,
-        recipientAvatar: provider.profile_image || provider.avatar,
+        recipientAvatar: provider.profile_image || provider.profilePicture || provider.avatar,
       }
     });
   }, [isAuthenticated, navigate]);

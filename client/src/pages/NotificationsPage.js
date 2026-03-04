@@ -252,17 +252,21 @@ const NotificationsPage = () => {
       const notifications = response.data.notifications || [];
         
       // Transform backend data to match UI format
-      const transformedNotifications = notifications.map(n => ({
+      const transformedNotifications = notifications.map(n => {
+        const metadata = n.metadata || n.data || {};
+        const createdAt = n.created_at || n.createdAt || n.timestamp || new Date().toISOString();
+        return ({
         id: n.id,
         type: n.type || 'system',
         title: n.title || 'Notification',
-        body: n.message || '',
-        time: formatTimeAgo(n.created_at),
-        createdAt: n.created_at,
-        read: n.is_read || false,
-        metadata: n.metadata || {},
-        username: n.metadata?.from_username || null,
-      }));
+        body: n.body || n.message || '',
+        time: n.time || formatTimeAgo(createdAt),
+        createdAt,
+        read: Boolean(n.read ?? n.is_read),
+        metadata,
+        username: metadata?.from_username || metadata?.senderName || metadata?.sender_name || null,
+      });
+      });
       
       dispatch(setNotificationsList(transformedNotifications));
       
@@ -310,20 +314,22 @@ const NotificationsPage = () => {
       // For messages, include conversation context if available
       if (notification.type === 'message' || notification.type === 'new_message') {
         // Check both conversationId and conversation_id for compatibility
-        const convId = notification.metadata?.conversationId || notification.metadata?.conversation_id;
+        const metadata = notification.metadata || notification.data || {};
+        const convId = metadata?.conversationId || metadata?.conversation_id;
         if (convId) {
           navigate('/chat', {
             state: {
               conversationId: convId,
-              recipientId: notification.metadata?.senderId || notification.metadata?.sender_id || null,
-              recipientName: notification.metadata?.senderName || notification.metadata?.sender_name || null
+              recipientId: metadata?.senderId || metadata?.sender_id || null,
+              recipientName: metadata?.senderName || metadata?.sender_name || null
             }
           });
         } else {
           navigate(config.route);
         }
       } else if (notification.type === 'booking' || notification.type.includes('booking')) {
-        const bookingId = notification.metadata?.bookingId || notification.metadata?.booking_id;
+        const metadata = notification.metadata || notification.data || {};
+        const bookingId = metadata?.bookingId || metadata?.booking_id;
         if (bookingId) {
           navigate(`/bookings/${bookingId}`);
         } else {
@@ -547,7 +553,7 @@ const NotificationsPage = () => {
                             fontSize: '12px',
                             flexShrink: 0,
                           }}>
-                            {notification.time}
+                            {notification.time || formatTimeAgo(notification.createdAt)}
                           </Typography>
                           <IconButton
                             size="small"
@@ -571,7 +577,7 @@ const NotificationsPage = () => {
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       }}>
-                        {notification.body}
+                        {notification.body || notification.message || ''}
                       </Typography>
                     </Box>
                   </Box>

@@ -1235,7 +1235,9 @@ io.on('connection', async (socket) => {
       }
     });
 
-    // Handle user status requests
+    // Handle user status requests (single user)
+    // context: 'chat' (default) — requires conversation existence (privacy)
+    // context: 'browse' / 'feed' — public marketplace, no conversation check
     socket.on('get_user_status', async (data) => {
       try {
         if (!data?.userId || String(data.userId) === String(socket.userId)) {
@@ -1248,21 +1250,27 @@ io.on('connection', async (socket) => {
           });
         }
 
-        const canViewStatus = await Conversation.exists({
-          $or: [
-            { participant1Id: socket.userId, participant2Id: data.userId },
-            { participant1Id: data.userId, participant2Id: socket.userId }
-          ],
-          status: { $ne: 'deleted' }
-        });
-        if (!canViewStatus) {
-          return socket.emit('user_status', {
-            userId: data.userId,
-            isOnline: false,
-            lastSeen: null,
-            status: 'offline',
-            timestamp: new Date().toISOString()
+        const context = data?.context || 'chat';
+        const isPublicContext = context === 'browse' || context === 'feed';
+
+        // In chat context, require conversation for privacy
+        if (!isPublicContext) {
+          const canViewStatus = await Conversation.exists({
+            $or: [
+              { participant1Id: socket.userId, participant2Id: data.userId },
+              { participant1Id: data.userId, participant2Id: socket.userId }
+            ],
+            status: { $ne: 'deleted' }
           });
+          if (!canViewStatus) {
+            return socket.emit('user_status', {
+              userId: data.userId,
+              isOnline: false,
+              lastSeen: null,
+              status: 'offline',
+              timestamp: new Date().toISOString()
+            });
+          }
         }
 
         // Primary check: does the target user have an active socket connection?
@@ -1302,6 +1310,9 @@ io.on('connection', async (socket) => {
     });
 
     // Handle batched user status requests to avoid N socket round-trips
+    // Supports two contexts:
+    //   context: 'chat'   (default) — only returns status for users you have conversations with (privacy)
+    //   context: 'browse' / 'feed' — returns real status for any user (public marketplace)
     socket.on('get_users_status', async (data) => {
       try {
         const requestedUserIds = Array.isArray(data?.userIds)
@@ -1312,24 +1323,32 @@ io.on('connection', async (socket) => {
           return socket.emit('users_status', { users: [] });
         }
 
-        const allowedConversations = await Conversation.find({
-          $or: [
-            { participant1Id: socket.userId, participant2Id: { $in: requestedUserIds } },
-            { participant1Id: { $in: requestedUserIds }, participant2Id: socket.userId }
-          ],
-          status: { $ne: 'deleted' }
-        }).select('participant1Id participant2Id').lean();
+        const context = data?.context || 'chat'; // 'chat' | 'browse' | 'feed'
+        const isPublicContext = context === 'browse' || context === 'feed';
 
-        const allowedUserSet = new Set();
-        allowedConversations.forEach((conversation) => {
-          const p1 = String(conversation.participant1Id || '');
-          const p2 = String(conversation.participant2Id || '');
-          if (p1 !== String(socket.userId)) allowedUserSet.add(p1);
-          if (p2 !== String(socket.userId)) allowedUserSet.add(p2);
-        });
+        // For chat context, apply conversation-based privacy filter
+        let allowedUserSet = null;
+        if (!isPublicContext) {
+          const allowedConversations = await Conversation.find({
+            $or: [
+              { participant1Id: socket.userId, participant2Id: { $in: requestedUserIds } },
+              { participant1Id: { $in: requestedUserIds }, participant2Id: socket.userId }
+            ],
+            status: { $ne: 'deleted' }
+          }).select('participant1Id participant2Id').lean();
+
+          allowedUserSet = new Set();
+          allowedConversations.forEach((conversation) => {
+            const p1 = String(conversation.participant1Id || '');
+            const p2 = String(conversation.participant2Id || '');
+            if (p1 !== String(socket.userId)) allowedUserSet.add(p1);
+            if (p2 !== String(socket.userId)) allowedUserSet.add(p2);
+          });
+        }
 
         const users = requestedUserIds.map((targetUserId) => {
-          if (!allowedUserSet.has(targetUserId)) {
+          // In chat context, block status for non-conversation users
+          if (allowedUserSet && !allowedUserSet.has(targetUserId)) {
             return {
               userId: targetUserId,
               isOnline: false,
@@ -1441,7 +1460,7 @@ const PORT = process.env.PORT || 5000;
 // Note: Frontend is static site (doesn't sleep)
 // ============================================
 const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes (Render sleeps after 15 min)
-const BACKEND_URL = process.env.RENDER_EXTERNAL_URL || 'https://zerohook-api.onrender.com';
+const BACKEND_URL = process.env.RENDER_EXTERNAL_URL || 'https://zerohook-api-f3ss.onrender.com';
 
 const keepAlive = async () => {
   const timestamp = new Date().toISOString();

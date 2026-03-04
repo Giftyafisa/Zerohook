@@ -842,30 +842,7 @@ const CallSystem = () => {
         { urls: 'stun:stun4.l.google.com:19302' },
         // Additional public STUN servers for reliability
         { urls: 'stun:stun.stunprotocol.org:3478' },
-        // TURN servers — REQUIRED for NAT traversal when STUN fails
-        // (symmetric NAT, mobile carriers, corporate firewalls)
-        // Free Metered TURN servers (official, actively maintained)
-        {
-          urls: 'turn:a.relay.metered.ca:80',
-          username: 'e8dd65d092cce3e7e2c12e40',
-          credential: '1XJPMhft/LkYMqOy'
-        },
-        {
-          urls: 'turn:a.relay.metered.ca:80?transport=tcp',
-          username: 'e8dd65d092cce3e7e2c12e40',
-          credential: '1XJPMhft/LkYMqOy'
-        },
-        {
-          urls: 'turn:a.relay.metered.ca:443',
-          username: 'e8dd65d092cce3e7e2c12e40',
-          credential: '1XJPMhft/LkYMqOy'
-        },
-        {
-          urls: 'turns:a.relay.metered.ca:443?transport=tcp',
-          username: 'e8dd65d092cce3e7e2c12e40',
-          credential: '1XJPMhft/LkYMqOy'
-        },
-        // Custom TURN from environment (overrides above if provided)
+        // TURN servers should be provided via environment variables only
         ...(process.env.REACT_APP_TURN_URL ? [{
           urls: process.env.REACT_APP_TURN_URL,
           username: process.env.REACT_APP_TURN_USERNAME || '',

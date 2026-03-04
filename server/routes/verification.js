@@ -20,8 +20,7 @@ router.post('/submit-documents', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -31,15 +30,14 @@ router.post('/submit-documents', authMiddleware, [
 
     const user = await User.findById(userId).select('verification_tier verification_data').lean();
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const currentTier = user.verification_tier || 1;
     const verificationData = user.verification_data || {};
 
     if (verificationTier <= currentTier) {
-      return res.status(400).json({
-        error: 'Cannot downgrade or stay at same verification tier'
+      return res.status(400).json({ success: false, error: 'Cannot downgrade or stay at same verification tier'
       });
     }
 
@@ -98,7 +96,7 @@ router.post('/submit-documents', authMiddleware, [
 
   } catch (error) {
     console.error('Submit documents error:', error);
-    res.status(500).json({ error: 'Failed to submit verification documents' });
+    res.status(500).json({ success: false, error: 'Failed to submit verification documents' });
   }
 });
 
@@ -113,7 +111,7 @@ router.post('/send-phone-otp', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
     }
 
     const { phoneNumber } = req.body;
@@ -144,7 +142,7 @@ router.post('/send-phone-otp', authMiddleware, [
     res.json({ success: true, message: 'OTP sent to your phone number.' });
   } catch (error) {
     console.error('Send phone OTP error:', error);
-    res.status(500).json({ error: 'Failed to send OTP' });
+    res.status(500).json({ success: false, error: 'Failed to send OTP' });
   }
 });
 
@@ -159,7 +157,7 @@ router.post('/send-email-otp', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
     }
 
     const { email } = req.body;
@@ -190,7 +188,7 @@ router.post('/send-email-otp', authMiddleware, [
     res.json({ success: true, message: 'OTP sent to your email address.' });
   } catch (error) {
     console.error('Send email OTP error:', error);
-    res.status(500).json({ error: 'Failed to send OTP' });
+    res.status(500).json({ success: false, error: 'Failed to send OTP' });
   }
 });
 
@@ -206,8 +204,7 @@ router.post('/verify-phone', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -220,7 +217,7 @@ router.post('/verify-phone', authMiddleware, [
     const isValidOTP = await verifyOTP(phoneNumber, otp);
 
     if (!isValidOTP) {
-      return res.status(400).json({ error: 'Invalid OTP' });
+      return res.status(400).json({ success: false, error: 'Invalid OTP' });
     }
 
     // Update user phone verification
@@ -243,7 +240,7 @@ router.post('/verify-phone', authMiddleware, [
 
   } catch (error) {
     console.error('Phone verification error:', error);
-    res.status(500).json({ error: 'Failed to verify phone number' });
+    res.status(500).json({ success: false, error: 'Failed to verify phone number' });
   }
 });
 
@@ -259,8 +256,7 @@ router.post('/verify-email', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -272,7 +268,7 @@ router.post('/verify-email', authMiddleware, [
     const isValidOTP = await verifyEmailOTP(email, otp);
 
     if (!isValidOTP) {
-      return res.status(400).json({ error: 'Invalid OTP' });
+      return res.status(400).json({ success: false, error: 'Invalid OTP' });
     }
 
     // Update user email verification
@@ -318,7 +314,7 @@ router.post('/verify-email', authMiddleware, [
 
   } catch (error) {
     console.error('Email verification error:', error);
-    res.status(500).json({ error: 'Failed to verify email' });
+    res.status(500).json({ success: false, error: 'Failed to verify email' });
   }
 });
 
@@ -335,8 +331,7 @@ router.post('/social-verification', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -369,7 +364,7 @@ router.post('/social-verification', authMiddleware, [
 
   } catch (error) {
     console.error('Social verification error:', error);
-    res.status(500).json({ error: 'Failed to verify social media account' });
+    res.status(500).json({ success: false, error: 'Failed to verify social media account' });
   }
 });
 
@@ -387,7 +382,7 @@ router.get('/status', authMiddleware, async (req, res) => {
       .lean();
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const verificationData = user.verification_data || {};
@@ -405,7 +400,7 @@ router.get('/status', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get verification status error:', error);
-    res.status(500).json({ error: 'Failed to fetch verification status' });
+    res.status(500).json({ success: false, error: 'Failed to fetch verification status' });
   }
 });
 
@@ -422,8 +417,7 @@ router.post('/request-upgrade', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -433,20 +427,19 @@ router.post('/request-upgrade', authMiddleware, [
     const userId = req.user.userId;
 
     if (!targetTier) {
-      return res.status(400).json({ error: 'requestedTier or verificationTier is required' });
+      return res.status(400).json({ success: false, error: 'requestedTier or verificationTier is required' });
     }
 
     // Check current tier
     const user = await User.findById(userId).select('verification_tier').lean();
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const currentTier = user.verification_tier || 1;
 
     if (targetTier <= currentTier) {
-      return res.status(400).json({
-        error: 'Cannot request same or lower tier'
+      return res.status(400).json({ success: false, error: 'Cannot request same or lower tier'
       });
     }
 
@@ -457,8 +450,7 @@ router.post('/request-upgrade', authMiddleware, [
     }).lean();
 
     if (existingRequest) {
-      return res.status(400).json({
-        error: 'Upgrade request already pending'
+      return res.status(400).json({ success: false, error: 'Upgrade request already pending'
       });
     }
 
@@ -479,7 +471,7 @@ router.post('/request-upgrade', authMiddleware, [
 
   } catch (error) {
     console.error('Request upgrade error:', error);
-    res.status(500).json({ error: 'Failed to submit upgrade request' });
+    res.status(500).json({ success: false, error: 'Failed to submit upgrade request' });
   }
 });
 
@@ -630,7 +622,7 @@ router.get('/full-status', authMiddleware, async (req, res) => {
       .lean();
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const fullVerification = checkFullVerification(user);
@@ -654,7 +646,7 @@ router.get('/full-status', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get full verification status error:', error);
-    res.status(500).json({ error: 'Failed to fetch verification status' });
+    res.status(500).json({ success: false, error: 'Failed to fetch verification status' });
   }
 });
 

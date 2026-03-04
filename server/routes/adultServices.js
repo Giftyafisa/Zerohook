@@ -20,7 +20,7 @@ router.get('/categories', async (req, res) => {
     res.json({ categories });
   } catch (error) {
     console.error('Get categories error:', error);
-    res.status(500).json({ error: 'Failed to get categories' });
+    res.status(500).json({ success: false, error: 'Failed to get categories' });
   }
 });
 
@@ -204,8 +204,7 @@ router.get('/user/:userId', authMiddleware, async (req, res) => {
     const requestingUserId = req.user.userId;
 
     if (targetUserId !== requestingUserId.toString() && req.user.verification_tier < 2) {
-      return res.status(403).json({ 
-        error: 'Advanced verification required to view other users\' services' 
+      return res.status(403).json({ success: false, error: 'Advanced verification required to view other users\' services' 
       });
     }
 
@@ -214,7 +213,7 @@ router.get('/user/:userId', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get user services error:', error);
-    res.status(500).json({ error: 'Failed to get user services' });
+    res.status(500).json({ success: false, error: 'Failed to get user services' });
   }
 });
 
@@ -264,7 +263,7 @@ router.get('/search/:term', async (req, res) => {
 
   } catch (error) {
     console.error('Search adult services error:', error);
-    res.status(500).json({ error: 'Failed to search adult services' });
+    res.status(500).json({ success: false, error: 'Failed to search adult services' });
   }
 });
 
@@ -286,7 +285,7 @@ router.get('/stats', async (req, res) => {
 
   } catch (error) {
     console.error('Get adult service stats error:', error);
-    res.status(500).json({ error: 'Failed to get adult service statistics' });
+    res.status(500).json({ success: false, error: 'Failed to get adult service statistics' });
   }
 });
 
@@ -301,7 +300,7 @@ router.get('/:id', async (req, res) => {
     const service = await adultServiceManager.getServiceById(serviceId);
 
     if (!service) {
-      return res.status(404).json({ error: 'Service not found' });
+      return res.status(404).json({ success: false, error: 'Service not found' });
     }
 
     // Apply privacy filtering to provider data
@@ -316,7 +315,7 @@ router.get('/:id', async (req, res) => {
 
   } catch (error) {
     console.error('Get adult service error:', error);
-    res.status(500).json({ error: 'Failed to get adult service' });
+    res.status(500).json({ success: false, error: 'Failed to get adult service' });
   }
 });
 
@@ -331,8 +330,7 @@ router.post('/', authMiddleware, requireSubscription(), async (req, res) => {
     
     // Check if user has required verification tier
     if (req.user.verification_tier < 2) {
-      return res.status(403).json({ 
-        error: 'Advanced verification required to create service listings',
+      return res.status(403).json({ success: false, error: 'Advanced verification required to create service listings',
         required_tier: 2,
         current_tier: req.user.verification_tier
       });
@@ -353,20 +351,19 @@ router.post('/', authMiddleware, requireSubscription(), async (req, res) => {
 
     // Validate required fields
     if (!serviceData.category || !serviceData.title || !serviceData.price) {
-      return res.status(400).json({ error: 'Category, title, and price are required' });
+      return res.status(400).json({ success: false, error: 'Category, title, and price are required' });
     }
 
     // Validate category
     const validCategories = adultServiceManager.getServiceCategories().map(c => c.id);
     if (!validCategories.includes(serviceData.category)) {
-      return res.status(400).json({ error: 'Invalid service category' });
+      return res.status(400).json({ success: false, error: 'Invalid service category' });
     }
 
     // Validate price range for category
     const category = adultServiceManager.getServiceCategories().find(c => c.id === serviceData.category);
     if (serviceData.price < category.startingPrice || serviceData.price > category.maxPrice) {
-      return res.status(400).json({ 
-        error: `Price must be between $${category.startingPrice} and $${category.maxPrice} for ${category.name} services` 
+      return res.status(400).json({ success: false, error: `Price must be between $${category.startingPrice} and $${category.maxPrice} for ${category.name} services` 
       });
     }
 
@@ -379,7 +376,7 @@ router.post('/', authMiddleware, requireSubscription(), async (req, res) => {
 
   } catch (error) {
     console.error('Create adult service error:', error);
-    res.status(500).json({ error: 'Failed to create adult service listing' });
+    res.status(500).json({ success: false, error: 'Failed to create adult service listing' });
   }
 });
 
@@ -411,7 +408,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     );
 
     if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ error: 'No valid fields to update' });
+      return res.status(400).json({ success: false, error: 'No valid fields to update' });
     }
 
     const updatedService = await adultServiceManager.updateServiceListing(
@@ -421,7 +418,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     );
 
     if (!updatedService) {
-      return res.status(404).json({ error: 'Service not found or access denied' });
+      return res.status(404).json({ success: false, error: 'Service not found or access denied' });
     }
 
     res.json({ 
@@ -431,7 +428,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update adult service error:', error);
-    res.status(500).json({ error: 'Failed to update adult service listing' });
+    res.status(500).json({ success: false, error: 'Failed to update adult service listing' });
   }
 });
 
@@ -448,7 +445,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     const deletedService = await adultServiceManager.deleteServiceListing(serviceId, userId);
 
     if (!deletedService) {
-      return res.status(404).json({ error: 'Service not found or access denied' });
+      return res.status(404).json({ success: false, error: 'Service not found or access denied' });
     }
 
     res.json({ 
@@ -458,7 +455,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Delete adult service error:', error);
-    res.status(500).json({ error: 'Failed to delete adult service listing' });
+    res.status(500).json({ success: false, error: 'Failed to delete adult service listing' });
   }
 });
 

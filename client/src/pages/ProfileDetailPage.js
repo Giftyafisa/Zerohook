@@ -64,9 +64,9 @@ const ProfileDetailPage = () => {
 
   const { isConnected } = useSocket();
 
-  // Real-time online status via socket
+  // Real-time online status via socket (browse context = public visibility)
   const presenceIds = useMemo(() => profile ? [profile.id || profileId] : [profileId], [profile, profileId]);
-  const { isUserOnline } = usePresence(presenceIds);
+  const { isUserOnline } = usePresence(presenceIds, { context: 'browse' });
   const profileOnline = isUserOnline(profile?.id || profileId) ?? profile?.isOnline ?? false;
 
   // Check connection status with the profile user

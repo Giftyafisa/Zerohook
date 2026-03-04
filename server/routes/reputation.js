@@ -15,7 +15,7 @@ router.post('/review', authMiddleware, async (req, res) => {
     const { transactionId, rating, comment, anonymous = false } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(reviewerId) || !mongoose.Types.ObjectId.isValid(transactionId)) {
-      return res.status(400).json({ error: 'Invalid reviewer or transaction ID' });
+      return res.status(400).json({ success: false, error: 'Invalid reviewer or transaction ID' });
     }
 
     // Validate transaction exists and reviewer was part of it
@@ -26,8 +26,7 @@ router.post('/review', authMiddleware, async (req, res) => {
     }).lean();
 
     if (!transaction) {
-      return res.status(404).json({ 
-        error: 'Transaction not found or not eligible for review' 
+      return res.status(404).json({ success: false, error: 'Transaction not found or not eligible for review' 
       });
     }
 
@@ -41,7 +40,7 @@ router.post('/review', authMiddleware, async (req, res) => {
       .lean();
 
     if (existingReview) {
-      return res.status(400).json({ error: 'Review already submitted' });
+      return res.status(400).json({ success: false, error: 'Review already submitted' });
     }
 
     // Create review
@@ -74,8 +73,7 @@ router.post('/review', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Submit review error:', error);
-    res.status(500).json({
-      error: 'Failed to submit review'
+    res.status(500).json({ success: false, error: 'Failed to submit review'
     });
   }
 });
@@ -92,7 +90,7 @@ router.get('/:userId', async (req, res, next) => {
       return next();
     }
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     // Get user basic info
@@ -101,7 +99,7 @@ router.get('/:userId', async (req, res, next) => {
       .lean();
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Get review statistics
@@ -190,8 +188,7 @@ router.get('/:userId', async (req, res, next) => {
 
   } catch (error) {
     console.error('Get reputation error:', error);
-    res.status(500).json({
-      error: 'Failed to get reputation data'
+    res.status(500).json({ success: false, error: 'Failed to get reputation data'
     });
   }
 });
@@ -234,8 +231,7 @@ router.get('/reviews/received', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get received reviews error:', error);
-    res.status(500).json({
-      error: 'Failed to get received reviews'
+    res.status(500).json({ success: false, error: 'Failed to get received reviews'
     });
   }
 });
@@ -278,8 +274,7 @@ router.get('/reviews/given', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get given reviews error:', error);
-    res.status(500).json({
-      error: 'Failed to get given reviews'
+    res.status(500).json({ success: false, error: 'Failed to get given reviews'
     });
   }
 });

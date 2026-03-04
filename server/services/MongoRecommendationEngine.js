@@ -176,15 +176,19 @@ class MongoRecommendationEngine {
       ]);
 
       // For each profile, count conversations they were in vs conversations they replied to
+      // O(conversations) with Set lookups instead of O(conversations × profileIds)
       const responseData = new Map(); // profileId -> { total, replied }
+      const profileIdSet = new Set(profileIds.map(p => p.toString()));
       for (const conv of conversationCounts) {
-        for (const pid of profileIds) {
-          const pidStr = pid.toString();
-          const isParticipant = conv.participant1Id.toString() === pidStr || conv.participant2Id.toString() === pidStr;
-          if (!isParticipant) continue;
+        const p1 = conv.participant1Id.toString();
+        const p2 = conv.participant2Id.toString();
+        const senderSet = new Set(conv.senderIds.map(s => s.toString()));
+
+        for (const pidStr of [p1, p2]) {
+          if (!profileIdSet.has(pidStr)) continue;
           const data = responseData.get(pidStr) || { total: 0, replied: 0 };
           data.total++;
-          if (conv.senderIds.some(s => s.toString() === pidStr)) {
+          if (senderSet.has(pidStr)) {
             data.replied++;
           }
           responseData.set(pidStr, data);
@@ -456,9 +460,12 @@ class MongoRecommendationEngine {
     let beautyScore = 0;
     const hasProfileImage = !!(
       profile.profile_image ||
+      profile.profile_image_url ||
       profileData.profilePicture ||
       profileData.avatar ||
-      (profile.profile_image_url && profile.profile_image_url !== '')
+      profileData.profileImage ||
+      (profile.profile_image_url && profile.profile_image_url !== '') ||
+      (profileData.photos && profileData.photos.length > 0)
     );
     if (hasProfileImage) beautyScore += 35;
     if (profileData.photos && profileData.photos.length > 0) {
@@ -521,9 +528,10 @@ class MongoRecommendationEngine {
       profile.noLocationPenalty = true;
     }
 
-    // Profiles without any profile image get a significant ranking penalty
+    // Profiles without any profile image get a heavy ranking penalty
+    // Combined with sort-level enforcement, this ensures image-less profiles sink
     if (!hasProfileImage) {
-      finalScore = finalScore * 0.6; // 40% penalty — images are critical for engagement
+      finalScore = finalScore * 0.4; // 60% penalty — images are critical for engagement
       profile.noImagePenalty = true;
     }
 
@@ -539,11 +547,17 @@ class MongoRecommendationEngine {
   /**
    * UBER/BOLT-STYLE SORTING
    * 1. Same country ALWAYS first
-   * 2. Within country, CLOSEST first (like Uber shows closest drivers)
-   * 3. Quality factors break ties at similar distances
+   * 2. Profiles WITH images ALWAYS above those WITHOUT (all modes)
+   * 3. Within country, CLOSEST first (like Uber shows closest drivers)
+   * 4. Quality factors break ties at similar distances
    */
   sortUberBoltStyle(profiles, filterMode = 'forYou') {
     return profiles.sort((a, b) => {
+      // ── UNIVERSAL: Profiles WITH images always rank above those WITHOUT ──
+      // This applies across ALL filter modes to incentivize profile completeness
+      if (a.hasProfileImage && !b.hasProfileImage) return -1;
+      if (!a.hasProfileImage && b.hasProfileImage) return 1;
+
       // NEARBY mode: distance is the sole sorting factor
       if (filterMode === 'nearby') {
         const distA = a.distance ?? 9999;
@@ -573,11 +587,7 @@ class MongoRecommendationEngine {
       if (a.sameCountry && !b.sameCountry) return -1;
       if (!a.sameCountry && b.sameCountry) return 1;
 
-      // 2. Profiles WITH images always above those WITHOUT
-      if (a.hasProfileImage && !b.hasProfileImage) return -1;
-      if (!a.hasProfileImage && b.hasProfileImage) return 1;
-
-      // 3. DISTANCE IS PRIMARY (closest first - UBER style)
+      // 2. DISTANCE IS PRIMARY (closest first - UBER style)
       const distA = a.distance ?? 9999;
       const distB = b.distance ?? 9999;
       
@@ -585,7 +595,7 @@ class MongoRecommendationEngine {
         return distA - distB; // Closer comes first
       }
 
-      // 4. At similar distances, use recommendation score (quality factors)
+      // 3. At similar distances, use recommendation score (quality factors)
       return (b.recommendationScore || 0) - (a.recommendationScore || 0);
     });
   }
@@ -719,7 +729,7 @@ class MongoRecommendationEngine {
         ? Math.max(offset + limit * 3, offset + 60)
         : offset + limit;
       const profiles = await User.find(mongoQuery)
-        .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
+        .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_image profile_image_url is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
         .sort({ last_active: -1, lastActive: -1 })
         .limit(fetchLimit)
         .lean();
@@ -853,6 +863,8 @@ class MongoRecommendationEngine {
       reputationScore: profile.reputation_score || profile.reputationScore || 50,
       profile_data: profile.profile_data || profile.profileData || {},
       profileData: profile.profile_data || profile.profileData || {},
+      profile_image: profile.profile_image || null,
+      profile_image_url: profile.profile_image_url || null,
       is_subscribed: profile.is_subscribed || profile.isSubscribed || false,
       isSubscribed: profile.is_subscribed || profile.isSubscribed || false,
       subscription_tier: profile.subscription_tier || profile.subscriptionTier || 'free',
@@ -971,7 +983,7 @@ class MongoRecommendationEngine {
 
       // Fetch profiles
       const profiles = await User.find(mongoQuery)
-        .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
+        .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_image profile_image_url is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
         .sort({ verification_tier: -1, verificationTier: -1, last_active: -1 })
         .limit(200)
         .lean();

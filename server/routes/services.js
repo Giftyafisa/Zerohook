@@ -129,6 +129,7 @@ router.get('/', async (req, res) => {
     }));
 
     res.json({
+      success: true,
       services: formattedServices,
       pagination: {
         page: pageNum,
@@ -219,7 +220,7 @@ router.get('/user-services', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
     
     const servicesResult = await Service.find({ provider_id: userId })
@@ -249,13 +250,14 @@ router.get('/user-services', authMiddleware, async (req, res) => {
     }));
 
     res.json({
+      success: true,
       services
     });
 
   } catch (error) {
     console.error('Get user services error:', error);
     res.status(500).json({
-      error: 'Failed to get user services'
+      success: false, error: 'Failed to get user services'
     });
   }
 });
@@ -286,7 +288,7 @@ router.get('/:id', async (req, res) => {
 
     if (!service) {
       console.log('❌ Service not found:', serviceId);
-      return res.status(404).json({ error: 'Service not found' });
+      return res.status(404).json({ success: false, error: 'Service not found' });
     }
 
     console.log('✅ Service found:', service.title);
@@ -411,13 +413,13 @@ router.post('/', authMiddleware, requireSubscription(), async (req, res) => {
     } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(userId) || (category_id && !mongoose.Types.ObjectId.isValid(category_id))) {
-      return res.status(400).json({ error: 'Invalid user or category ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user or category ID' });
     }
 
     // Validate required fields
     if (!title || !description || !price || !category_id) {
       return res.status(400).json({
-        error: 'Missing required fields: title, description, price, category_id'
+        success: false, error: 'Missing required fields: title, description, price, category_id'
       });
     }
 
@@ -451,7 +453,7 @@ router.post('/', authMiddleware, requireSubscription(), async (req, res) => {
   } catch (error) {
     console.error('Create service error:', error);
     res.status(500).json({
-      error: 'Failed to create service',
+      success: false, error: 'Failed to create service',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

@@ -24,8 +24,7 @@ router.get('/check-status/:otherUserId', authMiddleware, async (req, res) => {
     const objectIdRegex = /^[0-9a-fA-F]{24}$/;
     
     if (!uuidRegex.test(otherUserId) && !objectIdRegex.test(otherUserId)) {
-      return res.status(400).json({
-        error: 'Invalid user ID format'
+      return res.status(400).json({ success: false, error: 'Invalid user ID format'
       });
     }
 
@@ -34,8 +33,7 @@ router.get('/check-status/:otherUserId', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Check connection status error:', error);
-    res.status(500).json({
-      error: 'Failed to check connection status',
+    res.status(500).json({ success: false, error: 'Failed to check connection status',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -54,8 +52,7 @@ router.post('/contact-request', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -99,29 +96,25 @@ router.post('/contact-request', authMiddleware, [
     
     // Return appropriate HTTP status codes based on error type
     if (error.message === 'Users are already connected') {
-      return res.status(409).json({
-        error: 'Users are already connected',
+      return res.status(409).json({ success: false, error: 'Users are already connected',
         message: 'A connection already exists between these users'
       });
     }
     
     if (error.message === 'Cannot connect with blocked user') {
-      return res.status(403).json({
-        error: 'Connection blocked',
+      return res.status(403).json({ success: false, error: 'Connection blocked',
         message: 'Cannot connect with this user due to blocking'
       });
     }
     
     if (error.message === 'One or both users not found') {
-      return res.status(404).json({
-        error: 'User not found',
+      return res.status(404).json({ success: false, error: 'User not found',
         message: 'One or both users could not be found'
       });
     }
     
     // Default to 500 for unexpected errors
-    res.status(500).json({
-      error: 'Failed to send contact request',
+    res.status(500).json({ success: false, error: 'Failed to send contact request',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -139,8 +132,7 @@ router.post('/respond', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -158,8 +150,7 @@ router.post('/respond', authMiddleware, [
 
   } catch (error) {
     console.error('Respond to contact request error:', error);
-    res.status(500).json({
-      error: 'Failed to respond to contact request',
+    res.status(500).json({ success: false, error: 'Failed to respond to contact request',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -178,8 +169,7 @@ router.get('/user-connections', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get user connections error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch user connections',
+    res.status(500).json({ success: false, error: 'Failed to fetch user connections',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -198,8 +188,7 @@ router.post('/service-inquiry', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -237,8 +226,7 @@ router.post('/service-inquiry', authMiddleware, [
 
   } catch (error) {
     console.error('Service inquiry error:', error);
-    res.status(500).json({
-      error: 'Failed to send service inquiry',
+    res.status(500).json({ success: false, error: 'Failed to send service inquiry',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -257,8 +245,7 @@ router.get('/pending-requests', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get pending requests error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch pending requests',
+    res.status(500).json({ success: false, error: 'Failed to fetch pending requests',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -275,8 +262,7 @@ router.post('/block-user', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -285,7 +271,7 @@ router.post('/block-user', authMiddleware, [
     const blockerId = req.user.userId;
 
     if (blockerId === blockedUserId) {
-      return res.status(400).json({ error: 'Cannot block yourself' });
+      return res.status(400).json({ success: false, error: 'Cannot block yourself' });
     }
 
     const result = await connectionManager.blockUser(blockerId, blockedUserId);
@@ -293,8 +279,7 @@ router.post('/block-user', authMiddleware, [
 
   } catch (error) {
     console.error('Block user error:', error);
-    res.status(500).json({
-      error: 'Failed to block user',
+    res.status(500).json({ success: false, error: 'Failed to block user',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -311,7 +296,7 @@ router.delete('/:connectionId', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(connectionId) || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid connection or user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid connection or user ID' });
     }
 
     // Verify ownership and delete connection
@@ -321,7 +306,7 @@ router.delete('/:connectionId', authMiddleware, async (req, res) => {
     }).select('_id').lean();
 
     if (!result) {
-      return res.status(404).json({ error: 'Connection not found or access denied' });
+      return res.status(404).json({ success: false, error: 'Connection not found or access denied' });
     }
 
     res.json({
@@ -331,8 +316,7 @@ router.delete('/:connectionId', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Delete connection error:', error);
-    res.status(500).json({
-      error: 'Failed to delete connection',
+    res.status(500).json({ success: false, error: 'Failed to delete connection',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

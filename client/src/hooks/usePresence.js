@@ -9,6 +9,10 @@ import { useSocket } from '../contexts/SocketContext';
  *   • `users_status`  (batch response)
  *   • `user_status`   (individual connect / disconnect broadcasts)
  *
+ * @param {string[]} userIds   Array of user IDs to track
+ * @param {object}   options
+ * @param {string}   options.context  'chat' (default, conversation-gated) | 'browse' | 'feed' (public)
+ *
  * Returns:
  *   isUserOnline(userId)     → true | false | null (null = unknown / not yet loaded)
  *   onlineCount              → number of tracked users currently online
@@ -16,10 +20,10 @@ import { useSocket } from '../contexts/SocketContext';
  *
  * Usage:
  *   const ids = profiles.map(p => p.id);
- *   const { isUserOnline } = usePresence(ids);
+ *   const { isUserOnline } = usePresence(ids, { context: 'browse' });
  *   // in render:  isUserOnline(profile.id) ?? profile.isOnline
  */
-const usePresence = (userIds = []) => {
+const usePresence = (userIds = [], { context = 'chat' } = {}) => {
   const { socket, isConnected } = useSocket();
   const [statusMap, setStatusMap] = useState({});
   const idsRef = useRef([]);
@@ -38,8 +42,8 @@ const usePresence = (userIds = []) => {
   // ── Request bulk status when IDs change ──────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || sortedIds.length === 0) return;
-    socket.emit('get_users_status', { userIds: sortedIds });
-  }, [socket, isConnected, idsKey]);
+    socket.emit('get_users_status', { userIds: sortedIds, context });
+  }, [socket, isConnected, idsKey, context]);
 
   // ── Listen for responses ─────────────────────────────────────────────────
   useEffect(() => {

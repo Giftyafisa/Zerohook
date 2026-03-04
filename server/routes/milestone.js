@@ -33,7 +33,7 @@ router.post('/request', authMiddleware, async (req, res) => {
     const { recipientId, amount, description, requestType } = req.body;
 
     if (!recipientId || !amount) {
-      return res.status(400).json({ error: 'Recipient and amount are required' });
+      return res.status(400).json({ success: false, error: 'Recipient and amount are required' });
     }
 
     // Dynamic minimum based on currency (equivalent of ~$0.50 USD)
@@ -52,11 +52,11 @@ router.post('/request', authMiddleware, async (req, res) => {
     }
     const minAmount = currencyMinimums[userCurrency] || 500;
     if (amount < minAmount) {
-      return res.status(400).json({ error: `Minimum amount is ${minAmount} ${userCurrency}` });
+      return res.status(400).json({ success: false, error: `Minimum amount is ${minAmount} ${userCurrency}` });
     }
 
     if (!mongoose.Types.ObjectId.isValid(senderId) || !mongoose.Types.ObjectId.isValid(recipientId)) {
-      return res.status(400).json({ error: 'Invalid sender or recipient' });
+      return res.status(400).json({ success: false, error: 'Invalid sender or recipient' });
     }
 
     const request = await MilestoneRequest.create({
@@ -101,8 +101,7 @@ router.post('/request', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Create milestone request error:', error);
-    res.status(500).json({
-      error: 'Failed to create request',
+    res.status(500).json({ success: false, error: 'Failed to create request',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -119,11 +118,11 @@ router.post('/respond', authMiddleware, async (req, res) => {
     const { requestId, action } = req.body; // action: 'accept' or 'decline'
 
     if (!requestId || !['accept', 'decline'].includes(action)) {
-      return res.status(400).json({ error: 'Invalid request' });
+      return res.status(400).json({ success: false, error: 'Invalid request' });
     }
 
     if (!mongoose.Types.ObjectId.isValid(requestId) || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid request or user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid request or user ID' });
     }
 
     const request = await MilestoneRequest.findOne({
@@ -133,7 +132,7 @@ router.post('/respond', authMiddleware, async (req, res) => {
     });
 
     if (!request) {
-      return res.status(404).json({ error: 'Request not found or already processed' });
+      return res.status(404).json({ success: false, error: 'Request not found or already processed' });
     }
 
     const newStatus = action === 'accept' ? 'accepted' : 'declined';
@@ -157,8 +156,7 @@ router.post('/respond', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Respond to milestone error:', error);
-    res.status(500).json({
-      error: 'Failed to respond to request',
+    res.status(500).json({ success: false, error: 'Failed to respond to request',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -175,7 +173,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
     const { requestId, paymentMethod } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(requestId) || !mongoose.Types.ObjectId.isValid(clientId)) {
-      return res.status(400).json({ error: 'Invalid request or client ID' });
+      return res.status(400).json({ success: false, error: 'Invalid request or client ID' });
     }
 
     const request = await MilestoneRequest.findOne({
@@ -185,7 +183,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
     });
 
     if (!request) {
-      return res.status(404).json({ error: 'Request not found or not accepted' });
+      return res.status(404).json({ success: false, error: 'Request not found or not accepted' });
     }
 
     const providerId = request.sender_id.toString();
@@ -218,7 +216,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
     ]);
     const balance = (clientWallet[0]?.totalIn || 0) - (clientWallet[0]?.totalOut || 0);
     if (balance < amount) {
-      return res.status(400).json({ error: 'Insufficient wallet balance', available: balance, required: amount });
+      return res.status(400).json({ success: false, error: 'Insufficient wallet balance', available: balance, required: amount });
     }
 
     // ── Fraud check (if service available) ──
@@ -231,7 +229,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
           recipientId: providerId
         });
         if (risk && risk.blocked) {
-          return res.status(403).json({ error: 'Transaction blocked by fraud detection', reason: risk.reason });
+          return res.status(403).json({ success: false, error: 'Transaction blocked by fraud detection', reason: risk.reason });
         }
       } catch (fraudErr) {
         console.warn('Fraud check skipped (non-fatal):', fraudErr.message);
@@ -293,8 +291,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Pay milestone error:', error);
-    res.status(500).json({
-      error: 'Failed to process payment',
+    res.status(500).json({ success: false, error: 'Failed to process payment',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -311,7 +308,7 @@ router.get('/pending/:otherUserId', authMiddleware, async (req, res) => {
     const { otherUserId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     const requests = await MilestoneRequest.find({
@@ -345,8 +342,7 @@ router.get('/pending/:otherUserId', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get pending milestones error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch requests',
+    res.status(500).json({ success: false, error: 'Failed to fetch requests',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -362,7 +358,7 @@ router.get('/list', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     const requests = await MilestoneRequest.find({
@@ -396,8 +392,7 @@ router.get('/list', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get milestone list error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch requests'
+    res.status(500).json({ success: false, error: 'Failed to fetch requests'
     });
   }
 });

@@ -67,7 +67,13 @@ const isDev = process.env.NODE_ENV === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
 const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
-const normalizeId = (id) => String(id || '');
+const normalizeId = (id) => {
+  if (!id) return '';
+  if (typeof id === 'object') {
+    return String(id.id || id._id || id.userId || id.value || '');
+  }
+  return String(id);
+};
 
 // Helper to resolve avatar URL from backend profilePicture (might be string, object, or JSON string)
 const resolveAvatarUrl = (profilePicture) => {
@@ -265,10 +271,20 @@ const ChatSystem = ({
 
   // Recipient / navigation state
   const routeState = location?.state || {};
-  const targetRecipientId = propRecipientId || routeState.recipientId || null;
-  const targetRecipientName = propRecipientName || routeState.recipientName || null;
+  const targetRecipientId = normalizeId(
+    propRecipientId ||
+    routeState.recipientId ||
+    routeState.recipientID ||
+    routeState.targetUserId ||
+    routeState.userId ||
+    routeState.providerId ||
+    null
+  ) || null;
+  const targetRecipientName = propRecipientName || routeState.recipientName || routeState.username || null;
   const targetRecipientAvatar = propRecipientAvatar || routeState.recipientAvatar || null;
-  const initialConversationId = propInitialConversationId || routeState.conversationId || routeState.conversationID || null;
+  const initialConversationId = normalizeId(
+    propInitialConversationId || routeState.conversationId || routeState.conversationID || null
+  ) || null;
   
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -351,7 +367,7 @@ const ChatSystem = ({
       .filter(Boolean))];
 
     if (participantIds.length > 0) {
-      socket.emit('get_users_status', { userIds: participantIds });
+      socket.emit('get_users_status', { userIds: participantIds, context: 'chat' });
     }
 
     // Only run when conversations list length changes (initial load / refresh), not on every update
@@ -765,14 +781,15 @@ const ChatSystem = ({
   };
 
   const startConversationWithRecipient = async (recipientId) => {
-    debugLog('💬 startConversationWithRecipient called with:', recipientId, typeof recipientId);
+    const resolvedRecipientId = normalizeId(recipientId);
+    debugLog('💬 startConversationWithRecipient called with:', resolvedRecipientId, typeof recipientId);
     
-    if (!recipientId || startingConversation) {
-      debugLog('💬 Skipping - no recipientId or already starting:', { recipientId, startingConversation });
+    if (!resolvedRecipientId || startingConversation) {
+      debugLog('💬 Skipping - no recipientId or already starting:', { recipientId: resolvedRecipientId, startingConversation });
       return null;
     }
     
-    const existing = conversations.find(c => normalizeId(c.participantId) === normalizeId(recipientId));
+    const existing = conversations.find(c => normalizeId(c.participantId) === resolvedRecipientId);
     if (existing) {
       debugLog('💬 Found existing conversation:', existing.id);
       selectConversation(existing);
@@ -783,7 +800,7 @@ const ChatSystem = ({
       setStartingConversation(true);
       
       // Ensure recipientId is sent correctly
-      const payload = { otherUserId: recipientId };
+      const payload = { otherUserId: resolvedRecipientId };
       debugLog('💬 Sending chat/start with payload:', payload);
       
       const response = await apiClient.post('/chat/start', payload);
@@ -791,7 +808,7 @@ const ChatSystem = ({
       debugLog('💬 Chat start success:', data);
       
       const convList = await loadConversations({ silent: true });
-      const created = convList?.find(c => normalizeId(c.participantId) === normalizeId(recipientId) || normalizeId(c.id) === normalizeId(data.conversationId));
+      const created = convList?.find(c => normalizeId(c.participantId) === resolvedRecipientId || normalizeId(c.id) === normalizeId(data.conversationId));
       if (created) {
         selectConversation(created);
       }

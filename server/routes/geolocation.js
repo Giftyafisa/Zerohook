@@ -26,14 +26,14 @@ router.get('/lookup', authMiddleware, async (req, res) => {
     const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress;
     
     if (!req.fraudDetection || !req.fraudDetection.getIPGeolocation) {
-      return res.status(503).json({ error: 'IP Geolocation service not available' });
+      return res.status(503).json({ success: false, error: 'IP Geolocation service not available' });
     }
     
     const ipGeolocation = req.fraudDetection.getIPGeolocation();
     const geoData = await ipGeolocation.lookup(ip);
     
     res.json({
-      status: 'success',
+      success: true,
       data: {
         ip: geoData.ip,
         country: geoData.country,
@@ -51,7 +51,7 @@ router.get('/lookup', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('Geolocation lookup error:', error);
-    res.status(500).json({ error: 'Failed to get location data' });
+    res.status(500).json({ success: false, error: 'Failed to get location data' });
   }
 });
 
@@ -63,16 +63,16 @@ router.get('/lookup-city', publicRateLimiter, async (req, res) => {
   try {
     const { city, country } = req.query;
     if (!city) {
-      return res.status(400).json({ error: 'city is required' });
+      return res.status(400).json({ success: false, error: 'city is required' });
     }
 
     const result = await req.locationTrackingService.getCityCoordinates(city, country);
     if (!result) {
-      return res.status(404).json({ error: 'City not found' });
+      return res.status(404).json({ success: false, error: 'City not found' });
     }
 
     res.json({
-      status: 'success',
+      success: true,
       data: {
         city: result.city,
         country: result.country,
@@ -87,7 +87,7 @@ router.get('/lookup-city', publicRateLimiter, async (req, res) => {
     });
   } catch (error) {
     console.error('City lookup error:', error);
-    res.status(500).json({ error: 'Failed to lookup city' });
+    res.status(500).json({ success: false, error: 'Failed to lookup city' });
   }
 });
 
@@ -104,11 +104,11 @@ router.post('/ip-detect', async (req, res) => {
 
     const ipLocation = await req.locationTrackingService.processIPLocation(ip);
     if (!ipLocation) {
-      return res.status(503).json({ error: 'IP lookup failed' });
+      return res.status(503).json({ success: false, error: 'IP lookup failed' });
     }
 
     res.json({
-      status: 'success',
+      success: true,
       data: {
         ...ipLocation,
         source: 'ip_proxy'
@@ -116,7 +116,7 @@ router.post('/ip-detect', async (req, res) => {
     });
   } catch (error) {
     console.error('IP detect proxy error:', error);
-    res.status(500).json({ error: 'Failed to detect IP location' });
+    res.status(500).json({ success: false, error: 'Failed to detect IP location' });
   }
 });
 
@@ -133,11 +133,11 @@ router.get('/ip/:ip', authMiddleware, async (req, res) => {
     const { User } = require('../config/database');
     const adminUser = await User.findById(req.user.userId).select('is_admin role').lean();
     if (!adminUser || (adminUser.is_admin !== true && adminUser.role !== 'admin')) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ success: false, error: 'Admin access required' });
     }
     
     if (!req.fraudDetection || !req.fraudDetection.getIPGeolocation) {
-      return res.status(503).json({ error: 'IP Geolocation service not available' });
+      return res.status(503).json({ success: false, error: 'IP Geolocation service not available' });
     }
     
     const ipGeolocation = req.fraudDetection.getIPGeolocation();
@@ -147,7 +147,7 @@ router.get('/ip/:ip', authMiddleware, async (req, res) => {
     ]);
     
     res.json({
-      status: 'success',
+      success: true,
       data: {
         ...geoData,
         security: securityData
@@ -155,7 +155,7 @@ router.get('/ip/:ip', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('IP lookup error:', error);
-    res.status(500).json({ error: 'Failed to lookup IP' });
+    res.status(500).json({ success: false, error: 'Failed to lookup IP' });
   }
 });
 
@@ -169,14 +169,14 @@ router.get('/risk', authMiddleware, async (req, res) => {
     const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress;
     
     if (!req.fraudDetection || !req.fraudDetection.getIPGeolocation) {
-      return res.status(503).json({ error: 'IP Geolocation service not available' });
+      return res.status(503).json({ success: false, error: 'IP Geolocation service not available' });
     }
     
     const ipGeolocation = req.fraudDetection.getIPGeolocation();
     const riskData = await ipGeolocation.analyzeIPRisk(ip);
     
     res.json({
-      status: 'success',
+      success: true,
       data: {
         ip: riskData.ip,
         riskLevel: riskData.riskLevel,
@@ -191,7 +191,7 @@ router.get('/risk', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('Risk assessment error:', error);
-    res.status(500).json({ error: 'Failed to assess risk' });
+    res.status(500).json({ success: false, error: 'Failed to assess risk' });
   }
 });
 
@@ -205,19 +205,19 @@ router.get('/african-check', authMiddleware, async (req, res) => {
     const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress;
     
     if (!req.fraudDetection || !req.fraudDetection.getIPGeolocation) {
-      return res.status(503).json({ error: 'IP Geolocation service not available' });
+      return res.status(503).json({ success: false, error: 'IP Geolocation service not available' });
     }
     
     const ipGeolocation = req.fraudDetection.getIPGeolocation();
     const africanCheck = await ipGeolocation.checkAfricanRegion(ip);
     
     res.json({
-      status: 'success',
+      success: true,
       data: africanCheck
     });
   } catch (error) {
     console.error('African region check error:', error);
-    res.status(500).json({ error: 'Failed to check region' });
+    res.status(500).json({ success: false, error: 'Failed to check region' });
   }
 });
 

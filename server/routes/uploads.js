@@ -171,8 +171,7 @@ function magicByteValidation(req, res, next) {
             try { fs.unlinkSync(f.path); } catch {}
           }
         }
-        return res.status(400).json({ 
-          error: `${spoofed.length} file(s) have content that does not match declared type. All uploads rejected.`,
+        return res.status(400).json({ success: false, error: `${spoofed.length} file(s) have content that does not match declared type. All uploads rejected.`,
           rejectedFiles: spoofed.map(r => r.file.originalname || r.file.filename)
         });
       }
@@ -237,7 +236,7 @@ router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimite
 }, magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
     const { filename, size, mimetype } = req.file;
@@ -275,8 +274,7 @@ router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimite
     });
   } catch (error) {
     console.error('Chat attachment upload error:', error);
-    res.status(500).json({
-      error: 'Failed to upload attachment',
+    res.status(500).json({ success: false, error: 'Failed to upload attachment',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -288,7 +286,7 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
 }, magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
     const userId = req.user.userId;
@@ -328,7 +326,7 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
     );
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Log file upload to file_uploads collection
@@ -363,8 +361,7 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
 
   } catch (error) {
     console.error('Profile picture upload error:', error);
-    res.status(500).json({
-      error: 'Failed to upload profile picture',
+    res.status(500).json({ success: false, error: 'Failed to upload profile picture',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -381,14 +378,14 @@ const serviceUpload = multer({
 router.post('/service-media', authMiddleware, uploadRateLimit(serviceUploadLimiter, (req) => req.files?.length || 1), serviceUpload.array('media', 10), magicByteValidation, async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
+      return res.status(400).json({ success: false, error: 'No files uploaded' });
     }
 
     const userId = req.user.userId;
     const { serviceId } = req.body;
     
     if (!serviceId) {
-      return res.status(400).json({ error: 'Service ID is required' });
+      return res.status(400).json({ success: false, error: 'Service ID is required' });
     }
 
     const uploadedFiles = [];
@@ -456,8 +453,7 @@ router.post('/service-media', authMiddleware, uploadRateLimit(serviceUploadLimit
 
   } catch (error) {
     console.error('Service media upload error:', error);
-    res.status(500).json({
-      error: 'Failed to upload service media',
+    res.status(500).json({ success: false, error: 'Failed to upload service media',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -482,7 +478,7 @@ const videoUpload = multer({
 router.post('/user-video', authMiddleware, uploadRateLimit(videoUploadLimiter), videoUpload.single('video'), magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No video uploaded' });
+      return res.status(400).json({ success: false, error: 'No video uploaded' });
     }
 
     const userId = req.user.userId;
@@ -492,7 +488,7 @@ router.post('/user-video', authMiddleware, uploadRateLimit(videoUploadLimiter), 
     const mimeType = req.file.mimetype;
     
     if (!mimeType.startsWith('video/')) {
-      return res.status(400).json({ error: 'Only video files are allowed' });
+      return res.status(400).json({ success: false, error: 'Only video files are allowed' });
     }
     
     const publicUrl = `/uploads/${fileName}`;
@@ -520,8 +516,7 @@ router.post('/user-video', authMiddleware, uploadRateLimit(videoUploadLimiter), 
 
   } catch (error) {
     console.error('Video upload error:', error);
-    res.status(500).json({
-      error: 'Failed to upload video',
+    res.status(500).json({ success: false, error: 'Failed to upload video',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -554,8 +549,7 @@ router.get('/user-files', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get user files error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch user files',
+    res.status(500).json({ success: false, error: 'Failed to fetch user files',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -575,7 +569,7 @@ router.delete('/:fileId', authMiddleware, async (req, res) => {
     });
     
     if (!file) {
-      return res.status(404).json({ error: 'File not found or access denied' });
+      return res.status(404).json({ success: false, error: 'File not found or access denied' });
     }
     
     const filePath = file.file_path;
@@ -598,8 +592,7 @@ router.delete('/:fileId', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Delete file error:', error);
-    res.status(500).json({
-      error: 'Failed to delete file',
+    res.status(500).json({ success: false, error: 'Failed to delete file',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -614,13 +607,13 @@ router.get('/uploads/:filename', (req, res) => {
   const uploadsDir = path.resolve(__dirname, '../uploads');
   const resolvedPath = path.resolve(filePath);
   if (!resolvedPath.startsWith(uploadsDir)) {
-    return res.status(400).json({ error: 'Invalid filename' });
+    return res.status(400).json({ success: false, error: 'Invalid filename' });
   }
 
   if (fs.existsSync(resolvedPath)) {
     res.sendFile(resolvedPath);
   } else {
-    res.status(404).json({ error: 'File not found' });
+    res.status(404).json({ success: false, error: 'File not found' });
   }
 });
 
@@ -638,7 +631,7 @@ const contentUpload = multer({
 router.post('/content', authMiddleware, contentUpload.single('media'), magicByteValidation, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No media file uploaded' });
+      return res.status(400).json({ success: false, error: 'No media file uploaded' });
     }
 
     const userId = req.user.userId;
@@ -735,8 +728,7 @@ router.post('/content', authMiddleware, contentUpload.single('media'), magicByte
 
   } catch (error) {
     console.error('Content upload error:', error);
-    res.status(500).json({
-      error: 'Failed to upload content',
+    res.status(500).json({ success: false, error: 'Failed to upload content',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -815,8 +807,7 @@ router.get('/content/feed', async (req, res) => {
 
   } catch (error) {
     console.error('Content feed error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch content feed',
+    res.status(500).json({ success: false, error: 'Failed to fetch content feed',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -872,8 +863,7 @@ router.get('/content/my', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('My content error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch your content',
+    res.status(500).json({ success: false, error: 'Failed to fetch your content',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -915,7 +905,7 @@ router.post('/content/:contentId/like', authMiddleware, async (req, res) => {
     );
 
     if (!removeResult) {
-      return res.status(404).json({ error: 'Content not found' });
+      return res.status(404).json({ success: false, error: 'Content not found' });
     }
 
     res.json({
@@ -926,8 +916,7 @@ router.post('/content/:contentId/like', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Like content error:', error);
-    res.status(500).json({
-      error: 'Failed to like content',
+    res.status(500).json({ success: false, error: 'Failed to like content',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -945,7 +934,7 @@ router.post('/content/:contentId/view', async (req, res) => {
     );
 
     if (!result) {
-      return res.status(404).json({ error: 'Content not found' });
+      return res.status(404).json({ success: false, error: 'Content not found' });
     }
 
     res.json({
@@ -955,7 +944,7 @@ router.post('/content/:contentId/view', async (req, res) => {
 
   } catch (error) {
     console.error('View content error:', error);
-    res.status(500).json({ error: 'Failed to record view' });
+    res.status(500).json({ success: false, error: 'Failed to record view' });
   }
 });
 

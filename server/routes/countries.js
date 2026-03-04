@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Get countries error:', error);
-    res.status(500).json({ error: 'Failed to fetch countries' });
+    res.status(500).json({ success: false, error: 'Failed to fetch countries' });
   }
 });
 
@@ -263,7 +263,7 @@ router.get('/:code/cities', async (req, res) => {
     });
   } catch (error) {
     console.error('Get cities error:', error);
-    res.status(500).json({ error: 'Failed to fetch cities' });
+    res.status(500).json({ success: false, error: 'Failed to fetch cities' });
   }
 });
 
@@ -296,7 +296,7 @@ router.get('/:code/regions', async (req, res) => {
     });
   } catch (error) {
     console.error('Get regions error:', error);
-    res.status(500).json({ error: 'Failed to fetch regions' });
+    res.status(500).json({ success: false, error: 'Failed to fetch regions' });
   }
 });
 
@@ -313,7 +313,7 @@ router.get('/:code', async (req, res) => {
     const country = countryManager.getCountryByCode(code);
     
     if (!country) {
-      return res.status(404).json({ error: 'Country not found' });
+      return res.status(404).json({ success: false, error: 'Country not found' });
     }
     
     res.json({
@@ -333,7 +333,7 @@ router.get('/:code', async (req, res) => {
     });
   } catch (error) {
     console.error('Get country error:', error);
-    res.status(500).json({ error: 'Failed to fetch country' });
+    res.status(500).json({ success: false, error: 'Failed to fetch country' });
   }
 });
 
@@ -575,7 +575,7 @@ router.post('/detect', async (req, res) => {
     }
   } catch (error) {
     console.error('Country detection error:', error);
-    res.status(500).json({ error: 'Failed to detect country' });
+    res.status(500).json({ success: false, error: 'Failed to detect country' });
   }
 });
 
@@ -599,11 +599,11 @@ router.get('/user/preference', authMiddleware, async (req, res) => {
         availableCountries: countryManager.getAllCountries()
       });
     } else {
-      res.status(404).json({ error: userCountry.error });
+      res.status(404).json({ success: false, error: userCountry.error });
     }
   } catch (error) {
     console.error('Get user country error:', error);
-    res.status(500).json({ error: 'Failed to fetch user country' });
+    res.status(500).json({ success: false, error: 'Failed to fetch user country' });
   }
 });
 
@@ -618,8 +618,7 @@ router.put('/user/preference', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -638,11 +637,11 @@ router.put('/user/preference', authMiddleware, [
         country: updateResult.country
       });
     } else {
-      res.status(400).json({ error: updateResult.error });
+      res.status(400).json({ success: false, error: updateResult.error });
     }
   } catch (error) {
     console.error('Update user country error:', error);
-    res.status(500).json({ error: 'Failed to update user country' });
+    res.status(500).json({ success: false, error: 'Failed to update user country' });
   }
 });
 
@@ -665,7 +664,7 @@ router.get('/:code/payment-methods', async (req, res) => {
     });
   } catch (error) {
     console.error('Get country payment methods error:', error);
-    res.status(500).json({ error: 'Failed to fetch payment methods' });
+    res.status(500).json({ success: false, error: 'Failed to fetch payment methods' });
   }
 });
 
@@ -688,7 +687,7 @@ router.get('/:code/crypto-platforms', async (req, res) => {
     });
   } catch (error) {
     console.error('Get country crypto platforms error:', error);
-    res.status(500).json({ error: 'Failed to fetch crypto platforms' });
+    res.status(500).json({ success: false, error: 'Failed to fetch crypto platforms' });
   }
 });
 
@@ -718,7 +717,7 @@ router.get('/ghana/crypto-platforms', async (req, res) => {
     });
   } catch (error) {
     console.error('Get Ghanaian crypto platforms error:', error);
-    res.status(500).json({ error: 'Failed to fetch Ghanaian crypto platforms' });
+    res.status(500).json({ success: false, error: 'Failed to fetch Ghanaian crypto platforms' });
   }
 });
 
@@ -747,7 +746,7 @@ router.get('/features/:feature', async (req, res) => {
     });
   } catch (error) {
     console.error('Get countries by feature error:', error);
-    res.status(500).json({ error: 'Failed to fetch countries by feature' });
+    res.status(500).json({ success: false, error: 'Failed to fetch countries by feature' });
   }
 });
 

@@ -96,7 +96,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
     ).lean();
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Transform to match expected format - support both naming conventions
@@ -122,13 +122,13 @@ router.get('/profile', authMiddleware, async (req, res) => {
     };
     
     res.json({
+      success: true,
       user: userResponse
     });
 
   } catch (error) {
     console.error('Get profile error:', error);
-    res.status(500).json({
-      error: 'Failed to get profile',
+    res.status(500).json({ success: false, error: 'Failed to get profile',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -148,7 +148,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     ).lean();
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Transform to match expected format - support both naming conventions
@@ -180,8 +180,7 @@ router.get('/me', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get profile (me) error:', error);
-    res.status(500).json({
-      error: 'Failed to get profile',
+    res.status(500).json({ success: false, error: 'Failed to get profile',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -210,7 +209,7 @@ router.put('/me', authMiddleware, async (req, res) => {
     // Validate accountType if being changed
     const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
     if (incomingData?.accountType && !VALID_ACCOUNT_TYPES.includes(incomingData.accountType)) {
-      return res.status(400).json({ error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
+      return res.status(400).json({ success: false, error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
     }
 
     // Build the update object
@@ -259,7 +258,7 @@ router.put('/me', authMiddleware, async (req, res) => {
     ).select('username email verification_tier reputation_score profile_data profile_visibility is_subscribed subscription_tier subscription_expires_at').lean();
 
     if (!updatedUser) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Transform to match expected format - provide both naming conventions
@@ -290,8 +289,7 @@ router.put('/me', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update profile (me) error:', error);
-    res.status(500).json({
-      error: 'Failed to update profile',
+    res.status(500).json({ success: false, error: 'Failed to update profile',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -311,7 +309,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
     // Get existing user to merge profile data
     const existingUser = await User.findById(userId).lean();
     if (!existingUser) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Merge existing profile_data with new data (support both naming conventions)
@@ -327,7 +325,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
     // Validate accountType if being changed
     const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
     if (incomingData?.accountType && !VALID_ACCOUNT_TYPES.includes(incomingData.accountType)) {
-      return res.status(400).json({ error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
+      return res.status(400).json({ success: false, error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
     }
     const existingProfileData = existingUser.profile_data || existingUser.profileData || {};
     const whitelisted = {};
@@ -379,14 +377,14 @@ router.put('/profile', authMiddleware, async (req, res) => {
     };
 
     res.json({
+      success: true,
       message: 'Profile updated successfully',
       user: userResponse
     });
 
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({
-      error: 'Failed to update profile',
+    res.status(500).json({ success: false, error: 'Failed to update profile',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -648,7 +646,9 @@ const handleBrowseProfiles = async (req, res) => {
         distanceEstimated: profile.distanceEstimated,
         sameCountry: profile.sameCountry,
         recommendationScore: profile.recommendationScore,
+        hasProfileImage: profile.hasProfileImage || false,
         lastSeen: profile.lastSeen,
+        lastSeenLabel: profile.lastSeen || null,
         successRate: profile.successRate
       };
     });
@@ -692,8 +692,7 @@ const handleBrowseProfiles = async (req, res) => {
       });
     }
     
-    res.status(500).json({ 
-      error: 'Failed to fetch profiles',
+    res.status(500).json({ success: false, error: 'Failed to fetch profiles',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -821,12 +820,12 @@ router.post('/engagement', optionalAuthMiddleware, async (req, res) => {
 
     // Input validation
     if (!profileId || typeof profileId !== 'string' || profileId.length > 50) {
-      return res.status(400).json({ error: 'Valid profileId is required' });
+      return res.status(400).json({ success: false, error: 'Valid profileId is required' });
     }
 
     const VALID_ACTIONS = ['view', 'contact', 'favorite', 'skip', 'exit'];
     if (action && !VALID_ACTIONS.includes(action)) {
-      return res.status(400).json({ error: `action must be one of: ${VALID_ACTIONS.join(', ')}` });
+      return res.status(400).json({ success: false, error: `action must be one of: ${VALID_ACTIONS.join(', ')}` });
     }
 
     // Idempotent deduplication — if eventId was already processed, skip
@@ -895,7 +894,7 @@ router.post('/engagement', optionalAuthMiddleware, async (req, res) => {
     res.json({ success: true, tracked: true });
   } catch (error) {
     console.error('Engagement tracking error:', error);
-    res.status(500).json({ error: 'Failed to track engagement' });
+    res.status(500).json({ success: false, error: 'Failed to track engagement' });
   }
 });
 
@@ -915,7 +914,7 @@ router.post('/track-activity', authMiddleware, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Track activity error:', error);
-    res.status(500).json({ error: 'Failed to track activity' });
+    res.status(500).json({ success: false, error: 'Failed to track activity' });
   }
 });
 
@@ -930,14 +929,13 @@ router.get('/:id', optionalAuthMiddleware, async (req, res) => {
     
     // Validate user ID - must be a valid MongoDB ObjectId (24 hex chars)
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(400).json({ success: false, error: 'User ID is required' });
     }
     
     // Check if it's a valid ObjectId format (24 hex characters)
     const objectIdRegex = /^[0-9a-fA-F]{24}$/;
     if (!objectIdRegex.test(userId)) {
-      return res.status(400).json({ 
-        error: 'Invalid user ID format',
+      return res.status(400).json({ success: false, error: 'Invalid user ID format',
         message: 'User ID must be a valid 24-character hex string'
       });
     }
@@ -951,7 +949,7 @@ router.get('/:id', optionalAuthMiddleware, async (req, res) => {
 
     if (!user) {
       debugLog(`[GET /:id] User not found for ID: ${userId}`);
-      return res.status(404).json({ error: 'Profile not found' });
+      return res.status(404).json({ success: false, error: 'Profile not found' });
     }
 
     debugLog(`[GET /:id] Found user: ${user.username}, accountType: ${user.accountType}`);
@@ -994,15 +992,14 @@ router.get('/:id', optionalAuthMiddleware, async (req, res) => {
     // Check profile visibility
     // If profile is 'authenticated' only, require authentication
     if (profileVisibility === 'authenticated' && !isAuthenticated) {
-      return res.status(403).json({ 
-        error: 'This profile is only visible to authenticated users',
+      return res.status(403).json({ success: false, error: 'This profile is only visible to authenticated users',
         requiresAuth: true
       });
     }
     
     // Don't require firstName - use username as fallback
     if (!profileData.firstName && !user.username) {
-      return res.status(404).json({ error: 'Profile data incomplete' });
+      return res.status(404).json({ success: false, error: 'Profile data incomplete' });
     }
 
     res.json({
@@ -1012,8 +1009,7 @@ router.get('/:id', optionalAuthMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get user profile error:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch profile',
+    res.status(500).json({ success: false, error: 'Failed to fetch profile',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1030,7 +1026,7 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
     const blockedId = req.params.userId;
     
     if (blockerId === blockedId) {
-      return res.status(400).json({ error: 'Cannot block yourself' });
+      return res.status(400).json({ success: false, error: 'Cannot block yourself' });
     }
     
     // Check if already blocked — use schema field names (blocker_id / blocked_id)
@@ -1067,8 +1063,7 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
     
   } catch (error) {
     console.error('Block user error:', error);
-    res.status(500).json({ 
-      error: 'Failed to block user',
+    res.status(500).json({ success: false, error: 'Failed to block user',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1092,7 +1087,7 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
     const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const profileData = userDoc.profile_data || userDoc.profileData || {};
@@ -1100,8 +1095,7 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
     
     // Only sugar accounts can toggle visibility
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
-      return res.status(403).json({ 
-        error: 'Only Sugar Daddy/Mommy accounts can toggle visibility settings' 
+      return res.status(403).json({ success: false, error: 'Only Sugar Daddy/Mommy accounts can toggle visibility settings' 
       });
     }
 
@@ -1131,8 +1125,7 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Toggle sugar visibility error:', error);
-    res.status(500).json({
-      error: 'Failed to update visibility settings',
+    res.status(500).json({ success: false, error: 'Failed to update visibility settings',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -1152,7 +1145,7 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const profileData = userDoc.profile_data || userDoc.profileData || {};
@@ -1160,8 +1153,7 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     
     // Only sugar accounts can update these preferences
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
-      return res.status(403).json({ 
-        error: 'Only Sugar Daddy/Mommy accounts can update these preferences' 
+      return res.status(403).json({ success: false, error: 'Only Sugar Daddy/Mommy accounts can update these preferences' 
       });
     }
 
@@ -1198,8 +1190,7 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update sugar preferences error:', error);
-    res.status(500).json({
-      error: 'Failed to update preferences',
+    res.status(500).json({ success: false, error: 'Failed to update preferences',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -1218,7 +1209,7 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
     const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const profileData = userDoc.profile_data || userDoc.profileData || {};
@@ -1266,8 +1257,7 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Check sugar access status error:', error);
-    res.status(500).json({
-      error: 'Failed to check sugar access status',
+    res.status(500).json({ success: false, error: 'Failed to check sugar access status',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -1288,7 +1278,7 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     const userDoc = await User.findById(userId).select('profile_data profileData');
 
     if (!userDoc) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const profileData = userDoc.profile_data || userDoc.profileData || {};
@@ -1296,8 +1286,7 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     
     // Only providers can access this endpoint (they need to pay)
     if (accountType !== 'provider') {
-      return res.status(403).json({ 
-        error: 'Only providers can access sugar profiles' 
+      return res.status(403).json({ success: false, error: 'Only providers can access sugar profiles' 
       });
     }
 
@@ -1309,8 +1298,7 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     });
 
     if (accessRecords.length === 0) {
-      return res.status(403).json({
-        error: 'Sugar access required',
+      return res.status(403).json({ success: false, error: 'Sugar access required',
         message: 'You need to purchase sugar access to view these profiles',
         requiresPayment: true
       });
@@ -1331,8 +1319,7 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     }
 
     if (accountTypeFilter.length === 0) {
-      return res.status(403).json({
-        error: 'No access to requested sugar profile type',
+      return res.status(403).json({ success: false, error: 'No access to requested sugar profile type',
         hasSugarDaddyAccess: hasDaddyAccess,
         hasSugarMommyAccess: hasMommyAccess
       });
@@ -1414,8 +1401,7 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get sugar profiles error:', error);
-    res.status(500).json({
-      error: 'Failed to get sugar profiles',
+    res.status(500).json({ success: false, error: 'Failed to get sugar profiles',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

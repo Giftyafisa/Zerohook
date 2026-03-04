@@ -16,7 +16,7 @@ router.get('/levels', async (req, res) => {
     res.json({ privacyLevels });
   } catch (error) {
     console.error('Get privacy levels error:', error);
-    res.status(500).json({ error: 'Failed to get privacy levels' });
+    res.status(500).json({ success: false, error: 'Failed to get privacy levels' });
   }
 });
 
@@ -31,7 +31,7 @@ router.get('/consent-types', async (req, res) => {
     res.json({ consentTypes });
   } catch (error) {
     console.error('Get consent types error:', error);
-    res.status(500).json({ error: 'Failed to get consent types' });
+    res.status(500).json({ success: false, error: 'Failed to get consent types' });
   }
 });
 
@@ -48,7 +48,7 @@ router.get('/settings', authMiddleware, async (req, res) => {
     res.json({ privacySettings });
   } catch (error) {
     console.error('Get privacy settings error:', error);
-    res.status(500).json({ error: 'Failed to get privacy settings' });
+    res.status(500).json({ success: false, error: 'Failed to get privacy settings' });
   }
 });
 
@@ -72,7 +72,7 @@ router.put('/settings', authMiddleware, async (req, res) => {
     // Validate privacy level
     const validLevels = privacyManager.getPrivacyLevels().map(l => l.id);
     if (privacyData.privacyLevel && !validLevels.includes(privacyData.privacyLevel)) {
-      return res.status(400).json({ error: 'Invalid privacy level' });
+      return res.status(400).json({ success: false, error: 'Invalid privacy level' });
     }
 
     const updatedSettings = await privacyManager.updatePrivacySettings(userId, privacyData);
@@ -84,7 +84,7 @@ router.put('/settings', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update privacy settings error:', error);
-    res.status(500).json({ error: 'Failed to update privacy settings' });
+    res.status(500).json({ success: false, error: 'Failed to update privacy settings' });
   }
 });
 
@@ -101,7 +101,7 @@ router.get('/consents', authMiddleware, async (req, res) => {
     res.json({ consents });
   } catch (error) {
     console.error('Get consents error:', error);
-    res.status(500).json({ error: 'Failed to get consents' });
+    res.status(500).json({ success: false, error: 'Failed to get consents' });
   }
 });
 
@@ -118,14 +118,13 @@ router.post('/consents', authMiddleware, async (req, res) => {
     // Validate consent type
     const validConsentTypes = privacyManager.getConsentTypes().map(c => c.id);
     if (!validConsentTypes.includes(consentType)) {
-      return res.status(400).json({ error: 'Invalid consent type' });
+      return res.status(400).json({ success: false, error: 'Invalid consent type' });
     }
 
     // Check if consent is required
     const consentTypeInfo = privacyManager.getConsentTypes().find(c => c.id === consentType);
     if (consentTypeInfo.required && !granted) {
-      return res.status(400).json({ 
-        error: 'This consent is required to use the platform' 
+      return res.status(400).json({ success: false, error: 'This consent is required to use the platform' 
       });
     }
 
@@ -138,7 +137,7 @@ router.post('/consents', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Update consent error:', error);
-    res.status(500).json({ error: 'Failed to update consent' });
+    res.status(500).json({ success: false, error: 'Failed to update consent' });
   }
 });
 
@@ -173,7 +172,7 @@ router.get('/profile/:userId', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get visible profile error:', error);
-    res.status(500).json({ error: 'Failed to get visible profile data' });
+    res.status(500).json({ success: false, error: 'Failed to get visible profile data' });
   }
 });
 
@@ -211,7 +210,7 @@ router.post('/data-deletion', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Data deletion request error:', error);
-    res.status(500).json({ error: 'Failed to submit data deletion request' });
+    res.status(500).json({ success: false, error: 'Failed to submit data deletion request' });
   }
 });
 
@@ -233,7 +232,7 @@ router.get('/data-export', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Data export error:', error);
-    res.status(500).json({ error: 'Failed to export user data' });
+    res.status(500).json({ success: false, error: 'Failed to export user data' });
   }
 });
 
@@ -250,7 +249,7 @@ router.get('/consent-status/:consentType', authMiddleware, async (req, res) => {
     // Validate consent type
     const validConsentTypes = privacyManager.getConsentTypes().map(c => c.id);
     if (!validConsentTypes.includes(consentType)) {
-      return res.status(400).json({ error: 'Invalid consent type' });
+      return res.status(400).json({ success: false, error: 'Invalid consent type' });
     }
 
     const hasConsent = await privacyManager.hasConsent(userId, consentType);
@@ -263,7 +262,7 @@ router.get('/consent-status/:consentType', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Check consent status error:', error);
-    res.status(500).json({ error: 'Failed to check consent status' });
+    res.status(500).json({ success: false, error: 'Failed to check consent status' });
   }
 });
 
@@ -297,7 +296,7 @@ router.get('/privacy-policy', async (req, res) => {
 
   } catch (error) {
     console.error('Get privacy policy error:', error);
-    res.status(500).json({ error: 'Failed to get privacy policy' });
+    res.status(500).json({ success: false, error: 'Failed to get privacy policy' });
   }
 });
 

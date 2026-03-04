@@ -301,7 +301,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get conversations error:', error);
-    res.status(500).json({ error: 'Failed to fetch conversations' });
+    res.status(500).json({ success: false, error: 'Failed to fetch conversations' });
   }
 });
 
@@ -318,7 +318,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     debugLog(`📨 Fetching messages for conversation ${conversationId}, user ${userId}`);
     
     if (!isDatabaseAvailable()) {
-      return res.status(503).json({ error: 'Database not available' });
+      return res.status(503).json({ success: false, error: 'Database not available' });
     }
 
     // Verify user is part of this conversation
@@ -339,12 +339,12 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     } catch (memberErr) {
       console.error('Member check error:', memberErr);
       // Return error instead of silently failing
-      return res.status(500).json({ error: 'Failed to verify conversation access' });
+      return res.status(500).json({ success: false, error: 'Failed to verify conversation access' });
     }
     
     if (!isMember) {
       debugLog(`⛔ User ${userId} not member of conversation ${conversationId}`);
-      return res.status(403).json({ error: 'Access denied to this conversation' });
+      return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
     }
     
     // Cursor-based pagination for efficient message loading
@@ -402,8 +402,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('❌ Get messages error:', error.message);
     console.error('Full error:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch messages',
+    res.status(500).json({ success: false, error: 'Failed to fetch messages',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -422,8 +421,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -448,22 +446,22 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
       }
     } catch (memberErr) {
       console.error('Member check error:', memberErr);
-      return res.status(500).json({ error: 'Failed to verify conversation access' });
+      return res.status(500).json({ success: false, error: 'Failed to verify conversation access' });
     }
-    if (!isMember2) return res.status(403).json({ error: 'Access denied to this conversation' });
+    if (!isMember2) return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
 
     // Check if either user has blocked the other
     try {
       if (req.conversationService && typeof req.conversationService.isBlockedBetween === 'function') {
         const isBlocked = await req.conversationService.isBlockedBetween(senderId, recipientId);
         if (isBlocked) {
-          return res.status(403).json({ error: 'Cannot send messages in this conversation' });
+          return res.status(403).json({ success: false, error: 'Cannot send messages in this conversation' });
         }
       }
     } catch (blockErr) {
       console.error('Block check error:', blockErr);
       // Fail closed — if we can't verify block status, deny the message
-      return res.status(500).json({ error: 'Failed to verify messaging permissions' });
+      return res.status(500).json({ success: false, error: 'Failed to verify messaging permissions' });
     }
 
     // Content moderation / fraud detection
@@ -480,7 +478,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
         const riskThreshold = parseFloat(process.env.MESSAGE_RISK_BLOCK_THRESHOLD || '0.7');
         if (modResult && typeof modResult.score === 'number' && modResult.score >= riskThreshold) {
           // Optionally log to fraud_logs via service; here we return 403
-          return res.status(403).json({ error: 'Message blocked due to policy violation' });
+          return res.status(403).json({ success: false, error: 'Message blocked due to policy violation' });
         }
       }
     } catch (modErr) {
@@ -567,12 +565,12 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
       res.json({ message: payload });
     } catch (txErr) {
       console.error('Send message transaction error:', txErr);
-      res.status(500).json({ error: 'Failed to send message' });
+      res.status(500).json({ success: false, error: 'Failed to send message' });
     }
 
   } catch (error) {
     console.error('Send message error:', error);
-    res.status(500).json({ error: 'Failed to send message' });
+    res.status(500).json({ success: false, error: 'Failed to send message' });
   }
 });
 
@@ -587,8 +585,7 @@ router.post('/conversation', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -597,14 +594,13 @@ router.post('/conversation', authMiddleware, [
     const userId = req.user.userId;
     
     if (userId === otherUserId) {
-      return res.status(400).json({ error: 'Cannot create conversation with yourself' });
+      return res.status(400).json({ success: false, error: 'Cannot create conversation with yourself' });
     }
     
     // Check messaging limit for non-subscribers
     const limitCheck = await checkMessagingLimit(userId, otherUserId);
     if (!limitCheck.canMessage) {
-      return res.status(403).json({ 
-        error: 'subscription_required',
+      return res.status(403).json({ success: false, error: 'subscription_required',
         message: limitCheck.message,
         uniqueContacts: limitCheck.uniqueContacts,
         maxContacts: limitCheck.maxContacts,
@@ -652,7 +648,7 @@ router.post('/conversation', authMiddleware, [
 
   } catch (error) {
     console.error('Create conversation error:', error);
-    res.status(500).json({ error: 'Failed to create conversation' });
+    res.status(500).json({ success: false, error: 'Failed to create conversation' });
   }
 });
 
@@ -669,8 +665,7 @@ router.post('/start', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -680,18 +675,17 @@ router.post('/start', authMiddleware, [
     const userId = req.user.userId;
     
     if (!otherUserId) {
-      return res.status(400).json({ error: 'otherUserId, recipientId, or userId is required' });
+      return res.status(400).json({ success: false, error: 'otherUserId, recipientId, or userId is required' });
     }
     
     if (userId === otherUserId) {
-      return res.status(400).json({ error: 'Cannot create conversation with yourself' });
+      return res.status(400).json({ success: false, error: 'Cannot create conversation with yourself' });
     }
     
     // Check messaging limit for non-subscribers
     const limitCheck = await checkMessagingLimit(userId, otherUserId);
     if (!limitCheck.canMessage) {
-      return res.status(403).json({ 
-        error: 'subscription_required',
+      return res.status(403).json({ success: false, error: 'subscription_required',
         message: limitCheck.message,
         uniqueContacts: limitCheck.uniqueContacts,
         maxContacts: limitCheck.maxContacts,
@@ -731,7 +725,7 @@ router.post('/start', authMiddleware, [
 
   } catch (error) {
     console.error('Start conversation error:', error);
-    res.status(500).json({ error: 'Failed to start conversation' });
+    res.status(500).json({ success: false, error: 'Failed to start conversation' });
   }
 });
 
@@ -755,7 +749,7 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
       ]
     });
     if (!conversation) {
-      return res.status(403).json({ error: 'Not a participant of this conversation' });
+      return res.status(403).json({ success: false, error: 'Not a participant of this conversation' });
     }
     
     // Mark unread messages as read
@@ -789,7 +783,7 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Mark as read error:', error);
-    res.status(500).json({ error: 'Failed to mark messages as read' });
+    res.status(500).json({ success: false, error: 'Failed to mark messages as read' });
   }
 });
 
@@ -804,17 +798,17 @@ router.delete('/messages/:messageId', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     if (!messageId) {
-      return res.status(400).json({ error: 'Message ID is required' });
+      return res.status(400).json({ success: false, error: 'Message ID is required' });
     }
 
     const message = await Message.findById(messageId).select('conversationId senderId createdAt');
     if (!message) {
-      return res.status(404).json({ error: 'Message not found' });
+      return res.status(404).json({ success: false, error: 'Message not found' });
     }
 
     // Sender-only delete to prevent tampering
     if (String(message.senderId) !== String(userId)) {
-      return res.status(403).json({ error: 'You can only delete your own messages' });
+      return res.status(403).json({ success: false, error: 'You can only delete your own messages' });
     }
 
     // Verify user still belongs to conversation
@@ -827,7 +821,7 @@ router.delete('/messages/:messageId', authMiddleware, async (req, res) => {
     }).select('_id participant1Id participant2Id');
 
     if (!conversation) {
-      return res.status(403).json({ error: 'Access denied to this conversation' });
+      return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
     }
 
     await Message.deleteOne({ _id: messageId });
@@ -879,7 +873,7 @@ router.delete('/messages/:messageId', authMiddleware, async (req, res) => {
     res.json({ success: true, message: 'Message deleted' });
   } catch (error) {
     console.error('Delete message error:', error);
-    res.status(500).json({ error: 'Failed to delete message' });
+    res.status(500).json({ success: false, error: 'Failed to delete message' });
   }
 });
 
@@ -895,13 +889,13 @@ const deleteConversationHandler = async (req, res) => {
     const userId = req.user.userId;
 
     if (!isDatabaseAvailable()) {
-      return res.status(503).json({ error: 'Database not available' });
+      return res.status(503).json({ success: false, error: 'Database not available' });
     }
 
     // Verify user is part of this conversation
     const conv = await Conversation.findById(conversationId);
     if (!conv) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
     }
 
     const userIdStr = userId?.toString();
@@ -909,7 +903,7 @@ const deleteConversationHandler = async (req, res) => {
     const p2 = conv.participant2Id?.toString();
     const isMember = (p1 === userIdStr || p2 === userIdStr);
     if (!isMember) {
-      return res.status(403).json({ error: 'Access denied to this conversation' });
+      return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
     }
 
     // Hard delete messages and conversation
@@ -919,7 +913,7 @@ const deleteConversationHandler = async (req, res) => {
     res.json({ success: true, message: 'Conversation deleted' });
   } catch (error) {
     console.error('Delete conversation error:', error);
-    res.status(500).json({ error: 'Failed to delete conversation' });
+    res.status(500).json({ success: false, error: 'Failed to delete conversation' });
   }
 };
 
@@ -939,8 +933,7 @@ router.post('/video-call', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -958,7 +951,7 @@ router.post('/video-call', authMiddleware, [
     });
     
     if (!conversation) {
-      return res.status(403).json({ error: 'Access denied to this conversation' });
+      return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
     }
     
     let generatedRoomId = roomId;
@@ -982,7 +975,7 @@ router.post('/video-call', authMiddleware, [
 
   } catch (error) {
     console.error('Video call error:', error);
-    res.status(500).json({ error: 'Failed to handle video call' });
+    res.status(500).json({ success: false, error: 'Failed to handle video call' });
   }
 });
 
@@ -997,8 +990,7 @@ router.post('/block-user', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -1007,7 +999,7 @@ router.post('/block-user', authMiddleware, [
     const currentUserId = req.user.userId;
     
     if (currentUserId === blockedUserId) {
-      return res.status(400).json({ error: 'Cannot block yourself' });
+      return res.status(400).json({ success: false, error: 'Cannot block yourself' });
     }
     
     try {
@@ -1015,12 +1007,12 @@ router.post('/block-user', authMiddleware, [
       res.json(result);
     } catch (err) {
       console.error('Block user error:', err);
-      res.status(500).json({ error: 'Failed to block user' });
+      res.status(500).json({ success: false, error: 'Failed to block user' });
     }
 
   } catch (error) {
     console.error('Block user error:', error);
-    res.status(500).json({ error: 'Failed to block user' });
+    res.status(500).json({ success: false, error: 'Failed to block user' });
   }
 });
 
@@ -1091,7 +1083,7 @@ router.get('/messaging-limit', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get messaging limit error:', error);
-    res.status(500).json({ error: 'Failed to get messaging limit' });
+    res.status(500).json({ success: false, error: 'Failed to get messaging limit' });
   }
 });
 

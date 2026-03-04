@@ -7,6 +7,23 @@ const { body, validationResult } = require('express-validator');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
 
+function sendError(res, status, message, data = null) {
+  return res.status(status).json({
+    success: false,
+    data,
+    message,
+    error: message
+  });
+}
+
+function sendSuccess(res, status, data, message) {
+  return res.status(status).json({
+    success: true,
+    data,
+    message
+  });
+}
+
 // Rate limiting for auth endpoints - dual key: IP + identifier
 const authLimiterByIp = new RateLimiterMemory({
   points: 10, // 10 attempts per IP
@@ -28,7 +45,7 @@ const rateLimitMiddleware = async (req, res, next) => {
     }
     next();
   } catch (rejRes) {
-    res.status(429).json({ success: false, error: 'Too many authentication attempts, please try again later.' });
+    return sendError(res, 429, 'Too many authentication attempts, please try again later.');
   }
 };
 
@@ -918,7 +935,7 @@ async function authMiddleware(req, res, next) {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (!token) {
-      return res.status(401).json({ success: false, error: 'No token provided' });
+      return sendError(res, 401, 'No token provided');
     }
 
     const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
@@ -937,15 +954,15 @@ async function authMiddleware(req, res, next) {
     }
 
     if (!user) {
-      return res.status(401).json({ success: false, error: 'User not found' });
+      return sendError(res, 401, 'User not found');
     }
 
     if (user.status === 'suspended') {
-      return res.status(403).json({ success: false, error: 'Account suspended' });
+      return sendError(res, 403, 'Account suspended');
     }
 
     if (user.status === 'deleted') {
-      return res.status(403).json({ success: false, error: 'Account has been deleted' });
+      return sendError(res, 403, 'Account has been deleted');
     }
 
     // Check subscription expiry in middleware
@@ -970,10 +987,10 @@ async function authMiddleware(req, res, next) {
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ success: false, error: 'Token expired' });
+      return sendError(res, 401, 'Token expired');
     }
     
-    res.status(401).json({ success: false, error: 'Invalid token' });
+    return sendError(res, 401, 'Invalid token');
   }
 }
 
@@ -1036,12 +1053,12 @@ router.delete('/account', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     if (!userId) {
-      return res.status(401).json({ success: false, error: 'Unauthorized' });
+      return sendError(res, 401, 'Unauthorized');
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      return sendError(res, 404, 'User not found');
     }
 
     // Soft-delete: mark account as deleted rather than destroying data
@@ -1062,7 +1079,7 @@ router.delete('/account', authMiddleware, async (req, res) => {
     // Invalidate cache
     invalidateCachedUser(userId);
 
-    res.json({ success: true, message: 'Account deleted successfully' });
+    return sendSuccess(res, 200, null, 'Account deleted successfully');
   } catch (error) {
     console.error('Account deletion error:', error);
     res.status(500).json({

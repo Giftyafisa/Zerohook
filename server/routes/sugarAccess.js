@@ -63,14 +63,14 @@ router.get('/status', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     // Get user's account type
     const user = await User.findById(userId).select('profile_data').lean();
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const accountType = user.profile_data?.accountType;
@@ -130,8 +130,7 @@ router.get('/status', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Check sugar access status error:', error);
-    res.status(500).json({
-      error: 'Failed to check sugar access status',
+    res.status(500).json({ success: false, error: 'Failed to check sugar access status',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -148,19 +147,18 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
     const { accessType, cryptoSymbol = 'USDT' } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     // Validate cryptoSymbol
     const validCryptos = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'];
     if (!validCryptos.includes(cryptoSymbol)) {
-      return res.status(400).json({ error: 'Invalid crypto symbol', validCryptos });
+      return res.status(400).json({ success: false, error: 'Invalid crypto symbol', validCryptos });
     }
 
     // Validate access type
     if (!['sugar_daddy', 'sugar_mommy', 'both'].includes(accessType)) {
-      return res.status(400).json({
-        error: 'Invalid access type',
+      return res.status(400).json({ success: false, error: 'Invalid access type',
         validTypes: ['sugar_daddy', 'sugar_mommy', 'both']
       });
     }
@@ -169,14 +167,14 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
     const user = await User.findById(userId).select('profile_data email username').lean();
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const accountType = user.profile_data?.accountType;
     
     // Only providers can purchase sugar access
     if (accountType !== 'provider') {
-      return res.status(403).json({ error: 'Only providers can purchase sugar access' });
+      return res.status(403).json({ success: false, error: 'Only providers can purchase sugar access' });
     }
 
     // Check if user already has active access for this type
@@ -188,8 +186,7 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
     }).select('_id').lean();
 
     if (existingAccess && accessType !== 'both') {
-      return res.status(400).json({
-        error: 'You already have active access for this type',
+      return res.status(400).json({ success: false, error: 'You already have active access for this type',
         existingAccess: true
       });
     }
@@ -258,8 +255,7 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
 
   } catch (error) {
     console.error('Initialize sugar access payment error:', error);
-    res.status(500).json({
-      error: 'Failed to initialize payment',
+    res.status(500).json({ success: false, error: 'Failed to initialize payment',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -276,11 +272,11 @@ router.post('/verify', authMiddleware, async (req, res) => {
     const { reference, paymentId } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     if (!reference && !paymentId) {
-      return res.status(400).json({ error: 'Payment reference or payment ID is required' });
+      return res.status(400).json({ success: false, error: 'Payment reference or payment ID is required' });
     }
 
     // Find the payment record
@@ -302,7 +298,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
     }
 
     if (!payment) {
-      return res.status(404).json({ error: 'Payment not found' });
+      return res.status(404).json({ success: false, error: 'Payment not found' });
     }
 
     if (payment.paymentStatus === 'completed') {
@@ -365,8 +361,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Verify sugar access payment error:', error);
-    res.status(500).json({
-      error: 'Failed to verify payment',
+    res.status(500).json({ success: false, error: 'Failed to verify payment',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -382,7 +377,7 @@ router.get('/history', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     const payments = await SugarAccessPayment.find({ providerId: userId })
@@ -406,8 +401,7 @@ router.get('/history', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get sugar access history error:', error);
-    res.status(500).json({
-      error: 'Failed to get payment history',
+    res.status(500).json({ success: false, error: 'Failed to get payment history',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

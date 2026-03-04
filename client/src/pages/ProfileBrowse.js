@@ -582,9 +582,9 @@ const ProfileBrowse = () => {
    * For pagination consistency, prefer server-driven filtering.
    * Local filtering here is a UX enhancement, not the source of truth.
    */
-  // Real-time online status
+  // Real-time online status (browse context = public, no conversation gate)
   const profileIds = useMemo(() => profiles.map(p => String(p.id || p._id)), [profiles]);
-  const { isUserOnline } = usePresence(profileIds);
+  const { isUserOnline } = usePresence(profileIds, { context: 'browse' });
 
   // Enhance profiles with real-time online status before filtering
   const liveProfiles = useMemo(() => profiles.map(p => ({

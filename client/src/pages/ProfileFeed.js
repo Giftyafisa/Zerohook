@@ -1144,9 +1144,9 @@ const ProfileFeed = () => {
     fetchProfiles, resetProfiles,
   } = useFeedQuery({ activeFilter, searchQuery, userLocation, locationLoading });
 
-  // Real-time online status for all displayed profiles
+  // Real-time online status for all displayed profiles (feed context = public)
   const profileIds = useMemo(() => displayedProfiles.map(p => String(p.id)), [displayedProfiles]);
-  const { isUserOnline } = usePresence(profileIds);
+  const { isUserOnline } = usePresence(profileIds, { context: 'feed' });
 
   // Local UI state
   const [likedProfiles, setLikedProfiles] = useState(new Set());

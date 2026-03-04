@@ -172,9 +172,9 @@ const SearchOverlay = ({ open, onClose }) => {
   const searchTimeoutRef = useRef(null);
   const { convertFromUSD } = useCurrency();
 
-  // Real-time online status for search results
+  // Real-time online status for search results (feed context = public)
   const searchResultIds = useMemo(() => searchResults.map(p => String(p.id || p._id)), [searchResults]);
-  const { isUserOnline } = usePresence(searchResultIds);
+  const { isUserOnline } = usePresence(searchResultIds, { context: 'feed' });
 
   // Trending suggestions (like TikTok's suggestions)
   const trendingSuggestions = [
@@ -1081,9 +1081,9 @@ const TikTokProfileFeed = () => {
   // AbortController for cancelling stale API requests on tab change
   const abortControllerRef = useRef(null);
 
-  // Real-time online status for all loaded profiles
+  // Real-time online status for all loaded profiles (feed context = public)
   const profileIds = useMemo(() => profiles.map(p => String(p.id)), [profiles]);
-  const { isUserOnline } = usePresence(profileIds);
+  const { isUserOnline } = usePresence(profileIds, { context: 'feed' });
 
   // Refs
   const containerRef = useRef(null);

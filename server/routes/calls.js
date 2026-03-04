@@ -17,8 +17,7 @@ router.post('/request', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -27,14 +26,14 @@ router.post('/request', authMiddleware, [
     const callerId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(targetUserId) || !mongoose.Types.ObjectId.isValid(callerId)) {
-      return res.status(400).json({ error: 'Invalid caller or target user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid caller or target user ID' });
     }
 
     // Check if target user exists and is online
     const targetUser = await User.findById(targetUserId).select('_id').lean();
 
     if (!targetUser) {
-      return res.status(404).json({ error: 'Target user not found' });
+      return res.status(404).json({ success: false, error: 'Target user not found' });
     }
 
     // Check if there's already an active call (auto-expire stale "calling" records > 60s)
@@ -49,7 +48,7 @@ router.post('/request', authMiddleware, [
     }).select('_id').lean();
 
     if (activeCall) {
-      return res.status(400).json({ error: 'You already have an active call' });
+      return res.status(400).json({ success: false, error: 'You already have an active call' });
     }
 
     // Create call record
@@ -79,7 +78,7 @@ router.post('/request', authMiddleware, [
 
   } catch (error) {
     console.error('Call request error:', error);
-    res.status(500).json({ error: 'Failed to send call request' });
+    res.status(500).json({ success: false, error: 'Failed to send call request' });
   }
 });
 
@@ -94,8 +93,7 @@ router.post('/accept', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -104,14 +102,14 @@ router.post('/accept', authMiddleware, [
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(callId) || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid call or user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid call or user ID' });
     }
 
     // Verify call exists and user is the target
     const call = await Call.findOne({ _id: callId, target_user_id: userId, status: 'calling' });
 
     if (!call) {
-      return res.status(404).json({ error: 'Call not found or already processed' });
+      return res.status(404).json({ success: false, error: 'Call not found or already processed' });
     }
 
     // Update call status
@@ -136,7 +134,7 @@ router.post('/accept', authMiddleware, [
 
   } catch (error) {
     console.error('Call accept error:', error);
-    res.status(500).json({ error: 'Failed to accept call' });
+    res.status(500).json({ success: false, error: 'Failed to accept call' });
   }
 });
 
@@ -151,8 +149,7 @@ router.post('/reject', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -161,14 +158,14 @@ router.post('/reject', authMiddleware, [
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(callId) || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid call or user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid call or user ID' });
     }
 
     // Verify call exists and user is the target
     const call = await Call.findOne({ _id: callId, target_user_id: userId, status: 'calling' });
 
     if (!call) {
-      return res.status(404).json({ error: 'Call not found or already processed' });
+      return res.status(404).json({ success: false, error: 'Call not found or already processed' });
     }
 
     // Update call status
@@ -191,7 +188,7 @@ router.post('/reject', authMiddleware, [
 
   } catch (error) {
     console.error('Call reject error:', error);
-    res.status(500).json({ error: 'Failed to reject call' });
+    res.status(500).json({ success: false, error: 'Failed to reject call' });
   }
 });
 
@@ -206,8 +203,7 @@ router.post('/end', authMiddleware, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
+      return res.status(400).json({ success: false, error: 'Validation failed',
         details: errors.array()
       });
     }
@@ -216,7 +212,7 @@ router.post('/end', authMiddleware, [
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(callId) || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid call or user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid call or user ID' });
     }
 
     // Verify call exists and user is a participant
@@ -227,7 +223,7 @@ router.post('/end', authMiddleware, [
     });
 
     if (!call) {
-      return res.status(404).json({ error: 'Call not found or not active' });
+      return res.status(404).json({ success: false, error: 'Call not found or not active' });
     }
 
     // Update call status
@@ -254,7 +250,7 @@ router.post('/end', authMiddleware, [
 
   } catch (error) {
     console.error('Call end error:', error);
-    res.status(500).json({ error: 'Failed to end call' });
+    res.status(500).json({ success: false, error: 'Failed to end call' });
   }
 });
 
@@ -312,7 +308,7 @@ router.get('/history', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Get call history error:', error);
-    res.status(500).json({ error: 'Failed to fetch call history' });
+    res.status(500).json({ success: false, error: 'Failed to fetch call history' });
   }
 });
 

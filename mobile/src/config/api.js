@@ -2,8 +2,8 @@
 // Update these URLs when deploying to production
 
 // Production URLs (Render.com)
-export const PRODUCTION_API_URL = 'https://zerohook-api.onrender.com/api';
-export const PRODUCTION_SOCKET_URL = 'https://zerohook-api.onrender.com';
+export const PRODUCTION_API_URL = 'https://zerohook-api-f3ss.onrender.com/api';
+export const PRODUCTION_SOCKET_URL = 'https://zerohook-api-f3ss.onrender.com';
 
 // Development URLs (Local)
 // Replace 192.168.x.x with your computer's local IP address

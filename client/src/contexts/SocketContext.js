@@ -228,14 +228,19 @@ export const SocketProvider = ({ children }) => {
 
       // NOTIFICATIONS - general notification handler
       newSocket.on('new_notification', (data) => {
+        const metadata = data?.data || data?.metadata || {};
+        const createdAt = data?.createdAt || data?.created_at || new Date().toISOString();
         dispatch(incrementUnreadNotifications());
         dispatch(addToNotificationsList({
           id: data.id || Date.now(),
           title: data.title || 'New Notification',
-          message: data.message || '',
+          body: data.message || '',
           type: data.type || 'info',
           read: false,
-          createdAt: new Date().toISOString()
+          createdAt,
+          time: 'Just now',
+          metadata,
+          username: metadata?.from_username || metadata?.senderName || null
         }));
         // Don't show toast for 'message' type notifications — the 'new_message'
         // socket handler already shows its own toast. Showing both causes double toasts.
@@ -247,15 +252,18 @@ export const SocketProvider = ({ children }) => {
 
       // CONNECTION REQUEST notification
       newSocket.on('connection_request', (data) => {
+        const metadata = data?.data || data?.metadata || data;
         dispatch(incrementUnreadNotifications());
         dispatch(addToNotificationsList({
           id: data.id || Date.now(),
           title: 'Connection Request',
-          message: `${data.senderName || 'Someone'} wants to connect with you`,
+          body: `${data.senderName || 'Someone'} wants to connect with you`,
           type: 'connection_request',
           read: false,
           createdAt: new Date().toISOString(),
-          data: data
+          time: 'Just now',
+          metadata,
+          username: data?.senderName || null
         }));
         showNotification('🤝 Connection Request', `${data.senderName || 'Someone'} wants to connect`, 'info');
       });

@@ -14,7 +14,7 @@ router.get('/score', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     const user = await User.findById(userId)
@@ -22,7 +22,7 @@ router.get('/score', authMiddleware, async (req, res) => {
       .lean();
 
     if (!user || user.status !== 'active') {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Calculate trust score using TrustEngine if available
@@ -68,7 +68,7 @@ router.get('/score', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Get trust score error:', error);
     res.status(500).json({
-      error: 'Failed to get trust score'
+      success: false, error: 'Failed to get trust score'
     });
   }
 });
@@ -97,19 +97,20 @@ router.get('/score/:userId', async (req, res) => {
     const userId = req.params.userId;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     const user = await User.findById(userId).select('username verification_tier status').lean();
 
     if (!user || user.status !== 'active') {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Calculate trust score
     const trustScoreData = await req.trustEngine.calculateTrustScore(userId);
 
     res.json({
+      success: true,
       username: user.username,
       verificationTier: user.verification_tier,
       trustScore: trustScoreData
@@ -118,7 +119,7 @@ router.get('/score/:userId', async (req, res) => {
   } catch (error) {
     console.error('Get trust score error:', error);
     res.status(500).json({
-      error: 'Failed to get trust score'
+      success: false, error: 'Failed to get trust score'
     });
   }
 });
@@ -144,6 +145,7 @@ router.get('/events', authMiddleware, async (req, res) => {
       .lean();
 
     res.json({
+      success: true,
       events,
       pagination: {
         page: pageNum,
@@ -155,7 +157,7 @@ router.get('/events', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Get trust events error:', error);
     res.status(500).json({
-      error: 'Failed to get trust events'
+      success: false, error: 'Failed to get trust events'
     });
   }
 });
@@ -171,7 +173,7 @@ router.post('/assess-risk', authMiddleware, async (req, res) => {
     const { providerId, amount, serviceType } = req.body;
 
     if (!providerId || !amount) {
-      return res.status(400).json({ error: 'Provider ID and amount are required' });
+      return res.status(400).json({ success: false, error: 'Provider ID and amount are required' });
     }
 
     // Assess transaction risk
@@ -180,13 +182,14 @@ router.post('/assess-risk', authMiddleware, async (req, res) => {
     );
 
     res.json({
+      success: true,
       riskAssessment
     });
 
   } catch (error) {
     console.error('Assess risk error:', error);
     res.status(500).json({
-      error: 'Failed to assess transaction risk',
+      success: false, error: 'Failed to assess transaction risk',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -202,16 +205,17 @@ router.get('/verification-requirements/:tier', (req, res) => {
     const tier = parseInt(req.params.tier);
 
     if (tier < 1 || tier > 4) {
-      return res.status(400).json({ error: 'Invalid tier. Must be between 1 and 4.' });
+      return res.status(400).json({ success: false, error: 'Invalid tier. Must be between 1 and 4.' });
     }
 
     const requirements = req.trustEngine.verificationTiers[tier];
 
     if (!requirements) {
-      return res.status(404).json({ error: 'Tier not found' });
+      return res.status(404).json({ success: false, error: 'Tier not found' });
     }
 
     res.json({
+      success: true,
       tier,
       requirements,
       description: {
@@ -225,7 +229,7 @@ router.get('/verification-requirements/:tier', (req, res) => {
   } catch (error) {
     console.error('Get verification requirements error:', error);
     res.status(500).json({
-      error: 'Failed to get verification requirements'
+      success: false, error: 'Failed to get verification requirements'
     });
   }
 });
@@ -241,11 +245,11 @@ router.post('/report-fraud', authMiddleware, async (req, res) => {
     const { reportedUserId, transactionId, reason, evidence } = req.body;
 
     if (!reportedUserId || !reason) {
-      return res.status(400).json({ error: 'Reported user ID and reason are required' });
+      return res.status(400).json({ success: false, error: 'Reported user ID and reason are required' });
     }
 
     if (!mongoose.Types.ObjectId.isValid(reportedUserId)) {
-      return res.status(400).json({ error: 'Invalid reported user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid reported user ID' });
     }
 
     await FraudLog.create({
@@ -278,13 +282,14 @@ router.post('/report-fraud', authMiddleware, async (req, res) => {
     );
 
     res.json({
+      success: true,
       message: 'Fraud report submitted successfully. It will be reviewed by our team.'
     });
 
   } catch (error) {
     console.error('Report fraud error:', error);
     res.status(500).json({
-      error: 'Failed to submit fraud report'
+      success: false, error: 'Failed to submit fraud report'
     });
   }
 });
@@ -305,29 +310,45 @@ router.get('/leaderboard', async (req, res) => {
       .limit(limitNum)
       .lean();
 
-    const leaderboard = await Promise.all(users.map(async (user, index) => {
-      const txCount = await Transaction.countDocuments({
-        $or: [{ provider_id: user._id }, { client_id: user._id }]
-      });
+    // Batch: 2 aggregations instead of N individual countDocuments (N+1 fix)
+    const userIds = users.map(u => u._id);
+    const [providerCounts, clientCounts] = await Promise.all([
+      Transaction.aggregate([
+        { $match: { provider_id: { $in: userIds } } },
+        { $group: { _id: '$provider_id', count: { $sum: 1 } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { client_id: { $in: userIds } } },
+        { $group: { _id: '$client_id', count: { $sum: 1 } } }
+      ])
+    ]);
+    const txCountMap = new Map();
+    for (const { _id, count } of providerCounts) {
+      txCountMap.set(_id.toString(), count);
+    }
+    for (const { _id, count } of clientCounts) {
+      const key = _id.toString();
+      txCountMap.set(key, (txCountMap.get(key) || 0) + count);
+    }
 
-      return {
-        rank: index + 1,
-        username: user.username,
-        verification_tier: user.verification_tier,
-        trust_score: user.trust_score,
-        reputation_score: user.reputation_score,
-        total_transactions: txCount
-      };
+    const leaderboard = users.map((user, index) => ({
+      rank: index + 1,
+      username: user.username,
+      verification_tier: user.verification_tier,
+      trust_score: user.trust_score,
+      reputation_score: user.reputation_score,
+      total_transactions: txCountMap.get(user._id.toString()) || 0
     }));
 
     res.json({
+      success: true,
       leaderboard
     });
 
   } catch (error) {
     console.error('Get leaderboard error:', error);
     res.status(500).json({
-      error: 'Failed to get trust leaderboard'
+      success: false, error: 'Failed to get trust leaderboard'
     });
   }
 });

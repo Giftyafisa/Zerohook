@@ -13,7 +13,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
     
     const notifications = await Notification.find({ user_id: userId })
@@ -41,7 +41,7 @@ router.get('/', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Get notifications error:', error);
     res.status(500).json({
-      error: 'Failed to get notifications'
+      success: false, error: 'Failed to get notifications'
     });
   }
 });
@@ -56,7 +56,7 @@ router.put('/:id/read', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user or notification ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user or notification ID' });
     }
 
     await Notification.updateOne({ _id: id, user_id: userId }, { read: true });
@@ -69,7 +69,7 @@ router.put('/:id/read', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Mark notification read error:', error);
     res.status(500).json({
-      error: 'Failed to mark notification as read'
+      success: false, error: 'Failed to mark notification as read'
     });
   }
 });
@@ -83,7 +83,7 @@ router.put('/mark-all-read', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     await Notification.updateMany({ user_id: userId, read: false }, { read: true });
@@ -96,7 +96,7 @@ router.put('/mark-all-read', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Mark all notifications read error:', error);
     res.status(500).json({
-      error: 'Failed to mark all notifications as read'
+      success: false, error: 'Failed to mark all notifications as read'
     });
   }
 });
@@ -113,12 +113,12 @@ router.post('/mark-read', authMiddleware, async (req, res) => {
 
     if (!notificationId) {
       return res.status(400).json({
-        error: 'Notification ID is required'
+        success: false, error: 'Notification ID is required'
       });
     }
 
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(notificationId)) {
-      return res.status(400).json({ error: 'Invalid user or notification ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user or notification ID' });
     }
 
     await Notification.updateOne({ _id: notificationId, user_id: userId }, { read: true });
@@ -131,7 +131,7 @@ router.post('/mark-read', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Mark notification read error:', error);
     res.status(500).json({
-      error: 'Failed to mark notification as read'
+      success: false, error: 'Failed to mark notification as read'
     });
   }
 });
@@ -146,7 +146,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user or notification ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user or notification ID' });
     }
 
     await Notification.deleteOne({ _id: id, user_id: userId });
@@ -159,7 +159,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Delete notification error:', error);
     res.status(500).json({
-      error: 'Failed to delete notification'
+      success: false, error: 'Failed to delete notification'
     });
   }
 });
@@ -171,13 +171,13 @@ router.post('/:id/read', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user or notification ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user or notification ID' });
     }
     await Notification.updateOne({ _id: id, user_id: userId }, { read: true });
     res.json({ success: true, message: 'Notification marked as read' });
   } catch (error) {
     console.error('Mark notification read (POST compat) error:', error);
-    res.status(500).json({ error: 'Failed to mark notification as read' });
+    res.status(500).json({ success: false, error: 'Failed to mark notification as read' });
   }
 });
 
@@ -185,13 +185,13 @@ router.post('/read-all', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
     await Notification.updateMany({ user_id: userId, read: false }, { read: true });
     res.json({ success: true, message: 'All notifications marked as read' });
   } catch (error) {
     console.error('Mark all notifications read (POST compat) error:', error);
-    res.status(500).json({ error: 'Failed to mark all notifications as read' });
+    res.status(500).json({ success: false, error: 'Failed to mark all notifications as read' });
   }
 });
 

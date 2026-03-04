@@ -17,16 +17,16 @@ services:
       - key: NODE_ENV
         value: production
       - key: MONGODB_URI
-        value: mongodb+srv://zerohook:11221122Ga@zerohook.cnyphi4.mongodb.net/zerohook?retryWrites=true&w=majority
+        sync: false  # Set in Render dashboard — NEVER commit DB credentials
       - key: JWT_SECRET
-        value: zerohook-production-jwt-secret-2024-secure-key
+        sync: false  # Set in Render dashboard — NEVER commit JWT secrets
       - key: JWT_EXPIRE
         value: 7d
       - key: CLIENT_URL
         value: https://opue.me
       # Crypto Payment Configuration (Fee-Free Direct Blockchain)
       - key: CRYPTO_MASTER_SEED
-        value: dust chicken grain obvious culture gather original tube broccoli control together must loan cradle pull neutral tone notable vast funny planet bubble source visual
+        sync: false  # Set in Render dashboard — NEVER commit seed phrases
       - key: BITCOIN_NETWORK
         value: testnet
       - key: ETHEREUM_RPC_URL
@@ -40,7 +40,7 @@ services:
       - key: CLOUDINARY_API_SECRET
         sync: false
       - key: ENCRYPTION_KEY
-        value: zerohook-32-byte-encryption-2024
+        sync: false  # Set in Render dashboard — NEVER commit encryption keys
       - key: RATE_LIMIT_WINDOW_MS
         value: "300000"
       - key: RATE_LIMIT_MAX_REQUESTS
@@ -76,5 +76,11 @@ services:
         value: "true"
       - key: REACT_APP_ENABLE_TRUST_SYSTEM
         value: "true"
+      - key: REACT_APP_TURN_URL
+        sync: false  # TURN server URL for WebRTC — set in Render dashboard
+      - key: REACT_APP_TURN_USERNAME
+        sync: false  # TURN credentials — set in Render dashboard
+      - key: REACT_APP_TURN_CREDENTIAL
+        sync: false  # TURN credentials — set in Render dashboard
 
 # No database section - using existing zerohookdb on Render

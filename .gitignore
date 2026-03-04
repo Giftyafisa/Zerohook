@@ -17,6 +17,7 @@ node_modules
 
 # Archive/legacy folder
 /server/legacy/
+/server/backup/
 Zerohook/
 
 # Claude Code temp files

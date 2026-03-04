@@ -584,13 +584,14 @@ const ProfileBrowse = () => {
    */
   // Real-time online status (browse context = public, no conversation gate)
   const profileIds = useMemo(() => profiles.map(p => String(p.id || p._id)), [profiles]);
-  const { isUserOnline } = usePresence(profileIds, { context: 'browse' });
+  const { isUserOnline, getUserLastSeen } = usePresence(profileIds, { context: 'browse' });
 
-  // Enhance profiles with real-time online status before filtering
+  // Enhance profiles with real-time online status + lastSeenLabel before filtering
   const liveProfiles = useMemo(() => profiles.map(p => ({
     ...p,
-    isOnline: isUserOnline(p.id || p._id) ?? p.isOnline ?? false
-  })), [profiles, isUserOnline]);
+    isOnline: isUserOnline(p.id || p._id) ?? p.isOnline ?? false,
+    lastSeenLabel: getUserLastSeen(p.id || p._id) ?? p.lastSeenLabel ?? null,
+  })), [profiles, isUserOnline, getUserLastSeen]);
 
   const filteredProfiles = liveProfiles.filter(profile => {
     // Handle missing profile data gracefully

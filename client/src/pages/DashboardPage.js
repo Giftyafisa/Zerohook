@@ -7,6 +7,7 @@ import {
   Badge,
   CircularProgress
 } from '@mui/material';
+import ProfileCompletionReminder from '../components/ProfileCompletionReminder';
 import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
@@ -226,6 +227,9 @@ const DashboardPage = () => {
           </Box>
         </motion.div>
       </Box>
+
+      {/* Profile Completion Card — only shows when profile is incomplete (<90%) */}
+      <ProfileCompletionReminder variant="card" showDismiss={true} />
 
       {/* View Profile Button */}
       <motion.div

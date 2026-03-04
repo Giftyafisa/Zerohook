@@ -1146,7 +1146,7 @@ const ProfileFeed = () => {
 
   // Real-time online status for all displayed profiles (feed context = public)
   const profileIds = useMemo(() => displayedProfiles.map(p => String(p.id)), [displayedProfiles]);
-  const { isUserOnline } = usePresence(profileIds, { context: 'feed' });
+  const { isUserOnline, getUserLastSeen } = usePresence(profileIds, { context: 'feed' });
 
   // Local UI state
   const [likedProfiles, setLikedProfiles] = useState(new Set());
@@ -1427,7 +1427,7 @@ const ProfileFeed = () => {
               {displayedProfiles.map((profile, index) => (
                 <ProfileCard
                   key={profile.id}
-                  profile={{ ...profile, isOnline: isUserOnline(profile.id) ?? profile.isOnline }}
+                  profile={{ ...profile, isOnline: isUserOnline(profile.id) ?? profile.isOnline, lastSeenLabel: getUserLastSeen(profile.id) ?? profile.lastSeenLabel }}
                   index={index}
                   isLiked={likedProfiles.has(profile.id)}
                   onLike={handleLike}

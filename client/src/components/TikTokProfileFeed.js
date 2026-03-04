@@ -1083,7 +1083,7 @@ const TikTokProfileFeed = () => {
 
   // Real-time online status for all loaded profiles (feed context = public)
   const profileIds = useMemo(() => profiles.map(p => String(p.id)), [profiles]);
-  const { isUserOnline } = usePresence(profileIds, { context: 'feed' });
+  const { isUserOnline: isProfileOnline, getUserLastSeen } = usePresence(profileIds, { context: 'feed' });
 
   // Refs
   const containerRef = useRef(null);
@@ -1530,7 +1530,8 @@ const TikTokProfileFeed = () => {
             <FullScreenProfileCard
               profile={{
                 ...profiles[currentIndex],
-                isOnline: isUserOnline(profiles[currentIndex].id) ?? profiles[currentIndex].isOnline,
+                isOnline: isProfileOnline(profiles[currentIndex].id) ?? profiles[currentIndex].isOnline,
+                lastSeenLabel: getUserLastSeen(profiles[currentIndex].id) ?? profiles[currentIndex].lastSeenLabel,
               }}
               index={currentIndex}
               onShare={handleShare}

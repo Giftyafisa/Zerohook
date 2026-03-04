@@ -1346,25 +1346,51 @@ io.on('connection', async (socket) => {
           });
         }
 
-        const users = requestedUserIds.map((targetUserId) => {
-          // In chat context, block status for non-conversation users
+        // ── Step 1: Determine online/offline via socket rooms (no DB needed) ──────────────
+        const statusInfo = requestedUserIds.map((targetUserId) => {
           if (allowedUserSet && !allowedUserSet.has(targetUserId)) {
-            return {
-              userId: targetUserId,
-              isOnline: false,
-              lastSeen: null,
-              status: 'offline'
-            };
+            return { userId: targetUserId, isOnline: false, blocked: true };
           }
-
           const roomSize = io.sockets.adapter.rooms.get(`user_${targetUserId}`)?.size || 0;
-          const isOnline = roomSize > 0;
+          return { userId: targetUserId, isOnline: roomSize > 0, blocked: false };
+        });
 
+        // ── Step 2: Batch-fetch last_active for offline users (single DB call) ──────────
+        const offlineIds = statusInfo.filter(s => !s.isOnline && !s.blocked).map(s => s.userId);
+        let lastActiveMap = {};
+        if (offlineIds.length > 0) {
+          try {
+            const offlineUsers = await User.find({ _id: { $in: offlineIds } })
+              .select('_id last_active lastActive').lean();
+            offlineUsers.forEach(u => {
+              lastActiveMap[String(u._id)] = u.last_active || u.lastActive || null;
+            });
+          } catch (_) { /* Non-critical — don't block for this */ }
+        }
+
+        // ── Step 3: Build human-readable label helper ────────────────────────────────────
+        const getLastSeenLabel = (lastActiveDate) => {
+          if (!lastActiveDate) return null;
+          const diffMs = Date.now() - new Date(lastActiveDate).getTime();
+          if (diffMs < 0) return null;
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffHours = Math.floor(diffMs / 3600000);
+          const diffDays = Math.floor(diffMs / 86400000);
+          if (diffMins < 5) return 'Just now';
+          if (diffMins < 60) return `${diffMins}m ago`;
+          if (diffHours < 24) return `${diffHours}h ago`;
+          if (diffDays < 7) return `${diffDays}d ago`;
+          return `${Math.floor(diffDays / 7)}w ago`;
+        };
+
+        const users = statusInfo.map(({ userId, isOnline, blocked }) => {
+          const lastActiveRaw = isOnline ? null : (lastActiveMap[userId] || null);
           return {
-            userId: targetUserId,
+            userId,
             isOnline,
-            lastSeen: null,
-            status: isOnline ? 'online' : 'offline'
+            lastSeen: lastActiveRaw,
+            lastSeenLabel: isOnline ? null : getLastSeenLabel(lastActiveRaw),
+            status: blocked ? 'offline' : (isOnline ? 'online' : 'offline'),
           };
         });
 

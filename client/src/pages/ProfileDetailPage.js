@@ -66,8 +66,10 @@ const ProfileDetailPage = () => {
 
   // Real-time online status via socket (browse context = public visibility)
   const presenceIds = useMemo(() => profile ? [profile.id || profileId] : [profileId], [profile, profileId]);
-  const { isUserOnline } = usePresence(presenceIds, { context: 'browse' });
+  const { isUserOnline, getUserLastSeen } = usePresence(presenceIds, { context: 'browse' });
   const profileOnline = isUserOnline(profile?.id || profileId) ?? profile?.isOnline ?? false;
+  // Real-time lastSeenLabel (e.g. "5m ago") — falls back to static API value
+  const profileLastSeenLabel = getUserLastSeen(profile?.id || profileId) ?? profile?.lastSeenLabel ?? null;
 
   // Check connection status with the profile user
   const checkConnectionStatus = useCallback(async () => {

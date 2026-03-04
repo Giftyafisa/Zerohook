@@ -23,3 +23,6 @@ Zerohook/
 tmpclaude-*
 client/tmpclaude-*
 nul
+
+# Build artifacts (generated on deploy, not committed)
+client/build/

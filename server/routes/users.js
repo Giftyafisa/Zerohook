@@ -12,6 +12,16 @@ const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 // In-memory dedup cache for engagement events (prevents socket + REST double-counting)
 let engagementDedup = null; // Lazy-init Map in engagement route
 
+// ── Whitelist constants (shared by PUT /me and PUT /profile) ────────────
+const ALLOWED_PROFILE_FIELDS = [
+  'firstName', 'lastName', 'bio', 'age', 'dateOfBirth', 'gender',
+  'location', 'photos', 'services', 'availability', 'specializations',
+  'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
+  'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
+  'profilePhoto', 'coverPhoto', 'gallery', 'accountType'
+];
+const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
+
 /**
  * Sanitize profile field values to enforce types, lengths, and safe ranges.
  * Keys are already whitelisted by ALLOWED_PROFILE_FIELDS; this validates VALUES.
@@ -197,17 +207,7 @@ router.put('/me', authMiddleware, async (req, res) => {
     const { profile_data, profileData: frontendProfileData, profile_visibility } = req.body;
     const incomingData = profile_data || frontendProfileData;
 
-    // Whitelist allowed profile_data fields to prevent privilege escalation
-    const ALLOWED_PROFILE_FIELDS = [
-      'firstName', 'lastName', 'bio', 'age', 'dateOfBirth', 'gender',
-      'location', 'photos', 'services', 'availability', 'specializations',
-      'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
-      'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
-      'profilePhoto', 'coverPhoto', 'gallery', 'accountType'
-    ];
-
     // Validate accountType if being changed
-    const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
     if (incomingData?.accountType && !VALID_ACCOUNT_TYPES.includes(incomingData.accountType)) {
       return res.status(400).json({ success: false, error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
     }
@@ -314,16 +314,6 @@ router.put('/profile', authMiddleware, async (req, res) => {
 
     // Merge existing profile_data with new data (support both naming conventions)
     // Apply whitelist to prevent privilege escalation
-    const ALLOWED_PROFILE_FIELDS = [
-      'firstName', 'lastName', 'bio', 'age', 'dateOfBirth', 'gender',
-      'location', 'photos', 'services', 'availability', 'specializations',
-      'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
-      'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
-      'profilePhoto', 'coverPhoto', 'gallery', 'accountType'
-    ];
-
-    // Validate accountType if being changed
-    const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
     if (incomingData?.accountType && !VALID_ACCOUNT_TYPES.includes(incomingData.accountType)) {
       return res.status(400).json({ success: false, error: 'Invalid account type', validTypes: VALID_ACCOUNT_TYPES });
     }

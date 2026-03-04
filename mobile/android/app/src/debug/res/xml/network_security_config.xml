@@ -8,8 +8,9 @@
 
     <!-- Production domains still HTTPS only even in debug -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">zerohook-api.onrender.com</domain>
+        <domain includeSubdomains="true">zerohook-api-f3ss.onrender.com</domain>
         <domain includeSubdomains="true">zerohook.com</domain>
+        <domain includeSubdomains="true">opue.me</domain>
     </domain-config>
 
     <!-- Default: HTTPS only with system + user-installed CAs for debug tools -->

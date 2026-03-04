@@ -139,9 +139,9 @@ app/src/main/java/com/zerohook/app/
 ## Configuration
 
 ### API Base URL
-Set in `AppModule.kt`:
+Set in `build.gradle.kts` via `local.properties` or default:
 ```kotlin
-private const val BASE_URL = "https://zerohook-api.onrender.com/api/"
+private const val BASE_URL = "https://zerohook-api-f3ss.onrender.com/api/"
 ```
 
 ### Environment Variables

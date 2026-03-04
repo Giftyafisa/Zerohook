@@ -245,7 +245,7 @@ router.post('/confirm', authMiddleware, async (req, res) => {
     if (req.trustEngine) {
       try {
         await req.trustEngine.recordTrustEvent(clientId, 'escrow_confirmed', { escrowId }, 5);
-      } catch (e) {}
+      } catch (e) { console.error('Trust event error (escrow_confirmed):', e.message); }
     }
 
     res.json({
@@ -415,7 +415,7 @@ router.post('/dispute', authMiddleware, async (req, res) => {
     if (req.trustEngine) {
       try {
         await req.trustEngine.recordTrustEvent(userId, 'escrow_disputed', { escrowId, reason }, -1);
-      } catch (e) {}
+      } catch (e) { console.error('Trust event error (escrow_disputed):', e.message); }
     }
 
     res.json({

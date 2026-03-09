@@ -251,6 +251,10 @@ const fraudLogSchema = new mongoose.Schema({
 const conversationSchema = new mongoose.Schema({
   participant1Id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   participant2Id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  participant1Hidden: { type: Boolean, default: false },
+  participant2Hidden: { type: Boolean, default: false },
+  participant1HiddenAt: { type: Date, default: null },
+  participant2HiddenAt: { type: Date, default: null },
   lastMessage: String,
   lastMessageType: { type: String, default: 'text' },
   lastMessageTime: Date,
@@ -260,6 +264,8 @@ const conversationSchema = new mongoose.Schema({
 // Compound index prevents duplicate conversations between same pair of users
 conversationSchema.index({ participant1Id: 1, participant2Id: 1 }, { unique: true });
 conversationSchema.index({ participant2Id: 1, participant1Id: 1 });
+conversationSchema.index({ participant1Id: 1, participant1Hidden: 1, lastMessageTime: -1 });
+conversationSchema.index({ participant2Id: 1, participant2Hidden: 1, lastMessageTime: -1 });
 
 const messageSchema = new mongoose.Schema({
   conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },

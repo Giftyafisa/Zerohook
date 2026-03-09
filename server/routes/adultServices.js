@@ -3,6 +3,7 @@ const { authMiddleware } = require('./auth');
 const requireSubscription = require('../middleware/requireSubscription');
 const AdultServiceManager = require('../services/AdultServiceManager');
 const PrivacyManager = require('../services/PrivacyManager');
+const { safePagination } = require('../utils/routeHelpers');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 
@@ -50,20 +51,20 @@ router.get('/', async (req, res) => {
       minPrice, 
       maxPrice, 
       verificationTier,
-      minTrustScore,
-      page = 1, 
-      limit = 20 
+      minTrustScore
     } = req.query;
+
+    const pg = safePagination(req.query);
 
     const filters = {
       category,
       location,
       minPrice: minPrice ? parseFloat(minPrice) : null,
       maxPrice: maxPrice ? parseFloat(maxPrice) : null,
-      verificationTier: verificationTier ? parseInt(verificationTier) : null,
-      minTrustScore: minTrustScore ? parseInt(minTrustScore) : null,
-      limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
+      verificationTier: verificationTier ? (parseInt(verificationTier, 10) || null) : null,
+      minTrustScore: minTrustScore ? (parseInt(minTrustScore, 10) || null) : null,
+      limit: pg.limit,
+      offset: pg.skip
     };
 
     const services = await adultServiceManager.getServiceListings(filters);
@@ -105,9 +106,9 @@ router.get('/', async (req, res) => {
       success: true,
       services: visibleServices,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        hasMore: visibleServices.length === parseInt(limit)
+        page: pg.page,
+        limit: pg.limit,
+        hasMore: visibleServices.length === pg.limit
       }
     });
 

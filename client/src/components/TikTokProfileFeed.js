@@ -12,6 +12,7 @@
  * - Uber/Bolt-style location sorting (same country first, closest first)
  */
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { toast } from 'react-toastify';
 import {
   Box,
   Typography,
@@ -1404,9 +1405,14 @@ const TikTokProfileFeed = () => {
       return;
     }
     const avatar = resolveProfileImage(profile.profileData);
+    const recipientId = profile.id || profile._id || profile.userId;
+    if (!recipientId) {
+      toast.error('Unable to open chat for this profile right now.');
+      return;
+    }
     navigate('/chat', {
       state: {
-        recipientId: profile.id,
+        recipientId,
         recipientName: profile.profileData?.firstName || profile.username,
         recipientAvatar: avatar,
         from: '/profiles'

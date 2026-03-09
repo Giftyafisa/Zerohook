@@ -6,6 +6,7 @@ const { body, validationResult } = require('express-validator');
 const { Transaction, Service, CryptoInvoice, Subscription, User: UserModel } = require('../config/database');
 const NotificationService = require('../services/NotificationService');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
+const { safePagination } = require('../utils/routeHelpers');
 const router = express.Router();
 const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
@@ -242,7 +243,7 @@ router.post('/confirm', authMiddleware, paymentRateLimit, [
 router.get('/transactions', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { page = 1, limit = 10, status, type } = req.query;
+    const { status, type } = req.query;
     
     let userObjectId;
     try {
@@ -250,7 +251,7 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     } catch (e) {
       return res.status(400).json({ success: false, error: 'Invalid user ID format' });
     }
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pg = safePagination(req.query, 100);
     
     const matchQuery = {
       $or: [
@@ -267,8 +268,8 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     
     const transactions = await Transaction.find(matchQuery)
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .skip(pg.skip)
+      .limit(pg.limit)
       .lean();
     
     const formattedTransactions = transactions.map(tx => {
@@ -295,10 +296,10 @@ router.get('/transactions', authMiddleware, async (req, res) => {
       success: true,
       transactions: formattedTransactions,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pg.page,
+        limit: pg.limit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / pg.limit)
       }
     });
 

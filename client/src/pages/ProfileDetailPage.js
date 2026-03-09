@@ -131,9 +131,14 @@ const ProfileDetailPage = () => {
     
     // Navigate directly to chat with this user
     const avatar = resolveProfileImage(profile?.profile_data || profile?.profileData);
+    const recipientId = profile?.id || profile?._id || profile?.userId;
+    if (!recipientId) {
+      toast.error('Unable to open chat for this profile right now.');
+      return;
+    }
     navigate('/chat', {
       state: {
-        recipientId: profile.id,
+        recipientId,
         recipientName: profile?.profile_data?.firstName || profile?.profileData?.firstName || profile?.username || 'User',
         recipientAvatar: avatar,
         from: location.pathname

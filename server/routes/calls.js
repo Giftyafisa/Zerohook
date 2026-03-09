@@ -5,6 +5,13 @@ const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
 
+const getCallRoomId = (userId1, userId2) => {
+  const sorted = [String(userId1), String(userId2)].sort();
+  return `call_${sorted[0]}_${sorted[1]}`;
+};
+
+const ACTIVE_RINGING_WINDOW_MS = parseInt(process.env.CALL_RINGING_WINDOW_MS || '300000', 10);
+
 /**
  * @route   POST /api/calls/request
  * @desc    Request a call with another user
@@ -42,13 +49,33 @@ router.post('/request', authMiddleware, [
       { $set: { status: 'missed', ended_at: new Date() } }
     );
 
+    const ringingCutoff = new Date(Date.now() - ACTIVE_RINGING_WINDOW_MS);
     const activeCall = await Call.findOne({
-      $or: [{ caller_id: callerId }, { target_user_id: callerId }],
-      status: { $in: ['calling', 'connected'] }
-    }).select('_id').lean();
+      $or: [
+        {
+          status: 'connected',
+          $or: [
+            { caller_id: callerId },
+            { target_user_id: callerId },
+            { caller_id: targetUserId },
+            { target_user_id: targetUserId }
+          ]
+        },
+        {
+          status: 'calling',
+          created_at: { $gte: ringingCutoff },
+          $or: [
+            { caller_id: callerId },
+            { target_user_id: callerId },
+            { caller_id: targetUserId },
+            { target_user_id: targetUserId }
+          ]
+        }
+      ]
+    }).select('_id caller_id target_user_id status created_at').lean();
 
     if (activeCall) {
-      return res.status(400).json({ success: false, error: 'You already have an active call' });
+      return res.status(409).json({ success: false, error: 'One of the users already has an active call' });
     }
 
     // Create call record
@@ -64,6 +91,8 @@ router.post('/request', authMiddleware, [
       id: call._id.toString(),
       callId: call._id.toString(),
       callerId,
+      targetUserId,
+      peerUserId: callerId,
       callerName: req.user.username || req.user.profileData?.firstName || 'User',
       type,
       callType: type,
@@ -127,6 +156,15 @@ router.post('/accept', authMiddleware, [
       timestamp: new Date().toISOString()
     });
 
+    req.io.to(getCallRoomId(call.caller_id.toString(), call.target_user_id.toString())).emit('call_accepted', {
+      id: callId,
+      callId,
+      targetUserId: userId,
+      peerUserId: userId,
+      callType: call.type,
+      timestamp: new Date().toISOString()
+    });
+
     res.json({
       success: true,
       message: 'Call accepted successfully'
@@ -181,6 +219,13 @@ router.post('/reject', authMiddleware, [
       timestamp: new Date().toISOString()
     });
 
+    req.io.to(getCallRoomId(call.caller_id.toString(), call.target_user_id.toString())).emit('call_rejected', {
+      id: callId,
+      callId,
+      targetUserId: userId,
+      timestamp: new Date().toISOString()
+    });
+
     res.json({
       success: true,
       message: 'Call rejected successfully'
@@ -219,7 +264,7 @@ router.post('/end', authMiddleware, [
     const call = await Call.findOne({
       _id: callId,
       $or: [{ caller_id: userId }, { target_user_id: userId }],
-      status: 'connected'
+      status: { $in: ['calling', 'connected'] }
     });
 
     if (!call) {
@@ -229,6 +274,9 @@ router.post('/end', authMiddleware, [
     // Update call status
     call.status = 'ended';
     call.ended_at = new Date();
+    if (call.connected_at) {
+      call.duration = Math.max(0, Math.floor((call.ended_at.getTime() - call.connected_at.getTime()) / 1000));
+    }
     await call.save();
 
     // Emit call ended via Socket.io
@@ -236,12 +284,15 @@ router.post('/end', authMiddleware, [
     const targetId = call.target_user_id.toString();
     const otherUserId = callerId === userId ? targetId : callerId;
     
-    req.io.to(`user_${otherUserId}`).emit('call_ended', {
+    const endPayload = {
       id: callId,
       callId,
       endedBy: userId,
       timestamp: new Date().toISOString()
-    });
+    };
+
+    req.io.to(`user_${otherUserId}`).emit('call_ended', endPayload);
+    req.io.to(getCallRoomId(callerId, targetId)).emit('call_ended', endPayload);
 
     res.json({
       success: true,

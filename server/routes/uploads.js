@@ -5,6 +5,7 @@ const fs = require('fs');
 const { authMiddleware } = require('./auth');
 const { User, FileUpload } = require('../config/database');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
+const { safePagination } = require('../utils/routeHelpers');
 const router = express.Router();
 
 // Per-user upload rate limiters
@@ -737,8 +738,8 @@ router.post('/content', authMiddleware, contentUpload.single('media'), magicByte
 // Get content feed (public posts)
 router.get('/content/feed', async (req, res) => {
   try {
-    const { page = 1, limit = 10, category } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { category } = req.query;
+    const pg = safePagination(req.query);
 
     const query = {
       upload_type: 'content_post',
@@ -753,8 +754,8 @@ router.get('/content/feed', async (req, res) => {
     const pipeline = [
       { $match: query },
       { $sort: { created_at: -1 } },
-      { $skip: skip },
-      { $limit: parseInt(limit) },
+      { $skip: pg.skip },
+      { $limit: pg.limit },
       {
         $lookup: {
           from: 'users',
@@ -798,10 +799,10 @@ router.get('/content/feed', async (req, res) => {
       success: true,
       content: contentWithUsers,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pg.page,
+        limit: pg.limit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / pg.limit)
       }
     });
 
@@ -817,8 +818,7 @@ router.get('/content/feed', async (req, res) => {
 router.get('/content/my', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pg = safePagination(req.query);
 
     const content = await FileUpload.find({
       user_id: userId,
@@ -826,8 +826,8 @@ router.get('/content/my', authMiddleware, async (req, res) => {
       status: 'active'
     })
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+      .skip(pg.skip)
+      .limit(pg.limit);
 
     const total = await FileUpload.countDocuments({
       user_id: userId,
@@ -854,10 +854,10 @@ router.get('/content/my', authMiddleware, async (req, res) => {
       success: true,
       content: contentList,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pg.page,
+        limit: pg.limit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / pg.limit)
       }
     });
 

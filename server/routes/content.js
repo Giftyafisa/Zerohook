@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { authMiddleware } = require('./auth');
 const { ContentPost, Comment, Follow, Bookmark, User, AdultService, Notification } = require('../config/database');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
@@ -6,6 +7,20 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const router = express.Router();
+
+// Validate ObjectId params — returns 400 early if invalid
+const validateObjectId = (id, label = 'ID') => {
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    return { valid: false, label };
+  }
+  return { valid: true };
+};
+
+const safePagination = (page, limit, maxLimit = 100) => {
+  const p = Math.max(1, parseInt(page, 10) || 1);
+  const l = Math.min(maxLimit, Math.max(1, parseInt(limit, 10) || 20));
+  return { page: p, limit: l, skip: (p - 1) * l };
+};
 
 // Rate limiters
 const postLimiter = new RateLimiterMemory({ points: 10, duration: 900 }); // 10 posts per 15 min
@@ -32,10 +47,8 @@ const sanitizeText = (text) => {
 // ========================================
 router.get('/feed', async (req, res) => {
   try {
-    const { page = 1, limit = 10, category, type = 'all' } = req.query;
-    const pageNum = Math.max(1, parseInt(page));
-    const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
-    const skip = (pageNum - 1) * limitNum;
+    const { category, type = 'all' } = req.query;
+    const pg = safePagination(req.query, 50);
 
     // Optional auth for personalization
     let currentUserId = null;
@@ -61,8 +74,8 @@ router.get('/feed', async (req, res) => {
       const posts = await ContentPost.find(postQuery)
         .populate({ path: 'user_id', select: 'username profile_data verification_tier trust_score' })
         .sort({ engagement_score: -1, created_at: -1 })
-        .skip(skip)
-        .limit(limitNum)
+        .skip(pg.skip)
+        .limit(pg.limit)
         .lean();
 
       feedItems = posts.map(p => ({
@@ -107,8 +120,8 @@ router.get('/feed', async (req, res) => {
       const services = await AdultService.find(svcQuery)
         .populate({ path: 'provider_id', select: 'username profile_data verification_tier trust_score' })
         .sort({ created_at: -1 })
-        .skip(skip)
-        .limit(Math.ceil(limitNum / 3)) // Mix ratio: ~70% posts, ~30% services
+        .skip(pg.skip)
+        .limit(Math.ceil(pg.limit / 3)) // Mix ratio: ~70% posts, ~30% services
         .lean();
 
       const svcItems = services
@@ -173,9 +186,9 @@ router.get('/feed', async (req, res) => {
       services: feedItems, // Keep backward compat with old key name
       feed: feedItems,
       pagination: {
-        page: pageNum,
-        limit: limitNum,
-        hasMore: feedItems.length >= limitNum
+        page: pg.page,
+        limit: pg.limit,
+        hasMore: feedItems.length >= pg.limit
       }
     });
   } catch (error) {
@@ -315,6 +328,9 @@ router.post('/posts', authMiddleware, rateLimit(postLimiter), postUpload.single(
 // ========================================
 router.get('/posts/:postId', async (req, res) => {
   try {
+    const v = validateObjectId(req.params.postId, 'Post ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+
     const post = await ContentPost.findById(req.params.postId)
       .populate({ path: 'user_id', select: 'username profile_data verification_tier trust_score' })
       .lean();
@@ -332,6 +348,9 @@ router.get('/posts/:postId', async (req, res) => {
 // ========================================
 router.delete('/posts/:postId', authMiddleware, async (req, res) => {
   try {
+    const v = validateObjectId(req.params.postId, 'Post ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+
     const post = await ContentPost.findOneAndUpdate(
       { _id: req.params.postId, user_id: req.user.userId },
       { $set: { status: 'removed' } },
@@ -352,6 +371,8 @@ router.delete('/posts/:postId', authMiddleware, async (req, res) => {
 router.post('/posts/:postId/like', authMiddleware, rateLimit(likeLimiter), async (req, res) => {
   try {
     const { postId } = req.params;
+    const v = validateObjectId(postId, 'Post ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
     const userId = req.user.userId;
 
     // Try to add like
@@ -404,6 +425,8 @@ router.post('/posts/:postId/like', authMiddleware, rateLimit(likeLimiter), async
 router.post('/posts/:postId/bookmark', authMiddleware, async (req, res) => {
   try {
     const { postId } = req.params;
+    const v = validateObjectId(postId, 'Post ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
     const userId = req.user.userId;
 
     const existing = await Bookmark.findOne({ user_id: userId, post_id: postId });
@@ -430,12 +453,11 @@ router.post('/posts/:postId/bookmark', authMiddleware, async (req, res) => {
 // GET BOOKMARKS
 router.get('/bookmarks', authMiddleware, async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pg = safePagination(req.query.page, req.query.limit);
     const bookmarks = await Bookmark.find({ user_id: req.user.userId })
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .skip(pg.skip)
+      .limit(pg.limit)
       .populate({
         path: 'post_id',
         populate: { path: 'user_id', select: 'username profile_data verification_tier' }
@@ -446,7 +468,7 @@ router.get('/bookmarks', authMiddleware, async (req, res) => {
       .filter(b => b.post_id && b.post_id.status === 'active')
       .map(b => b.post_id);
 
-    res.json({ success: true, posts, pagination: { page: parseInt(page), limit: parseInt(limit) } });
+    res.json({ success: true, posts, pagination: { page: pg.page, limit: pg.limit } });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to fetch bookmarks' });
   }
@@ -457,6 +479,9 @@ router.get('/bookmarks', authMiddleware, async (req, res) => {
 // ========================================
 router.post('/posts/:postId/view', async (req, res) => {
   try {
+    const v = validateObjectId(req.params.postId, 'Post ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+
     const result = await ContentPost.findByIdAndUpdate(
       req.params.postId,
       { $inc: { views_count: 1 } },
@@ -474,14 +499,15 @@ router.post('/posts/:postId/view', async (req, res) => {
 // ========================================
 router.get('/posts/:postId/comments', async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const v = validateObjectId(req.params.postId, 'Post ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+    const pg = safePagination(req.query.page, req.query.limit);
 
     const comments = await Comment.find({ post_id: req.params.postId, status: 'active', parent_id: null })
       .populate({ path: 'user_id', select: 'username profile_data verification_tier' })
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .skip(pg.skip)
+      .limit(pg.limit)
       .lean();
 
     const total = await Comment.countDocuments({ post_id: req.params.postId, status: 'active', parent_id: null });
@@ -501,7 +527,7 @@ router.get('/posts/:postId/comments', async (req, res) => {
       user_avatar: c.user_id?.profile_data?.profilePicture || c.user_id?.profile_data?.photos?.[0] || null
     }));
 
-    res.json({ success: true, comments: enrichedComments, total, pagination: { page: parseInt(page), limit: parseInt(limit) } });
+    res.json({ success: true, comments: enrichedComments, total, pagination: { page: pg.page, limit: pg.limit } });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to fetch comments' });
   }
@@ -510,6 +536,9 @@ router.get('/posts/:postId/comments', async (req, res) => {
 // GET REPLIES
 router.get('/comments/:commentId/replies', async (req, res) => {
   try {
+    const v = validateObjectId(req.params.commentId, 'Comment ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+
     const replies = await Comment.find({ parent_id: req.params.commentId, status: 'active' })
       .populate({ path: 'user_id', select: 'username profile_data verification_tier' })
       .sort({ created_at: 1 })
@@ -524,6 +553,9 @@ router.get('/comments/:commentId/replies', async (req, res) => {
 // CREATE COMMENT
 router.post('/posts/:postId/comments', authMiddleware, rateLimit(commentLimiter), async (req, res) => {
   try {
+    const v = validateObjectId(req.params.postId, 'Post ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+
     const { text, parentId } = req.body;
     const sanitizedText = sanitizeText(text);
     if (!sanitizedText || sanitizedText.length === 0) {
@@ -582,6 +614,9 @@ router.post('/posts/:postId/comments', authMiddleware, rateLimit(commentLimiter)
 // DELETE COMMENT (owner only)
 router.delete('/comments/:commentId', authMiddleware, async (req, res) => {
   try {
+    const v = validateObjectId(req.params.commentId, 'Comment ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+
     const comment = await Comment.findOneAndUpdate(
       { _id: req.params.commentId, user_id: req.user.userId },
       { $set: { status: 'removed' } },
@@ -599,6 +634,8 @@ router.delete('/comments/:commentId', authMiddleware, async (req, res) => {
 router.post('/comments/:commentId/like', authMiddleware, rateLimit(likeLimiter), async (req, res) => {
   try {
     const { commentId } = req.params;
+    const v = validateObjectId(commentId, 'Comment ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
     const userId = req.user.userId;
     const added = await Comment.findOneAndUpdate(
       { _id: commentId, liked_by: { $ne: userId } },
@@ -624,6 +661,8 @@ router.post('/comments/:commentId/like', authMiddleware, rateLimit(likeLimiter),
 // ========================================
 router.post('/follow/:userId', authMiddleware, async (req, res) => {
   try {
+    const v = validateObjectId(req.params.userId, 'User ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
     const followingId = req.params.userId;
     const followerId = req.user.userId;
     if (followerId === followingId) {
@@ -661,13 +700,14 @@ router.post('/follow/:userId', authMiddleware, async (req, res) => {
 // GET FOLLOWERS
 router.get('/followers/:userId', async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const v = validateObjectId(req.params.userId, 'User ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+    const pg = safePagination(req.query.page, req.query.limit);
     const followers = await Follow.find({ following_id: req.params.userId, status: 'active' })
       .populate({ path: 'follower_id', select: 'username profile_data verification_tier' })
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .skip(pg.skip)
+      .limit(pg.limit)
       .lean();
     const total = await Follow.countDocuments({ following_id: req.params.userId, status: 'active' });
     res.json({ success: true, followers: followers.map(f => f.follower_id), total });
@@ -679,13 +719,14 @@ router.get('/followers/:userId', async (req, res) => {
 // GET FOLLOWING
 router.get('/following/:userId', async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const v = validateObjectId(req.params.userId, 'User ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+    const pg = safePagination(req.query.page, req.query.limit);
     const following = await Follow.find({ follower_id: req.params.userId, status: 'active' })
       .populate({ path: 'following_id', select: 'username profile_data verification_tier' })
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .skip(pg.skip)
+      .limit(pg.limit)
       .lean();
     const total = await Follow.countDocuments({ follower_id: req.params.userId, status: 'active' });
     res.json({ success: true, following: following.map(f => f.following_id), total });
@@ -697,6 +738,8 @@ router.get('/following/:userId', async (req, res) => {
 // CHECK FOLLOW STATUS
 router.get('/follow-status/:userId', authMiddleware, async (req, res) => {
   try {
+    const v = validateObjectId(req.params.userId, 'User ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
     const exists = await Follow.findOne({ follower_id: req.user.userId, following_id: req.params.userId, status: 'active' });
     res.json({ success: true, following: !!exists });
   } catch (error) {
@@ -709,12 +752,13 @@ router.get('/follow-status/:userId', authMiddleware, async (req, res) => {
 // ========================================
 router.get('/user/:userId/posts', async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const v = validateObjectId(req.params.userId, 'User ID');
+    if (!v.valid) return res.status(400).json({ success: false, error: `Invalid ${v.label}` });
+    const pg = safePagination(req.query.page, req.query.limit);
     const posts = await ContentPost.find({ user_id: req.params.userId, status: 'active' })
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .skip(pg.skip)
+      .limit(pg.limit)
       .lean();
     const total = await ContentPost.countDocuments({ user_id: req.params.userId, status: 'active' });
 
@@ -729,7 +773,7 @@ router.get('/user/:userId/posts', async (req, res) => {
       posts,
       total,
       stats: { followerCount, followingCount, postCount: total },
-      pagination: { page: parseInt(page), limit: parseInt(limit) }
+      pagination: { page: pg.page, limit: pg.limit }
     });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to fetch user posts' });
@@ -769,11 +813,11 @@ router.post('/posts/:postId/report', authMiddleware, async (req, res) => {
 // ========================================
 router.get('/search', async (req, res) => {
   try {
-    const { q, category, page = 1, limit = 20 } = req.query;
+    const { q, category } = req.query;
     if (!q || q.trim().length < 2) {
       return res.status(400).json({ success: false, error: 'Search query too short' });
     }
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pg = safePagination(req.query.page, req.query.limit);
     const safeQuery = String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const query = {
@@ -791,13 +835,13 @@ router.get('/search', async (req, res) => {
       ContentPost.find(query)
         .populate({ path: 'user_id', select: 'username profile_data verification_tier' })
         .sort({ engagement_score: -1, created_at: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
+        .skip(pg.skip)
+        .limit(pg.limit)
         .lean(),
       ContentPost.countDocuments(query)
     ]);
 
-    res.json({ success: true, posts, total, pagination: { page: parseInt(page), limit: parseInt(limit) } });
+    res.json({ success: true, posts, total, pagination: { page: pg.page, limit: pg.limit } });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Search failed' });
   }

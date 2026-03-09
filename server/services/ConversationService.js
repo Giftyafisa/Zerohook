@@ -20,7 +20,13 @@ class ConversationService {
       
       const p1 = conv.participant1Id?.toString();
       const p2 = conv.participant2Id?.toString();
-      return p1 === userIdStr || p2 === userIdStr;
+      if (p1 === userIdStr) {
+        return conv.participant1Hidden !== true;
+      }
+      if (p2 === userIdStr) {
+        return conv.participant2Hidden !== true;
+      }
+      return false;
     } catch (err) {
       console.error('ConversationService.isMember error:', err);
       return false;
@@ -77,6 +83,14 @@ class ConversationService {
       });
       
       if (conv) {
+        await Conversation.findByIdAndUpdate(conv._id, {
+          status: 'active',
+          participant1Hidden: false,
+          participant2Hidden: false,
+          participant1HiddenAt: null,
+          participant2HiddenAt: null,
+          updatedAt: new Date()
+        });
         return { id: conv._id, created_at: conv.createdAt };
       }
       
@@ -137,6 +151,11 @@ class ConversationService {
         lastMessage: lastMessagePreview,
         lastMessageType: messageType,
         lastMessageTime: message.createdAt,
+        status: 'active',
+        participant1Hidden: false,
+        participant2Hidden: false,
+        participant1HiddenAt: null,
+        participant2HiddenAt: null,
         updatedAt: new Date()
       });
 

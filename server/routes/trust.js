@@ -203,9 +203,9 @@ router.post('/assess-risk', authMiddleware, async (req, res) => {
  */
 router.get('/verification-requirements/:tier', (req, res) => {
   try {
-    const tier = parseInt(req.params.tier);
+    const tier = parseInt(req.params.tier, 10);
 
-    if (tier < 1 || tier > 4) {
+    if (isNaN(tier) || tier < 1 || tier > 4) {
       return res.status(400).json({ success: false, error: 'Invalid tier. Must be between 1 and 4.' });
     }
 

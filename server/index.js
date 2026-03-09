@@ -254,6 +254,7 @@ const PerformanceMetrics = require('./services/PerformanceMetrics');
 const userActivityMonitor = new UserActivityMonitor();
 const performanceMetrics = new PerformanceMetrics();
 const conversationService = new ConversationService();
+const ACTIVE_RINGING_WINDOW_MS = parseInt(process.env.CALL_RINGING_WINDOW_MS || '300000', 10);
 
 // Initialize all services
 const initializeRuntimeServices = async () => {
@@ -640,6 +641,44 @@ io.on('connection', async (socket) => {
           return;
         }
         console.log(`📞 Call request from ${socket.username} to user ${data.targetUserId}`);
+
+        if (mongoose.Types.ObjectId.isValid(socket.userId) && mongoose.Types.ObjectId.isValid(data.targetUserId)) {
+          const ringingCutoff = new Date(Date.now() - ACTIVE_RINGING_WINDOW_MS);
+          const existingActiveCall = await Call.findOne({
+            $or: [
+              {
+                status: 'connected',
+                $or: [
+                  { caller_id: socket.userId },
+                  { target_user_id: socket.userId },
+                  { caller_id: data.targetUserId },
+                  { target_user_id: data.targetUserId }
+                ]
+              },
+              {
+                status: 'calling',
+                created_at: { $gte: ringingCutoff },
+                $or: [
+                  { caller_id: socket.userId },
+                  { target_user_id: socket.userId },
+                  { caller_id: data.targetUserId },
+                  { target_user_id: data.targetUserId }
+                ]
+              }
+            ]
+          }).select('_id status created_at').lean();
+
+          if (existingActiveCall) {
+            socket.emit('call_rejected', {
+              id: String(existingActiveCall._id),
+              callId: String(existingActiveCall._id),
+              targetUserId: data.targetUserId,
+              reason: 'busy',
+              timestamp: new Date().toISOString()
+            });
+            return;
+          }
+        }
 
         let persistedCallId = Date.now().toString();
         if (mongoose.Types.ObjectId.isValid(socket.userId) && mongoose.Types.ObjectId.isValid(data.targetUserId)) {
@@ -1040,6 +1079,11 @@ io.on('connection', async (socket) => {
       try {
         if (!data?.conversationId) return;
 
+        const isMember = await conversationService.isMember(data.conversationId, socket.userId);
+        if (!isMember) {
+          return;
+        }
+
         const readPayload = {
           userId: socket.userId,
           username: socket.username,
@@ -1066,10 +1110,15 @@ io.on('connection', async (socket) => {
       try {
         console.log(`💬 Message from ${socket.username} to conversation ${conversationId}`);
 
+        const normalizedContent = String(content || '').trim();
+
         // Basic validation
-        if (!conversationId || !content) {
+        if (!conversationId || !normalizedContent) {
           console.warn(`Invalid message payload from ${socket.userId}`);
           return socket.emit('message_error', { error: 'Invalid message payload' });
+        }
+        if (normalizedContent.length > 2000) {
+          return socket.emit('message_error', { error: 'Message too long (max 2000 characters)' });
         }
 
         // Verify membership
@@ -1088,56 +1137,10 @@ io.on('connection', async (socket) => {
           }
         }
 
-        // Subscription messaging limit check (mirrors REST /chat/send logic)
-        try {
-          const FREE_TIER_MAX_CONTACTS = 3;
-          const senderDoc = await User.findById(socket.userId).select('is_subscribed subscription_expires_at');
-          const isSubscribed = senderDoc?.is_subscribed &&
-            (!senderDoc.subscription_expires_at || new Date(senderDoc.subscription_expires_at) > new Date());
-          if (!isSubscribed) {
-            // Count unique contacts via aggregation (avoids loading full conversation rows)
-            const senderObjId = new mongoose.Types.ObjectId(socket.userId);
-            const uniqueContactRows = await Conversation.aggregate([
-              {
-                $match: {
-                  $or: [
-                    { participant1Id: senderObjId },
-                    { participant2Id: senderObjId }
-                  ]
-                }
-              },
-              {
-                $project: {
-                  contactId: {
-                    $cond: [
-                      { $eq: ['$participant1Id', senderObjId] },
-                      '$participant2Id',
-                      '$participant1Id'
-                    ]
-                  }
-                }
-              },
-              { $group: { _id: '$contactId' } }
-            ]);
-
-            const uniqueContactIds = new Set(uniqueContactRows.map((row) => String(row._id || '')));
-            const alreadyContact = otherUserId ? uniqueContactIds.has(String(otherUserId)) : true;
-            if (!alreadyContact && uniqueContactIds.size >= FREE_TIER_MAX_CONTACTS) {
-              return socket.emit('message_error', {
-                error: 'subscription_required',
-                message: `Free users can only message ${FREE_TIER_MAX_CONTACTS} unique people. Subscribe to message unlimited contacts.`
-              });
-            }
-          }
-        } catch (subErr) {
-          console.error('Socket subscription limit check error:', subErr);
-          // Fail open — if check fails, let message through (REST endpoint is the primary gate)
-        }
-
         // Content moderation via FraudDetection service
         try {
           if (fraudDetection && typeof fraudDetection.analyzeMessageRisk === 'function') {
-            const mod = await fraudDetection.analyzeMessageRisk({ senderId: socket.userId, conversationId, content, messageType: resolvedMessageType, metadata });
+            const mod = await fraudDetection.analyzeMessageRisk({ senderId: socket.userId, conversationId, content: normalizedContent, messageType: resolvedMessageType, metadata });
             const threshold = parseFloat(process.env.MESSAGE_RISK_BLOCK_THRESHOLD || '0.7');
             if (mod && typeof mod.score === 'number' && mod.score >= threshold) {
               console.warn(`Message blocked: Risk score ${mod.score} >= ${threshold}`);
@@ -1151,7 +1154,7 @@ io.on('connection', async (socket) => {
         // Persist message via ConversationService with error handling
         let messageRow;
         try {
-          messageRow = await conversationService.insertMessageTx({ conversationId, senderId: socket.userId, content, messageType: resolvedMessageType, metadata });
+          messageRow = await conversationService.insertMessageTx({ conversationId, senderId: socket.userId, content: normalizedContent, messageType: resolvedMessageType, metadata });
         } catch (dbErr) {
           console.error('Database error inserting message:', dbErr);
           return socket.emit('message_error', { error: 'Database error, please try again' });
@@ -1163,7 +1166,7 @@ io.on('connection', async (socket) => {
           senderId: socket.userId,
           senderName: socket.username,
           senderUsername: socket.username,
-          content,
+          content: normalizedContent,
           messageType: resolvedMessageType,
           metadata: messageRow.metadata || metadata || {},
           createdAt: messageRow.createdAt || messageRow.created_at,
@@ -1183,7 +1186,7 @@ io.on('connection', async (socket) => {
             else if (resolvedMessageType === 'video') preview = '🎬 Video';
             else if (resolvedMessageType === 'file') preview = '📎 File';
             else if (resolvedMessageType === 'audio') preview = '🎵 Audio';
-            else preview = String(content || '').slice(0, 50);
+            else preview = normalizedContent.slice(0, 50);
 
             await NotificationService.createAndEmit(io, {
               userId: otherUserId,
@@ -1201,7 +1204,7 @@ io.on('connection', async (socket) => {
         try {
           await userActivityMonitor.logUserActivity(socket.userId, {
             actionType: 'send_message',
-            actionData: { conversationId, messageId: messageRow.id, contentLength: content.length },
+            actionData: { conversationId, messageId: messageRow.id, contentLength: normalizedContent.length },
             ipAddress: socket.handshake.address,
             userAgent: socket.handshake.headers['user-agent'],
             responseTimeMs: 0,
@@ -1316,7 +1319,7 @@ io.on('connection', async (socket) => {
     socket.on('get_users_status', async (data) => {
       try {
         const requestedUserIds = Array.isArray(data?.userIds)
-          ? [...new Set(data.userIds.map((id) => String(id || '').trim()).filter(Boolean))]
+          ? [...new Set(data.userIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 200)
           : [];
 
         if (requestedUserIds.length === 0) {
@@ -1432,13 +1435,16 @@ io.on('connection', async (socket) => {
             ? String(call.target_user_id)
             : String(call.caller_id);
 
-          io.to(`user_${otherUserId}`).emit('call_ended', {
+          const disconnectPayload = {
             id: String(call._id),
             callId: String(call._id),
             endedBy: socket.userId,
             reason: 'peer_disconnected',
             timestamp: new Date().toISOString()
-          });
+          };
+
+          io.to(`user_${otherUserId}`).emit('call_ended', disconnectPayload);
+          io.to(getCallRoomId(socket.userId, otherUserId)).emit('call_ended', disconnectPayload);
 
           await Call.findByIdAndUpdate(call._id, {
             $set: {

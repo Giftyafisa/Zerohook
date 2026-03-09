@@ -359,20 +359,21 @@ const ChatSystem = ({
     if (user) loadConversations();
   }, [user]);
 
-  // After conversations load, query online status for each participant
-  useEffect(() => {
-    if (!socket || !isConnected || conversations.length === 0) return;
-    const participantIds = [...new Set(conversations
+  const participantIdsForPresence = React.useMemo(() => {
+    return [...new Set(conversations
       .map((conv) => normalizeId(conv.participantId))
       .filter(Boolean))];
+  }, [conversations]);
 
-    if (participantIds.length > 0) {
-      socket.emit('get_users_status', { userIds: participantIds, context: 'chat' });
+  // After conversations load, query online status for each participant
+  useEffect(() => {
+    if (!socket || !isConnected || participantIdsForPresence.length === 0) return;
+
+    if (participantIdsForPresence.length > 0) {
+      socket.emit('get_users_status', { userIds: participantIdsForPresence, context: 'chat' });
     }
 
-    // Only run when conversations list length changes (initial load / refresh), not on every update
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, isConnected, conversations.length]);
+  }, [socket, isConnected, participantIdsForPresence]);
 
   // Track conversation ID separately so room join/leave only fires on actual
   // conversation switches — not on every object-reference change (online status,
@@ -553,11 +554,6 @@ const ChatSystem = ({
 
     const handleMessageError = (payload) => {
       const reason = payload?.message || payload?.error || 'Failed to send message';
-      if (payload?.error === 'subscription_required') {
-        toast.warning(reason);
-        navigate('/subscription');
-        return;
-      }
       toast.error(reason);
     };
 
@@ -814,12 +810,6 @@ const ChatSystem = ({
       }
       return created || null;
     } catch (error) {
-      // Handle subscription limit error - redirect to subscribe page
-      if (error.response?.status === 403 && error.response?.data?.error === 'subscription_required') {
-        toast.warning('You have reached your free messaging limit. Subscribe to message unlimited people! 🌟');
-        navigate('/subscription');
-        return null;
-      }
       console.error('Failed to start conversation:', error);
       toast.error(error.response?.data?.message || error.message || 'Unable to start conversation right now.');
       return null;
@@ -875,12 +865,7 @@ const ChatSystem = ({
       console.error('Failed to send message:', error);
       setMessages(prev => prev.map(msg => msg.id === tempId ? { ...msg, status: 'failed' } : msg));
       const errData = error.response?.data;
-      if (errData?.error === 'subscription_required') {
-        toast.warning(errData?.message || 'Messaging limit reached. Subscribe to continue.');
-        navigate('/subscription');
-      } else {
-        toast.error(errData?.message || errData?.error || 'Failed to send message.');
-      }
+      toast.error(errData?.message || errData?.error || 'Failed to send message.');
     }
   };
 
@@ -893,7 +878,7 @@ const ChatSystem = ({
 
   // File validation constants
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-  const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'video/mp4', 'video/quicktime', 'video/webm', 'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac', 'application/pdf'];
+  const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'video/mp4', 'video/quicktime', 'video/webm'];
 
   // Show preview before uploading attachment
   const handleFilePreview = (event) => {
@@ -909,7 +894,7 @@ const ChatSystem = ({
     
     // Validate file type
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      alert('File type not supported. Allowed: images, video, audio, PDF.');
+      alert('File type not supported. Allowed: images and video.');
       event.target.value = '';
       return;
     }

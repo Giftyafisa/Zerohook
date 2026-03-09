@@ -1,6 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
 const mongoose = require('mongoose');
+const { safePagination } = require('../utils/routeHelpers');
 const router = express.Router();
 
 /**
@@ -35,9 +36,8 @@ const adminMiddleware = async (req, res, next) => {
 router.get('/disputes', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { Transaction, User } = require('../config/database');
-    const { status = 'disputed', page = 1, limit = 20 } = req.query;
-    
-    const skip = (page - 1) * limit;
+    const { status = 'disputed' } = req.query;
+    const pg = safePagination(req.query);
     
     // Find all disputed escrows
     const disputes = await Transaction.find({
@@ -45,8 +45,8 @@ router.get('/disputes', authMiddleware, adminMiddleware, async (req, res) => {
       status: status
     })
     .sort({ 'dispute_data.timestamp': -1 })
-    .skip(skip)
-    .limit(parseInt(limit));
+    .skip(pg.skip)
+    .limit(pg.limit);
 
     const total = await Transaction.countDocuments({
       type: 'escrow_hold',
@@ -100,10 +100,10 @@ router.get('/disputes', authMiddleware, adminMiddleware, async (req, res) => {
       success: true,
       disputes: enrichedDisputes,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pg.page,
+        limit: pg.limit,
         total,
-        pages: Math.ceil(total / limit)
+        pages: Math.ceil(total / pg.limit)
       }
     });
 
@@ -196,17 +196,15 @@ router.post('/disputes/:id/resolve', authMiddleware, adminMiddleware, async (req
 router.get('/banned-users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { User } = require('../config/database');
-    const { page = 1, limit = 20 } = req.query;
-    
-    const skip = (page - 1) * limit;
+    const pg = safePagination(req.query);
     
     const bannedUsers = await User.find({
       is_banned: true
     })
     .select('username email phone ban_data dispute_strikes dispute_warnings unban_requests created_at')
     .sort({ 'ban_data.banned_at': -1 })
-    .skip(skip)
-    .limit(parseInt(limit));
+    .skip(pg.skip)
+    .limit(pg.limit);
 
     const total = await User.countDocuments({ is_banned: true });
 
@@ -225,10 +223,10 @@ router.get('/banned-users', authMiddleware, adminMiddleware, async (req, res) =>
         createdAt: user.created_at
       })),
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pg.page,
+        limit: pg.limit,
         total,
-        pages: Math.ceil(total / limit)
+        pages: Math.ceil(total / pg.limit)
       }
     });
 
@@ -1055,8 +1053,8 @@ router.post('/subscriptions/:id/activate', authMiddleware, adminMiddleware, asyn
 router.get('/users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { User } = require('../config/database');
-    const { search, page = 1, limit = 25, sort = '-created_at', status, accountType } = req.query;
-    const skip = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+    const { search, sort = '-created_at', status, accountType } = req.query;
+    const pg = safePagination(req.query, 100);
 
     const filter = {};
     if (search) {
@@ -1076,8 +1074,8 @@ router.get('/users', authMiddleware, adminMiddleware, async (req, res) => {
       User.find(filter)
         .select('username email phone status is_subscribed subscription_tier verification_tier reputation_score trust_score is_banned is_admin role profile_data.accountType profile_data.firstName profile_data.lastName profile_data.age profile_data.country profile_data.city last_active created_at')
         .sort(sort)
-        .skip(skip)
-        .limit(parseInt(limit))
+        .skip(pg.skip)
+        .limit(pg.limit)
         .lean(),
       User.countDocuments(filter)
     ]);
@@ -1108,8 +1106,8 @@ router.get('/users', authMiddleware, adminMiddleware, async (req, res) => {
         created_at: u.created_at
       })),
       total,
-      page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit))
+      page: pg.page,
+      pages: Math.ceil(total / pg.limit)
     });
   } catch (error) {
     console.error('Admin list users error:', error);
@@ -1152,7 +1150,10 @@ router.put('/users/:userId', authMiddleware, adminMiddleware, async (req, res) =
     if (status !== undefined) updates.status = status;
     if (is_subscribed !== undefined) updates.is_subscribed = is_subscribed;
     if (subscription_tier !== undefined) updates.subscription_tier = subscription_tier;
-    if (verification_tier !== undefined) updates.verification_tier = parseInt(verification_tier);
+    if (verification_tier !== undefined) {
+      const tier = parseInt(verification_tier, 10);
+      if (!isNaN(tier) && tier >= 0 && tier <= 4) updates.verification_tier = tier;
+    }
     if (is_admin !== undefined) updates.is_admin = is_admin;
     if (role !== undefined) updates.role = role;
 
@@ -1444,13 +1445,12 @@ router.post('/send-bulk-notification', authMiddleware, adminMiddleware, async (r
 router.get('/sent-notifications', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { Notification } = require('../config/database');
-    const { page = 1, limit = 30 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pg = safePagination(req.query);
 
     const notifications = await Notification.find({ 'data.isAdminMessage': true })
       .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
+      .skip(pg.skip)
+      .limit(pg.limit)
       .lean();
 
     const total = await Notification.countDocuments({ 'data.isAdminMessage': true });
@@ -1469,8 +1469,8 @@ router.get('/sent-notifications', authMiddleware, adminMiddleware, async (req, r
         created_at: n.created_at
       })),
       total,
-      page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit))
+      page: pg.page,
+      pages: Math.ceil(total / pg.limit)
     });
   } catch (error) {
     console.error('Admin get sent notifications error:', error);

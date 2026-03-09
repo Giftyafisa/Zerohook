@@ -1,6 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { Message, Conversation, User, isDatabaseAvailable } = require('../config/database');
+const { Message, Conversation, isDatabaseAvailable } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
@@ -40,91 +40,27 @@ const normalizeLastMessagePreview = (msg) => {
 
 const { inferMessageType } = require('../utils/inferMessageType');
 
-// Maximum unique contacts for non-subscribers
-const FREE_TIER_MAX_CONTACTS = 3;
+const buildVisibleConversationFilter = (userId) => ({
+  status: { $ne: 'deleted' },
+  $or: [
+    { participant1Id: userId, participant1Hidden: { $ne: true } },
+    { participant2Id: userId, participant2Hidden: { $ne: true } }
+  ]
+});
 
 /**
- * Check if user can message new contacts (subscription limit)
- * @param {string} userId - Current user ID
- * @returns {Object} { canMessage: boolean, uniqueContacts: number, maxContacts: number, requiresSubscription: boolean }
+ * Messaging is temporarily unrestricted for all authenticated users.
+ * Keep the response shape stable for existing clients that expect limit metadata.
  */
-const checkMessagingLimit = async (userId, targetUserId) => {
-  try {
-    // Get user to check subscription status
-    const user = await User.findById(userId).select('is_subscribed subscription_expires_at');
-    
-    // Subscribed users have unlimited messaging
-    if (user?.is_subscribed) {
-      const expiresAt = user.subscription_expires_at ? new Date(user.subscription_expires_at) : null;
-      if (!expiresAt || expiresAt > new Date()) {
-        return { canMessage: true, uniqueContacts: 0, maxContacts: Infinity, requiresSubscription: false };
-      }
-    }
-
-    // Count unique contacts via aggregation (avoids loading full conversation rows)
-    const userObjId = new mongoose.Types.ObjectId(userId);
-    const uniqueContactRows = await Conversation.aggregate([
-      {
-        $match: {
-          $or: [
-            { participant1Id: userObjId },
-            { participant2Id: userObjId }
-          ]
-        }
-      },
-      {
-        $project: {
-          contactId: {
-            $cond: [
-              { $eq: ['$participant1Id', userObjId] },
-              '$participant2Id',
-              '$participant1Id'
-            ]
-          }
-        }
-      },
-      { $group: { _id: '$contactId' } }
-    ]);
-
-    const uniqueContactIds = new Set(uniqueContactRows.map((row) => String(row._id || '')));
-
-    // Check if already in conversation with this target
-    const alreadyInConversation = uniqueContactIds.has(String(targetUserId));
-    
-    // If already in conversation, can continue messaging
-    if (alreadyInConversation) {
-      return { 
-        canMessage: true, 
-        uniqueContacts: uniqueContactIds.size, 
-        maxContacts: FREE_TIER_MAX_CONTACTS, 
-        requiresSubscription: false,
-        isExistingContact: true
-      };
-    }
-
-    // Check if trying to add new contact exceeds limit
-    if (uniqueContactIds.size >= FREE_TIER_MAX_CONTACTS) {
-      return { 
-        canMessage: false, 
-        uniqueContacts: uniqueContactIds.size, 
-        maxContacts: FREE_TIER_MAX_CONTACTS, 
-        requiresSubscription: true,
-        message: `Free users can only message ${FREE_TIER_MAX_CONTACTS} unique people. Subscribe to message unlimited contacts.`
-      };
-    }
-
-    return { 
-      canMessage: true, 
-      uniqueContacts: uniqueContactIds.size, 
-      maxContacts: FREE_TIER_MAX_CONTACTS, 
-      requiresSubscription: false,
-      remainingContacts: FREE_TIER_MAX_CONTACTS - uniqueContactIds.size
-    };
-  } catch (error) {
-    console.error('Error checking messaging limit:', error);
-    // Fail closed: block messaging on error
-    return { canMessage: false, uniqueContacts: 0, maxContacts: FREE_TIER_MAX_CONTACTS, requiresSubscription: true, error: 'Unable to verify messaging limit' };
-  }
+const checkMessagingLimit = async () => {
+  return {
+    canMessage: true,
+    uniqueContacts: 0,
+    maxContacts: null,
+    remainingContacts: null,
+    requiresSubscription: false,
+    unlimited: true
+  };
 };
 
 // Custom validator for MongoDB ObjectId or UUID
@@ -222,11 +158,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
     let conversations;
     try {
       conversations = await Conversation.find({
-        $or: [
-          { participant1Id: userId },
-          { participant2Id: userId }
-        ],
-        status: { $ne: 'deleted' } // Exclude deleted conversations
+        ...buildVisibleConversationFilter(userId)
       })
       .populate('participant1Id', 'username verification_tier profile_data')
       .populate('participant2Id', 'username verification_tier profile_data')
@@ -334,7 +266,13 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
         // Check if user is participant (compare as strings to handle ObjectId vs string)
         const p1 = conv.participant1Id?.toString();
         const p2 = conv.participant2Id?.toString();
-        isMember = (p1 === userIdStr || p2 === userIdStr);
+        const isParticipant1 = p1 === userIdStr;
+        const isParticipant2 = p2 === userIdStr;
+        const hiddenForUser =
+          (isParticipant1 && conv.participant1Hidden === true) ||
+          (isParticipant2 && conv.participant2Hidden === true);
+
+        isMember = (isParticipant1 || isParticipant2) && !hiddenForUser;
         debugLog(`🔍 Member check: user=${userIdStr}, p1=${p1}, p2=${p2}, isMember=${isMember}`);
       }
     } catch (memberErr) {
@@ -599,16 +537,7 @@ router.post('/conversation', authMiddleware, [
       return res.status(400).json({ success: false, error: 'Cannot create conversation with yourself' });
     }
     
-    // Check messaging limit for non-subscribers
-    const limitCheck = await checkMessagingLimit(userId, otherUserId);
-    if (!limitCheck.canMessage) {
-      return res.status(403).json({ success: false, error: 'subscription_required',
-        message: limitCheck.message,
-        uniqueContacts: limitCheck.uniqueContacts,
-        maxContacts: limitCheck.maxContacts,
-        requiresSubscription: true
-      });
-    }
+    const limitCheck = await checkMessagingLimit();
     
     // Check if conversation already exists
     let existingConv = await Conversation.findOne({
@@ -629,12 +558,28 @@ router.post('/conversation', authMiddleware, [
         // Fallback: atomic upsert to prevent race condition duplicates
         const conv = await Conversation.findOneAndUpdate(
           { participant1Id: p1, participant2Id: p2 },
-          { $setOnInsert: { participant1Id: p1, participant2Id: p2 } },
+          {
+            $setOnInsert: {
+              participant1Id: p1,
+              participant2Id: p2,
+              status: 'active',
+              participant1Hidden: false,
+              participant2Hidden: false
+            }
+          },
           { upsert: true, new: true, setDefaultsOnInsert: true }
         );
         conversationData = { id: conv._id, created_at: conv.createdAt };
       }
     } else {
+      const senderIsParticipant1 = String(existingConv.participant1Id) === String(userId);
+      await Conversation.findByIdAndUpdate(existingConv._id, {
+        status: 'active',
+        ...(senderIsParticipant1
+          ? { participant1Hidden: false, participant1HiddenAt: null }
+          : { participant2Hidden: false, participant2HiddenAt: null }),
+        updatedAt: new Date()
+      });
       conversationData = { id: existingConv._id, created_at: existingConv.createdAt };
     }
     
@@ -685,16 +630,7 @@ router.post('/start', authMiddleware, [
       return res.status(400).json({ success: false, error: 'Cannot create conversation with yourself' });
     }
     
-    // Check messaging limit for non-subscribers
-    const limitCheck = await checkMessagingLimit(userId, otherUserId);
-    if (!limitCheck.canMessage) {
-      return res.status(403).json({ success: false, error: 'subscription_required',
-        message: limitCheck.message,
-        uniqueContacts: limitCheck.uniqueContacts,
-        maxContacts: limitCheck.maxContacts,
-        requiresSubscription: true
-      });
-    }
+    const limitCheck = await checkMessagingLimit();
     
     // Check if conversation already exists
     let conversation = await Conversation.findOne({
@@ -710,9 +646,26 @@ router.post('/start', authMiddleware, [
       // Atomic upsert to prevent race condition duplicates
       conversation = await Conversation.findOneAndUpdate(
         { participant1Id: p1, participant2Id: p2 },
-        { $setOnInsert: { participant1Id: p1, participant2Id: p2 } },
+        {
+          $setOnInsert: {
+            participant1Id: p1,
+            participant2Id: p2,
+            status: 'active',
+            participant1Hidden: false,
+            participant2Hidden: false
+          }
+        },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
+    } else {
+      const senderIsParticipant1 = String(conversation.participant1Id) === String(userId);
+      await Conversation.findByIdAndUpdate(conversation._id, {
+        status: 'active',
+        ...(senderIsParticipant1
+          ? { participant1Hidden: false, participant1HiddenAt: null }
+          : { participant2Hidden: false, participant2HiddenAt: null }),
+        updatedAt: new Date()
+      });
     }
     
     res.json({
@@ -746,9 +699,8 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
     const conversation = await Conversation.findOne({
       _id: conversationId,
       $or: [
-        { participant1Id: userId },
-        { participant2Id: userId },
-        { 'participants': userId }
+        { participant1Id: userId, participant1Hidden: { $ne: true } },
+        { participant2Id: userId, participant2Hidden: { $ne: true } }
       ]
     });
     if (!conversation) {
@@ -818,8 +770,8 @@ router.delete('/messages/:messageId', authMiddleware, async (req, res) => {
     const conversation = await Conversation.findOne({
       _id: message.conversationId,
       $or: [
-        { participant1Id: userId },
-        { participant2Id: userId }
+        { participant1Id: userId, participant1Hidden: { $ne: true } },
+        { participant2Id: userId, participant2Hidden: { $ne: true } }
       ]
     }).select('_id participant1Id participant2Id');
 
@@ -883,7 +835,7 @@ router.delete('/messages/:messageId', authMiddleware, async (req, res) => {
 /**
  * @route   DELETE /api/chat/conversations/:conversationId
  * @route   DELETE /api/chat/conversation/:conversationId (alias)
- * @desc    Delete a conversation (and its messages)
+ * @desc    Delete a conversation for the current user (non-destructive soft-delete)
  * @access  Private
  */
 const deleteConversationHandler = async (req, res) => {
@@ -909,11 +861,27 @@ const deleteConversationHandler = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
     }
 
-    // Hard delete messages and conversation
-    await Message.deleteMany({ conversationId });
-    await Conversation.deleteOne({ _id: conversationId });
+    const isParticipant1 = p1 === userIdStr;
+    const hiddenField = isParticipant1 ? 'participant1Hidden' : 'participant2Hidden';
+    const hiddenAtField = isParticipant1 ? 'participant1HiddenAt' : 'participant2HiddenAt';
 
-    res.json({ success: true, message: 'Conversation deleted' });
+    if (conv[hiddenField] === true) {
+      return res.json({ success: true, message: 'Conversation already deleted for this user' });
+    }
+
+    conv[hiddenField] = true;
+    conv[hiddenAtField] = new Date();
+    conv.updatedAt = new Date();
+
+    const bothHidden = Boolean(conv.participant1Hidden) && Boolean(conv.participant2Hidden);
+    if (bothHidden) {
+      await Message.deleteMany({ conversationId });
+      await Conversation.deleteOne({ _id: conversationId });
+      return res.json({ success: true, message: 'Conversation deleted for both participants' });
+    }
+
+    await conv.save();
+    res.json({ success: true, message: 'Conversation deleted for you' });
   } catch (error) {
     console.error('Delete conversation error:', error);
     res.status(500).json({ success: false, error: 'Failed to delete conversation' });
@@ -1021,67 +989,19 @@ router.post('/block-user', authMiddleware, [
 
 /**
  * @route   GET /api/chat/messaging-limit
- * @desc    Get user's messaging limit status (for non-subscribers)
+ * @desc    Get current messaging access status
  * @access  Private
  */
 router.get('/messaging-limit', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.userId;
-    
-    // Get user subscription status
-    const user = await User.findById(userId).select('is_subscribed subscription_expires_at');
-    
-    const isSubscribed = user?.is_subscribed && 
-      (!user.subscription_expires_at || new Date(user.subscription_expires_at) > new Date());
-    
-    if (isSubscribed) {
-      return res.json({
-        success: true,
-        isSubscribed: true,
-        uniqueContacts: 0,
-        maxContacts: Infinity,
-        remainingContacts: Infinity,
-        requiresSubscription: false
-      });
-    }
-
-    // Count unique contacts for non-subscribers via aggregation
-    const userObjId = new mongoose.Types.ObjectId(userId);
-    const uniqueContactRows = await Conversation.aggregate([
-      {
-        $match: {
-          $or: [
-            { participant1Id: userObjId },
-            { participant2Id: userObjId }
-          ]
-        }
-      },
-      {
-        $project: {
-          contactId: {
-            $cond: [
-              { $eq: ['$participant1Id', userObjId] },
-              '$participant2Id',
-              '$participant1Id'
-            ]
-          }
-        }
-      },
-      { $group: { _id: '$contactId' } }
-    ]);
-
-    const uniqueContactIds = new Set(uniqueContactRows.map((row) => String(row._id || '')));
-
-    const uniqueContacts = uniqueContactIds.size;
-    const remainingContacts = Math.max(0, FREE_TIER_MAX_CONTACTS - uniqueContacts);
-
     res.json({
       success: true,
       isSubscribed: false,
-      uniqueContacts,
-      maxContacts: FREE_TIER_MAX_CONTACTS,
-      remainingContacts,
-      requiresSubscription: remainingContacts === 0
+      unlimited: true,
+      uniqueContacts: 0,
+      maxContacts: null,
+      remainingContacts: null,
+      requiresSubscription: false
     });
 
   } catch (error) {

@@ -83,10 +83,15 @@ const NotificationSystem = () => {
     try {
       setLoading(true);
       const response = await apiClient.get('/notifications');
-      const notifs = response.data.notifications || [];
+      const notifs = (response.data.notifications || []).map((n) => ({
+        ...n,
+        read: Boolean(n.read ?? n.is_read),
+        data: n.data || n.metadata || {},
+        message: n.message || n.body || ''
+      }));
       setNotifications(notifs);
       dispatch(setNotificationsList(notifs));
-      const unreadTotal = notifs.filter(n => !n.read).length || 0;
+      const unreadTotal = notifs.filter(n => !Boolean(n.read)).length || 0;
       dispatch(setUnreadNotifications(unreadTotal));
     } catch (error) {
       console.error('Failed to load notifications:', error);
@@ -109,8 +114,9 @@ const NotificationSystem = () => {
         break;
       case 'message':
         // Navigate to chat — conversationId passed as query param since /chat/:id route doesn't exist
-        if (notification.data?.conversationId) {
-          navigate(`/chat?conversation=${notification.data.conversationId}`);
+        if (notification.data?.conversationId || notification.data?.conversation_id) {
+          const conversationId = notification.data.conversationId || notification.data.conversation_id;
+          navigate(`/chat?conversation=${conversationId}`);
         } else {
           navigate('/chat');
         }

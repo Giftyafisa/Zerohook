@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { authMiddleware, optionalAuthMiddleware } = require('./auth');
 const { User, BlockedUser, Conversation, SugarAccessPayment, isDatabaseAvailable } = require('../config/database');
 const MongoRecommendationEngine = require('../services/MongoRecommendationEngine');
+const { safePagination } = require('../utils/routeHelpers');
 const router = express.Router();
 
 // Environment-gated debug logger
@@ -464,9 +465,7 @@ const handleBrowseProfiles = async (req, res) => {
       locationAccuracy
     } = req.query;
 
-    const pageNum = parseInt(page);
-    const limitNum = Math.min(parseInt(limit), 50);
-    const offset = (pageNum - 1) * limitNum;
+    const pg = safePagination(req.query, 50);
 
     // ============================================
     // STEP 3: DETECT USER LOCATION (UBER/BOLT-STYLE)
@@ -560,8 +559,8 @@ const handleBrowseProfiles = async (req, res) => {
     const filters = {
       country: country && country !== 'all' ? country : null,
       city: city || null,
-      minAge: minAge ? parseInt(minAge) : null,
-      maxAge: maxAge ? parseInt(maxAge) : null,
+      minAge: minAge ? (parseInt(minAge, 10) || null) : null,
+      maxAge: maxAge ? (parseInt(maxAge, 10) || null) : null,
       filterMode: filter, // 'all', 'nearby', 'online', 'verified', 'trending'
       searchQuery: search || null
     };
@@ -579,8 +578,8 @@ const handleBrowseProfiles = async (req, res) => {
         userId: currentUserId,
         viewerAccountType,
         userLocation,
-        limit: limitNum,
-        offset,
+        limit: pg.limit,
+        offset: pg.skip,
         cursor: cursorParam || null,
         filters,
         accountTypeFilter
@@ -594,8 +593,8 @@ const handleBrowseProfiles = async (req, res) => {
         accountTypeFilter,
         filters,
         sort,
-        limitNum,
-        offset
+        limitNum: pg.limit,
+        offset: pg.skip
       });
     }
 
@@ -643,9 +642,9 @@ const handleBrowseProfiles = async (req, res) => {
       };
     });
 
-    const totalPages = Math.ceil((result.total || 0) / limitNum);
+    const totalPages = Math.ceil((result.total || 0) / pg.limit);
     
-    debugLog(`📊 Returning ${enhancedProfiles.length} profiles (page ${pageNum}/${totalPages})`);
+    debugLog(`📊 Returning ${enhancedProfiles.length} profiles (page ${pg.page}/${totalPages})`);
     if (enhancedProfiles.length > 0 && enhancedProfiles[0].distance !== undefined) {
       debugLog(`   Top result: ${enhancedProfiles[0].username} - ${enhancedProfiles[0].distance?.toFixed(1) || '?'}km - Score: ${enhancedProfiles[0].recommendationScore || 'N/A'}`);
     }
@@ -654,8 +653,8 @@ const handleBrowseProfiles = async (req, res) => {
       success: true,
       users: enhancedProfiles,
       pagination: {
-        page: pageNum,
-        limit: limitNum,
+        page: pg.page,
+        limit: pg.limit,
         total: result.total || enhancedProfiles.length,
         pages: totalPages || 1,
         nextCursor: result.nextCursor || null
@@ -1261,8 +1260,8 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
 router.get('/sugar-profiles', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { type = 'all', page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
+    const { type = 'all' } = req.query;
+    const pg = safePagination(req.query);
 
     // Get user's account type
     const userDoc = await User.findById(userId).select('profile_data profileData');
@@ -1339,8 +1338,8 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
       ]
     })
     .sort({ last_active: -1 })
-    .skip(parseInt(offset))
-    .limit(parseInt(limit))
+    .skip(pg.skip)
+    .limit(pg.limit)
     .select('username profile_data profileData verification_tier verificationTier reputation_score reputationScore created_at createdAt last_active lastActive');
 
     // Get total count
@@ -1383,8 +1382,8 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
         last_active: p.last_active || p.lastActive
       })),
       total,
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: pg.page,
+      limit: pg.limit,
       hasSugarDaddyAccess: hasDaddyAccess,
       hasSugarMommyAccess: hasMommyAccess
     });

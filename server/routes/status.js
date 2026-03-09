@@ -113,6 +113,7 @@ router.get('/users/:userId/activity', authMiddleware, async (req, res) => {
   try {
     const { userId } = req.params;
     const { days = 7 } = req.query;
+    const safeDays = Math.min(Math.max(1, parseInt(days, 10) || 7), 365);
     
     // Only allow users to view their own activity or admin users
     if (req.user.userId !== userId && req.user.verification_tier < 4) {
@@ -122,13 +123,13 @@ router.get('/users/:userId/activity', authMiddleware, async (req, res) => {
       });
     }
     
-    const activitySummary = await req.userActivityMonitor.getUserActivitySummary(userId, parseInt(days));
+    const activitySummary = await req.userActivityMonitor.getUserActivitySummary(userId, safeDays);
     
     res.json({
       success: true,
       userId,
       activitySummary,
-      days: parseInt(days),
+      days: safeDays,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -192,7 +193,9 @@ router.get('/database/slow-queries', authMiddleware, async (req, res) => {
     }
     
     const { threshold = 1000, limit = 20 } = req.query;
-    const slowQueries = await req.performanceMetrics.getSlowQueries(parseInt(threshold), parseInt(limit));
+    const safeThreshold = Math.max(0, parseInt(threshold, 10) || 1000);
+    const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 20), 100);
+    const slowQueries = await req.performanceMetrics.getSlowQueries(safeThreshold, safeLimit);
     
     res.json({
       success: true,

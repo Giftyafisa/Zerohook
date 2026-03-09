@@ -7,10 +7,24 @@ const MessagesPage = () => {
   const location = useLocation();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg')); // >= 1200px
-  const { recipientId, recipientName, recipientAvatar, conversationId } = location.state || {};
+  const {
+    recipientId,
+    recipientID,
+    targetUserId,
+    userId,
+    recipientName,
+    username,
+    recipientAvatar,
+    avatar,
+    conversationId,
+    conversationID
+  } = location.state || {};
   const searchParams = new URLSearchParams(location.search || '');
   const conversationIdFromQuery = searchParams.get('conversation') || searchParams.get('conversationId');
-  const initialConversationId = conversationId || conversationIdFromQuery || null;
+  const initialConversationId = conversationId || conversationID || conversationIdFromQuery || null;
+  const initialRecipientId = recipientId || recipientID || targetUserId || userId || null;
+  const initialRecipientName = recipientName || username || null;
+  const initialRecipientAvatar = recipientAvatar || avatar || null;
 
   // Mobile: MobileShell handles header/nav, this fills the content area
   // Desktop: Uses sidebar layout, full viewport height
@@ -31,9 +45,9 @@ const MessagesPage = () => {
       minHeight: 0,
     }}>
       <ChatSystem
-        recipientId={recipientId}
-        recipientName={recipientName}
-        recipientAvatar={recipientAvatar}
+        recipientId={initialRecipientId}
+        recipientName={initialRecipientName}
+        recipientAvatar={initialRecipientAvatar}
         initialConversationId={initialConversationId}
       />
     </Box>

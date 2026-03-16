@@ -272,6 +272,8 @@ const CallSystem = () => {
   const [outgoingCall, setOutgoingCall] = useState(null);
   const outgoingCallRef = useRef(null);
   const outgoingTimeoutRef = useRef(null);
+  const [outgoingElapsed, setOutgoingElapsed] = useState(0);
+  const outgoingTimerRef = useRef(null);
   const [activeCall, setActiveCall] = useState(null);
   const activeCallRef = useRef(null);
   const [callType, setCallType] = useState('video');
@@ -286,7 +288,13 @@ const CallSystem = () => {
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  
+
+  // Network quality state — derived from WebRTC getStats() polling
+  // 'connecting' | 'good' | 'fair' | 'poor'
+  const [networkQuality, setNetworkQuality] = useState('connecting');
+  const netQualityIntervalRef = useRef(null);
+  const prevRttRef = useRef(null);
+
   // Refs
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -294,6 +302,12 @@ const CallSystem = () => {
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
+  const ringAudioContextRef = useRef(null);
+  const ringToneIntervalRef = useRef(null);
+  const initializeMediaRef = useRef(null);
+  const createAndSendOfferRef = useRef(null);
+  const handleWebRTCOfferRef = useRef(null);
+  const endCallRef = useRef(null);
 
   /**
    * ICE candidate queue — buffers candidates that arrive before
@@ -316,6 +330,87 @@ const CallSystem = () => {
    */
   const negotiationBusy = useRef(false);
 
+  const stopOutgoingRingFeedback = useCallback(() => {
+    if (ringToneIntervalRef.current) {
+      clearInterval(ringToneIntervalRef.current);
+      ringToneIntervalRef.current = null;
+    }
+    if (ringAudioContextRef.current) {
+      const context = ringAudioContextRef.current;
+      ringAudioContextRef.current = null;
+      if (typeof context.close === 'function' && context.state !== 'closed') {
+        context.close().catch(() => {});
+      }
+    }
+  }, []);
+
+  const playOutgoingRingPulse = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+
+    try {
+      if (!ringAudioContextRef.current) {
+        ringAudioContextRef.current = new AudioCtx();
+      }
+      const ctx = ringAudioContextRef.current;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const playTone = (offsetSec, frequency, durationSec, gainPeak) => {
+        const osc = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(frequency, ctx.currentTime + offsetSec);
+        gainNode.gain.setValueAtTime(0.0001, ctx.currentTime + offsetSec);
+        gainNode.gain.exponentialRampToValueAtTime(gainPeak, ctx.currentTime + offsetSec + 0.02);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offsetSec + durationSec);
+        osc.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        osc.start(ctx.currentTime + offsetSec);
+        osc.stop(ctx.currentTime + offsetSec + durationSec + 0.03);
+      };
+
+      // Two short pulses to mimic a subtle outgoing call ringtone cadence.
+      playTone(0, 950, 0.22, 0.045);
+      playTone(0.36, 760, 0.18, 0.035);
+
+      // Haptic-like vibration feedback on mobile browsers that support the Vibration API (best-effort).
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate([100, 60, 80]);
+      }
+    } catch (_) {
+      // Audio + haptic feedback is best-effort and should never block call flow.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (outgoingCall && !isInCall) {
+      if (!outgoingTimerRef.current) {
+        outgoingTimerRef.current = setInterval(() => {
+          setOutgoingElapsed((prev) => prev + 1);
+        }, 1000);
+      }
+
+      playOutgoingRingPulse();
+      if (!ringToneIntervalRef.current) {
+        ringToneIntervalRef.current = setInterval(() => {
+          playOutgoingRingPulse();
+        }, 2600);
+      }
+      return;
+    }
+
+    if (outgoingTimerRef.current) {
+      clearInterval(outgoingTimerRef.current);
+      outgoingTimerRef.current = null;
+    }
+    setOutgoingElapsed(0);
+    stopOutgoingRingFeedback();
+  }, [outgoingCall, isInCall, playOutgoingRingPulse, stopOutgoingRingFeedback]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -323,10 +418,15 @@ const CallSystem = () => {
         clearTimeout(outgoingTimeoutRef.current);
         outgoingTimeoutRef.current = null;
       }
+      if (outgoingTimerRef.current) {
+        clearInterval(outgoingTimerRef.current);
+        outgoingTimerRef.current = null;
+      }
+      stopOutgoingRingFeedback();
       cleanupMediaStreams();
       if (callTimerRef.current) clearInterval(callTimerRef.current);
     };
-  }, []);
+  }, [stopOutgoingRingFeedback]);
 
   // ── CRITICAL FIX: Attach local stream to <video> element after React renders it.
   // initializeMedia() runs BEFORE setActiveCall/setIsInCall, so localVideoRef.current
@@ -396,7 +496,7 @@ const CallSystem = () => {
           ...prev,
           id: canonicalCallId,
           callId: canonicalCallId,
-          status: 'calling'
+          status: 'ringing'
         };
       });
 
@@ -405,7 +505,7 @@ const CallSystem = () => {
             ...outgoingCallRef.current,
             id: canonicalCallId,
             callId: canonicalCallId,
-            status: 'calling'
+            status: 'ringing'
           }
         : outgoingCallRef.current;
     };
@@ -438,12 +538,12 @@ const CallSystem = () => {
 
       if (!localStreamRef.current) {
         console.log('🎤 Initializing media on call_accepted (was not yet ready)');
-        await initializeMedia(currentCallType === 'video');
+        await initializeMediaRef.current?.(currentCallType === 'video');
       }
 
       isCallerRef.current = true;
       if (peerUserId) {
-        await createAndSendOffer(peerUserId);
+        await createAndSendOfferRef.current?.(peerUserId);
       } else {
         console.warn('⚠️ call_accepted missing peer user ID; cannot send WebRTC offer');
       }
@@ -468,7 +568,7 @@ const CallSystem = () => {
       }
       // Use endCall(true) to avoid re-emitting end_call back to the remote peer.
       // This MUST clean up all state immediately so the UI dismisses the call screen.
-      endCall(true);
+      endCallRef.current?.(true);
     };
 
     const handleCallTimeout = () => {
@@ -494,8 +594,8 @@ const CallSystem = () => {
       try {
         // Ensure local media is ready before constructing an answer.
         // This avoids cases where the remote peer never receives our audio/video.
-        await initializeMedia((data.callType || data.type || 'video') === 'video');
-        await handleWebRTCOffer(data);
+        await initializeMediaRef.current?.((data.callType || data.type || 'video') === 'video');
+        await handleWebRTCOfferRef.current?.(data);
       } catch (error) {
         console.error('Error handling WebRTC offer:', error);
       }
@@ -626,7 +726,59 @@ const CallSystem = () => {
   };
 
   // Cleanup media
+  const stopNetQualityPolling = useCallback(() => {
+    if (netQualityIntervalRef.current) {
+      clearInterval(netQualityIntervalRef.current);
+      netQualityIntervalRef.current = null;
+    }
+    setNetworkQuality('connecting');
+    prevRttRef.current = null;
+  }, []);
+
+  const startNetQualityPolling = useCallback(() => {
+    stopNetQualityPolling();
+    netQualityIntervalRef.current = setInterval(async () => {
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      try {
+        const stats = await pc.getStats();
+        let packetsLost = 0;
+        let totalPackets = 1; // avoid division by zero
+        let rtt = null;
+        let jitter = 0;
+        stats.forEach((report) => {
+          if (report.type === 'inbound-rtp' && (report.mediaType === 'audio' || report.kind === 'audio')) {
+            packetsLost += report.packetsLost || 0;
+            totalPackets += report.packetsReceived || 1;
+            jitter = report.jitter || 0;
+          }
+          if (report.type === 'remote-inbound-rtp') {
+            rtt = report.roundTripTime ?? rtt;
+          }
+        });
+        const lossRate = packetsLost / totalPackets;
+        const rttMs = rtt != null ? rtt * 1000 : (prevRttRef.current ?? 0);
+        prevRttRef.current = rttMs;
+        if (lossRate > 0.08 || rttMs > 400 || jitter > 0.05) {
+          setNetworkQuality('poor');
+        } else if (lossRate > 0.02 || rttMs > 150 || jitter > 0.02) {
+          setNetworkQuality('fair');
+        } else {
+          setNetworkQuality('good');
+        }
+      } catch (_) {
+        // getStats unavailable or pc closed — ignore silently.
+      }
+    }, 3500);
+  }, [stopNetQualityPolling]);
+
   const cleanupMediaStreams = () => {
+    if (netQualityIntervalRef.current) {
+      clearInterval(netQualityIntervalRef.current);
+      netQualityIntervalRef.current = null;
+    }
+    setNetworkQuality('connecting');
+    prevRttRef.current = null;
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -665,7 +817,7 @@ const CallSystem = () => {
     if (!socket || !isConnected) return;
     if (!targetUserId || String(targetUserId) === currentUserId) return;
 
-    await initializeMedia(type === 'video');
+    await initializeMediaRef.current?.(type === 'video');
     setCallType(type);
     const callData = {
       id: Date.now().toString(),
@@ -674,8 +826,9 @@ const CallSystem = () => {
       peerUserId: targetUserId,
       targetName: targetName || 'User',
       type,
-      status: 'calling'
+      status: 'dialing'
     };
+    setOutgoingElapsed(0);
     setOutgoingCall(callData);
     outgoingCallRef.current = callData;
     peerUserIdRef.current = String(targetUserId || '');
@@ -716,6 +869,20 @@ const CallSystem = () => {
     setGlobalIsInCall(isInCall);
   }, [isInCall, setGlobalIsInCall]);
 
+  // Network quality: start polling WebRTC stats when call is active, stop when it ends.
+  useEffect(() => {
+    if (isInCall) {
+      // Slight delay so PeerConnection is fully established before first getStats().
+      const startDelay = setTimeout(() => startNetQualityPolling(), 2000);
+      return () => {
+        clearTimeout(startDelay);
+        stopNetQualityPolling();
+      };
+    } else {
+      stopNetQualityPolling();
+    }
+  }, [isInCall, startNetQualityPolling, stopNetQualityPolling]);
+
   // Accept call — IMMEDIATELY sends accept_call via socket, THEN initializes media.
   // This eliminates the 3-10 second getUserMedia permission delay that made the
   // pick button feel "slow and stiff". The caller sees the call accepted instantly;
@@ -729,7 +896,7 @@ const CallSystem = () => {
     // Ensure local media is ready before accepting so we send tracks with the answer.
     // This may add a short delay while permissions are granted, but prevents calls
     // where the remote peer never receives our audio/video.
-    await initializeMedia(resolvedType === 'video');
+    await initializeMediaRef.current?.(resolvedType === 'video');
 
     // ── Step 1: Accept and update UI (fast) ─────────────────────
     setCallType(resolvedType);
@@ -890,12 +1057,23 @@ const CallSystem = () => {
       if (!existingTrackIds.has(event.track.id)) {
         stream.addTrack(event.track);
       }
-      // Attach to DOM element if it exists
-      if (remoteVideoRef.current) {
-        if (remoteVideoRef.current.srcObject !== stream) {
-          remoteVideoRef.current.srcObject = stream;
+      // ✅ CRITICAL: Attach based on track kind.
+      // Video → remoteVideoRef; Audio → remoteAudioRef.
+      // Previously audio was never attached to a DOM element, causing silence.
+      if (event.track.kind === 'audio') {
+        if (remoteAudioRef.current) {
+          if (remoteAudioRef.current.srcObject !== stream) {
+            remoteAudioRef.current.srcObject = stream;
+          }
+          remoteAudioRef.current.play().catch(e => console.warn('Remote audio play blocked:', e.message));
         }
-        remoteVideoRef.current.play().catch(e => console.warn('Remote video play blocked:', e.message));
+      } else if (event.track.kind === 'video') {
+        if (remoteVideoRef.current) {
+          if (remoteVideoRef.current.srcObject !== stream) {
+            remoteVideoRef.current.srcObject = stream;
+          }
+          remoteVideoRef.current.play().catch(e => console.warn('Remote video play blocked:', e.message));
+        }
       }
     };
 
@@ -1023,6 +1201,11 @@ const CallSystem = () => {
       console.error('Error handling WebRTC offer:', error);
     }
   };
+
+  initializeMediaRef.current = initializeMedia;
+  createAndSendOfferRef.current = createAndSendOffer;
+  handleWebRTCOfferRef.current = handleWebRTCOffer;
+  endCallRef.current = endCall;
 
   // Toggle controls
   const toggleVideo = () => {
@@ -1229,12 +1412,41 @@ const CallSystem = () => {
               <Typography sx={styles.callStatus}>
                 <motion.span
                   animate={{ opacity: [0.3, 1, 0.3] }}
-                  transition={{ duration: 1.5, repeat: Infinity }}
+                  transition={{ duration: 1, repeat: Infinity }}
                 >
                   ●
                 </motion.span>
-                {outgoingCall.type === 'video' ? 'Video Call' : 'Audio Call'}
+                {outgoingCall.status === 'dialing' ? 'Dialing secure line...' : 'Ringing recipient...'}
               </Typography>
+
+              <Typography
+                sx={{
+                  color: 'rgba(255,255,255,0.78)',
+                  fontSize: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                }}
+              >
+                {outgoingCall.type === 'video' ? '📹 Video call' : '📞 Audio call'} • {formatDuration(outgoingElapsed)}
+              </Typography>
+
+              <Box sx={{ display: 'flex', gap: 0.6, mt: 0.5 }}>
+                {[0, 1, 2, 3].map((index) => (
+                  <motion.div
+                    key={index}
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: 'rgba(0, 242, 234, 0.9)',
+                      boxShadow: '0 0 10px rgba(0, 242, 234, 0.55)'
+                    }}
+                    animate={{ opacity: [0.2, 1, 0.2], scale: [0.9, 1.1, 0.9] }}
+                    transition={{ duration: 1.2, repeat: Infinity, delay: index * 0.15 }}
+                  />
+                ))}
+              </Box>
             </Box>
           </Box>
 
@@ -1291,9 +1503,42 @@ const CallSystem = () => {
                 </Typography>
               </Box>
             </Box>
-            <IconButton onClick={toggleFullscreen} sx={{ color: '#fff' }}>
-              {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {/* Network quality badge — derived from WebRTC getStats() polling */}
+              <Box sx={{
+                display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25,
+                borderRadius: 10, fontSize: '0.65rem', fontWeight: 600,
+                backdropFilter: 'blur(6px)',
+                backgroundColor:
+                  networkQuality === 'good' ? 'rgba(0,220,100,0.22)' :
+                  networkQuality === 'fair' ? 'rgba(255,180,0,0.22)' :
+                  networkQuality === 'poor' ? 'rgba(255,80,60,0.22)' :
+                  'rgba(180,180,180,0.18)',
+                color:
+                  networkQuality === 'good' ? '#00dc64' :
+                  networkQuality === 'fair' ? '#ffb400' :
+                  networkQuality === 'poor' ? '#ff5040' :
+                  '#ccc',
+                border: '1px solid',
+                borderColor:
+                  networkQuality === 'good' ? 'rgba(0,220,100,0.35)' :
+                  networkQuality === 'fair' ? 'rgba(255,180,0,0.35)' :
+                  networkQuality === 'poor' ? 'rgba(255,80,60,0.35)' :
+                  'rgba(180,180,180,0.25)',
+              }}>
+                <Box sx={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  backgroundColor: 'currentColor',
+                  animation: networkQuality === 'connecting' ? 'pulse 1.4s ease-in-out infinite' : 'none',
+                }} />
+                {networkQuality === 'connecting' ? 'Connecting…' :
+                 networkQuality === 'good' ? 'Good' :
+                 networkQuality === 'fair' ? 'Fair' : 'Poor'}
+              </Box>
+              <IconButton onClick={toggleFullscreen} sx={{ color: '#fff' }}>
+                {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
+              </IconButton>
+            </Box>
           </Box>
 
           {/* Video container */}

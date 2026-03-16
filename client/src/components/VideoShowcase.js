@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Box, Typography, Button } from '@mui/material';
+import { Box, Typography, Button, Chip } from '@mui/material';
 import { motion } from 'framer-motion';
 import { ArrowForward } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -39,6 +39,8 @@ const VideoShowcase = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentDescription, setCurrentDescription] = useState(videoDescriptions[0]);
   const [isVideoReady, setIsVideoReady] = useState(false);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [videoCycle, setVideoCycle] = useState(0);
 
   // Get video URL
   const getVideoUrl = useCallback((index) => {
@@ -75,6 +77,7 @@ const VideoShowcase = () => {
   // Handle video can play - immediate play
   const handleCanPlay = useCallback(() => {
     setIsVideoReady(true);
+    setPlaybackProgress(0);
     playVideo();
   }, [playVideo]);
 
@@ -84,6 +87,8 @@ const VideoShowcase = () => {
     setCurrentIndex(nextIdx);
     setCurrentDescription(getRandomDescription());
     setIsVideoReady(false);
+    setPlaybackProgress(0);
+    setVideoCycle((prev) => prev + 1);
   }, [currentIndex, getNextIndex, getRandomDescription]);
 
   // Handle video error - skip to next
@@ -91,7 +96,16 @@ const VideoShowcase = () => {
     const nextIdx = getNextIndex(currentIndex);
     setCurrentIndex(nextIdx);
     setCurrentDescription(getRandomDescription());
+    setPlaybackProgress(0);
+    setVideoCycle((prev) => prev + 1);
   }, [currentIndex, getNextIndex, getRandomDescription]);
+
+  const handleTimeUpdate = useCallback(() => {
+    const element = videoRef.current;
+    if (!element || !element.duration || !Number.isFinite(element.duration)) return;
+    const ratio = Math.min(1, Math.max(0, element.currentTime / element.duration));
+    setPlaybackProgress(ratio);
+  }, []);
 
   // Preload next video
   useEffect(() => {
@@ -134,10 +148,13 @@ const VideoShowcase = () => {
       }}
     >
       {/* Main Video Player */}
-      <video
+      <motion.video
         ref={videoRef}
         key={currentIndex}
         src={getVideoUrl(currentIndex)}
+        initial={{ opacity: 0, scale: 1.12 }}
+        animate={{ opacity: isVideoReady ? 1 : 0.65, scale: isVideoReady ? 1.02 : 1.08 }}
+        transition={{ duration: 0.8, ease: 'easeOut' }}
         style={{
           position: 'absolute',
           top: 0,
@@ -154,6 +171,7 @@ const VideoShowcase = () => {
         onCanPlay={handleCanPlay}
         onEnded={handleVideoEnd}
         onError={handleVideoError}
+        onTimeUpdate={handleTimeUpdate}
       />
 
       {/* Hidden preload video for next */}
@@ -179,6 +197,86 @@ const VideoShowcase = () => {
         }}
       />
 
+      {/* Cinematic top overlay + status chips */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          p: { xs: 1.2, sm: 1.6, md: 2 },
+          zIndex: 9,
+          background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.0) 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 1,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexWrap: 'wrap' }}>
+          <Chip
+            size="small"
+            label="Live Preview"
+            sx={{
+              color: '#d7fff9',
+              bgcolor: 'rgba(0, 242, 234, 0.16)',
+              border: '1px solid rgba(0, 242, 234, 0.38)',
+              fontWeight: 700,
+              fontSize: '0.7rem',
+            }}
+          />
+          <Chip
+            size="small"
+            label="HD"
+            sx={{
+              color: '#ffe8f1',
+              bgcolor: 'rgba(255, 0, 85, 0.18)',
+              border: '1px solid rgba(255, 0, 85, 0.38)',
+              fontWeight: 700,
+              fontSize: '0.7rem',
+            }}
+          />
+        </Box>
+        <Typography
+          sx={{
+            color: 'rgba(255,255,255,0.88)',
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            fontFamily: '"Outfit", sans-serif',
+          }}
+        >
+          Clip {currentIndex + 1}/{videoFiles.length}
+        </Typography>
+      </Box>
+
+      {/* Story-style progress bar */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: { xs: 44, sm: 52, md: 56 },
+          left: 12,
+          right: 12,
+          zIndex: 9,
+          height: 3,
+          borderRadius: 999,
+          overflow: 'hidden',
+          bgcolor: 'rgba(255,255,255,0.20)',
+        }}
+      >
+        <motion.div
+          key={`${currentIndex}-${videoCycle}`}
+          style={{
+            height: '100%',
+            background: 'linear-gradient(90deg, #00f2ea 0%, #00d4aa 45%, #ff4f93 100%)',
+            borderRadius: '999px',
+          }}
+          animate={{ width: `${Math.max(2, Math.round(playbackProgress * 100))}%` }}
+          transition={{ duration: 0.15, ease: 'linear' }}
+        />
+      </Box>
+
       {/* Bottom Content */}
       <Box
         sx={{
@@ -196,9 +294,9 @@ const VideoShowcase = () => {
         {/* Description */}
         <motion.div
           key={currentDescription}
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
+          initial={{ opacity: 0, y: 18, filter: 'blur(4px)' }}
+          animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+          transition={{ duration: 0.45 }}
         >
           <Typography
             variant="h4"

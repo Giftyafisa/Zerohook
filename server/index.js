@@ -601,9 +601,9 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Serve static files from uploads directory with CORS headers
 app.use('/uploads', (req, res, next) => {
-  // Use the same allowed origins as the main CORS config instead of wildcard
+  // Use the shared allowed origins list (same as Express CORS + Socket.io CORS)
   const origin = req.headers.origin;
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && sharedAllowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else if (!origin) {
     // Allow direct browser navigation (no origin header)
@@ -923,13 +923,16 @@ io.on('connection', async (socket) => {
           }
         }
         
-        // Emit call accepted to caller
+        // ✅ CRITICAL: Emit call_accepted with clear field semantics so the caller
+        // knows exactly which peer accepted and can correctly route WebRTC signaling.
         socket.to(`user_${data.targetUserId}`).emit('call_accepted', {
           id: resolvedCallId,
           callId: resolvedCallId,
+          // WHO ACCEPTED — this is the peer the caller needs to send WebRTC offer to
           acceptedBy: socket.userId,
-          targetUserId: socket.userId,
           peerUserId: socket.userId,
+          targetUserId: socket.userId,
+          // WHO MADE THE ORIGINAL CALL (for disambiguation)
           callerId: data.targetUserId,
           callType: data.callType || data.type || 'video',
           type: data.callType || data.type || 'video',

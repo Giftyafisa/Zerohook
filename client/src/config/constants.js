@@ -30,8 +30,17 @@ export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL ||
  */
 export const getUploadUrl = (path) => {
   if (!path) return null;
-  // If it's already a full URL, return as-is
+  // If it's already a full URL, return as-is unless it points to a legacy uploads host.
   if (path.startsWith('http://') || path.startsWith('https://')) {
+    try {
+      const parsed = new URL(path);
+      const legacyUploadHosts = new Set(['opue.me', 'www.opue.me']);
+      if (legacyUploadHosts.has(parsed.hostname.toLowerCase()) && parsed.pathname.startsWith('/uploads/')) {
+        return `${SERVER_URL}${parsed.pathname}`;
+      }
+    } catch (_) {
+      // If URL parsing fails, fall back to returning the original path.
+    }
     return path;
   }
   // If it's a relative path starting with /uploads, prepend the server URL

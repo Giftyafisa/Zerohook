@@ -365,10 +365,22 @@ export const calculateDistance = (lat1, lon1, lat2, lon2) => {
 
 // Enhanced user location detection with better error handling
 export const getUserLocation = () => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error('Geolocation is not supported by this browser'));
       return;
+    }
+
+    try {
+      if (navigator.permissions?.query) {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        if (permission?.state === 'denied') {
+          reject(new Error('Location permission denied. Please enable location services.'));
+          return;
+        }
+      }
+    } catch (_) {
+      // Ignore permission API failures and continue with geolocation request.
     }
     
     const options = {

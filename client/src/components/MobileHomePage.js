@@ -4,91 +4,7 @@
  * A clean, immersive landing experience:
  * - Full-screen hero with animated gradient
  * - Swipeable feature cards
- * - Minimal UI, maximum impact
- * - Clear CTAs at bottom
- */
-import React, { useState, useEffect } from 'react';
-import { Box, Typography, Chip, Avatar, Button } from '@mui/material';
-import {
-  Verified,
-  Shield,
-  Lock,
-  Speed,
-  ArrowForward,
-  KeyboardArrowDown,
-  Circle,
-} from '@mui/icons-material';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
-import { selectIsAuthenticated } from '../store/slices/authSlice';
-import VideoShowcase from './VideoShowcase';
-
-// Animated gradient background
-const AnimatedBackground = () => (
-  <Box
-    sx={{
-      position: 'absolute',
-      inset: 0,
-      overflow: 'hidden',
-      zIndex: 0,
-    }}
-  >
-    {/* Base dark gradient */}
-    <Box
-      sx={{
-        position: 'absolute',
-        inset: 0,
-        background: 'linear-gradient(180deg, #0a0a0f 0%, #0f0f1a 50%, #1a0a15 100%)',
-      }}
-    />
-    
-    {/* Animated orbs */}
-    <motion.div
-      style={{
-        position: 'absolute',
-        top: '10%',
-        left: '-20%',
-        width: 300,
-        height: 300,
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(0,242,234,0.3) 0%, transparent 70%)',
-        filter: 'blur(40px)',
-      }}
-      animate={{
-        x: [0, 50, 0],
-        y: [0, 30, 0],
-        scale: [1, 1.2, 1],
-      }}
-      transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-    />
-    
-    <motion.div
-      style={{
-        position: 'absolute',
-        bottom: '20%',
-        right: '-20%',
-        width: 350,
-        height: 350,
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(255,0,85,0.25) 0%, transparent 70%)',
-        filter: 'blur(50px)',
-      }}
-      animate={{
-        x: [0, -40, 0],
-        y: [0, -20, 0],
-        scale: [1, 1.1, 1],
-      }}
-      transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
-    />
-    
-    {/* Grid pattern overlay */}
-    <Box
-      sx={{
-        position: 'absolute',
-        inset: 0,
-        backgroundImage: `
-          linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+export default MobileHomePage;
           linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)
         `,
         backgroundSize: '50px 50px',
@@ -201,12 +117,25 @@ const MobileHomePage = () => {
   const navigate = useNavigate();
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [infoPage, setInfoPage] = useState(0);
   
   const features = [
     { icon: Verified, title: 'Verified Profiles', description: 'ID-verified companions', color: '#00f2ea' },
     { icon: Shield, title: 'Secure & Private', description: 'End-to-end encryption', color: '#4ade80' },
     { icon: Lock, title: 'Escrow Payments', description: 'Protected transactions', color: '#ffd700' },
     { icon: Speed, title: 'Instant Match', description: 'AI-powered matching', color: '#ff0055' },
+  ];
+
+  const trustPillars = [
+    { icon: Verified, title: 'KYC-Verified Profiles', value: 'Identity + selfie checks' },
+    { icon: Lock, title: 'Private Messaging', value: 'Encrypted chat & calls' },
+    { icon: Shield, title: 'Safety Layer', value: 'Fraud and abuse protection' },
+  ];
+
+  const howItWorks = [
+    'Browse verified profiles nearby',
+    'Message and confirm details safely',
+    'Book with confidence and rate experience',
   ];
 
   // Auto-cycle features
@@ -216,6 +145,11 @@ const MobileHomePage = () => {
     }, 3000);
     return () => clearInterval(timer);
   }, [features.length]);
+  // Auto-advance info panel every 6 seconds
+  useEffect(() => {
+    const t = setInterval(() => setInfoPage((p) => (p + 1) % 2), 6000);
+    return () => clearInterval(t);
+  }, []);
 
   return (
     <Box
@@ -251,10 +185,12 @@ const MobileHomePage = () => {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           px: 3,
           zIndex: 10,
           pt: 4,
+          pb: 2,
+          gap: 2,
         }}
       >
         {/* Live Badge */}
@@ -361,6 +297,112 @@ const MobileHomePage = () => {
             ))}
           </Box>
         </motion.div>
+
+        {/* Informative trust pillars */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.62 }}
+        >
+          <Typography
+            sx={{
+              color: '#d7fff9',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              mb: 1,
+              fontFamily: '"Outfit", sans-serif',
+            }}
+          >
+            Why Zerohook is safer
+          </Typography>
+          <Box sx={{ display: 'grid', gap: 1.1 }}>
+            {trustPillars.map((item) => (
+              <Box
+                key={item.title}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.2,
+                  p: 1.2,
+                  borderRadius: '12px',
+                  background: 'rgba(10, 14, 18, 0.45)',
+                  border: '1px solid rgba(255,255,255,0.09)',
+                  backdropFilter: 'blur(10px)',
+                }}
+              >
+                <item.icon sx={{ fontSize: 18, color: '#00f2ea' }} />
+                <Box>
+                  <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 700, fontFamily: '"Outfit", sans-serif' }}>
+                    {item.title}
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.68)', fontSize: '0.74rem', fontFamily: '"Outfit", sans-serif' }}>
+                    {item.value}
+                  </Typography>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </motion.div>
+
+        {/* Informative steps */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.72 }}
+        >
+          <Typography
+            sx={{
+              color: '#ffd8e8',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              mb: 1,
+              fontFamily: '"Outfit", sans-serif',
+            }}
+          >
+            How it works
+          </Typography>
+          <Box sx={{ display: 'grid', gap: 1 }}>
+            {howItWorks.map((step, index) => (
+              <Box
+                key={step}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  color: '#fff',
+                  fontSize: '0.8rem',
+                  fontFamily: '"Outfit", sans-serif',
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    color: '#041215',
+                    bgcolor: '#00f2ea',
+                    boxShadow: '0 0 12px rgba(0,242,234,0.35)',
+                    flexShrink: 0,
+                  }}
+                >
+                  {index + 1}
+                </Box>
+                <Typography sx={{ color: 'rgba(255,255,255,0.86)', fontSize: '0.8rem', fontFamily: '"Outfit", sans-serif' }}>
+                  {step}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </motion.div>
       </Box>
 
       {/* Bottom CTA Section */}
@@ -428,66 +470,116 @@ const MobileHomePage = () => {
                   textTransform: 'none',
                   '&:hover': {
                     background: 'rgba(255,255,255,0.05)',
-                    borderColor: 'rgba(255,255,255,0.3)',
-                  },
+                    {/* ── Swipeable info panel: swipe or tap dots to switch between pages ── */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.62 }}
+                      style={{ overflow: 'hidden', position: 'relative' }}
+                    >
+                      <motion.div
+                        drag="x"
+                        dragConstraints={{ left: 0, right: 0 }}
+                        dragElastic={0.18}
+                        onDragEnd={(_, info) => {
+                          if (info.offset.x < -40) setInfoPage(1);
+                          else if (info.offset.x > 40) setInfoPage(0);
+                        }}
+                        style={{ cursor: 'grab', touchAction: 'pan-y' }}
+                      >
+                        <AnimatePresence mode="wait">
+                          {infoPage === 0 ? (
+                            <motion.div
+                              key="trust"
+                              initial={{ opacity: 0, x: 32 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: -32 }}
+                              transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+                            >
+                              <Typography sx={{ color: '#d7fff9', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+                                Why Zerohook is safer
+                              </Typography>
+                              <Box sx={{ display: 'grid', gap: 1.1 }}>
+                                {trustPillars.map((item) => (
+                                  <Box key={item.title} sx={{ display: 'flex', alignItems: 'center', gap: 1.2, p: 1.2, borderRadius: '12px', background: 'rgba(10,14,18,0.45)', border: '1px solid rgba(255,255,255,0.09)', backdropFilter: 'blur(10px)' }}>
+                                    <item.icon sx={{ fontSize: 18, color: '#00f2ea' }} />
+                                    <Box>
+                                      <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 700, fontFamily: '"Outfit", sans-serif' }}>{item.title}</Typography>
+                                      <Typography sx={{ color: 'rgba(255,255,255,0.68)', fontSize: '0.74rem', fontFamily: '"Outfit", sans-serif' }}>{item.value}</Typography>
+                                    </Box>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </motion.div>
+                          ) : (
+                            <motion.div
+                              key="howItWorks"
+                              initial={{ opacity: 0, x: 32 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: -32 }}
+                              transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+                            >
+                              <Typography sx={{ color: '#ffd8e8', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+                                How it works
+                              </Typography>
+                              <Box sx={{ display: 'grid', gap: 1 }}>
+                                {howItWorks.map((step, index) => (
+                                  <Box key={step} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box sx={{ width: 20, height: 20, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: '#041215', bgcolor: '#00f2ea', boxShadow: '0 0 12px rgba(0,242,234,0.35)', flexShrink: 0 }}>{index + 1}</Box>
+                                    <Typography sx={{ color: 'rgba(255,255,255,0.86)', fontSize: '0.8rem', fontFamily: '"Outfit", sans-serif' }}>{step}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+                      {/* Page indicator dots */}
+                      <Box sx={{ display: 'flex', gap: 0.8, mt: 1.5, justifyContent: 'center' }}>
+                        {[0, 1].map((i) => (
+                          <Box key={i} onClick={() => setInfoPage(i)} sx={{ width: i === infoPage ? 18 : 7, height: 7, borderRadius: 4, bgcolor: i === infoPage ? '#00f2ea' : 'rgba(255,255,255,0.28)', transition: 'all 0.3s ease', cursor: 'pointer' }} />
+                        ))}
+                      </Box>
+                    </motion.div>
+              ) : (
+                <motion.div
+                  key="howItWorks"
+                  initial={{ opacity: 0, x: 32 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -32 }}
+                  transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+                >
+                  <Typography sx={{ color: '#ffd8e8', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+                    How it works
+                  </Typography>
+                  <Box sx={{ display: 'grid', gap: 1 }}>
+                    {howItWorks.map((step, index) => (
+                      <Box key={step} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 20, height: 20, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: '#041215', bgcolor: '#00f2ea', boxShadow: '0 0 12px rgba(0,242,234,0.35)', flexShrink: 0 }}>{index + 1}</Box>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.86)', fontSize: '0.8rem', fontFamily: '"Outfit", sans-serif' }}>{step}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+
+          {/* Page indicator dots */}
+          <Box sx={{ display: 'flex', gap: 0.8, mt: 1.5, justifyContent: 'center' }}>
+            {[0, 1].map((i) => (
+              <Box
+                key={i}
+                onClick={() => setInfoPage(i)}
+                sx={{
+                  width: i === infoPage ? 18 : 7,
+                  height: 7,
+                  borderRadius: 4,
+                  bgcolor: i === infoPage ? '#00f2ea' : 'rgba(255,255,255,0.28)',
+                  transition: 'all 0.3s ease',
+                  cursor: 'pointer',
                 }}
-              >
-                I have an account
-              </Button>
-            </motion.div>
-          </>
-        ) : (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.7 }}
-          >
-            <Button
-              fullWidth
-              onClick={() => navigate('/profiles')}
-              sx={{
-                py: 1.75,
-                borderRadius: '14px',
-                background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
-                color: '#000',
-                fontWeight: 800,
-                fontSize: '1rem',
-                fontFamily: '"Outfit", sans-serif',
-                textTransform: 'none',
-                boxShadow: '0 8px 32px rgba(0,242,234,0.3)',
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #00f2ea 0%, #00d4aa 100%)',
-                },
-              }}
-              endIcon={<ArrowForward />}
-            >
-              Browse Profiles
-            </Button>
-          </motion.div>
-        )}
-
-        {/* Scroll hint */}
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            mt: 2,
-            opacity: 0.5,
-          }}
-        >
-          <motion.div
-            animate={{ y: [0, 5, 0] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          >
-            <KeyboardArrowDown sx={{ color: '#fff', fontSize: 28 }} />
-          </motion.div>
-        </Box>
-      </Box>
-      {/* End of Bottom CTA Section */}
-      </Box>
-      {/* End of Content Section with Background */}
-    </Box>
-  );
-};
-
-export default MobileHomePage;
+              />
+            ))}
+          </Box>
+        </motion.div>

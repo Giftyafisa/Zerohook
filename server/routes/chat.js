@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { Message, Conversation, isDatabaseAvailable } = require('../config/database');
 const { authMiddleware } = require('./auth');
+const { inferMessageType } = require('../utils/inferMessageType');
 const { body, validationResult } = require('express-validator');
 const { createDistributedLimiter } = require('../utils/rateLimiters');
 const router = express.Router();
@@ -22,12 +23,20 @@ const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 /**
  * Normalise a lastMessage value so the inbox never shows raw URLs.
  * Converts http(s) / /uploads/ / data: URIs to friendly labels.
+ * CRITICAL: Handles both already-formatted previews and raw content.
  */
-const normalizeLastMessagePreview = (msg, messageType = 'text') => {
-  if (!msg && !messageType) return '';
+const normalizeLastMessagePreview = (content = '', messageType = 'text') => {
+  if (!content && !messageType) return '';
 
-  // Prefer explicit message type when available (e.g. 'image', 'video')
-  const resolvedType = inferMessageType({ messageType, content: msg });
+  // If content is already an emoji label, return as-is (avoid double-formatting)
+  if (typeof content === 'string' && /^[\u{1F4F7}\u{1F3AC}\u{1F3B5}\u{1F4CE}\u{1F4CD}\u{1F464}]/u.test(content)) {
+    return content;
+  }
+
+  // Infer type from both content and explicit messageType
+  const resolvedType = inferMessageType({ messageType, content: String(content || ''), metadata: {} });
+
+  // Return emoji label for non-text types
   switch (resolvedType) {
     case 'image': return '📷 Photo';
     case 'video': return '🎬 Video';
@@ -38,11 +47,12 @@ const normalizeLastMessagePreview = (msg, messageType = 'text') => {
     default: break;
   }
 
-  if (!msg || typeof msg !== 'string') return msg || '';
-  return msg;
+  // For text messages, return the content itself (truncated for display)
+  if (typeof content === 'string') {
+    return content.substring(0, 100);
+  }
+  return String(content || '');
 };
-
-const { inferMessageType } = require('../utils/inferMessageType');
 
 const buildVisibleConversationFilter = (userId) => ({
   status: { $ne: 'deleted' },
@@ -235,10 +245,11 @@ router.get('/conversations', authMiddleware, async (req, res) => {
           id: conv._id ? String(conv._id) : '',
           otherUser: {
             id: otherParticipant?._id ? String(otherParticipant._id) : '',
-            username: otherParticipant?.username,
+            username: otherParticipant?.username || 'Unknown User',
             verificationTier: otherParticipant?.verification_tier,
             profilePicture: profilePicture
           },
+          // ✅ CRITICAL: Format preview on backend; frontend uses this directly
           lastMessage: normalizeLastMessagePreview(conv.lastMessage, conv.lastMessageType),
           lastMessageType: conv.lastMessageType || 'text',
           lastMessageTime: conv.lastMessageTime,

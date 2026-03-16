@@ -48,6 +48,16 @@ const findNearestCity = (latitude, longitude, countryCode) => {
   return { location: nearest, distance: minDist };
 };
 
+const getGeolocationPermissionState = async () => {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) return 'unknown';
+    const result = await navigator.permissions.query({ name: 'geolocation' });
+    return result?.state || 'unknown';
+  } catch (_) {
+    return 'unknown';
+  }
+};
+
 // ─── hook ───────────────────────────────────────────────────
 
 /**
@@ -169,7 +179,10 @@ const useLocationBootstrap = () => {
       // 3. GPS (parallel with IP as backup)
       const ipPromise = getIPLocation();
 
-      if (navigator.geolocation) {
+      const geolocationPermission = await getGeolocationPermissionState();
+      const shouldAttemptGeolocation = navigator.geolocation && geolocationPermission !== 'denied';
+
+      if (shouldAttemptGeolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             clearTimeout(timeout);

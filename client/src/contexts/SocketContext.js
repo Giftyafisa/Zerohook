@@ -102,6 +102,7 @@ export const SocketProvider = ({ children }) => {
         auth: {
           token: localStorage.getItem('token')
         },
+        transports: ['websocket'],
         timeout: 10000, // 10 second timeout
         reconnection: true,
         reconnectionAttempts: 10,

@@ -15,7 +15,6 @@ import {
   useTheme,
   useMediaQuery
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   Notifications,
@@ -28,7 +27,6 @@ import {
   CheckCircle,
   Info
 } from '@mui/icons-material';
-import { useSocket } from '../contexts/SocketContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -44,7 +42,6 @@ import {
 const NotificationSystem = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const { socket, isConnected } = useSocket();
   const { user } = useAuth();
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -65,13 +62,6 @@ const NotificationSystem = () => {
     }
   }, [notificationsList]);
 
-  // Load notifications from API
-  useEffect(() => {
-    if (user) {
-      loadNotifications();
-    }
-  }, [user]);
-
   // REMOVED: Duplicate socket.on handlers - SocketContext is the SINGLE source of truth
   // for socket events. It dispatches Redux actions which this component subscribes to.
   // This prevents double counting and event duplication.
@@ -79,7 +69,7 @@ const NotificationSystem = () => {
   // The Redux store (via notificationsList selector) will automatically update
   // when SocketContext receives socket events and dispatches addToNotificationsList.
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     try {
       setLoading(true);
       const response = await apiClient.get('/notifications');
@@ -98,7 +88,14 @@ const NotificationSystem = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dispatch]);
+
+  // Load notifications from API
+  useEffect(() => {
+    if (user) {
+      loadNotifications();
+    }
+  }, [user, loadNotifications]);
 
   const handleNotificationClick = (notification) => {
     // Mark as read

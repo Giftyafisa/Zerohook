@@ -217,18 +217,6 @@ const DesktopSidebar = () => {
     return false;
   }, [user]);
   
-  // Debug admin detection
-  React.useEffect(() => {
-    if (user) {
-      console.log('🔑 [DesktopSidebar] Admin check:', {
-        is_admin: user.is_admin,
-        role: user.role,
-        accountType: user.profile_data?.accountType,
-        isAdmin,
-        userKeys: Object.keys(user).join(','),
-      });
-    }
-  }, [user, isAdmin]);
   const isSubscribed = useSelector(selectIsSubscribed);
   const unreadMessages = useSelector(selectUnreadMessages);
   const unreadNotifications = useSelector(selectUnreadNotifications);

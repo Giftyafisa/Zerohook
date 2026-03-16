@@ -100,7 +100,7 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
   useEffect(() => {
     if (!socket || !isConnected || sortedIds.length === 0) return;
     socket.emit('get_users_status', { userIds: sortedIds, context });
-  }, [socket, isConnected, idsKey, context]);
+  }, [socket, isConnected, idsKey, sortedIds, context]);
 
   // ── HTTP fallback / initial hydration ───────────────────────────────────
   // Ensures presence can render promptly even before socket responses arrive,

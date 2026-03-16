@@ -13,11 +13,7 @@ export const resolveProfileImage = (profileData) => {
   if (profileData.photos && Array.isArray(profileData.photos) && profileData.photos.length > 0) {
     const photo = profileData.photos[0];
     if (typeof photo === 'string') {
-      // If it's already a full URL (Unsplash, pravatar, etc), use it directly
-      if (photo.startsWith('http://') || photo.startsWith('https://')) {
-        return photo;
-      }
-      // Otherwise, treat it as an upload path
+      // Always normalize via getUploadUrl to handle legacy upload hosts too.
       return getUploadUrl(photo);
     }
   }
@@ -28,21 +24,13 @@ export const resolveProfileImage = (profileData) => {
       // Object format: { url: '...', fileSize: ..., mimeType: ... }
       const url = profileData.profile_picture.url;
       if (url && typeof url === 'string') {
-        // If it's already a full URL, use it directly
-        if (url.startsWith('http://') || url.startsWith('https://')) {
-          return url;
-        }
-        // Otherwise, treat it as an upload path
+        // Always normalize via getUploadUrl to handle legacy upload hosts too.
         return getUploadUrl(url);
       }
     } else if (typeof profileData.profile_picture === 'string') {
       // String format: '/uploads/profile-xxx.jpg'
       const pic = profileData.profile_picture;
-      // If it's already a full URL, use it directly
-      if (pic.startsWith('http://') || pic.startsWith('https://')) {
-        return pic;
-      }
-      // Otherwise, treat it as an upload path
+      // Always normalize via getUploadUrl to handle legacy upload hosts too.
       return getUploadUrl(pic);
     }
   }
@@ -50,11 +38,7 @@ export const resolveProfileImage = (profileData) => {
   // 3. Check for profilePicture string (legacy/test data)
   if (profileData.profilePicture && typeof profileData.profilePicture === 'string') {
     const pic = profileData.profilePicture;
-    // If it's already a full URL, use it directly
-    if (pic.startsWith('http://') || pic.startsWith('https://')) {
-      return pic;
-    }
-    // Otherwise, treat it as an upload path
+    // Always normalize via getUploadUrl to handle legacy upload hosts too.
     return getUploadUrl(pic);
   }
   

@@ -79,17 +79,12 @@ const normalizeId = (id) => {
 const resolveAvatarUrl = (profilePicture) => {
   if (!profilePicture) return null;
   
-  // If it's already a valid URL, return it
-  if (typeof profilePicture === 'string' && (profilePicture.startsWith('http://') || profilePicture.startsWith('https://'))) {
-    return profilePicture;
-  }
-  
   // If it's a string that looks like JSON, try to parse it
   if (typeof profilePicture === 'string' && (profilePicture.startsWith('{') || profilePicture.startsWith('['))) {
     try {
       const parsed = JSON.parse(profilePicture);
       if (parsed.url) {
-        return parsed.url.startsWith('http') ? parsed.url : getUploadUrl(parsed.url);
+        return getUploadUrl(parsed.url);
       }
     } catch (e) {
       // Not valid JSON, treat as path
@@ -98,10 +93,10 @@ const resolveAvatarUrl = (profilePicture) => {
   
   // If it's an object with url property
   if (typeof profilePicture === 'object' && profilePicture.url) {
-    return profilePicture.url.startsWith('http') ? profilePicture.url : getUploadUrl(profilePicture.url);
+    return getUploadUrl(profilePicture.url);
   }
   
-  // If it's a simple string path, treat as upload path
+  // If it's a string path or URL, normalize through getUploadUrl.
   if (typeof profilePicture === 'string') {
     return getUploadUrl(profilePicture);
   }
@@ -741,16 +736,19 @@ const ChatSystem = ({
         debugLog('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
         const transformedConversations = (data.conversations || []).map(conv => {
-          // Use lastMessageType from server for accurate preview; fall back to inference from content
-          const preview = formatMessagePreview(conv.lastMessage, conv.lastMessageType);
+          // ✅ CRITICAL: Backend already formatted the preview with emoji labels.
+          // DON'T call formatMessagePreview() again — double-formatting corrupts previews.
           return {
-            id: conv.id,
+            id: String(conv.id || ''),
+            // ✅ CRITICAL: participantId is required for presence lookups (online/offline).
+            // It was previously missing, causing all users to show as offline.
+            participantId: normalizeId(conv.otherUser?.id) || '',
             participantName: conv.otherUser?.username || 'Unknown',
             participantAvatar: resolveAvatarUrl(conv.otherUser?.profilePicture),
-            participantOnline: false, // Will be updated via socket get_user_status
+            participantOnline: false, // Will be updated via socket get_users_status
             participantVerified: (conv.otherUser?.verificationTier || 0) >= 2,
-            participantId: normalizeId(conv.otherUser?.id),
-            lastMessage: preview,
+            // ✅ Use backend preview directly (already '📷 Photo', '🎬 Video', etc)
+            lastMessage: conv.lastMessage || '',
             lastMessageTime: conv.lastMessageTime,
             unreadCount: conv.unreadCount || 0,
             hasActiveEscrow: conv.hasActiveEscrow || false,

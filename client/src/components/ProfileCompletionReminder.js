@@ -44,7 +44,13 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
         key: 'photo',
         label: 'Profile photo',
         icon: '📸',
-        done: !!(user.profile_image || profileData.profilePicture || profileData.avatar),
+        done: !!(
+          user.profile_image ||
+          user.profile_image_url ||
+          profileData.profilePicture ||
+          profileData.avatar ||
+          profileData.profile_image_url
+        ),
         weight: 20,
       },
       {
@@ -126,6 +132,27 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
     onDismiss?.();
   };
 
+  const goToStep = (stepKey) => {
+    // Route users to the most relevant flow for the missing step.
+    if (stepKey === 'photo' || stepKey === 'bio' || stepKey === 'name' || stepKey === 'age' || stepKey === 'gallery') {
+      navigate('/profile');
+      return;
+    }
+    if (stepKey === 'phone') {
+      navigate('/settings', { state: { focusSection: 'security', focusVerification: true } });
+      return;
+    }
+    if (stepKey === 'location' || stepKey === 'gps') {
+      navigate('/settings', { state: { focusSection: 'location' } });
+      return;
+    }
+    if (stepKey === 'services') {
+      navigate('/settings', { state: { focusSection: 'visibility' } });
+      return;
+    }
+    navigate('/settings');
+  };
+
   // Don't render if dismissed, loading, no user, or profile is ≥ 90%
   if (loading || dismissed || !user || !completeness || completeness.score >= 90) return null;
 
@@ -170,14 +197,14 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
     return (
       <Fade in timeout={400}>
         <Box
-          onClick={() => navigate('/settings')}
+          onClick={() => goToStep(completeness.nextStep?.key)}
           sx={{
             display: 'flex',
             alignItems: 'center',
             gap: { xs: 1.2, sm: 1.5 },
-            px: { xs: 1.5, sm: 2.5 },
-            py: { xs: 1.2, sm: 1.4 },
-            mx: { xs: 1, sm: 1.5 },
+            px: { xs: 1.25, sm: 2.5 },
+            py: { xs: 1.1, sm: 1.4 },
+            mx: { xs: 0.75, sm: 1.5 },
             mb: 1.5,
             borderRadius: '14px',
             background: `linear-gradient(135deg, rgba(30,30,40,0.85) 0%, rgba(20,20,30,0.95) 100%)`,
@@ -192,12 +219,12 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
               transform: 'translateY(-1px)',
             },
             overflow: 'hidden',
-            minHeight: { xs: 52, sm: 56 },
+            minHeight: { xs: 56, sm: 56 },
             position: 'relative',
           }}
         >
           {/* Circular progress ring */}
-          <Box sx={{ position: 'relative', minWidth: { xs: 38, sm: 42 }, minHeight: { xs: 38, sm: 42 }, flexShrink: 0 }}>
+            <Box sx={{ position: 'relative', minWidth: { xs: 40, sm: 42 }, minHeight: { xs: 40, sm: 42 }, flexShrink: 0 }}>
             <CircularProgress
               size={38}
               strokeWidth={3}
@@ -245,7 +272,9 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
               size="small"
               onClick={(e) => { e.stopPropagation(); handleDismiss(); }}
               sx={{
-                color: 'rgba(255,255,255,0.3)', p: 0.4, ml: -0.5,
+                color: 'rgba(255,255,255,0.3)', p: 0.8, ml: -0.25,
+                width: 32,
+                height: 32,
                 '&:hover': { color: 'rgba(255,255,255,0.6)', bgcolor: 'rgba(255,255,255,0.05)' },
               }}
             >
@@ -264,7 +293,7 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
     <Fade in timeout={500}>
       <Box
         sx={{
-          mx: { xs: 1, sm: 1.5 },
+          mx: { xs: 0.75, sm: 1.5 },
           mb: 2.5,
           borderRadius: '18px',
           background: `linear-gradient(160deg, rgba(30,30,40,0.9) 0%, rgba(18,18,25,0.97) 100%)`,
@@ -280,7 +309,7 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
             display: 'flex',
             alignItems: 'center',
             gap: { xs: 1.5, sm: 2 },
-            p: { xs: 2, sm: 2.5 },
+            p: { xs: 1.5, sm: 2.5 },
             pb: 0,
           }}
         >
@@ -319,6 +348,8 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
               onClick={handleDismiss}
               sx={{
                 color: 'rgba(255,255,255,0.25)',
+                width: 36,
+                height: 36,
                 '&:hover': { color: 'rgba(255,255,255,0.5)', bgcolor: 'rgba(255,255,255,0.05)' },
               }}
             >
@@ -367,7 +398,8 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
           onClick={() => setShowSteps(!showSteps)}
           sx={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            gap: 0.5, py: 0.8, mx: { xs: 2, sm: 2.5 }, mt: 0.5,
+            gap: 0.5, py: 0.8, mx: { xs: 1.5, sm: 2.5 }, mt: 0.5,
+            minHeight: 44,
             cursor: 'pointer', borderRadius: '8px',
             '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' },
             transition: 'background 0.15s',
@@ -403,13 +435,14 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
             {completeness.steps.map((step) => (
               <Box
                 key={step.key}
-                onClick={(e) => { e.stopPropagation(); if (!step.done) navigate('/settings'); }}
+                onClick={(e) => { e.stopPropagation(); if (!step.done) goToStep(step.key); }}
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: { xs: 1, sm: 1.2 },
                   px: { xs: 1.2, sm: 1.5 },
                   py: { xs: 0.8, sm: 1 },
+                  minHeight: 44,
                   borderRadius: '10px',
                   background: step.done ? `${accent}08` : 'rgba(255,255,255,0.015)',
                   border: `1px solid ${step.done ? `${accent}20` : 'rgba(255,255,255,0.04)'}`,
@@ -453,13 +486,22 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
         {/* ── CTA button ── */}
         <Box sx={{ px: { xs: 1.5, sm: 2 }, pb: 2, pt: 1 }}>
           <Box
-            onClick={() => navigate('/settings')}
+            onClick={() => goToStep(completeness.nextStep?.key)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                goToStep(completeness.nextStep?.key);
+              }
+            }}
             sx={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 0.8,
-              py: { xs: 1.3, sm: 1.4 },
+              py: { xs: 1.25, sm: 1.4 },
+              minHeight: 48,
               borderRadius: '12px',
               background: `linear-gradient(135deg, ${accent}, ${accent}bb)`,
               color: completeness.score >= 70 ? '#000' : '#fff',

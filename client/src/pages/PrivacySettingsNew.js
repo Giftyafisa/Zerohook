@@ -46,7 +46,7 @@ import {
   ExpandMore,
   ExpandLess
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
@@ -66,8 +66,8 @@ const styles = {
     background: 'rgba(15, 15, 19, 0.95)',
     backdropFilter: 'blur(20px)',
     borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-    px: 2,
-    py: 1.5,
+    px: { xs: 1.25, sm: 2 },
+    py: { xs: 1.25, sm: 1.5 },
   },
   headerContent: {
     display: 'flex',
@@ -79,14 +79,14 @@ const styles = {
   title: {
     fontFamily: '"Outfit", sans-serif',
     fontWeight: 700,
-    fontSize: '20px',
+    fontSize: { xs: '18px', sm: '20px' },
     color: '#fff',
   },
   content: {
     maxWidth: '600px',
     mx: 'auto',
-    px: 2,
-    py: 3,
+    px: { xs: 1.25, sm: 2 },
+    py: { xs: 2, sm: 3 },
   },
   section: {
     mb: 1,
@@ -95,8 +95,9 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    p: 2,
-    borderRadius: '16px',
+    p: { xs: 1.25, sm: 2 },
+    borderRadius: { xs: '14px', sm: '16px' },
+    minHeight: 52,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     '&:hover': {
@@ -109,23 +110,24 @@ const styles = {
     gap: 1.5,
   },
   sectionIcon: {
-    width: 40,
-    height: 40,
+    width: { xs: 36, sm: 40 },
+    height: { xs: 36, sm: 40 },
     borderRadius: '12px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionContent: {
-    px: 2,
-    pb: 2,
+    px: { xs: 1.25, sm: 2 },
+    pb: { xs: 1.5, sm: 2 },
   },
   settingRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    py: 1.5,
-    px: 2,
+    py: { xs: 1.25, sm: 1.5 },
+    px: { xs: 1.25, sm: 2 },
+    minHeight: 52,
     borderRadius: '12px',
     transition: 'all 0.2s ease',
     '&:hover': {
@@ -143,32 +145,35 @@ const styles = {
   divider: {
     height: '1px',
     background: 'rgba(255, 255, 255, 0.06)',
-    mx: 2,
+    mx: { xs: 1.25, sm: 2 },
   },
   dangerSection: {
     mt: 4,
-    p: 3,
+    p: { xs: 2, sm: 3 },
     borderRadius: '16px',
     border: '1px solid rgba(255, 0, 85, 0.2)',
     background: 'rgba(255, 0, 85, 0.05)',
   },
   saveButton: {
     position: 'fixed',
-    bottom: 100,
-    left: '50%',
-    transform: 'translateX(-50%)',
+    bottom: { xs: 'calc(84px + env(safe-area-inset-bottom, 0px))', sm: 100 },
+    left: { xs: 12, sm: '50%' },
+    right: { xs: 12, sm: 'auto' },
+    transform: { xs: 'none', sm: 'translateX(-50%)' },
+    width: { xs: 'auto', sm: 'auto' },
     background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
     color: '#0f0f13',
     fontWeight: 700,
     fontFamily: '"Outfit", sans-serif',
-    px: 6,
-    py: 1.5,
+    px: { xs: 2.5, sm: 6 },
+    py: { xs: 1.6, sm: 1.5 },
+    minHeight: 48,
     borderRadius: '30px',
     textTransform: 'none',
     boxShadow: '0 4px 20px rgba(0, 242, 234, 0.3)',
     '&:hover': {
       background: 'linear-gradient(135deg, #00f2ea, #00c2bb)',
-      transform: 'translateX(-50%) translateY(-2px)',
+      transform: { xs: 'translateY(-2px)', sm: 'translateX(-50%) translateY(-2px)' },
       boxShadow: '0 6px 25px rgba(0, 242, 234, 0.4)',
     },
   },
@@ -243,6 +248,7 @@ const privacyLevels = [
 
 const PrivacySettings = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { token, user } = useSelector((state) => state.auth);
   const [expandedSection, setExpandedSection] = useState('privacy');
   const [hasChanges, setHasChanges] = useState(false);
@@ -343,6 +349,17 @@ const PrivacySettings = () => {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  // Accept focus intent from other pages (e.g. profile completion reminders).
+  useEffect(() => {
+    const focusSection = location.state?.focusSection;
+    const focusVerification = location.state?.focusVerification;
+    if (focusSection) {
+      setExpandedSection(focusSection);
+    } else if (focusVerification) {
+      setExpandedSection('security');
+    }
+  }, [location.state]);
   
   const handleToggle = (key) => {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
@@ -390,11 +407,11 @@ const PrivacySettings = () => {
   const SettingRow = ({ label, description, checked, onChange, children }) => (
     <Box sx={styles.settingRow}>
       <Box sx={{ flex: 1 }}>
-        <Typography sx={{ color: '#fff', fontSize: '15px', fontWeight: 500 }}>
+        <Typography sx={{ color: '#fff', fontSize: { xs: '14px', sm: '15px' }, fontWeight: 500, pr: 1 }}>
           {label}
         </Typography>
         {description && (
-          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', mt: 0.3 }}>
+          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: { xs: '12px', sm: '13px' }, mt: 0.3, pr: 1 }}>
             {description}
           </Typography>
         )}
@@ -403,7 +420,7 @@ const PrivacySettings = () => {
         <Switch
           checked={checked}
           onChange={onChange}
-          sx={styles.switch}
+          sx={{ ...styles.switch, mr: -0.5 }}
         />
       )}
     </Box>
@@ -424,15 +441,19 @@ const PrivacySettings = () => {
               <Box sx={{ color: section.color }}>{section.icon}</Box>
             </Box>
             <Box>
-              <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: '16px' }}>
+              <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: { xs: '15px', sm: '16px' } }}>
                 {section.title}
               </Typography>
-              <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
+              <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: { xs: '12px', sm: '13px' } }}>
                 {section.subtitle}
               </Typography>
             </Box>
           </Box>
-          <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.5)' }} aria-label={isExpanded ? 'Collapse section' : 'Expand section'}>
+          <IconButton
+            size="small"
+            sx={{ color: 'rgba(255,255,255,0.5)', width: 36, height: 36 }}
+            aria-label={isExpanded ? 'Collapse section' : 'Expand section'}
+          >
             {isExpanded ? <ExpandLess /> : <ExpandMore />}
           </IconButton>
         </Box>
@@ -457,7 +478,7 @@ const PrivacySettings = () => {
       {/* Header */}
       <Box sx={styles.header}>
         <Box sx={styles.headerContent}>
-          <IconButton onClick={() => navigate(-1)} sx={{ color: '#fff' }} aria-label="Go back">
+          <IconButton onClick={() => navigate(-1)} sx={{ color: '#fff', width: 44, height: 44 }} aria-label="Go back">
             <ArrowBack />
           </IconButton>
           <Typography sx={styles.title}>Settings</Typography>
@@ -498,7 +519,8 @@ const PrivacySettings = () => {
                 key={level.value}
                 onClick={() => handleChange('privacyLevel', level.value)}
                 sx={{
-                  p: 2,
+                  p: { xs: 1.5, sm: 2 },
+                  minHeight: 56,
                   borderRadius: '12px',
                   cursor: 'pointer',
                   border: settings.privacyLevel === level.value 
@@ -620,7 +642,7 @@ const PrivacySettings = () => {
           />
           <Box sx={{ px: 2, py: 2 }}>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <FormControl size="small" sx={{ minWidth: 120 }}>
+              <FormControl size="small" sx={{ minWidth: { xs: 104, sm: 120 } }}>
                 <Select
                   value={settings.priceCurrency}
                   onChange={(e) => handleChange('priceCurrency', e.target.value)}
@@ -656,7 +678,7 @@ const PrivacySettings = () => {
                 }}
                 sx={{
                   flex: 1,
-                  minWidth: 150,
+                  minWidth: { xs: 132, sm: 150 },
                   '& .MuiOutlinedInput-root': {
                     color: '#fff',
                     '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
@@ -785,6 +807,30 @@ const PrivacySettings = () => {
         
         {/* Security Section */}
         <Section section={sections[7]}>
+          {location.state?.focusVerification && (
+            <Alert
+              severity="info"
+              sx={{ mb: 2 }}
+              action={
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => navigate('/verification', { state: { from: '/settings' } })}
+                  sx={{
+                    ml: 1,
+                    bgcolor: '#00f2ea',
+                    color: '#000',
+                    fontWeight: 700,
+                    '&:hover': { bgcolor: '#00cfc8' },
+                  }}
+                >
+                  Verify Now
+                </Button>
+              }
+            >
+              Phone verification is incomplete. Continue to verification to unlock full profile visibility and trust boosts.
+            </Alert>
+          )}
           <SettingRow 
             label="Two-Factor Authentication"
             description="Extra layer of security"
@@ -820,6 +866,7 @@ const PrivacySettings = () => {
                 borderColor: 'rgba(255,255,255,0.3)',
                 textTransform: 'none',
                 justifyContent: 'flex-start',
+                minHeight: 44,
                 '&:hover': {
                   borderColor: '#fff',
                   background: 'rgba(255,255,255,0.05)',
@@ -837,6 +884,7 @@ const PrivacySettings = () => {
                 borderColor: '#ff0055',
                 textTransform: 'none',
                 justifyContent: 'flex-start',
+                minHeight: 44,
                 '&:hover': {
                   borderColor: '#ff0055',
                   background: 'rgba(255, 0, 85, 0.1)',

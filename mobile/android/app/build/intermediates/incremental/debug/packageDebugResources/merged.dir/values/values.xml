@@ -106,7 +106,7 @@
     <string name="response_rate">Response Rate</string>
     <string name="reviews_label">Reviews</string>
     <string name="search_placeholder">Search users...</string>
-    <string name="secured_with_paystack">Secured with Paystack</string>
+    <string name="secured_with_paystack">Secured with Blockchain Escrow</string>
     <string name="send">Send</string>
     <string name="services_label">Services</string>
     <string name="settings">Settings</string>

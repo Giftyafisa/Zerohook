@@ -630,10 +630,12 @@ class MongoRecommendationEngine {
         ]
       };
 
-      // Exclude current user
+      // Exclude current user (guard invalid IDs to avoid runtime cast errors)
       if (userId) {
         const mongoose = require('mongoose');
-        mongoQuery._id = { $ne: new mongoose.Types.ObjectId(userId) };
+        if (mongoose.Types.ObjectId.isValid(userId)) {
+          mongoQuery._id = { $ne: new mongoose.Types.ObjectId(userId) };
+        }
       }
 
       // Apply country filter (UBER-STYLE: prioritize same country)
@@ -721,18 +723,104 @@ class MongoRecommendationEngine {
         });
       }
 
-      // Fetch profiles — cap deep pagination to prevent memory bloat.
-      // For offsets beyond 500, clamp fetchLimit to offset + limit to avoid
-      // pulling thousands of documents into memory for in-memory re-ranking.
-      const MAX_FETCH_POOL = 500;
-      const fetchLimit = offset < MAX_FETCH_POOL
-        ? Math.max(offset + limit * 3, offset + 60)
-        : offset + limit;
-      const profiles = await User.find(mongoQuery)
-        .select('username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_image profile_image_url is_subscribed isSubscribed subscription_tier subscriptionTier created_at createdAt last_active lastActive')
-        .sort({ last_active: -1, lastActive: -1 })
-        .limit(fetchLimit)
-        .lean();
+      // Fetch candidates via aggregation preselection:
+      // 1) same-country profiles first (if country is known)
+      // 2) profiles with image/location fields favored
+      // 3) then freshness by last_active
+      // This trims candidate set before expensive JS scoring.
+      const isSearchQuery = !!(filters.searchQuery && filters.searchQuery.trim());
+      const isTightFilter = ['nearby', 'online', 'verified', 'trending'].includes(filters.filterMode);
+      const candidateMultiplier = isSearchQuery ? 1.5 : (isTightFilter ? 2 : 3);
+      const softPoolCap = isSearchQuery ? 120 : (isTightFilter ? 180 : 300);
+      const baseWindow = Math.max(limit * candidateMultiplier, limit + 40);
+      const fetchLimit = Math.min(softPoolCap, Math.max(baseWindow, offset + limit));
+
+      const userCountryLower = (userLocation?.country || '').toLowerCase().trim();
+
+      const preselectPipeline = [
+        { $match: mongoQuery },
+        {
+          $addFields: {
+            _countryRaw: { $ifNull: ['$profile_data.location.country', '$profileData.location.country'] },
+            _cityRaw: { $ifNull: ['$profile_data.location.city', '$profileData.location.city'] },
+            _hasImage: {
+              $cond: [
+                {
+                  $or: [
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profile_image', ''] } }, 0] },
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profile_image_url', ''] } }, 0] },
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profile_data.profilePicture', ''] } }, 0] },
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profileData.profilePicture', ''] } }, 0] },
+                    { $gt: [{ $size: { $ifNull: ['$profile_data.photos', []] } }, 0] },
+                    { $gt: [{ $size: { $ifNull: ['$profileData.photos', []] } }, 0] }
+                  ]
+                },
+                1,
+                0
+              ]
+            },
+            _hasLocation: {
+              $cond: [
+                {
+                  $or: [
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profile_data.location.city', ''] } }, 0] },
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profileData.location.city', ''] } }, 0] },
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profile_data.location.country', ''] } }, 0] },
+                    { $gt: [{ $strLenCP: { $ifNull: ['$profileData.location.country', ''] } }, 0] }
+                  ]
+                },
+                1,
+                0
+              ]
+            },
+            _lastActiveSort: { $ifNull: ['$last_active', '$lastActive'] }
+          }
+        },
+        {
+          $addFields: {
+            _sameCountry: userCountryLower
+              ? {
+                $cond: [
+                  {
+                    $eq: [
+                      { $toLower: { $ifNull: ['$_countryRaw', ''] } },
+                      userCountryLower
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+              : 0
+          }
+        },
+        { $sort: { _sameCountry: -1, _hasImage: -1, _hasLocation: -1, _lastActiveSort: -1, _id: -1 } },
+        { $limit: fetchLimit },
+        {
+          $project: {
+            username: 1,
+            email: 1,
+            verification_tier: 1,
+            verificationTier: 1,
+            reputation_score: 1,
+            reputationScore: 1,
+            profile_data: 1,
+            profileData: 1,
+            profile_image: 1,
+            profile_image_url: 1,
+            is_subscribed: 1,
+            isSubscribed: 1,
+            subscription_tier: 1,
+            subscriptionTier: 1,
+            created_at: 1,
+            createdAt: 1,
+            last_active: 1,
+            lastActive: 1
+          }
+        }
+      ];
+
+      const profiles = await User.aggregate(preselectPipeline);
 
       debugLog(`   Found ${profiles.length} raw profiles`);
 

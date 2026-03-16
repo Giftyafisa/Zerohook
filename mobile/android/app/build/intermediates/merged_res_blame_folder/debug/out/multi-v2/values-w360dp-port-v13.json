@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-w360dp-port-v13/values-w360dp-port-v13.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-89:/values-w360dp-port-v13/values-w360dp-port-v13.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\24da9ed16ec80bdd5055ca84cd9ff1b1\\transformed\\material-1.11.0\\res\\values-w360dp-port-v13\\values-w360dp-port-v13.xml",
+                    "source": "C:\\Users\\OS\\.gradle\\caches\\transforms-3\\0e711183ee7b6512c4af993f46f0fe68\\transformed\\material-1.11.0\\res\\values-w360dp-port-v13\\values-w360dp-port-v13.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9",
                         "startColumns": "4,4,4,4,4,4,4,4",

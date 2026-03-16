@@ -1,10 +1,32 @@
+import org.gradle.api.GradleException
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.serialization")
-    id("com.google.gms.google-services")
+}
+
+val hasGoogleServicesJson = listOf(
+    file("google-services.json"),
+    file("src/debug/google-services.json"),
+    file("src/release/google-services.json")
+).any { it.exists() }
+
+val isReleaseTask = gradle.startParameter.taskNames.any { taskName ->
+    taskName.contains("Release", ignoreCase = true)
+}
+
+if (hasGoogleServicesJson) {
+    apply(plugin = "com.google.gms.google-services")
+    logger.lifecycle("[zerohook-android] Google Services plugin enabled")
+} else {
+    if (isReleaseTask) {
+        throw GradleException("google-services.json is required for release builds")
+    }
+    logger.lifecycle("[zerohook-android] google-services.json not found; skipping Google Services plugin for local debug build")
 }
 
 android {
@@ -13,7 +35,11 @@ android {
 
     // Read API URLs from local.properties (per-machine), falling back to production
     val localProps = rootProject.file("local.properties").let { f ->
-        java.util.Properties().apply { if (f.exists()) load(f.inputStream()) }
+        Properties().apply {
+            if (f.exists()) {
+                f.inputStream().use { load(it) }
+            }
+        }
     }
     val apiBaseUrl: String = localProps.getProperty("API_BASE_URL", "https://zerohook-api-f3ss.onrender.com/api")
     val socketUrl: String  = localProps.getProperty("SOCKET_URL",   "https://zerohook-api-f3ss.onrender.com")

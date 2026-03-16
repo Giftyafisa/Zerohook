@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-v27/values-v27.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-89:/values-v27/values-v27.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\1f2cc7d9abad79a7978be7956bd7a30d\\transformed\\jetified-core-splashscreen-1.0.1\\res\\values-v27\\values-v27.xml",
+                    "source": "C:\\Users\\OS\\.gradle\\caches\\transforms-3\\621eeddd051aa82c380d4a69dc4f285b\\transformed\\jetified-core-splashscreen-1.0.1\\res\\values-v27\\values-v27.xml",
                     "from": {
                         "startLines": "2,3,4,7",
                         "startColumns": "4,4,4,4",

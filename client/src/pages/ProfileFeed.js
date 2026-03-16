@@ -1146,7 +1146,15 @@ const ProfileFeed = () => {
 
   // Real-time online status for all displayed profiles (feed context = public)
   const profileIds = useMemo(() => displayedProfiles.map(p => String(p.id)), [displayedProfiles]);
-  const { isUserOnline, getUserLastSeen } = usePresence(profileIds, { context: 'feed' });
+  const initialStatusMap = useMemo(
+    () => displayedProfiles.reduce((acc, p) => {
+      const id = String(p.id || '');
+      if (id) acc[id] = !!(p.isOnline || p.is_online);
+      return acc;
+    }, {}),
+    [displayedProfiles]
+  );
+  const { isUserOnline, getUserLastSeen } = usePresence(profileIds, { context: 'feed', initialStatusMap });
 
   // Local UI state
   const [likedProfiles, setLikedProfiles] = useState(new Set());

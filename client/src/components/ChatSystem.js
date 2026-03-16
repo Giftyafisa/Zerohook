@@ -45,8 +45,7 @@ import {
   KeyboardArrowDown as KeyboardArrowDownIcon,
   Add as AddIcon,
   ContentCopy as CopyIcon,
-  Close as CloseIcon,
-  Archive as ArchiveIcon
+  Close as CloseIcon
 } from '@mui/icons-material';
 import PaymentSheet from './PaymentSheet';
 import { MilestoneRequestDialog, MilestoneRequestCard } from './MilestoneRequest';
@@ -61,6 +60,7 @@ import { getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { useDispatch } from 'react-redux';
 import { decrementUnreadMessages } from '../store/slices/uiSlice';
+import { inferMessageTypeFromContent, formatMessagePreview } from '../utils/messageTypeUtils';
 
 // Environment-gated debug logger — no-ops in production builds
 const isDev = process.env.NODE_ENV === 'development';
@@ -114,30 +114,6 @@ const typingBlink = keyframes`
   50% { opacity: 1; transform: translateY(-2px); }
   100% { opacity: 0.3; transform: translateY(0px); }
 `;
-
-const inferMessageTypeFromContent = (content = '', explicitType = null, metadata = {}) => {
-  if (explicitType && explicitType !== 'text') return explicitType;
-  const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
-  const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType && !mimeType.startsWith('text/')) return 'file';
-  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(fileName)) return 'image';
-  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(fileName)) return 'video';
-  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(fileName)) return 'audio';
-  const value = String(content || '').trim().toLowerCase().split('?')[0].split('#')[0];
-  if (value.startsWith('data:image/')) return 'image';
-  if (value.startsWith('data:video/')) return 'video';
-  if (value.startsWith('data:audio/')) return 'audio';
-  if (/\/image\/upload\//.test(value)) return 'image';
-  if (/\/video\/upload\//.test(value)) return 'video';
-  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
-  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(value) || /video|vid/.test(value)) return 'video';
-  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
-  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
-  return explicitType || 'text';
-};
 
 // Swipeable Conversation Item Component
 const SwipeableConversationItem = ({ 
@@ -271,6 +247,10 @@ const ChatSystem = ({
 
   // Recipient / navigation state
   const routeState = location?.state || {};
+  const query = new URLSearchParams(location.search || '');
+  const queryRecipientId = query.get('recipientId') || query.get('recipientID') || query.get('targetUserId') || query.get('userId') || null;
+  const queryConversationId = query.get('conversation') || query.get('conversationId') || query.get('conversationID') || null;
+
   const targetRecipientId = normalizeId(
     propRecipientId ||
     routeState.recipientId ||
@@ -278,12 +258,17 @@ const ChatSystem = ({
     routeState.targetUserId ||
     routeState.userId ||
     routeState.providerId ||
+    queryRecipientId ||
     null
   ) || null;
   const targetRecipientName = propRecipientName || routeState.recipientName || routeState.username || null;
   const targetRecipientAvatar = propRecipientAvatar || routeState.recipientAvatar || null;
   const initialConversationId = normalizeId(
-    propInitialConversationId || routeState.conversationId || routeState.conversationID || null
+    propInitialConversationId ||
+    routeState.conversationId ||
+    routeState.conversationID ||
+    queryConversationId ||
+    null
   ) || null;
   
   const [conversations, setConversations] = useState([]);
@@ -297,6 +282,9 @@ const ChatSystem = ({
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [typingConversations, setTypingConversations] = useState([]);
+  const [conversationsNextCursor, setConversationsNextCursor] = useState(null);
+  const [conversationsHasMore, setConversationsHasMore] = useState(false);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
   
   // Payment / Escrow states
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
@@ -342,6 +330,9 @@ const ChatSystem = ({
   const messagesContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
+  const loadConversationsRef = useRef(null);
+  const startConversationWithRecipientRef = useRef(null);
+  const selectConversationRef = useRef(null);
   const hasBootstrappedRef = useRef(false);
   const prevConversationIdRef = useRef(null);
   // Dedup ref — prevents double-processing when message arrives via both conversation and user rooms
@@ -356,8 +347,30 @@ const ChatSystem = ({
   }, [selectedConversation]);
 
   useEffect(() => {
-    if (user) loadConversations();
+    if (user) {
+      setConversationsNextCursor(null);
+      setConversationsHasMore(false);
+      loadConversationsRef.current?.();
+    }
   }, [user]);
+
+  const loadMoreConversations = async () => {
+    if (!conversationsHasMore || !conversationsNextCursor || loadingMoreConversations || loading) return;
+    try {
+      setLoadingMoreConversations(true);
+      await loadConversations({ silent: true, cursor: conversationsNextCursor, append: true });
+    } finally {
+      setLoadingMoreConversations(false);
+    }
+  };
+
+  const handleConversationsScroll = (e) => {
+    if (!conversationsHasMore || loadingMoreConversations || loading) return;
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - (scrollTop + clientHeight) < 180) {
+      loadMoreConversations();
+    }
+  };
 
   const participantIdsForPresence = React.useMemo(() => {
     return [...new Set(conversations
@@ -447,14 +460,15 @@ const ChatSystem = ({
 
     const handleNewMessage = (messageData) => {
       // Dedup: skip if already processed (message received via both conversation + user rooms)
+      // Fallback composite key for messages that arrive without a stable id.
       const msgId = String(messageData.id || '');
-      if (msgId && processedMsgIds.current.has(msgId)) return;
-      if (msgId) {
-        processedMsgIds.current.add(msgId);
-        if (processedMsgIds.current.size > 200) {
-          const arr = [...processedMsgIds.current];
-          processedMsgIds.current = new Set(arr.slice(-100));
-        }
+      const dedupKey = msgId ||
+        `${messageData.conversationId}:${messageData.senderId}:${messageData.createdAt || messageData.timestamp || ''}:${String(messageData.content || '').slice(0, 40)}`;
+      if (processedMsgIds.current.has(dedupKey)) return;
+      processedMsgIds.current.add(dedupKey);
+      if (processedMsgIds.current.size > 200) {
+        const arr = [...processedMsgIds.current];
+        processedMsgIds.current = new Set(arr.slice(-100));
       }
 
       let conversationFound = false;
@@ -515,7 +529,7 @@ const ChatSystem = ({
 
       if (!conversationFound) {
         // Fetch latest conversations to include new thread
-        loadConversations({ silent: true });
+        loadConversationsRef.current?.({ silent: true });
       }
     };
 
@@ -541,7 +555,7 @@ const ChatSystem = ({
 
       // Refresh conversation previews when the affected thread changes
       if (normalizeId(selectedConversationRef.current?.id) === normalizeId(conversationId)) {
-        loadConversations({ silent: true });
+        loadConversationsRef.current?.({ silent: true });
       }
     };
 
@@ -650,7 +664,7 @@ const ChatSystem = ({
       socket.off('users_status', handleUsersStatus);
       socket.off('message_read', handleMessageRead);
     };
-  }, [socket, isConnected, currentUserId, navigate]);
+  }, [socket, isConnected, currentUserId, navigate, dispatch]);
 
   // Reset bootstrap flag when the target recipient or conversation changes
   // (e.g. user clicks "Message" on a different profile without unmounting)
@@ -667,20 +681,28 @@ const ChatSystem = ({
   // Bootstrap target recipient or conversation from props / navigation state
   useEffect(() => {
     debugLog('💬 Bootstrap effect:', { user: !!user, loading, hasBootstrapped: hasBootstrappedRef.current, targetRecipientId, initialConversationId });
-    
+
     if (!user || loading || hasBootstrappedRef.current) return;
 
     const tryBootstrap = async () => {
       try {
         if (targetRecipientId) {
           debugLog('💬 Bootstrapping with targetRecipientId:', targetRecipientId);
-          hasBootstrappedRef.current = true;
-          await startConversationWithRecipient(targetRecipientId);
+          const created = await startConversationWithRecipientRef.current?.(targetRecipientId);
+          if (created) {
+            hasBootstrappedRef.current = true;
+          } else {
+            // Keep allowing retries if bootstrap doesn't succeed yet
+            debugLog('💬 Bootstrap did not create or select a conversation yet');
+          }
         } else if (initialConversationId) {
           const existing = conversations.find(c => normalizeId(c.id) === normalizeId(initialConversationId));
           if (existing) {
+            debugLog('💬 Bootstrapping with existing conversation:', existing.id);
+            selectConversationRef.current?.(existing);
             hasBootstrappedRef.current = true;
-            selectConversation(existing);
+          } else {
+            debugLog('💬 Bootstrap conversation ID not found in loaded list:', initialConversationId);
           }
         }
       } catch (error) {
@@ -704,25 +726,15 @@ const ChatSystem = ({
    * Format a message preview for the conversation list sidebar.
    * Shows friendly labels for non-text messages instead of raw URLs.
    */
-  const formatMessagePreview = (content, messageType) => {
-    const resolvedType = inferMessageTypeFromContent(content, messageType);
-    if (!resolvedType || resolvedType === 'text') return content || '';
-    switch (resolvedType) {
-      case 'image': return '📷 Photo';
-      case 'video': return '🎬 Video';
-      case 'file': return '📎 File';
-      case 'audio': return '🎵 Audio';
-      case 'location': return '📍 Location';
-      case 'contact': return '👤 Contact';
-      default: return content || '';
-    }
-  };
 
-  const loadConversations = async ({ silent = false } = {}) => {
+  const loadConversations = async ({ silent = false, cursor = null, append = false } = {}) => {
     try {
       debugLog('🔄 Loading conversations...');
       if (!silent) setLoading(true);
-      const response = await apiClient.get('/chat/conversations');
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      if (cursor) params.set('cursor', cursor);
+      const response = await apiClient.get(`/chat/conversations?${params.toString()}`);
       debugLog('📡 Conversations API response:', response.status);
       {
         const data = response.data;
@@ -746,8 +758,15 @@ const ChatSystem = ({
           };
         });
         debugLog('🔄 Transformed conversations:', transformedConversations);
-        const sorted = sortConversations(transformedConversations);
-        setConversations(sorted);
+        let sorted = [];
+        setConversations(prev => {
+          const combined = append ? [...prev, ...transformedConversations] : transformedConversations;
+          const uniqueById = Array.from(new Map(combined.map(item => [item.id, item])).values());
+          sorted = sortConversations(uniqueById);
+          return sorted;
+        });
+        setConversationsNextCursor(data.nextCursor || null);
+        setConversationsHasMore(!!data.hasMore);
         debugLog('✅ Conversations loaded successfully:', sorted.length, 'conversations');
         return sorted;
       }
@@ -804,11 +823,31 @@ const ChatSystem = ({
       debugLog('💬 Chat start success:', data);
       
       const convList = await loadConversations({ silent: true });
-      const created = convList?.find(c => normalizeId(c.participantId) === resolvedRecipientId || normalizeId(c.id) === normalizeId(data.conversationId));
-      if (created) {
-        selectConversation(created);
+      const existingConv = convList?.find(c => normalizeId(c.participantId) === resolvedRecipientId || normalizeId(c.id) === normalizeId(data.conversationId));
+
+      // If we found the conversation in the list, select it.
+      if (existingConv) {
+        selectConversation(existingConv);
+        return existingConv;
       }
-      return created || null;
+
+      // Fallback: create a minimal conversation object so UI can open chat immediately.
+      const fallbackConv = {
+        id: data.conversationId || data.conversationID || data.id,
+        participantId: resolvedRecipientId,
+        participantName: targetRecipientName || selectedConversation?.participantName || 'User',
+        participantAvatar: targetRecipientAvatar || selectedConversation?.participantAvatar || null,
+        lastMessage: '',
+        lastMessageTime: new Date().toISOString(),
+        unreadCount: 0,
+        hasActiveEscrow: false,
+        createdAt: new Date().toISOString()
+      };
+
+      // Add to conversation list for consistent UI
+      setConversations((prev) => [fallbackConv, ...prev]);
+      selectConversation(fallbackConv);
+      return fallbackConv;
     } catch (error) {
       console.error('Failed to start conversation:', error);
       toast.error(error.response?.data?.message || error.message || 'Unable to start conversation right now.');
@@ -1271,6 +1310,10 @@ const ChatSystem = ({
     setShowMobileChat(false);
     setSelectedConversation(null);
   };
+
+  loadConversationsRef.current = loadConversations;
+  startConversationWithRecipientRef.current = startConversationWithRecipient;
+  selectConversationRef.current = selectConversation;
 
   if (!user) return null;
 
@@ -1810,6 +1853,7 @@ const ChatSystem = ({
         {/* Conversations */}
         <Box 
           sx={styles.conversationsScroll}
+          onScroll={handleConversationsScroll}
           role="list"
           aria-label="Conversations"
         >
@@ -1852,6 +1896,7 @@ const ChatSystem = ({
               </Button>
             </Box>
           ) : (
+            <>
             <AnimatePresence>
               {filteredConversations.map((conv, index) => (
                 <motion.div
@@ -1941,6 +1986,24 @@ const ChatSystem = ({
                 </motion.div>
               ))}
             </AnimatePresence>
+            {conversationsHasMore && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 1.5 }}>
+                <Button
+                  variant="text"
+                  onClick={loadMoreConversations}
+                  disabled={loadingMoreConversations}
+                  sx={{
+                    color: '#00f2ea',
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    minHeight: 40,
+                  }}
+                >
+                  {loadingMoreConversations ? 'Loading more...' : 'Load more conversations'}
+                </Button>
+              </Box>
+            )}
+            </>
           )}
         </Box>
       </Box>

@@ -1,8 +1,77 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
 const mongoose = require('mongoose');
-const { Notification } = require('../config/database');
+const { Notification, DeviceToken } = require('../config/database');
 const router = express.Router();
+
+/**
+ * @route   POST /api/notifications/register-device
+ * @desc    Register/update mobile device push token (FCM/APNs)
+ * @access  Private
+ */
+router.post('/register-device', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const {
+      token,
+      platform = 'android',
+      provider = 'fcm',
+      deviceId = null,
+      appVersion = null
+    } = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid user ID' });
+    }
+
+    if (!token || typeof token !== 'string' || token.trim().length < 20) {
+      return res.status(400).json({ success: false, error: 'Valid device token is required' });
+    }
+
+    const safePlatform = String(platform).toLowerCase();
+    const safeProvider = String(provider).toLowerCase();
+    if (!['android', 'ios', 'web'].includes(safePlatform)) {
+      return res.status(400).json({ success: false, error: 'Unsupported platform' });
+    }
+
+    await DeviceToken.findOneAndUpdate(
+      {
+        user_id: userId,
+        platform: safePlatform,
+        token: token.trim()
+      },
+      {
+        $set: {
+          provider: safeProvider,
+          device_id: deviceId,
+          app_version: appVersion,
+          active: true,
+          last_seen_at: new Date(),
+          updated_at: new Date()
+        },
+        $setOnInsert: {
+          created_at: new Date()
+        }
+      },
+      {
+        upsert: true,
+        new: true
+      }
+    );
+
+    res.json({
+      success: true,
+      data: { platform: safePlatform, provider: safeProvider },
+      message: 'Device token registered'
+    });
+  } catch (error) {
+    console.error('Register device token error:', error);
+    res.status(500).json({
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
 
 /**
  * @route   GET /api/notifications
@@ -15,18 +84,32 @@ router.get('/', authMiddleware, async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
-    
-    const notifications = await Notification.find({ user_id: userId })
-      .sort({ created_at: -1 })
-      .limit(50)
-      .lean();
 
-    // Count total unread for badge display
-    const unreadCount = await Notification.countDocuments({ user_id: userId, read: false });
+    const limitRaw = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
+    const cursor = req.query.cursor ? String(req.query.cursor) : null;
+
+    const query = { user_id: userId };
+    if (cursor && mongoose.Types.ObjectId.isValid(cursor)) {
+      // Keyset pagination: older items than cursor id (sorted by created_at desc / _id desc)
+      query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+    }
+    
+    const [notifications, unreadCount] = await Promise.all([
+      Notification.find(query)
+        .sort({ _id: -1 })
+        .limit(limit + 1)
+        .lean(),
+      Notification.countDocuments({ user_id: userId, read: false })
+    ]);
+
+    const hasMore = notifications.length > limit;
+    const pageItems = hasMore ? notifications.slice(0, limit) : notifications;
+    const nextCursor = hasMore ? String(pageItems[pageItems.length - 1]._id) : null;
 
     res.json({
       success: true,
-      notifications: notifications.map((notification) => ({
+      notifications: pageItems.map((notification) => ({
         id: notification._id.toString(),
         type: notification.type,
         title: notification.title,
@@ -35,7 +118,9 @@ router.get('/', authMiddleware, async (req, res) => {
         created_at: notification.created_at,
         metadata: notification.data || {}
       })),
-      unreadCount
+      unreadCount,
+      nextCursor,
+      hasMore
     });
 
   } catch (error) {

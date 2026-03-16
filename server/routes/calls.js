@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const { User, Call } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
+const { createDistributedLimiter } = require('../utils/rateLimiters');
 const router = express.Router();
 
 const getCallRoomId = (userId1, userId2) => {
@@ -10,7 +11,31 @@ const getCallRoomId = (userId1, userId2) => {
   return `call_${sorted[0]}_${sorted[1]}`;
 };
 
-const ACTIVE_RINGING_WINDOW_MS = parseInt(process.env.CALL_RINGING_WINDOW_MS || '300000', 10);
+const normalizeCallType = (rawType) => (String(rawType || '').toLowerCase() === 'audio' ? 'audio' : 'video');
+
+const buildIncomingCallPayload = ({ callId, callerId, targetUserId, callerName, callType, timestamp }) => {
+  const normalizedType = normalizeCallType(callType);
+  return {
+    id: String(callId),
+    callId: String(callId),
+    callerId: String(callerId),
+    targetUserId: String(targetUserId),
+    peerUserId: String(callerId),
+    callerName,
+    type: normalizedType,
+    callType: normalizedType,
+    timestamp: new Date(timestamp || Date.now()).toISOString()
+  };
+};
+
+const parsedRingingWindow = parseInt(process.env.CALL_RINGING_WINDOW_MS || '300000', 10);
+const ACTIVE_RINGING_WINDOW_MS = Number.isFinite(parsedRingingWindow) && parsedRingingWindow > 0
+  ? Math.min(parsedRingingWindow, 15 * 60 * 1000) // hard cap: 15 minutes
+  : 5 * 60 * 1000;
+
+// Distributed call action limits (Redis-backed with memory fallback)
+const callRequestLimiter = createDistributedLimiter({ points: 10, duration: 60, keyPrefix: 'call_request' });
+const callActionLimiter = createDistributedLimiter({ points: 30, duration: 60, keyPrefix: 'call_action' });
 
 /**
  * @route   POST /api/calls/request
@@ -19,9 +44,13 @@ const ACTIVE_RINGING_WINDOW_MS = parseInt(process.env.CALL_RINGING_WINDOW_MS || 
  */
 router.post('/request', authMiddleware, [
   body('targetUserId').isString().notEmpty(),
-  body('type').isIn(['audio', 'video']).notEmpty()
+  body('type').optional().isIn(['audio', 'video']),
+  body('callType').optional().isIn(['audio', 'video'])
 ], async (req, res) => {
   try {
+    const requestKey = req.user?.userId ? `u:${req.user.userId}` : `ip:${req.ip}`;
+    await callRequestLimiter.consume(requestKey);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, error: 'Validation failed',
@@ -29,8 +58,13 @@ router.post('/request', authMiddleware, [
       });
     }
 
-    const { targetUserId, type } = req.body;
+    const { targetUserId, type, callType } = req.body;
+    const requestedType = type || callType;
+    if (!requestedType) {
+      return res.status(400).json({ success: false, error: 'Either type or callType is required' });
+    }
     const callerId = req.user.userId;
+    const normalizedType = normalizeCallType(requestedType);
 
     if (!mongoose.Types.ObjectId.isValid(targetUserId) || !mongoose.Types.ObjectId.isValid(callerId)) {
       return res.status(400).json({ success: false, error: 'Invalid caller or target user ID' });
@@ -82,30 +116,51 @@ router.post('/request', authMiddleware, [
     const call = await Call.create({
       caller_id: new mongoose.Types.ObjectId(callerId),
       target_user_id: new mongoose.Types.ObjectId(targetUserId),
-      type,
+      type: normalizedType,
       status: 'calling'
     });
 
-    // Emit call request via Socket.io
-    req.io.to(`user_${targetUserId}`).emit('incoming_call', {
-      id: call._id.toString(),
-      callId: call._id.toString(),
+    const callId = String(call._id);
+    const timestamp = call.created_at || call.createdAt || new Date();
+    const incomingCallPayload = buildIncomingCallPayload({
+      callId,
       callerId,
       targetUserId,
-      peerUserId: callerId,
       callerName: req.user.username || req.user.profileData?.firstName || 'User',
-      type,
-      callType: type,
-      timestamp: call.created_at
+      callType: normalizedType,
+      timestamp
+    });
+
+    // Emit call request via Socket.io
+    req.io.to(`user_${targetUserId}`).emit('incoming_call', incomingCallPayload);
+
+    // Keep REST and socket flows aligned for caller-side listeners (multi-device support)
+    req.io.to(`user_${callerId}`).emit('call_request_sent', {
+      id: callId,
+      callId,
+      targetUserId: String(targetUserId),
+      type: normalizedType,
+      callType: normalizedType,
+      timestamp: new Date(timestamp).toISOString()
     });
 
     res.json({
       success: true,
-      callId: call._id.toString(),
+      data: {
+        callId,
+        callType: normalizedType,
+        type: normalizedType,
+        status: 'calling',
+        timestamp: new Date(timestamp).toISOString()
+      },
+      callId,
       message: 'Call request sent successfully'
     });
 
   } catch (error) {
+    if (error && Object.prototype.hasOwnProperty.call(error, 'msBeforeNext')) {
+      return res.status(429).json({ success: false, error: 'Too many call requests. Please try again shortly.' });
+    }
     console.error('Call request error:', error);
     res.status(500).json({ success: false, error: 'Failed to send call request' });
   }
@@ -120,6 +175,9 @@ router.post('/accept', authMiddleware, [
   body('callId').isString().notEmpty()
 ], async (req, res) => {
   try {
+    const actionKey = req.user?.userId ? `u:${req.user.userId}` : `ip:${req.ip}`;
+    await callActionLimiter.consume(actionKey);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, error: 'Validation failed',
@@ -147,30 +205,38 @@ router.post('/accept', authMiddleware, [
     await call.save();
 
     // Emit call accepted via Socket.io
-    req.io.to(`user_${call.caller_id.toString()}`).emit('call_accepted', {
-      id: callId,
-      callId,
-      targetUserId: userId,
-      peerUserId: userId,
-      callType: call.type,
+    const callerId = String(call.caller_id);
+    const targetUserId = String(call.target_user_id);
+    const acceptedPayload = {
+      id: String(callId),
+      callId: String(callId),
+      acceptedBy: String(userId),
+      targetUserId: String(userId),
+      peerUserId: String(userId),
+      callerId,
+      callType: normalizeCallType(call.type),
+      type: normalizeCallType(call.type),
       timestamp: new Date().toISOString()
-    });
+    };
 
-    req.io.to(getCallRoomId(call.caller_id.toString(), call.target_user_id.toString())).emit('call_accepted', {
-      id: callId,
-      callId,
-      targetUserId: userId,
-      peerUserId: userId,
-      callType: call.type,
-      timestamp: new Date().toISOString()
-    });
+    req.io.to(`user_${callerId}`).emit('call_accepted', acceptedPayload);
+    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_accepted', acceptedPayload);
 
     res.json({
       success: true,
+      data: {
+        callId: String(callId),
+        status: 'connected',
+        acceptedBy: String(userId),
+        callType: normalizeCallType(call.type)
+      },
       message: 'Call accepted successfully'
     });
 
   } catch (error) {
+    if (error && Object.prototype.hasOwnProperty.call(error, 'msBeforeNext')) {
+      return res.status(429).json({ success: false, error: 'Too many call actions. Please slow down.' });
+    }
     console.error('Call accept error:', error);
     res.status(500).json({ success: false, error: 'Failed to accept call' });
   }
@@ -185,6 +251,9 @@ router.post('/reject', authMiddleware, [
   body('callId').isString().notEmpty()
 ], async (req, res) => {
   try {
+    const actionKey = req.user?.userId ? `u:${req.user.userId}` : `ip:${req.ip}`;
+    await callActionLimiter.consume(actionKey);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, error: 'Validation failed',
@@ -212,26 +281,34 @@ router.post('/reject', authMiddleware, [
     await call.save();
 
     // Emit call rejected via Socket.io
-    req.io.to(`user_${call.caller_id.toString()}`).emit('call_rejected', {
-      id: callId,
-      callId,
-      targetUserId: userId,
+    const callerId = String(call.caller_id);
+    const targetUserId = String(call.target_user_id);
+    const rejectedPayload = {
+      id: String(callId),
+      callId: String(callId),
+      callerId: String(userId),
+      targetUserId: String(userId),
+      reason: 'rejected',
       timestamp: new Date().toISOString()
-    });
+    };
 
-    req.io.to(getCallRoomId(call.caller_id.toString(), call.target_user_id.toString())).emit('call_rejected', {
-      id: callId,
-      callId,
-      targetUserId: userId,
-      timestamp: new Date().toISOString()
-    });
+    req.io.to(`user_${callerId}`).emit('call_rejected', rejectedPayload);
+    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_rejected', rejectedPayload);
 
     res.json({
       success: true,
+      data: {
+        callId: String(callId),
+        status: 'rejected',
+        rejectedBy: String(userId)
+      },
       message: 'Call rejected successfully'
     });
 
   } catch (error) {
+    if (error && Object.prototype.hasOwnProperty.call(error, 'msBeforeNext')) {
+      return res.status(429).json({ success: false, error: 'Too many call actions. Please slow down.' });
+    }
     console.error('Call reject error:', error);
     res.status(500).json({ success: false, error: 'Failed to reject call' });
   }
@@ -246,6 +323,9 @@ router.post('/end', authMiddleware, [
   body('callId').isString().notEmpty()
 ], async (req, res) => {
   try {
+    const actionKey = req.user?.userId ? `u:${req.user.userId}` : `ip:${req.ip}`;
+    await callActionLimiter.consume(actionKey);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, error: 'Validation failed',
@@ -285,9 +365,12 @@ router.post('/end', authMiddleware, [
     const otherUserId = callerId === userId ? targetId : callerId;
     
     const endPayload = {
-      id: callId,
-      callId,
-      endedBy: userId,
+      id: String(callId),
+      callId: String(callId),
+      endedBy: String(userId),
+      callerId: String(userId),
+      targetUserId: String(otherUserId),
+      reason: 'ended',
       timestamp: new Date().toISOString()
     };
 
@@ -296,12 +379,158 @@ router.post('/end', authMiddleware, [
 
     res.json({
       success: true,
+      data: {
+        callId: String(callId),
+        status: 'ended',
+        endedBy: String(userId),
+        callType: normalizeCallType(call.type),
+        duration: call.duration || 0
+      },
       message: 'Call ended successfully'
     });
 
   } catch (error) {
+    if (error && Object.prototype.hasOwnProperty.call(error, 'msBeforeNext')) {
+      return res.status(429).json({ success: false, error: 'Too many call actions. Please slow down.' });
+    }
     console.error('Call end error:', error);
     res.status(500).json({ success: false, error: 'Failed to end call' });
+  }
+});
+
+/**
+ * @route   POST /api/calls/cancel
+ * @desc    Cancel an outgoing ringing call (caller side)
+ * @access  Private
+ */
+router.post('/cancel', authMiddleware, [
+  body('callId').isString().notEmpty()
+], async (req, res) => {
+  try {
+    const actionKey = req.user?.userId ? `u:${req.user.userId}` : `ip:${req.ip}`;
+    await callActionLimiter.consume(actionKey);
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const { callId } = req.body;
+    const userId = req.user.userId;
+
+    if (!mongoose.Types.ObjectId.isValid(callId) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid call or user ID' });
+    }
+
+    const call = await Call.findOne({ _id: callId, caller_id: userId, status: 'calling' });
+    if (!call) {
+      return res.status(404).json({ success: false, error: 'Call not found or not cancellable' });
+    }
+
+    call.status = 'missed';
+    call.ended_at = new Date();
+    await call.save();
+
+    const callerId = String(call.caller_id);
+    const targetUserId = String(call.target_user_id);
+    const cancelPayload = {
+      id: String(callId),
+      callId: String(callId),
+      callerId,
+      targetUserId,
+      reason: 'cancelled',
+      timestamp: new Date().toISOString()
+    };
+
+    req.io.to(`user_${targetUserId}`).emit('call_cancelled', cancelPayload);
+    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_cancelled', cancelPayload);
+
+    res.json({
+      success: true,
+      data: {
+        callId: String(callId),
+        status: 'missed',
+        reason: 'cancelled',
+        cancelledBy: String(userId)
+      },
+      message: 'Call cancelled successfully'
+    });
+  } catch (error) {
+    if (error && Object.prototype.hasOwnProperty.call(error, 'msBeforeNext')) {
+      return res.status(429).json({ success: false, error: 'Too many call actions. Please slow down.' });
+    }
+    console.error('Call cancel error:', error);
+    res.status(500).json({ success: false, error: 'Failed to cancel call' });
+  }
+});
+
+/**
+ * @route   POST /api/calls/timeout
+ * @desc    Mark an outgoing ringing call as timed out (caller side)
+ * @access  Private
+ */
+router.post('/timeout', authMiddleware, [
+  body('callId').isString().notEmpty()
+], async (req, res) => {
+  try {
+    const actionKey = req.user?.userId ? `u:${req.user.userId}` : `ip:${req.ip}`;
+    await callActionLimiter.consume(actionKey);
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const { callId } = req.body;
+    const userId = req.user.userId;
+
+    if (!mongoose.Types.ObjectId.isValid(callId) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid call or user ID' });
+    }
+
+    const call = await Call.findOne({ _id: callId, caller_id: userId, status: 'calling' });
+    if (!call) {
+      return res.status(404).json({ success: false, error: 'Call not found or not timeout-eligible' });
+    }
+
+    call.status = 'missed';
+    call.ended_at = new Date();
+    await call.save();
+
+    const callerId = String(call.caller_id);
+    const targetUserId = String(call.target_user_id);
+    const timeoutPayload = {
+      id: String(callId),
+      callId: String(callId),
+      callerId,
+      targetUserId,
+      reason: 'timeout',
+      timestamp: new Date().toISOString()
+    };
+
+    req.io.to(`user_${targetUserId}`).emit('call_cancelled', timeoutPayload);
+    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_cancelled', timeoutPayload);
+
+    res.json({
+      success: true,
+      data: {
+        callId: String(callId),
+        status: 'missed',
+        reason: 'timeout',
+        timeoutBy: String(userId)
+      },
+      message: 'Call timeout recorded successfully'
+    });
+  } catch (error) {
+    if (error && Object.prototype.hasOwnProperty.call(error, 'msBeforeNext')) {
+      return res.status(429).json({ success: false, error: 'Too many call actions. Please slow down.' });
+    }
+    console.error('Call timeout error:', error);
+    res.status(500).json({ success: false, error: 'Failed to record call timeout' });
   }
 });
 
@@ -331,10 +560,14 @@ router.get('/history', authMiddleware, async (req, res) => {
     const mappedCalls = calls.map((call) => {
       const isCaller = call.caller_id?._id?.toString() === userId;
       const otherUser = isCaller ? call.target_user_id : call.caller_id;
+      const normalizedCallType = normalizeCallType(call.type);
       return {
         id: call._id.toString(),
-        type: call.type,
+        callId: call._id.toString(),
+        type: normalizedCallType,
+        callType: normalizedCallType,
         status: call.status,
+        timestamp: call.created_at,
         created_at: call.created_at,
         connected_at: call.connected_at,
         ended_at: call.ended_at,
@@ -348,13 +581,23 @@ router.get('/history', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
+      data: {
+        calls: mappedCalls,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum)
+        }
+      },
       calls: mappedCalls,
       pagination: {
         page: pageNum,
         limit: limitNum,
         total,
         pages: Math.ceil(total / limitNum)
-      }
+      },
+      message: 'Call history fetched successfully'
     });
 
   } catch (error) {

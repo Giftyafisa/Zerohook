@@ -11,8 +11,10 @@
  * @returns {string} One of: 'text', 'image', 'video', 'audio', 'file', 'location', 'contact'
  */
 function inferMessageType({ messageType, type, content, metadata = {} } = {}) {
-  const directType = messageType || type;
-  if (directType && directType !== 'text') return directType;
+  const directType = messageType ?? type;
+  // Explicitly provided messageType/type should override inference (including 'text').
+  // This keeps server behavior consistent with the client-side helper.
+  if (directType) return directType;
 
   const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
   const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
@@ -33,6 +35,7 @@ function inferMessageType({ messageType, type, content, metadata = {} } = {}) {
   if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
   if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(value) || /video|vid/.test(value)) return 'video';
   if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
+  // Fallback: treat links as file-like content
   if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
 
   return 'text';

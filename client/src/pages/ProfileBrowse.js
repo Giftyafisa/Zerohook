@@ -584,7 +584,15 @@ const ProfileBrowse = () => {
    */
   // Real-time online status (browse context = public, no conversation gate)
   const profileIds = useMemo(() => profiles.map(p => String(p.id || p._id)), [profiles]);
-  const { isUserOnline, getUserLastSeen } = usePresence(profileIds, { context: 'browse' });
+  const initialStatusMap = useMemo(
+    () => profiles.reduce((acc, p) => {
+      const id = String(p.id || p._id || '');
+      if (id) acc[id] = !!(p.isOnline || p.is_online);
+      return acc;
+    }, {}),
+    [profiles]
+  );
+  const { isUserOnline, getUserLastSeen } = usePresence(profileIds, { context: 'browse', initialStatusMap });
 
   // Enhance profiles with real-time online status + lastSeenLabel before filtering
   const liveProfiles = useMemo(() => profiles.map(p => ({

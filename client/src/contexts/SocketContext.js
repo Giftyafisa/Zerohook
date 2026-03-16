@@ -12,38 +12,11 @@ import {
   setUnreadNotifications 
 } from '../store/slices/uiSlice';
 import { setSubscriptionStatus } from '../store/slices/authSlice';
+import { inferMessageTypeFromContent } from '../utils/messageTypeUtils';
 
 const SocketContext = createContext({});
 
 const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
-
-const inferMessageType = (data = {}) => {
-  const explicitType = data.messageType || data.type;
-  if (explicitType && explicitType !== 'text') return explicitType;
-
-  const mimeType = String(data?.metadata?.mimeType || data?.metadata?.mimetype || '').toLowerCase();
-  const fileName = String(data?.metadata?.filename || data?.metadata?.fileName || data?.metadata?.name || '').toLowerCase();
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType && !mimeType.startsWith('text/')) return 'file';
-  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(fileName)) return 'image';
-  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(fileName)) return 'video';
-  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(fileName)) return 'audio';
-
-  const content = String(data?.content || '').toLowerCase().split('?')[0].split('#')[0];
-  if (content.startsWith('data:image/')) return 'image';
-  if (content.startsWith('data:video/')) return 'video';
-  if (content.startsWith('data:audio/')) return 'audio';
-  if (/\/image\/upload\//.test(content)) return 'image';
-  if (/\/video\/upload\//.test(content)) return 'video';
-  if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(content) || /image|photo|img/.test(content)) return 'image';
-  if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(content) || /video|vid/.test(content)) return 'video';
-  if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(content) || /audio|voice/.test(content)) return 'audio';
-  if (content.startsWith('http://') || content.startsWith('https://') || content.startsWith('/uploads/') || content.startsWith('data:')) return 'file';
-
-  return explicitType || 'text';
-};
 
 export const useSocket = () => {
   const context = useContext(SocketContext);
@@ -136,16 +109,40 @@ export const SocketProvider = ({ children }) => {
         reconnectionDelayMax: 10000
       });
 
+      let detachHeartbeatBoosters = () => {};
+
       newSocket.on('connect', () => {
         setIsConnected(true);
         if (process.env.NODE_ENV !== 'production') {
-          console.log('✅ Connected to server');
+          console.log(`✅ Connected to server at ${socketUrl}`);
         }
-        // ── Heartbeat: keep server-side last_active fresh (30s interval) ──
+        const emitHeartbeatNow = () => {
+          if (newSocket.connected) newSocket.emit('heartbeat');
+        };
+
+        // ── Heartbeat: keep server-side last_active fresh ──────────────────
+        // 15s keeps online/offline indicators tighter than previous 30s.
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = setInterval(() => {
-          if (newSocket.connected) newSocket.emit('heartbeat');
-        }, 30_000);
+          emitHeartbeatNow();
+        }, 15_000);
+
+        // Immediate heartbeat on connect and when app regains attention/network.
+        emitHeartbeatNow();
+        detachHeartbeatBoosters();
+        const handleVisibility = () => {
+          if (document.visibilityState === 'visible') emitHeartbeatNow();
+        };
+        const handleWindowFocus = () => emitHeartbeatNow();
+        const handleOnline = () => emitHeartbeatNow();
+        document.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('focus', handleWindowFocus);
+        window.addEventListener('online', handleOnline);
+        detachHeartbeatBoosters = () => {
+          document.removeEventListener('visibilitychange', handleVisibility);
+          window.removeEventListener('focus', handleWindowFocus);
+          window.removeEventListener('online', handleOnline);
+        };
 
         // Fetch initial unread counts on connect/reconnect so badges are accurate
         apiClient.get('/chat/unread-count')
@@ -185,14 +182,15 @@ export const SocketProvider = ({ children }) => {
       // NEW MESSAGE - increment unread count
       newSocket.on('new_message', (data) => {
         // Dedup: skip if we already processed this message (received via both user + conversation room)
-        if (data.id && processedMessageIds.current.has(String(data.id))) return;
-        if (data.id) {
-          processedMessageIds.current.add(String(data.id));
-          // Prevent unbounded growth
-          if (processedMessageIds.current.size > 200) {
-            const arr = [...processedMessageIds.current];
-            processedMessageIds.current = new Set(arr.slice(-100));
-          }
+        // Fallback composite key for messages that arrive without a stable id.
+        const msgIdRaw = String(data.id || '');
+        const dedupKey = msgIdRaw ||
+          `${data.conversationId}:${data.senderId}:${data.createdAt || data.timestamp || ''}:${String(data.content || '').slice(0, 40)}`;
+        if (processedMessageIds.current.has(dedupKey)) return;
+        processedMessageIds.current.add(dedupKey);
+        if (processedMessageIds.current.size > 200) {
+          const arr = [...processedMessageIds.current];
+          processedMessageIds.current = new Set(arr.slice(-100));
         }
 
         const pathname = window?.location?.pathname || '';
@@ -204,7 +202,7 @@ export const SocketProvider = ({ children }) => {
 
           // Format preview based on message type — never show raw URLs for media
           let preview = 'New message';
-          const mType = inferMessageType(data);
+          const mType = inferMessageTypeFromContent(data.content, data.messageType || data.type, data.metadata);
           if (mType === 'image') preview = '📷 Photo';
           else if (mType === 'video') preview = '🎬 Video';
           else if (mType === 'file') preview = '📎 File';
@@ -347,7 +345,14 @@ export const SocketProvider = ({ children }) => {
 
       // ── Global presence listener — keeps onlineUsersRef in sync ──
       newSocket.on('user_status', ({ userId, isOnline }) => {
-        if (userId) onlineUsersRef.current.set(String(userId), !!isOnline);
+        if (!userId) return;
+        const id = String(userId);
+        if (isOnline) {
+          onlineUsersRef.current.set(id, true);
+        } else {
+          // Remove stale entries so new mounts don't get a false cached "offline" lock.
+          onlineUsersRef.current.delete(id);
+        }
       });
 
       return () => {
@@ -355,7 +360,9 @@ export const SocketProvider = ({ children }) => {
           console.log('🔌 Cleaning up socket connection...');
         }
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+        detachHeartbeatBoosters();
         newSocket.disconnect();
+        onlineUsersRef.current.clear();
         setSocket(null);
         setIsConnected(false);
         userIdRef.current = null;
@@ -367,6 +374,7 @@ export const SocketProvider = ({ children }) => {
           console.log('🔌 User not authenticated, clearing socket...');
         }
         socket.disconnect();
+        onlineUsersRef.current.clear();
         setSocket(null);
         setIsConnected(false);
         userIdRef.current = null;

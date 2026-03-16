@@ -4,7 +4,7 @@
  * Zerohook Platform
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -236,9 +236,16 @@ const NotificationsPage = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [nextCursor, setNextCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const notificationsRef = useRef([]);
+
+  useEffect(() => {
+    notificationsRef.current = notificationsList;
+  }, [notificationsList]);
   
   // Fetch notifications from API
-  const fetchNotifications = useCallback(async (showRefreshIndicator = false) => {
+  const fetchNotifications = useCallback(async ({ showRefreshIndicator = false, cursor = null, append = false } = {}) => {
     if (showRefreshIndicator) setRefreshing(true);
     
     try {
@@ -248,7 +255,10 @@ const NotificationsPage = () => {
         return;
       }
       
-      const response = await apiClient.get('/notifications');
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      if (cursor) params.set('cursor', cursor);
+      const response = await apiClient.get(`/notifications?${params.toString()}`);
       const notifications = response.data.notifications || [];
         
       // Transform backend data to match UI format
@@ -268,10 +278,16 @@ const NotificationsPage = () => {
       });
       });
       
-      dispatch(setNotificationsList(transformedNotifications));
+      const mergedNotifications = append
+        ? [...notificationsRef.current, ...transformedNotifications]
+        : transformedNotifications;
+      const uniqueById = Array.from(new Map(mergedNotifications.map(n => [n.id, n])).values());
+      dispatch(setNotificationsList(uniqueById));
+      setNextCursor(response.data.nextCursor || null);
+      setHasMore(!!response.data.hasMore);
       
       // Update unread count
-      const unread = transformedNotifications.filter(n => !n.read).length;
+      const unread = uniqueById.filter(n => !n.read).length;
       dispatch(setUnreadNotifications(unread));
       
       setError(null);
@@ -417,7 +433,7 @@ const NotificationsPage = () => {
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <IconButton 
-              onClick={() => fetchNotifications(true)}
+              onClick={() => fetchNotifications({ showRefreshIndicator: true })}
               disabled={refreshing}
               sx={styles.refreshBtn}
               aria-label={refreshing ? 'Refreshing notifications' : 'Refresh notifications'}
@@ -474,7 +490,7 @@ const NotificationsPage = () => {
               {error}
             </Typography>
             <Button 
-              onClick={() => fetchNotifications()}
+              onClick={() => fetchNotifications({})}
               sx={{ color: '#00f2ea', textTransform: 'none' }}
             >
               Try Again
@@ -589,6 +605,18 @@ const NotificationsPage = () => {
               );
             })}
           </AnimatePresence>
+        )}
+
+        {!loading && !error && activeTab === 0 && hasMore && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+            <Button
+              onClick={() => fetchNotifications({ cursor: nextCursor, append: true, showRefreshIndicator: true })}
+              disabled={refreshing || !nextCursor}
+              sx={{ color: '#00f2ea', textTransform: 'none' }}
+            >
+              {refreshing ? 'Loading...' : 'Load more'}
+            </Button>
+          </Box>
         )}
       </Box>
       

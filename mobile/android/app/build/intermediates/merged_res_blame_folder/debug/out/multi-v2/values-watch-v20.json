@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-watch-v20/values-watch-v20.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-89:/values-watch-v20/values-watch-v20.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\c651f057d079a1fbfb25fd4d36cc10d8\\transformed\\appcompat-1.6.1\\res\\values-watch-v20\\values-watch-v20.xml",
+                    "source": "C:\\Users\\OS\\.gradle\\caches\\transforms-3\\bc04655dd40ded0dadabfdcd83663287\\transformed\\appcompat-1.6.1\\res\\values-watch-v20\\values-watch-v20.xml",
                     "from": {
                         "startLines": "2,5,8",
                         "startColumns": "4,4,4",
@@ -23,7 +23,7 @@
                     }
                 },
                 {
-                    "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\1f2cc7d9abad79a7978be7956bd7a30d\\transformed\\jetified-core-splashscreen-1.0.1\\res\\values-watch-v20\\values-watch-v20.xml",
+                    "source": "C:\\Users\\OS\\.gradle\\caches\\transforms-3\\621eeddd051aa82c380d4a69dc4f285b\\transformed\\jetified-core-splashscreen-1.0.1\\res\\values-watch-v20\\values-watch-v20.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9",
                         "startColumns": "4,4,4,4,4,4,4,4",

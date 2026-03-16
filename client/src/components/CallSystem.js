@@ -290,6 +290,7 @@ const CallSystem = () => {
   // Refs
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
@@ -339,18 +340,28 @@ const CallSystem = () => {
     }
   }, [isInCall, activeCall, isVideoEnabled]);
 
-  // ── CRITICAL FIX: Attach remote stream to <video> element after React renders it.
+  // ── CRITICAL FIX: Attach remote stream to <video>/<audio> element after React renders it.
   // ontrack may fire before the active-call UI mounts; the stream is stored in
   // remoteStreamRef but never wired to the DOM element. This effect ensures it
   // gets attached once the element exists.
   useEffect(() => {
-    if (isInCall && remoteStreamRef.current && remoteVideoRef.current) {
+    if (!isInCall || !remoteStreamRef.current) return;
+
+    if (remoteVideoRef.current) {
       if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
         remoteVideoRef.current.srcObject = remoteStreamRef.current;
         remoteVideoRef.current.play().catch(() => {});
       }
     }
-  }, [isInCall, activeCall]);
+
+    if (remoteAudioRef.current) {
+      if (remoteAudioRef.current.srcObject !== remoteStreamRef.current) {
+        remoteAudioRef.current.srcObject = remoteStreamRef.current;
+        remoteAudioRef.current.play().catch(() => {});
+      }
+      remoteAudioRef.current.muted = isMuted;
+    }
+  }, [isInCall, activeCall, isMuted]);
 
   // Keep refs in sync with state so socket handlers always see current value
   useEffect(() => { callTypeRef.current = callType; }, [callType]);
@@ -481,6 +492,9 @@ const CallSystem = () => {
     const handleWebrtcOffer = async (data) => {
       console.log('📡 Received WebRTC offer from:', data.callerId);
       try {
+        // Ensure local media is ready before constructing an answer.
+        // This avoids cases where the remote peer never receives our audio/video.
+        await initializeMedia((data.callType || data.type || 'video') === 'video');
         await handleWebRTCOffer(data);
       } catch (error) {
         console.error('Error handling WebRTC offer:', error);
@@ -712,7 +726,12 @@ const CallSystem = () => {
     const resolvedType = incomingCall.type || 'video';
     const resolvedPeerUserId = String(incomingCall.callerId || incomingCall.peerUserId || incomingCall.targetUserId || '');
 
-    // ── Step 1: IMMEDIATELY accept and update UI (< 1ms)
+    // Ensure local media is ready before accepting so we send tracks with the answer.
+    // This may add a short delay while permissions are granted, but prevents calls
+    // where the remote peer never receives our audio/video.
+    await initializeMedia(resolvedType === 'video');
+
+    // ── Step 1: Accept and update UI (fast) ─────────────────────
     setCallType(resolvedType);
     setActiveCall({
       ...incomingCall,
@@ -725,21 +744,12 @@ const CallSystem = () => {
     isCallerRef.current = false;
     startCallTimer();
 
-    // Emit accept IMMEDIATELY — don't wait for getUserMedia
+    // Emit accept immediately now that media is ready
     socket.emit('accept_call', {
       callId: incomingCall.callId || incomingCall.id,
       targetUserId: incomingCall.callerId,
       callType: resolvedType
     });
-
-    // ── Step 2: Initialize media asynchronously (may take 1-10s)
-    // The PeerConnection may already exist by the time this resolves
-    // (the caller sends the offer immediately after getting accept_call).
-    // addLocalTracksToPeerConnection() inside initializeMedia handles this.
-    const stream = await initializeMedia(resolvedType === 'video');
-    if (!stream) {
-      console.warn('⚠️ Media access denied after accepting call — caller won\'t hear/see us');
-    }
   }, [incomingCall, socket]);
 
   // Reject call
@@ -1042,6 +1052,9 @@ const CallSystem = () => {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.muted = next;
     }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = next;
+    }
   };
 
   const toggleFullscreen = () => {
@@ -1295,6 +1308,12 @@ const CallSystem = () => {
                 // Hide video element for audio-only calls but keep it in DOM for audio playback
                 ...(callType !== 'video' ? { position: 'absolute', width: 0, height: 0, opacity: 0 } : {})
               }}
+            />
+            {/* Fallback audio element to ensure audio plays in audio-only calls and when video is muted */}
+            <audio
+              ref={remoteAudioRef}
+              autoPlay
+              style={{ display: 'none' }}
             />
             {callType === 'video' ? (
               <>

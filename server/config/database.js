@@ -637,6 +637,22 @@ const notificationSchema = new mongoose.Schema({
 
 const Notification = mongoose.model('Notification', notificationSchema);
 
+// Device token registry (Android FCM/APNs/other push providers)
+const deviceTokenSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  platform: { type: String, enum: ['android', 'ios', 'web'], required: true },
+  provider: { type: String, default: 'fcm' },
+  token: { type: String, required: true },
+  device_id: { type: String, default: null },
+  app_version: { type: String, default: null },
+  active: { type: Boolean, default: true },
+  last_seen_at: { type: Date, default: Date.now }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+deviceTokenSchema.index({ user_id: 1, platform: 1, token: 1 }, { unique: true });
+
+const DeviceToken = mongoose.model('DeviceToken', deviceTokenSchema);
+
 // Milestone Request Schema
 const milestoneRequestSchema = new mongoose.Schema({
   sender_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -826,6 +842,7 @@ module.exports = {
   SystemCounter,
   RefreshToken,
   Notification,
+  DeviceToken,
   MilestoneRequest,
   UserConnection,
   ContentPost,

@@ -99,6 +99,14 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
             const pd = u.profile_data || {};
             const basePrice = pd.basePrice != null ? parseFloat(pd.basePrice) : null;
             const converted = basePrice != null ? convertPrice(basePrice) : null;
+            const hasProfileImage = !!(
+              u.hasProfileImage ||
+              u.profile_image ||
+              u.profile_image_url ||
+              pd.profilePicture ||
+              pd.avatar ||
+              (Array.isArray(pd.photos) && pd.photos.length > 0)
+            );
             return {
               id: u.id,
               username: u.username,
@@ -116,6 +124,7 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
               distanceConfidence: u.distanceConfidence,
               recommendationScore: parseFloat(u.recommendationScore) || 0,
               successRate: parseFloat(u.successRate) || 0,
+              hasProfileImage,
               sameCountry: u.sameCountry,
               displayPrice: converted,
               scoreBreakdown: u.scoreBreakdown || null,
@@ -123,6 +132,13 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
               matchPercentage: u.matchPercentage || null,
             };
           });
+
+        // Keep image-rich profiles above image-less profiles as a client-side guardrail.
+        processed.sort((a, b) => {
+          if (a.hasProfileImage && !b.hasProfileImage) return -1;
+          if (!a.hasProfileImage && b.hasProfileImage) return 1;
+          return (b.recommendationScore || 0) - (a.recommendationScore || 0);
+        });
 
         if (append) setDisplayedProfiles((prev) => [...prev, ...processed]);
         else setDisplayedProfiles(processed);

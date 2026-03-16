@@ -118,6 +118,161 @@ const io = new Server(server, {
     credentials: true
   }
 });
+
+// Presence subscribers for public surfaces (browse/feed)
+// targetUserId -> Set(socketId)
+const publicPresenceWatchers = new Map();
+// socketId -> Set(targetUserId)
+const socketPresenceSubscriptions = new Map();
+// socketId -> { eventName: { windowStart, count } }
+const socketPresenceRateCounters = new Map();
+
+const PRESENCE_EVENT_LIMITS = {
+  get_user_status: {
+    windowMs: parseInt(process.env.SOCKET_GET_USER_STATUS_WINDOW_MS, 10) || 10000,
+    max: parseInt(process.env.SOCKET_GET_USER_STATUS_MAX, 10) || 30
+  },
+  get_users_status: {
+    windowMs: parseInt(process.env.SOCKET_GET_USERS_STATUS_WINDOW_MS, 10) || 10000,
+    max: parseInt(process.env.SOCKET_GET_USERS_STATUS_MAX, 10) || 12
+  }
+};
+
+function normalizeUserId(value) {
+  return String(value || '').trim();
+}
+
+function registerPublicPresenceSubscriptions(socketId, userIds = []) {
+  const sid = normalizeUserId(socketId);
+  if (!sid) return;
+
+  const validIds = [...new Set(userIds.map(normalizeUserId).filter(Boolean))].slice(0, 200);
+  if (validIds.length === 0) return;
+
+  const existing = socketPresenceSubscriptions.get(sid) || new Set();
+  validIds.forEach((uid) => {
+    existing.add(uid);
+    const watchers = publicPresenceWatchers.get(uid) || new Set();
+    watchers.add(sid);
+    publicPresenceWatchers.set(uid, watchers);
+  });
+  socketPresenceSubscriptions.set(sid, existing);
+}
+
+function clearSocketPresenceSubscriptions(socketId) {
+  const sid = normalizeUserId(socketId);
+  if (!sid) return;
+  const subscriptions = socketPresenceSubscriptions.get(sid);
+  if (!subscriptions) return;
+
+  subscriptions.forEach((uid) => {
+    const watchers = publicPresenceWatchers.get(uid);
+    if (!watchers) return;
+    watchers.delete(sid);
+    if (watchers.size === 0) {
+      publicPresenceWatchers.delete(uid);
+    }
+  });
+  socketPresenceSubscriptions.delete(sid);
+}
+
+function setPublicPresenceSubscriptions(socketId, userIds = []) {
+  clearSocketPresenceSubscriptions(socketId);
+  registerPublicPresenceSubscriptions(socketId, userIds);
+}
+
+function clearSocketPresenceRateLimits(socketId) {
+  const sid = normalizeUserId(socketId);
+  if (!sid) return;
+  socketPresenceRateCounters.delete(sid);
+}
+
+function getPresenceEventRateState(socketId, eventName) {
+  const sid = normalizeUserId(socketId);
+  if (!sid || !eventName) return null;
+
+  const config = PRESENCE_EVENT_LIMITS[eventName];
+  if (!config || config.max <= 0 || config.windowMs <= 0) return null;
+
+  const now = Date.now();
+  const socketCounters = socketPresenceRateCounters.get(sid) || {};
+  const current = socketCounters[eventName];
+
+  if (!current || now - current.windowStart >= config.windowMs) {
+    socketCounters[eventName] = { windowStart: now, count: 1 };
+    socketPresenceRateCounters.set(sid, socketCounters);
+    return { limited: false, retryAfterMs: 0, max: config.max, windowMs: config.windowMs };
+  }
+
+  current.count += 1;
+  socketCounters[eventName] = current;
+  socketPresenceRateCounters.set(sid, socketCounters);
+
+  if (current.count <= config.max) {
+    return { limited: false, retryAfterMs: 0, max: config.max, windowMs: config.windowMs };
+  }
+
+  const retryAfterMs = Math.max(0, config.windowMs - (now - current.windowStart));
+  return { limited: true, retryAfterMs, max: config.max, windowMs: config.windowMs };
+}
+
+function getLastSeenLabel(lastSeenDate) {
+  if (!lastSeenDate) return null;
+  const diffMs = Date.now() - new Date(lastSeenDate).getTime();
+  if (diffMs < 0) return null;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMins < 5) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return `${Math.floor(diffDays / 7)}w ago`;
+}
+
+async function emitScopedUserStatus(socket, payload) {
+  const targetUserId = normalizeUserId(payload?.userId);
+  if (!targetUserId) return;
+
+  // 1) Notify explicit public subscribers (browse/feed surfaces)
+  const watcherSockets = publicPresenceWatchers.get(targetUserId);
+  if (watcherSockets && watcherSockets.size > 0) {
+    watcherSockets.forEach((sid) => {
+      if (sid !== socket.id) {
+        io.to(sid).emit('user_status', payload);
+      }
+    });
+  }
+
+  // 2) Notify chat-relevant users (conversation counterparts) via personal rooms
+  if (mongoose.Types.ObjectId.isValid(targetUserId)) {
+    try {
+      const convs = await Conversation.find({
+        $or: [
+          { participant1Id: targetUserId },
+          { participant2Id: targetUserId }
+        ],
+        status: { $ne: 'deleted' }
+      }).select('participant1Id participant2Id').lean();
+
+      const relevantUserIds = new Set();
+      convs.forEach((c) => {
+        const p1 = normalizeUserId(c.participant1Id);
+        const p2 = normalizeUserId(c.participant2Id);
+        if (p1 && p1 !== targetUserId) relevantUserIds.add(p1);
+        if (p2 && p2 !== targetUserId) relevantUserIds.add(p2);
+      });
+
+      relevantUserIds.forEach((uid) => {
+        io.to(`user_${uid}`).emit('user_status', payload);
+      });
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('emitScopedUserStatus conversation lookup failed:', err.message);
+      }
+    }
+  }
+}
 // Socket.io authentication middleware (verify JWT on handshake)
 // Accept token either in socket.handshake.auth.token or in socket.handshake.headers.authorization
 io.use((socket, next) => {
@@ -528,12 +683,14 @@ io.on('connection', async (socket) => {
       socket.handshake.headers['user-agent']
     );
 
-    // Broadcast online status to other users
-    socket.broadcast.emit('user_status', {
+    // Broadcast online status only to relevant subscribers/participants
+    await emitScopedUserStatus(socket, {
       userId: socket.userId,
       username: socket.username,
       status: 'online',
       isOnline: true,
+      lastSeen: null,
+      lastSeenLabel: null,
       timestamp: new Date().toISOString()
     });
     
@@ -640,6 +797,7 @@ io.on('connection', async (socket) => {
         if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId)) {
           return;
         }
+        const normalizedCallType = data.type === 'audio' ? 'audio' : 'video';
         console.log(`📞 Call request from ${socket.username} to user ${data.targetUserId}`);
 
         if (mongoose.Types.ObjectId.isValid(socket.userId) && mongoose.Types.ObjectId.isValid(data.targetUserId)) {
@@ -686,7 +844,7 @@ io.on('connection', async (socket) => {
             const callRow = await Call.create({
               caller_id: new mongoose.Types.ObjectId(socket.userId),
               target_user_id: new mongoose.Types.ObjectId(data.targetUserId),
-              type: data.type === 'audio' ? 'audio' : 'video',
+              type: normalizedCallType,
               status: 'calling',
               metadata: {
                 source: 'socket',
@@ -707,8 +865,8 @@ io.on('connection', async (socket) => {
           callerId: socket.userId,
           targetUserId: data.targetUserId,
           callerName: socket.username,
-          type: data.type, // 'audio' or 'video'
-          callType: data.type,
+          type: normalizedCallType,
+          callType: normalizedCallType,
           timestamp: new Date().toISOString()
         });
 
@@ -717,8 +875,8 @@ io.on('connection', async (socket) => {
           id: persistedCallId,
           callId: persistedCallId,
           targetUserId: data.targetUserId,
-          type: data.type,
-          callType: data.type,
+          type: normalizedCallType,
+          callType: normalizedCallType,
           timestamp: new Date().toISOString()
         });
         
@@ -769,10 +927,12 @@ io.on('connection', async (socket) => {
         socket.to(`user_${data.targetUserId}`).emit('call_accepted', {
           id: resolvedCallId,
           callId: resolvedCallId,
+          acceptedBy: socket.userId,
           targetUserId: socket.userId,
           peerUserId: socket.userId,
           callerId: data.targetUserId,
           callType: data.callType || data.type || 'video',
+          type: data.callType || data.type || 'video',
           timestamp: new Date().toISOString()
         });
         
@@ -819,6 +979,7 @@ io.on('connection', async (socket) => {
           id: data.callId,
           callId: data.callId,
           targetUserId: socket.userId,
+          reason: data.reason || 'rejected',
           timestamp: new Date().toISOString()
         });
         
@@ -930,6 +1091,7 @@ io.on('connection', async (socket) => {
           id: data.callId,
           callId: data.callId,
           callerId: socket.userId,
+          reason: 'cancelled',
           timestamp: new Date().toISOString()
         });
         
@@ -971,6 +1133,7 @@ io.on('connection', async (socket) => {
           id: data.callId,
           callId: data.callId,
           callerId: socket.userId,
+          reason: 'timeout',
           timestamp: new Date().toISOString()
         });
       } catch (error) {
@@ -1088,7 +1251,7 @@ io.on('connection', async (socket) => {
           userId: socket.userId,
           username: socket.username,
           conversationId: data.conversationId,
-          messageId: data.messageId,
+          messageId: data.messageId ? String(data.messageId) : null,
           timestamp: new Date().toISOString()
         };
 
@@ -1160,9 +1323,11 @@ io.on('connection', async (socket) => {
           return socket.emit('message_error', { error: 'Database error, please try again' });
         }
 
+        const canonicalMessageId = String(messageRow._id || messageRow.id || '');
+        const canonicalConversationId = String(conversationId);
         const messageData = {
-          id: messageRow._id || messageRow.id,
-          conversationId,
+          id: canonicalMessageId,
+          conversationId: canonicalConversationId,
           senderId: socket.userId,
           senderName: socket.username,
           senderUsername: socket.username,
@@ -1174,7 +1339,7 @@ io.on('connection', async (socket) => {
         };
 
         // Broadcast message after commit
-        io.to(`conversation_${conversationId}`).emit('new_message', messageData);
+        io.to(`conversation_${canonicalConversationId}`).emit('new_message', messageData);
 
         // Also emit to recipient's user room so they get it even when viewing a different conversation
         if (otherUserId) {
@@ -1193,7 +1358,7 @@ io.on('connection', async (socket) => {
               type: 'message',
               title: `New message from ${socket.username || 'Someone'}`,
               message: preview,
-              data: { conversationId, senderId: socket.userId, messageId: String(messageData.id || '') }
+              data: { conversationId: canonicalConversationId, senderId: socket.userId, messageId: canonicalMessageId }
             });
           } catch (notifErr) {
             console.error('Socket message notification error:', notifErr.message);
@@ -1204,7 +1369,7 @@ io.on('connection', async (socket) => {
         try {
           await userActivityMonitor.logUserActivity(socket.userId, {
             actionType: 'send_message',
-            actionData: { conversationId, messageId: messageRow.id, contentLength: normalizedContent.length },
+            actionData: { conversationId: canonicalConversationId, messageId: canonicalMessageId, contentLength: normalizedContent.length },
             ipAddress: socket.handshake.address,
             userAgent: socket.handshake.headers['user-agent'],
             responseTimeMs: 0,
@@ -1223,14 +1388,22 @@ io.on('connection', async (socket) => {
     // Handle user status updates
     socket.on('update_status', async (data) => {
       try {
-        await userActivityMonitor.updateUserStatus(socket.userId, data.status);
+        const status = String(data?.status || 'online').toLowerCase();
+        const offlineStatuses = new Set(['offline', 'away', 'invisible']);
+        const isOnline = !offlineStatuses.has(status);
+        const now = new Date();
+
+        await userActivityMonitor.updateUserPresence(socket.userId, isOnline ? 'online' : 'offline');
         
-        // Broadcast status to all connected users
-        socket.broadcast.emit('user_status', {
+        // Broadcast status only to relevant subscribers/participants
+        await emitScopedUserStatus(socket, {
           userId: socket.userId,
           username: socket.username,
-          status: data.status,
-          timestamp: new Date().toISOString()
+          status,
+          isOnline,
+          lastSeen: isOnline ? null : now.toISOString(),
+          lastSeenLabel: isOnline ? null : 'Just now',
+          timestamp: now.toISOString()
         });
         
       } catch (error) {
@@ -1243,11 +1416,23 @@ io.on('connection', async (socket) => {
     // context: 'browse' / 'feed' — public marketplace, no conversation check
     socket.on('get_user_status', async (data) => {
       try {
+        const rateState = getPresenceEventRateState(socket.id, 'get_user_status');
+        if (rateState?.limited) {
+          return socket.emit('presence_rate_limited', {
+            event: 'get_user_status',
+            max: rateState.max,
+            windowMs: rateState.windowMs,
+            retryAfterMs: rateState.retryAfterMs,
+            timestamp: new Date().toISOString()
+          });
+        }
+
         if (!data?.userId || String(data.userId) === String(socket.userId)) {
           return socket.emit('user_status', {
-            userId: socket.userId,
+            userId: data?.userId || socket.userId,
             isOnline: true,
             lastSeen: null,
+            lastSeenLabel: null,
             status: 'online',
             timestamp: new Date().toISOString()
           });
@@ -1270,6 +1455,7 @@ io.on('connection', async (socket) => {
               userId: data.userId,
               isOnline: false,
               lastSeen: null,
+              lastSeenLabel: null,
               status: 'offline',
               timestamp: new Date().toISOString()
             });
@@ -1277,35 +1463,38 @@ io.on('connection', async (socket) => {
         }
 
         // Primary check: does the target user have an active socket connection?
-        // This is the most reliable indicator — checking the socket.io room directly.
         const targetRoom = `user_${data.userId}`;
         const hasActiveSocket = (io.sockets.adapter.rooms.get(targetRoom)?.size || 0) > 0;
-        
+
         // Fallback to activity monitor for lastSeen data
         let lastSeen = null;
         try {
           const userStatus = await userActivityMonitor.getUserStatus(data.userId);
           lastSeen = userStatus?.lastSeen || null;
-        } catch (monitorErr) {
+        } catch (_) {
           // Non-critical — socket room check is the authority
         }
-        
+
+        if (isPublicContext) {
+          registerPublicPresenceSubscriptions(socket.id, [data.userId]);
+        }
+
         // Emit status back to requesting user
         socket.emit('user_status', {
           userId: data.userId,
           isOnline: hasActiveSocket,
-          lastSeen: lastSeen,
+          lastSeen: hasActiveSocket ? null : lastSeen,
+          lastSeenLabel: hasActiveSocket ? null : getLastSeenLabel(lastSeen),
           status: hasActiveSocket ? 'online' : 'offline',
           timestamp: new Date().toISOString()
         });
-        
       } catch (error) {
         console.error('Error getting user status:', error);
-        // Send default offline status
         socket.emit('user_status', {
-          userId: data.userId,
+          userId: data?.userId,
           isOnline: false,
           lastSeen: null,
+          lastSeenLabel: null,
           status: 'offline',
           timestamp: new Date().toISOString()
         });
@@ -1318,6 +1507,17 @@ io.on('connection', async (socket) => {
     //   context: 'browse' / 'feed' — returns real status for any user (public marketplace)
     socket.on('get_users_status', async (data) => {
       try {
+        const rateState = getPresenceEventRateState(socket.id, 'get_users_status');
+        if (rateState?.limited) {
+          return socket.emit('presence_rate_limited', {
+            event: 'get_users_status',
+            max: rateState.max,
+            windowMs: rateState.windowMs,
+            retryAfterMs: rateState.retryAfterMs,
+            timestamp: new Date().toISOString()
+          });
+        }
+
         const requestedUserIds = Array.isArray(data?.userIds)
           ? [...new Set(data.userIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 200)
           : [];
@@ -1363,28 +1563,16 @@ io.on('connection', async (socket) => {
         let lastActiveMap = {};
         if (offlineIds.length > 0) {
           try {
-            const offlineUsers = await User.find({ _id: { $in: offlineIds } })
-              .select('_id last_active lastActive').lean();
+            const validOfflineObjectIds = offlineIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+            const offlineUsers = validOfflineObjectIds.length > 0
+              ? await User.find({ _id: { $in: validOfflineObjectIds } })
+                .select('_id last_active lastActive').lean()
+              : [];
             offlineUsers.forEach(u => {
               lastActiveMap[String(u._id)] = u.last_active || u.lastActive || null;
             });
           } catch (_) { /* Non-critical — don't block for this */ }
         }
-
-        // ── Step 3: Build human-readable label helper ────────────────────────────────────
-        const getLastSeenLabel = (lastActiveDate) => {
-          if (!lastActiveDate) return null;
-          const diffMs = Date.now() - new Date(lastActiveDate).getTime();
-          if (diffMs < 0) return null;
-          const diffMins = Math.floor(diffMs / 60000);
-          const diffHours = Math.floor(diffMs / 3600000);
-          const diffDays = Math.floor(diffMs / 86400000);
-          if (diffMins < 5) return 'Just now';
-          if (diffMins < 60) return `${diffMins}m ago`;
-          if (diffHours < 24) return `${diffHours}h ago`;
-          if (diffDays < 7) return `${diffDays}d ago`;
-          return `${Math.floor(diffDays / 7)}w ago`;
-        };
 
         const users = statusInfo.map(({ userId, isOnline, blocked }) => {
           const lastActiveRaw = isOnline ? null : (lastActiveMap[userId] || null);
@@ -1396,6 +1584,13 @@ io.on('connection', async (socket) => {
             status: blocked ? 'offline' : (isOnline ? 'online' : 'offline'),
           };
         });
+
+        if (isPublicContext) {
+          setPublicPresenceSubscriptions(
+            socket.id,
+            statusInfo.filter((s) => !s.blocked).map((s) => s.userId)
+          );
+        }
 
         socket.emit('users_status', { users, timestamp: new Date().toISOString() });
       } catch (error) {
@@ -1411,6 +1606,8 @@ io.on('connection', async (socket) => {
   socket.on('disconnect', async () => {
     console.log(`User ${socket.username} (${socket.userId}) disconnected:`, socket.id);
     try {
+      clearSocketPresenceSubscriptions(socket.id);
+      clearSocketPresenceRateLimits(socket.id);
       const personalRoom = `user_${socket.userId}`;
       const stillConnectedElsewhere = (io.sockets.adapter.rooms.get(personalRoom)?.size || 0) > 0;
       if (stillConnectedElsewhere) {
@@ -1458,13 +1655,16 @@ io.on('connection', async (socket) => {
         console.error('Error cleaning up calls on disconnect:', callCleanupErr.message);
       }
 
+      const offlineAt = new Date();
       await userActivityMonitor.updateUserPresence(socket.userId, 'offline');
-      socket.broadcast.emit('user_status', {
+      await emitScopedUserStatus(socket, {
         userId: socket.userId,
         username: socket.username,
         status: 'offline',
         isOnline: false,
-        timestamp: new Date().toISOString()
+        lastSeen: offlineAt.toISOString(),
+        lastSeenLabel: 'Just now',
+        timestamp: offlineAt.toISOString()
       });
     } catch (error) {
       console.error('Error updating user presence on disconnect:', error);

@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.zerohook.app-mergeDebugResources-87:/values-ldltr-v21/values-ldltr-v21.xml",
+            "outputFile": "com.zerohook.app-mergeDebugResources-89:/values-ldltr-v21/values-ldltr-v21.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\aship\\.gradle\\caches\\transforms-3\\c651f057d079a1fbfb25fd4d36cc10d8\\transformed\\appcompat-1.6.1\\res\\values-ldltr-v21\\values-ldltr-v21.xml",
+                    "source": "C:\\Users\\OS\\.gradle\\caches\\transforms-3\\bc04655dd40ded0dadabfdcd83663287\\transformed\\appcompat-1.6.1\\res\\values-ldltr-v21\\values-ldltr-v21.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

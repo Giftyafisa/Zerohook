@@ -3,14 +3,15 @@ const mongoose = require('mongoose');
 const { Message, Conversation, isDatabaseAvailable } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
-const { RateLimiterMemory } = require('rate-limiter-flexible');
+const { createDistributedLimiter } = require('../utils/rateLimiters');
 const router = express.Router();
 const NotificationService = require('../services/NotificationService');
 
 // Per-route rate limiter: 30 messages per minute per IP
-const chatSendLimiter = new RateLimiterMemory({ points: 30, duration: 60 });
+const chatSendLimiter = createDistributedLimiter({ points: 30, duration: 60, keyPrefix: 'chat_send' });
 const chatSendRateLimit = async (req, res, next) => {
-  try { await chatSendLimiter.consume(req.ip); next(); }
+  const userScopedKey = req.user?.userId ? `u:${req.user.userId}` : `ip:${req.ip}`;
+  try { await chatSendLimiter.consume(userScopedKey); next(); }
   catch { res.status(429).json({ success: false, error: 'Message rate limit reached, please slow down.' }); }
 };
 
@@ -22,19 +23,22 @@ const debugLog = isDev ? (...args) => console.log(...args) : () => {};
  * Normalise a lastMessage value so the inbox never shows raw URLs.
  * Converts http(s) / /uploads/ / data: URIs to friendly labels.
  */
-const normalizeLastMessagePreview = (msg) => {
-  if (!msg || typeof msg !== 'string') return msg || '';
-  const trimmed = msg.trim();
-  if (
-    trimmed.startsWith('http://') || trimmed.startsWith('https://') ||
-    trimmed.startsWith('/uploads/') || trimmed.startsWith('data:')
-  ) {
-    const cleanUrl = trimmed.split('?')[0].split('#')[0].toLowerCase();
-    if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(cleanUrl) || /image|photo|img/i.test(cleanUrl)) return '📷 Photo';
-    if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(cleanUrl) || /video|vid/i.test(cleanUrl)) return '🎬 Video';
-    if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(cleanUrl)) return '🎵 Audio';
-    return '📎 File';
+const normalizeLastMessagePreview = (msg, messageType = 'text') => {
+  if (!msg && !messageType) return '';
+
+  // Prefer explicit message type when available (e.g. 'image', 'video')
+  const resolvedType = inferMessageType({ messageType, content: msg });
+  switch (resolvedType) {
+    case 'image': return '📷 Photo';
+    case 'video': return '🎬 Video';
+    case 'audio': return '🎵 Audio';
+    case 'file': return '📎 File';
+    case 'location': return '📍 Location';
+    case 'contact': return '👤 Contact';
+    default: break;
   }
+
+  if (!msg || typeof msg !== 'string') return msg || '';
   return msg;
 };
 
@@ -149,29 +153,42 @@ router.get('/unread-count', authMiddleware, async (req, res) => {
 router.get('/conversations', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const limitRaw = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
+    const cursor = req.query.cursor ? String(req.query.cursor) : null;
     
     if (!isDatabaseAvailable()) {
-      return res.json({ success: true, conversations: [] });
+      return res.json({ success: true, conversations: [], nextCursor: null, hasMore: false });
     }
 
     // Try to get conversations, return empty array if user doesn't exist or query fails
     let conversations;
     try {
-      conversations = await Conversation.find({
+      const query = {
         ...buildVisibleConversationFilter(userId)
-      })
+      };
+      if (cursor && mongoose.Types.ObjectId.isValid(cursor)) {
+        query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+      }
+
+      conversations = await Conversation.find(query)
       .populate('participant1Id', 'username verification_tier profile_data')
       .populate('participant2Id', 'username verification_tier profile_data')
-      .sort({ lastMessageTime: -1 });
+      .sort({ _id: -1 })
+      .limit(limit + 1);
     } catch (dbError) {
       debugLog('Conversations query failed:', dbError.message);
-      return res.json({ success: true, conversations: [] });
+      return res.json({ success: true, conversations: [], nextCursor: null, hasMore: false });
     }
+
+    const hasMore = conversations.length > limit;
+    const pageConversations = hasMore ? conversations.slice(0, limit) : conversations;
+    const nextCursor = hasMore ? pageConversations[pageConversations.length - 1]._id.toString() : null;
 
     // Batch-fetch unread counts per conversation in a single aggregation
     let unreadMap = {};
     try {
-      const convIds = conversations.map(c => c._id);
+      const convIds = pageConversations.map(c => c._id);
       if (convIds.length > 0) {
         const userObjId = new mongoose.Types.ObjectId(userId);
         const unreadAgg = await Message.aggregate([
@@ -192,7 +209,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      conversations: conversations.map(conv => {
+      conversations: pageConversations.map(conv => {
         const isParticipant1 = conv.participant1Id?._id?.toString() === userId;
         const otherParticipant = isParticipant1 ? conv.participant2Id : conv.participant1Id;
         
@@ -215,21 +232,23 @@ router.get('/conversations', authMiddleware, async (req, res) => {
         debugLog(`📸 Profile picture for ${otherParticipant?.username}:`, profilePicture);
         
         return {
-          id: conv._id,
+          id: conv._id ? String(conv._id) : '',
           otherUser: {
-            id: otherParticipant?._id,
+            id: otherParticipant?._id ? String(otherParticipant._id) : '',
             username: otherParticipant?.username,
             verificationTier: otherParticipant?.verification_tier,
             profilePicture: profilePicture
           },
-          lastMessage: normalizeLastMessagePreview(conv.lastMessage),
+          lastMessage: normalizeLastMessagePreview(conv.lastMessage, conv.lastMessageType),
           lastMessageType: conv.lastMessageType || 'text',
           lastMessageTime: conv.lastMessageTime,
           unreadCount: unreadMap[conv._id.toString()] || 0,
           createdAt: conv.createdAt,
           status: conv.status || 'active'
         };
-      })
+      }),
+      nextCursor,
+      hasMore
     });
 
   } catch (error) {
@@ -320,8 +339,8 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       messages: messages.map(msg => ({
-        id: msg._id,
-        senderId: msg.senderId?._id,
+        id: msg._id ? String(msg._id) : '',
+        senderId: msg.senderId?._id ? String(msg.senderId._id) : '',
         senderName: msg.senderId?.username,
         senderTier: msg.senderId?.verificationTier,
         content: msg.content,
@@ -334,8 +353,8 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
       pagination: {
         hasMore,
         limit: pageLimit,
-        oldestId: messages.length > 0 ? messages[0]._id : null,
-        newestId: messages.length > 0 ? messages[messages.length - 1]._id : null
+        oldestId: messages.length > 0 ? String(messages[0]._id) : null,
+        newestId: messages.length > 0 ? String(messages[messages.length - 1]._id) : null
       }
     });
 
@@ -457,10 +476,14 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
         });
       }
 
+      const canonicalMessageId = String(message._id || message.id || '');
+      const canonicalConversationId = String(conversationId);
+      const canonicalSenderId = String(senderId);
+
       const payload = {
-        id: message._id,
-        conversationId,
-        senderId,
+        id: canonicalMessageId,
+        conversationId: canonicalConversationId,
+        senderId: canonicalSenderId,
         senderName: req.user.username || 'Someone',
         content,
         messageType: resolvedMessageType,
@@ -469,7 +492,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
       };
 
       // Emit after successful commit
-      req.io.to(`conversation_${conversationId}`).emit('new_message', payload);
+      req.io.to(`conversation_${canonicalConversationId}`).emit('new_message', payload);
 
       // Also emit to recipient's user room so they get it even when viewing a different conversation
       if (recipientId) {
@@ -494,7 +517,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
             type: 'message',
             title: `New message from ${senderName}`,
             message: preview,
-            data: { conversationId, senderId, messageId: message._id }
+            data: { conversationId: canonicalConversationId, senderId: canonicalSenderId, messageId: canonicalMessageId }
           });
         }
       } catch (notifErr) {

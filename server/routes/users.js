@@ -10,6 +10,20 @@ const router = express.Router();
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 
+function getLastSeenLabel(lastSeenDate) {
+  if (!lastSeenDate) return null;
+  const diffMs = Date.now() - new Date(lastSeenDate).getTime();
+  if (diffMs < 0) return null;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMins < 5) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return `${Math.floor(diffDays / 7)}w ago`;
+}
+
 // In-memory dedup cache for engagement events (prevents socket + REST double-counting)
 let engagementDedup = null; // Lazy-init Map in engagement route
 
@@ -766,8 +780,25 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, account
       .lean(),
     User.countDocuments(mongoQuery)
   ]);
+
+  // Always prioritize profiles that have images, even in non-recommendation sorts.
+  const withImage = [];
+  const withoutImage = [];
+  for (const p of profiles) {
+    const pd = p.profile_data || p.profileData || {};
+    const hasImage = !!(
+      p.profile_image ||
+      p.profile_image_url ||
+      pd.profilePicture ||
+      pd.avatar ||
+      (Array.isArray(pd.photos) && pd.photos.length > 0)
+    );
+    if (hasImage) withImage.push(p);
+    else withoutImage.push(p);
+  }
+  const prioritizedProfiles = [...withImage, ...withoutImage];
   
-  return { profiles, total };
+  return { profiles: prioritizedProfiles, total };
 }
 
 // Register both routes with the same handler — optionalAuth populates req.user without requiring login
@@ -785,6 +816,120 @@ router.get('/search', optionalAuthMiddleware, (req, res, next) => {
     req.query.search = req.query.q;
   }
   return handleBrowseProfiles(req, res, next);
+});
+
+/**
+ * @route   GET /api/users/presence
+ * @desc    Presence snapshot for user IDs (socket fallback + initial hydration)
+ * @access  Optional auth; chat context requires auth and conversation linkage
+ */
+router.get('/presence', optionalAuthMiddleware, async (req, res) => {
+  try {
+    const parseIds = (value) => {
+      if (Array.isArray(value)) {
+        return value.flatMap((v) => String(v || '').split(',')).map((v) => v.trim()).filter(Boolean);
+      }
+      if (typeof value === 'string') {
+        return value.split(',').map((v) => v.trim()).filter(Boolean);
+      }
+      return [];
+    };
+
+    const requestedUserIds = [...new Set([
+      ...parseIds(req.query.ids),
+      ...parseIds(req.query.userIds)
+    ])].slice(0, 200);
+
+    if (requestedUserIds.length === 0) {
+      return res.json({ success: true, users: [], timestamp: new Date().toISOString() });
+    }
+
+    const context = String(req.query.context || 'browse');
+    const isPublicContext = context === 'browse' || context === 'feed';
+    const requesterId = req.user?.userId ? String(req.user.userId) : null;
+
+    if (!isPublicContext && !requesterId) {
+      return res.status(401).json({ success: false, error: 'Authentication required for chat presence' });
+    }
+
+    let allowedUserSet = null;
+    if (!isPublicContext) {
+      const allowedConversations = await Conversation.find({
+        $or: [
+          { participant1Id: requesterId, participant2Id: { $in: requestedUserIds } },
+          { participant1Id: { $in: requestedUserIds }, participant2Id: requesterId }
+        ],
+        status: { $ne: 'deleted' }
+      }).select('participant1Id participant2Id').lean();
+
+      allowedUserSet = new Set();
+      allowedConversations.forEach((conversation) => {
+        const p1 = String(conversation.participant1Id || '');
+        const p2 = String(conversation.participant2Id || '');
+        if (p1 && p1 !== requesterId) allowedUserSet.add(p1);
+        if (p2 && p2 !== requesterId) allowedUserSet.add(p2);
+      });
+    }
+
+    const io = req.io;
+    const statusInfo = requestedUserIds.map((targetUserId) => {
+      if (allowedUserSet && !allowedUserSet.has(targetUserId)) {
+        return { userId: targetUserId, isOnline: false, blocked: true };
+      }
+      const roomSize = io?.sockets?.adapter?.rooms?.get(`user_${targetUserId}`)?.size || 0;
+      return { userId: targetUserId, isOnline: roomSize > 0, blocked: false };
+    });
+
+    const mongoose = require('mongoose');
+    const offlineIds = statusInfo.filter((s) => !s.isOnline && !s.blocked).map((s) => s.userId);
+    const validOfflineObjectIds = offlineIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+    let lastActiveMap = {};
+
+    if (validOfflineObjectIds.length > 0) {
+      const offlineUsers = await User.find({ _id: { $in: validOfflineObjectIds } })
+        .select('_id last_active lastActive')
+        .lean();
+      offlineUsers.forEach((u) => {
+        lastActiveMap[String(u._id)] = u.last_active || u.lastActive || null;
+      });
+    }
+
+    const users = statusInfo.map(({ userId, isOnline, blocked }) => {
+      if (blocked) {
+        return {
+          userId,
+          isOnline: false,
+          status: 'offline',
+          restricted: true,
+          lastSeen: null,
+          lastSeenLabel: null
+        };
+      }
+
+      const lastSeen = isOnline ? null : (lastActiveMap[userId] || null);
+      return {
+        userId,
+        isOnline,
+        status: isOnline ? 'online' : 'offline',
+        restricted: false,
+        lastSeen,
+        lastSeenLabel: isOnline ? null : getLastSeenLabel(lastSeen)
+      };
+    });
+
+    return res.json({
+      success: true,
+      users,
+      context,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Presence snapshot error:', error);
+    return res.status(500).json({
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
 });
 
 /**

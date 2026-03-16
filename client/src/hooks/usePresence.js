@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSocket } from '../contexts/SocketContext';
+import { API_BASE_URL } from '../config/constants';
 
 /**
  * usePresence — real-time online-status tracking for a list of user IDs.
@@ -23,7 +24,7 @@ import { useSocket } from '../contexts/SocketContext';
  *   const { isUserOnline } = usePresence(ids, { context: 'browse' });
  *   // in render:  isUserOnline(profile.id) ?? profile.isOnline
  */
-const usePresence = (userIds = [], { context = 'chat' } = {}) => {
+const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } = {}) => {
   const { socket, isConnected, onlineUsersRef } = useSocket();
   const [statusMap, setStatusMap] = useState({});
   // lastSeenMap: { [userId]: string | null }  — populated from batch server response
@@ -40,6 +41,42 @@ const usePresence = (userIds = [], { context = 'chat' } = {}) => {
 
   // Keep a ref so socket listeners can read the latest list without re-binding
   useEffect(() => { idsRef.current = sortedIds; }, [sortedIds]);
+
+  // Prune stale keys when tracked IDs change to prevent stale status/lastSeen leaks.
+  useEffect(() => {
+    const tracked = new Set(sortedIds);
+    setStatusMap(prev => {
+      const next = {};
+      Object.keys(prev).forEach((id) => {
+        if (tracked.has(id)) next[id] = prev[id];
+      });
+      return next;
+    });
+    setLastSeenMap(prev => {
+      const next = {};
+      Object.keys(prev).forEach((id) => {
+        if (tracked.has(id)) next[id] = prev[id];
+      });
+      return next;
+    });
+  }, [idsKey, sortedIds]);
+
+  // Seed from server-provided snapshot (e.g. profile list payload) so
+  // brand-new pages don't wait for the first socket round-trip.
+  useEffect(() => {
+    if (!initialStatusMap || sortedIds.length === 0) return;
+    const seedUpdates = {};
+    let hasSeed = false;
+    sortedIds.forEach(id => {
+      if (typeof initialStatusMap[id] === 'boolean') {
+        seedUpdates[id] = initialStatusMap[id];
+        hasSeed = true;
+      }
+    });
+    if (hasSeed) {
+      setStatusMap(prev => ({ ...seedUpdates, ...prev }));
+    }
+  }, [initialStatusMap, idsKey, sortedIds]);
 
   // ── Seed from global presence cache — removes flash-of-offline on mount ──
   // The SocketContext keeps onlineUsersRef up-to-date from broadcast events,
@@ -64,6 +101,65 @@ const usePresence = (userIds = [], { context = 'chat' } = {}) => {
     if (!socket || !isConnected || sortedIds.length === 0) return;
     socket.emit('get_users_status', { userIds: sortedIds, context });
   }, [socket, isConnected, idsKey, context]);
+
+  // ── HTTP fallback / initial hydration ───────────────────────────────────
+  // Ensures presence can render promptly even before socket responses arrive,
+  // and still works when socket connectivity is temporarily degraded.
+  useEffect(() => {
+    if (sortedIds.length === 0) return;
+
+    const controller = new AbortController();
+    let active = true;
+
+    const fetchPresenceSnapshot = async () => {
+      try {
+        const params = new URLSearchParams({
+          ids: sortedIds.join(','),
+          context,
+        });
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE_URL}/users/presence?${params.toString()}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !active) return;
+        const payload = await response.json();
+        const users = Array.isArray(payload?.users) ? payload.users : [];
+        if (users.length === 0) return;
+
+        const statusUpdates = {};
+        const lastSeenUpdates = {};
+        users.forEach((u) => {
+          const id = String(u.userId || '');
+          if (!id || !sortedIds.includes(id)) return;
+          statusUpdates[id] = !!u.isOnline;
+          if (!u.isOnline) {
+            lastSeenUpdates[id] = u.lastSeenLabel || null;
+          } else {
+            lastSeenUpdates[id] = null;
+          }
+        });
+
+        if (!active) return;
+        setStatusMap((prev) => ({ ...statusUpdates, ...prev }));
+        setLastSeenMap((prev) => ({ ...lastSeenUpdates, ...prev }));
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+      }
+    };
+
+    fetchPresenceSnapshot();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [idsKey, sortedIds, context]);
 
   // ── Listen for responses ─────────────────────────────────────────────────
   useEffect(() => {

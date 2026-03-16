@@ -175,7 +175,15 @@ const SearchOverlay = ({ open, onClose }) => {
 
   // Real-time online status for search results (feed context = public)
   const searchResultIds = useMemo(() => searchResults.map(p => String(p.id || p._id)), [searchResults]);
-  const { isUserOnline } = usePresence(searchResultIds, { context: 'feed' });
+  const searchInitialStatusMap = useMemo(
+    () => searchResults.reduce((acc, p) => {
+      const id = String(p.id || p._id || '');
+      if (id) acc[id] = !!(p.isOnline || p.is_online);
+      return acc;
+    }, {}),
+    [searchResults]
+  );
+  const { isUserOnline } = usePresence(searchResultIds, { context: 'feed', initialStatusMap: searchInitialStatusMap });
 
   // Trending suggestions (like TikTok's suggestions)
   const trendingSuggestions = [
@@ -1084,7 +1092,15 @@ const TikTokProfileFeed = () => {
 
   // Real-time online status for all loaded profiles (feed context = public)
   const profileIds = useMemo(() => profiles.map(p => String(p.id)), [profiles]);
-  const { isUserOnline: isProfileOnline, getUserLastSeen } = usePresence(profileIds, { context: 'feed' });
+  const initialStatusMap = useMemo(
+    () => profiles.reduce((acc, p) => {
+      const id = String(p.id || p._id || '');
+      if (id) acc[id] = !!(p.isOnline || p.is_online);
+      return acc;
+    }, {}),
+    [profiles]
+  );
+  const { isUserOnline: isProfileOnline, getUserLastSeen } = usePresence(profileIds, { context: 'feed', initialStatusMap });
 
   // Refs
   const containerRef = useRef(null);

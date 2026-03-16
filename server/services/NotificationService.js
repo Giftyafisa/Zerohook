@@ -7,7 +7,31 @@ const mongoose = require('mongoose');
 // Use the canonical Notification model from database.js to avoid
 // duplicate/conflicting schema definitions (the model is already
 // registered by the time this module loads).
-const { Notification } = require('../config/database');
+const { Notification, DeviceToken } = require('../config/database');
+
+let firebaseAdmin = null;
+let firebaseMessaging = null;
+
+try {
+  // Optional dependency: app continues to work without firebase-admin.
+  // Push delivery is enabled only when dependency + env config exist.
+  firebaseAdmin = require('firebase-admin');
+
+  const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (serviceAccountRaw && !firebaseAdmin.apps.length) {
+    const serviceAccount = JSON.parse(serviceAccountRaw);
+    firebaseAdmin.initializeApp({
+      credential: firebaseAdmin.credential.cert(serviceAccount)
+    });
+  }
+
+  if (firebaseAdmin.apps.length > 0) {
+    firebaseMessaging = firebaseAdmin.messaging();
+  }
+} catch (error) {
+  // firebase-admin is optional; keep runtime resilient.
+  firebaseMessaging = null;
+}
 
 class NotificationService {
   /**
@@ -89,6 +113,10 @@ class NotificationService {
           createdAt: notification.created_at,
           data: data
         });
+      }
+
+      if (notification) {
+        await this.sendPushToDevices(userId, notification);
       }
       
       return notification;
@@ -188,6 +216,66 @@ class NotificationService {
     } catch (error) {
       console.error('Failed to delete notification:', error);
       return false;
+    }
+  }
+
+  static async sendPushToDevices(userId, notification) {
+    try {
+      if (!firebaseMessaging) return;
+      if (!mongoose.Types.ObjectId.isValid(userId)) return;
+
+      const devices = await DeviceToken.find({
+        user_id: new mongoose.Types.ObjectId(userId),
+        active: true,
+        provider: 'fcm',
+        platform: 'android'
+      }).select('token').lean();
+
+      const tokens = devices.map(d => d.token).filter(Boolean);
+      if (tokens.length === 0) return;
+
+      const payload = {
+        data: {
+          type: String(notification.type || 'system'),
+          title: String(notification.title || 'Zerohook'),
+          body: String(notification.message || ''),
+          message: String(notification.message || ''),
+          conversationId: String(notification.data?.conversationId || ''),
+          senderId: String(notification.data?.senderId || ''),
+          messageId: String(notification.data?.messageId || ''),
+          senderName: String(notification.data?.senderName || '')
+        },
+        android: {
+          priority: 'high'
+        },
+        tokens
+      };
+
+      const result = await firebaseMessaging.sendEachForMulticast(payload);
+
+      if (result.failureCount > 0) {
+        const invalidTokens = [];
+        result.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            const code = resp.error?.code || '';
+            if (
+              code.includes('registration-token-not-registered') ||
+              code.includes('invalid-registration-token')
+            ) {
+              invalidTokens.push(tokens[idx]);
+            }
+          }
+        });
+
+        if (invalidTokens.length > 0) {
+          await DeviceToken.updateMany(
+            { token: { $in: invalidTokens } },
+            { $set: { active: false, last_seen_at: new Date() } }
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Push dispatch failed:', error.message);
     }
   }
 }

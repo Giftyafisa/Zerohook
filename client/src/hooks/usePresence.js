@@ -38,6 +38,7 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
     [userIds.length, userIds.join?.(',')]
   );
   const idsKey = sortedIds.join(',');
+  const trackedIdSet = useMemo(() => new Set(sortedIds), [sortedIds]);
 
   // Keep a ref so socket listeners can read the latest list without re-binding
   useEffect(() => { idsRef.current = sortedIds; }, [sortedIds]);
@@ -74,7 +75,7 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
       }
     });
     if (hasSeed) {
-      setStatusMap(prev => ({ ...seedUpdates, ...prev }));
+      setStatusMap(prev => ({ ...prev, ...seedUpdates }));
     }
   }, [initialStatusMap, idsKey, sortedIds]);
 
@@ -136,18 +137,22 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
         const lastSeenUpdates = {};
         users.forEach((u) => {
           const id = String(u.userId || '');
-          if (!id || !sortedIds.includes(id)) return;
+          if (!id || !trackedIdSet.has(id)) return;
           statusUpdates[id] = !!u.isOnline;
           if (!u.isOnline) {
             lastSeenUpdates[id] = u.lastSeenLabel || null;
           } else {
             lastSeenUpdates[id] = null;
           }
+
+          if (onlineUsersRef?.current) {
+            onlineUsersRef.current.set(id, !!u.isOnline);
+          }
         });
 
         if (!active) return;
-        setStatusMap((prev) => ({ ...statusUpdates, ...prev }));
-        setLastSeenMap((prev) => ({ ...lastSeenUpdates, ...prev }));
+        setStatusMap((prev) => ({ ...prev, ...statusUpdates }));
+        setLastSeenMap((prev) => ({ ...prev, ...lastSeenUpdates }));
       } catch (err) {
         if (err?.name === 'AbortError') return;
       }
@@ -159,7 +164,7 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
       active = false;
       controller.abort();
     };
-  }, [idsKey, sortedIds, context]);
+  }, [idsKey, sortedIds, trackedIdSet, context, onlineUsersRef]);
 
   // ── Listen for responses ─────────────────────────────────────────────────
   useEffect(() => {
@@ -168,18 +173,18 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
     // Batch response (from get_users_status)
     const handleBulk = ({ users = [] }) => {
       const tracked = idsRef.current;
+      const trackedSet = new Set(tracked);
       const statusUpdates = {};
       const lastSeenUpdates = {};
       let changed = false;
       users.forEach(u => {
         const id = String(u.userId);
-        if (tracked.includes(id)) {
+        if (trackedSet.has(id)) {
           statusUpdates[id] = !!u.isOnline;
           // Capture lastSeenLabel for offline users from server response
-          if (!u.isOnline && (u.lastSeenLabel || u.lastSeen)) {
-            lastSeenUpdates[id] = u.lastSeenLabel || null;
-          } else if (u.isOnline) {
-            lastSeenUpdates[id] = null; // clear label when user comes online
+          lastSeenUpdates[id] = u.isOnline ? null : (u.lastSeenLabel || null);
+          if (onlineUsersRef?.current) {
+            onlineUsersRef.current.set(id, !!u.isOnline);
           }
           changed = true;
         }
@@ -203,6 +208,9 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
           ...prev,
           [id]: isOnline ? null : (lastSeenLabel || prev[id] || null),
         }));
+        if (onlineUsersRef?.current) {
+          onlineUsersRef.current.set(id, !!isOnline);
+        }
       }
     };
 
@@ -213,7 +221,7 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
       socket.off('users_status', handleBulk);
       socket.off('user_status', handleSingle);
     };
-  }, [socket]);
+  }, [socket, onlineUsersRef]);
 
   // ── Public API ───────────────────────────────────────────────────────────
   const isUserOnline = useCallback(

@@ -599,20 +599,30 @@ const ChatSystem = ({
     socket.on('message_read', handleMessageRead);
 
     // Handle user online/offline status updates
-    const handleUserStatus = ({ userId, isOnline }) => {
+    const handleUserStatus = ({ userId, isOnline, lastSeenLabel }) => {
       debugLog('👤 User status update:', userId, isOnline ? 'online' : 'offline');
       const normalizedTargetUserId = normalizeId(userId);
       setConversations((prev) =>
         prev.map((conv) =>
           normalizeId(conv.participantId) === normalizedTargetUserId
-            ? { ...conv, participantOnline: isOnline }
+            ? {
+              ...conv,
+              participantOnline: isOnline,
+              participantLastSeen: isOnline ? null : (lastSeenLabel || conv.participantLastSeen || null),
+            }
             : conv
         )
       );
       // Update selected conversation if it's with this user
       if (normalizeId(selectedConversationRef.current?.participantId) === normalizedTargetUserId) {
         setSelectedConversation((prev) =>
-          prev ? { ...prev, participantOnline: isOnline } : prev
+          prev
+            ? {
+              ...prev,
+              participantOnline: isOnline,
+              participantLastSeen: isOnline ? null : (lastSeenLabel || prev.participantLastSeen || null),
+            }
+            : prev
         );
       }
     };
@@ -621,15 +631,25 @@ const ChatSystem = ({
     const handleUsersStatus = ({ users = [] }) => {
       if (!Array.isArray(users) || users.length === 0) return;
 
-      const statusMap = new Map(users.map((entry) => [normalizeId(entry.userId), !!entry.isOnline]));
+      const statusMap = new Map(
+        users.map((entry) => [
+          normalizeId(entry.userId),
+          {
+            isOnline: !!entry.isOnline,
+            lastSeenLabel: entry.isOnline ? null : (entry.lastSeenLabel || null),
+          },
+        ])
+      );
 
       setConversations((prev) =>
         prev.map((conv) => {
           const participantId = normalizeId(conv.participantId);
           if (!participantId || !statusMap.has(participantId)) return conv;
+          const statusEntry = statusMap.get(participantId);
           return {
             ...conv,
-            participantOnline: statusMap.get(participantId)
+            participantOnline: statusEntry?.isOnline,
+            participantLastSeen: statusEntry?.isOnline ? null : (statusEntry?.lastSeenLabel || conv.participantLastSeen || null),
           };
         })
       );
@@ -638,9 +658,11 @@ const ChatSystem = ({
         if (!prev?.participantId) return prev;
         const participantId = normalizeId(prev.participantId);
         if (!statusMap.has(participantId)) return prev;
+        const statusEntry = statusMap.get(participantId);
         return {
           ...prev,
-          participantOnline: statusMap.get(participantId)
+          participantOnline: statusEntry?.isOnline,
+          participantLastSeen: statusEntry?.isOnline ? null : (statusEntry?.lastSeenLabel || prev.participantLastSeen || null),
         };
       });
     };
@@ -736,8 +758,9 @@ const ChatSystem = ({
         debugLog('📋 Raw conversations data:', data);
         // Transform API response to expected frontend format
         const transformedConversations = (data.conversations || []).map(conv => {
-          // ✅ CRITICAL: Backend already formatted the preview with emoji labels.
-          // DON'T call formatMessagePreview() again — double-formatting corrupts previews.
+          // Normalize the preview to ensure media messages show friendly labels like
+          // "📷 Photo" / "🎬 Video" even if the backend sends raw URLs.
+          const lastMessagePreview = formatMessagePreview(conv.lastMessage || '', conv.lastMessageType || 'text');
           return {
             id: String(conv.id || ''),
             // ✅ CRITICAL: participantId is required for presence lookups (online/offline).
@@ -746,9 +769,9 @@ const ChatSystem = ({
             participantName: conv.otherUser?.username || 'Unknown',
             participantAvatar: resolveAvatarUrl(conv.otherUser?.profilePicture),
             participantOnline: false, // Will be updated via socket get_users_status
+            participantLastSeen: conv.otherUser?.lastSeenLabel || conv.otherUser?.lastSeen || null,
             participantVerified: (conv.otherUser?.verificationTier || 0) >= 2,
-            // ✅ Use backend preview directly (already '📷 Photo', '🎬 Video', etc)
-            lastMessage: conv.lastMessage || '',
+            lastMessage: lastMessagePreview,
             lastMessageTime: conv.lastMessageTime,
             unreadCount: conv.unreadCount || 0,
             hasActiveEscrow: conv.hasActiveEscrow || false,
@@ -835,6 +858,7 @@ const ChatSystem = ({
         participantId: resolvedRecipientId,
         participantName: targetRecipientName || selectedConversation?.participantName || 'User',
         participantAvatar: targetRecipientAvatar || selectedConversation?.participantAvatar || null,
+        participantLastSeen: null,
         lastMessage: '',
         lastMessageTime: new Date().toISOString(),
         unreadCount: 0,
@@ -1343,7 +1367,11 @@ const ChatSystem = ({
                     {selectedConversation.participantName}
                   </Typography>
                   <Typography sx={styles.chatUserStatus}>
-                    {remoteTyping ? 'Typing…' : selectedConversation.participantOnline ? 'Online' : 'Offline'}
+                    {remoteTyping
+                      ? 'Typing…'
+                      : selectedConversation.participantOnline
+                        ? 'Online'
+                        : (selectedConversation.participantLastSeen || 'Offline')}
                   </Typography>
                 </Box>
               </Box>

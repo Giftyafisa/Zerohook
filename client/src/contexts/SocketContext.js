@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { useDispatch } from 'react-redux';
@@ -9,7 +9,6 @@ import {
   incrementUnreadNotifications,
   addToNotificationsList,
   setUnreadMessages,
-  setUnreadNotifications 
 } from '../store/slices/uiSlice';
 import { setSubscriptionStatus } from '../store/slices/authSlice';
 import { inferMessageTypeFromContent } from '../utils/messageTypeUtils';
@@ -73,6 +72,7 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     const currentUserId = getUserId(user);
+    const presenceCache = onlineUsersRef.current;
 
     // Only attempt connection if authenticated and have user data
     if (isAuthenticated && user && localStorage.getItem('token')) {
@@ -348,12 +348,7 @@ export const SocketProvider = ({ children }) => {
       newSocket.on('user_status', ({ userId, isOnline }) => {
         if (!userId) return;
         const id = String(userId);
-        if (isOnline) {
-          onlineUsersRef.current.set(id, true);
-        } else {
-          // Remove stale entries so new mounts don't get a false cached "offline" lock.
-          onlineUsersRef.current.delete(id);
-        }
+        presenceCache.set(id, !!isOnline);
       });
 
       return () => {
@@ -363,7 +358,7 @@ export const SocketProvider = ({ children }) => {
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         detachHeartbeatBoosters();
         newSocket.disconnect();
-        onlineUsersRef.current.clear();
+        presenceCache.clear();
         setSocket(null);
         setIsConnected(false);
         userIdRef.current = null;
@@ -375,7 +370,7 @@ export const SocketProvider = ({ children }) => {
           console.log('🔌 User not authenticated, clearing socket...');
         }
         socket.disconnect();
-        onlineUsersRef.current.clear();
+        presenceCache.clear();
         setSocket(null);
         setIsConnected(false);
         userIdRef.current = null;

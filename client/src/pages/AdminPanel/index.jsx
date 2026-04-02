@@ -1,8 +1,7 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { selectUser, selectIsAuthenticated } from '../../store/slices/authSlice';
-import { API_BASE_URL } from '../../config/constants';
 import apiClient from '../../services/apiClient';
 import { toast } from 'react-toastify';
 
@@ -86,8 +85,6 @@ export default function AdminPanel() {
   const [disputes, setDisputes] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
   const [deposits, setDeposits] = useState([]);
-  const [bannedUsers, setBannedUsers] = useState([]);
-  const [unbanReqs, setUnbanReqs] = useState([]);
   const [actionLoading, setActionLoading] = useState('');
 
   // ── User management state ─────────────────────────────────────────────────
@@ -129,13 +126,10 @@ export default function AdminPanel() {
       setApiAdmin(true);
       if (s.ok) setStats(s.data.stats);
 
-      const [r, d, w, dep, b, u] = await Promise.allSettled([
+      const [r, d, dep] = await Promise.allSettled([
         adminFetch('revenue'),
         adminFetch('disputes'),
-        adminFetch('revenue'), // withdrawals inside revenue
         adminFetch('pending-deposits'),
-        adminFetch('banned-users'),
-        adminFetch('unban-requests'),
       ]);
       if (r.status === 'fulfilled' && r.value.ok) {
         setRevenue(r.value.data.revenue);
@@ -143,8 +137,6 @@ export default function AdminPanel() {
       }
       if (d.status === 'fulfilled' && d.value.ok) setDisputes(d.value.data.disputes || []);
       if (dep.status === 'fulfilled' && dep.value.ok) setDeposits(dep.value.data.deposits || []);
-      if (b.status === 'fulfilled' && b.value.ok) setBannedUsers(b.value.data.users || []);
-      if (u.status === 'fulfilled' && u.value.ok) setUnbanReqs(u.value.data.requests || []);
     } catch (e) {
       toast.error('Error loading admin data: ' + e.message);
     } finally {
@@ -394,7 +386,7 @@ export default function AdminPanel() {
     if (activeTab === 'notifications' && sentNotifications.length === 0 && apiAdmin === true) {
       loadSentNotifications(1);
     }
-  }, [activeTab, apiAdmin, loadSentNotifications]);
+  }, [activeTab, apiAdmin, loadSentNotifications, sentNotifications.length]);
 
   // ── Access checks ──────────────────────────────────────────────────────────
   if (!isAuthenticated) {

@@ -110,3 +110,19 @@ Every command completion should output:
 - verification evidence
 - residual risk
 - entangled files/surfaces to monitor
+
+## 6) Command-Lint Checklist
+
+Use this checklist when introducing or editing slash commands:
+
+1. Add the command in the relevant .agent.md file.
+2. Add the command to this map under the correct owner section.
+3. If it is a mother command, add routing + verification requirements in the /q-* table.
+4. Run: npm run lint:agent-commands
+5. Resolve any reported missing command mappings before merge.
+
+Automation:
+
+- Lint script path: tools/agent-command-map-lint.js
+- Primary npm script: npm run lint:agent-commands
+- Alias: npm run check:agents

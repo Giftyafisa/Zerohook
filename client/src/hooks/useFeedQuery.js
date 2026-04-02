@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
-import { selectIsSubscribed, selectUser } from '../store/slices/authSlice';
+import { selectUser } from '../store/slices/authSlice';
 import axios from 'axios';
 import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
@@ -24,7 +24,6 @@ const debugError = isDev ? (...args) => console.error(...args) : () => {};
  */
 const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading }) => {
   const { user: currentUser, isAuthenticated } = useAuth();
-  const isSubscribed = useSelector(selectIsSubscribed);
   const reduxUser    = useSelector(selectUser);
   const { convertFromUSD } = useCurrency();
 
@@ -99,12 +98,20 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
             const pd = u.profile_data || {};
             const basePrice = pd.basePrice != null ? parseFloat(pd.basePrice) : null;
             const converted = basePrice != null ? convertPrice(basePrice) : null;
+            const normalizedImage = resolveProfileImage({
+              ...pd,
+              photos: pd.photos || u.photos,
+              profile_picture: pd.profile_picture || u.profile_picture,
+              profilePicture: pd.profilePicture || u.profilePicture,
+            });
             const hasProfileImage = !!(
               u.hasProfileImage ||
               u.profile_image ||
               u.profile_image_url ||
               pd.profilePicture ||
               pd.avatar ||
+              pd.profile_picture ||
+              normalizedImage ||
               (Array.isArray(pd.photos) && pd.photos.length > 0)
             );
             return {
@@ -160,7 +167,7 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
         }
       }
     },
-    [activeFilter, searchQuery, isAuthenticated, currentUser, reduxUser, userLocation, convertPrice, isSubscribed],
+    [activeFilter, searchQuery, isAuthenticated, currentUser, reduxUser, userLocation, convertPrice],
   );
 
   // Cleanup on unmount

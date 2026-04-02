@@ -25,9 +25,6 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
-  Divider,
-  Alert,
-  Snackbar,
 } from '@mui/material';
 import {
   LocationOn,
@@ -43,24 +40,29 @@ import {
   History,
   TrendingUp,
   Person,
-  AccessTime,
-  MyLocation,
   NearMe,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { selectUser } from '../store/slices/authSlice';
 import { selectDetectedCountry, selectUserCountry } from '../store/slices/countrySlice';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
-import { VerificationBadge } from './ui/StatusBadge';
 import ProfileCompletionReminder from './ProfileCompletionReminder';
 import { motion, AnimatePresence } from 'framer-motion';
 import useCurrency from '../hooks/useCurrency';
 import useProfileEngagement from '../hooks/useProfileEngagement';
 import usePresence from '../hooks/usePresence';
+
+const TRENDING_SUGGESTIONS = [
+  'massage services',
+  'escort in accra',
+  'sugar mommy',
+  'hookup lagos',
+  'companion services',
+  'nightlife kumasi',
+];
 
 // ============================================
 // TIKTOK-STYLE TOP NAVIGATION
@@ -168,9 +170,7 @@ const SearchOverlay = ({ open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [activeTab, setActiveTab] = useState('users');
-  const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
   const navigate = useNavigate();
-  const searchTimeoutRef = useRef(null);
   const { convertFromUSD } = useCurrency();
 
   // Real-time online status for search results (feed context = public)
@@ -184,16 +184,6 @@ const SearchOverlay = ({ open, onClose }) => {
     [searchResults]
   );
   const { isUserOnline } = usePresence(searchResultIds, { context: 'feed', initialStatusMap: searchInitialStatusMap });
-
-  // Trending suggestions (like TikTok's suggestions)
-  const trendingSuggestions = [
-    'massage services',
-    'escort in accra',
-    'sugar mommy',
-    'hookup lagos',
-    'companion services',
-    'nightlife kumasi',
-  ];
 
   // Search result tabs like TikTok
   const searchTabs = [
@@ -236,7 +226,7 @@ const SearchOverlay = ({ open, onClose }) => {
       });
       
       // Add trending suggestions that match
-      trendingSuggestions.forEach(s => {
+      TRENDING_SUGGESTIONS.forEach(s => {
         if (s.toLowerCase().includes(query) && suggestions.length < 6) {
           suggestions.push({ text: s, type: 'trending' });
         }
@@ -717,7 +707,7 @@ const SearchOverlay = ({ open, onClose }) => {
                 You may like
               </Typography>
               <List sx={{ py: 0 }}>
-                {trendingSuggestions.map((suggestion, index) => (
+                {TRENDING_SUGGESTIONS.map((suggestion, index) => (
                   <ListItem
                     key={index}
                     onClick={() => handleSuggestionClick(suggestion)}
@@ -770,8 +760,6 @@ const FullScreenProfileCard = ({
   const {
     startTracking,
     stopTracking,
-    trackScrollDepth,
-    trackBioExpand,
     trackContactClick
   } = useProfileEngagement(profile?.id);
   
@@ -803,7 +791,6 @@ const FullScreenProfileCard = ({
   const country = profileData.location?.country || '';
   const bio = profileData.bio || '';
   const verificationTier = profile.verificationTier || 1;
-  const isOnline = profile.isOnline;
   const trustScore = Math.round(parseFloat(profile.trustScore) || 75);
   const price = profile.displayPrice?.amount ?? profileData.basePrice;
   // Use displayPrice symbol if available, otherwise use detected currency symbol (not hardcoded ₦)
@@ -1062,7 +1049,6 @@ const FullScreenProfileCard = ({
 // ============================================
 const TikTokProfileFeed = () => {
   const navigate = useNavigate();
-  const dispatch = useDispatch();
   const { isAuthenticated } = useAuth();
   const currentUser = useSelector(selectUser);
   const detectedCountry = useSelector(selectDetectedCountry);
@@ -1081,11 +1067,9 @@ const TikTokProfileFeed = () => {
   // Location state for Uber/Bolt-style sorting
   const [userLocation, setUserLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(true);
-  const [locationError, setLocationError] = useState(null);
   
   // Track view time for current profile (for skip/swipe engagement)
   const viewStartTimeRef = useRef(Date.now());
-  const currentProfileIdRef = useRef(null);
   
   // AbortController for cancelling stale API requests on tab change
   const abortControllerRef = useRef(null);
@@ -1335,10 +1319,6 @@ const TikTokProfileFeed = () => {
     
     isScrolling.current = true;
     
-    // Calculate view duration for the current profile being swiped away
-    const viewDuration = Date.now() - viewStartTimeRef.current;
-    const currentProfile = profiles[currentIndex];
-    
     // Engagement tracking is handled by FullScreenProfileCard's useProfileEngagement
     // hook cleanup (stopTracking on unmount/profile change). No separate REST call
     // needed here — that would double-count the event.
@@ -1507,6 +1487,28 @@ const TikTokProfileFeed = () => {
         boxSizing: 'border-box',
       }}
     >
+      {error && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 'env(safe-area-inset-top, 8px)',
+            left: 10,
+            right: 10,
+            zIndex: 130,
+            px: 1.5,
+            py: 1,
+            borderRadius: '10px',
+            bgcolor: 'rgba(255, 87, 34, 0.18)',
+            border: '1px solid rgba(255, 87, 34, 0.4)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <Typography sx={{ color: '#ffd9cf', fontSize: '0.78rem', fontWeight: 600 }}>
+            {error}
+          </Typography>
+        </Box>
+      )}
+
       {/* Profile Completion Reminder - Shows at top if profile incomplete */}
       {isAuthenticated && currentIndex === 0 && (
         <Box 

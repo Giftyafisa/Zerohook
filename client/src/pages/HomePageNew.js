@@ -14,7 +14,7 @@ import {
   Bolt
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { selectIsAuthenticated, selectIsSubscribed } from '../store/slices/authSlice';
 import { GlassCard, GlassButton } from '../components/ui';
 import useCurrency from '../hooks/useCurrency';
@@ -24,11 +24,6 @@ import VideoShowcase from '../components/VideoShowcase';
 const float = keyframes`
   0%, 100% { transform: translateY(0px); }
   50% { transform: translateY(-20px); }
-`;
-
-const glow = keyframes`
-  0%, 100% { box-shadow: 0 0 20px rgba(0, 242, 234, 0.3); }
-  50% { box-shadow: 0 0 40px rgba(0, 242, 234, 0.6); }
 `;
 
 const shimmer = keyframes`
@@ -167,14 +162,6 @@ const HomePage = () => {
     initial: { opacity: 0, y: 60 },
     animate: { opacity: 1, y: 0 },
     transition: { duration: 0.8 }
-  };
-
-  const staggerChildren = {
-    animate: {
-      transition: {
-        staggerChildren: 0.15
-      }
-    }
   };
 
   const categories = [

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { selectUser } from '../store/slices/authSlice';
-import { selectDetectedCountry } from '../store/slices/countrySlice';
 import { calculateDistance } from '../config/locations';
 import {
   Dialog,
@@ -15,7 +14,6 @@ import {
   Alert,
   Stack,
   Chip,
-  CircularProgress
 } from '@mui/material';
 import {
   LocationOn as LocationIcon,
@@ -32,16 +30,12 @@ import {
  * This helps keep profile locations accurate for the recommendation algorithm.
  */
 const LocationChangeDetector = ({ checkOnMount = true, thresholdKm = 50 }) => {
-  const dispatch = useDispatch();
   const navigate = useNavigate();
   const user = useSelector(selectUser);
-  const detectedCountry = useSelector(selectDetectedCountry);
   
   const [showPrompt, setShowPrompt] = useState(false);
   const [locationData, setLocationData] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const [lastChecked, setLastChecked] = useState(null);
 
   /**
    * Find nearest city from current location
@@ -77,8 +71,6 @@ const LocationChangeDetector = ({ checkOnMount = true, thresholdKm = 50 }) => {
       return;
     }
 
-    setLoading(true);
-
     try {
       // Get current GPS location
       const position = await new Promise((resolve, reject) => {
@@ -97,7 +89,6 @@ const LocationChangeDetector = ({ checkOnMount = true, thresholdKm = 50 }) => {
       const currentLng = position.coords.longitude;
       
       localStorage.setItem('locationCheckTime', Date.now().toString());
-      setLastChecked(new Date());
 
       // Get user's stored location
       const profileData = user.profile_data || user.profileData || {};
@@ -145,10 +136,8 @@ const LocationChangeDetector = ({ checkOnMount = true, thresholdKm = 50 }) => {
       }
     } catch (error) {
       console.log('Location check skipped:', error.message);
-    } finally {
-      setLoading(false);
     }
-  }, [user, dismissed, thresholdKm, calculateDistance, findNearestCity]);
+  }, [user, dismissed, thresholdKm, findNearestCity]);
 
   // Check location on mount if enabled
   useEffect(() => {

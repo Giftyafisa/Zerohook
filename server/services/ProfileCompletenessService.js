@@ -24,7 +24,7 @@ class ProfileCompletenessService {
       },
       profilePhoto: {
         weight: 15,
-        fields: ['profile_image'],
+        fields: ['profile_image', 'profile_image_url', 'profile_data.profile_picture', 'profile_data.profilePicture', 'profile_data.photos'],
         description: 'Profiles with photos get 10x more messages',
         category: 'critical'
       },
@@ -56,7 +56,7 @@ class ProfileCompletenessService {
       },
       phoneVerified: {
         weight: 5,
-        fields: ['phone_verified'],
+        fields: ['phone_verified', 'phoneVerified'],
         description: 'Verify your phone for trust',
         category: 'important'
       },
@@ -64,7 +64,7 @@ class ProfileCompletenessService {
       // OPTIONAL FIELDS (25% total) - Nice to have
       galleryPhotos: {
         weight: 10,
-        fields: ['gallery_images'],
+        fields: ['gallery_images', 'profile_data.gallery_images', 'profile_data.photos'],
         minCount: 3,
         description: 'More photos increase your visibility',
         category: 'optional'

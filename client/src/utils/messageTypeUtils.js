@@ -1,4 +1,4 @@
-﻿// Utility helpers for chat message type inference and preview formatting.
+// Utility helpers for chat message type inference and preview formatting.
 // This is shared between frontend chat UI components.
 
 export const inferMessageTypeFromContent = (content = '', explicitType = null, metadata = {}) => {

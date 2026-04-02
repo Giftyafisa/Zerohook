@@ -400,6 +400,11 @@ const ProfileBrowse = () => {
 
           // ENHANCED: Add subscription status indicators
           const profileData = user.profile_data || {};
+          const hasProfileImage = !!(
+            user.profile_image ||
+            user.profile_image_url ||
+            extractProfileImagePath(profileData)
+          );
           
           return {
             id: user.id,
@@ -418,6 +423,7 @@ const ProfileBrowse = () => {
               specializations: Array.isArray(profileData.specializations) ? profileData.specializations : ['GFE'],
               profilePicture: extractProfileImagePath(profileData)
             },
+            hasProfileImage,
             verificationTier: parseInt(user.verification_tier) || 1,
             trustScore: parseFloat(user.reputation_score) || 0,
             // ENHANCED: Subscription status for user differentiation
@@ -662,6 +668,9 @@ const ProfileBrowse = () => {
   });
 
   const sortedProfiles = [...filteredProfiles].sort((a, b) => {
+    if (a.hasProfileImage && !b.hasProfileImage) return -1;
+    if (!a.hasProfileImage && b.hasProfileImage) return 1;
+
     switch (sortBy) {
       case 'distance':
         // Null/undefined distances go to end

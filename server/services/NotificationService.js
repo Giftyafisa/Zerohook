@@ -243,7 +243,12 @@ class NotificationService {
           conversationId: String(notification.data?.conversationId || ''),
           senderId: String(notification.data?.senderId || ''),
           messageId: String(notification.data?.messageId || ''),
-          senderName: String(notification.data?.senderName || '')
+          senderName: String(notification.data?.senderName || ''),
+          callId: String(notification.data?.callId || ''),
+          callerId: String(notification.data?.callerId || ''),
+          callerName: String(notification.data?.callerName || ''),
+          callType: String(notification.data?.callType || ''),
+          targetUserId: String(notification.data?.targetUserId || '')
         },
         android: {
           priority: 'high'

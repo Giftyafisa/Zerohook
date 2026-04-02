@@ -9,6 +9,8 @@
     "client": "cd client && npm start",
     "build": "cd client && npm install && npm run build",
     "test": "jest",
+    "lint:agent-commands": "node tools/agent-command-map-lint.js",
+    "check:agents": "npm run lint:agent-commands",
     "install-all": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "keywords": [

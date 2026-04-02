@@ -138,6 +138,11 @@ const PRESENCE_EVENT_LIMITS = {
   }
 };
 
+// Periodic reconciliation intervals (fallback snapshot broadcasts)
+const PRESENCE_RECONCILE_INTERVAL_MS = parseInt(process.env.PRESENCE_RECONCILE_INTERVAL_MS, 10) || 30000; // 30s
+const CALL_CLEANUP_INTERVAL_MS = parseInt(process.env.CALL_CLEANUP_INTERVAL_MS, 10) || 30000; // 30s
+
+
 function normalizeUserId(value) {
   return String(value || '').trim();
 }
@@ -214,6 +219,98 @@ function getPresenceEventRateState(socketId, eventName) {
 
   const retryAfterMs = Math.max(0, config.windowMs - (now - current.windowStart));
   return { limited: true, retryAfterMs, max: config.max, windowMs: config.windowMs };
+}
+
+// Periodic reconciliation: broadcast latest presence to all subscribed sockets
+// prevents stale status when events are missed by socket drops / race conditions.
+async function reconcilePresenceSnapshot() {
+  if (publicPresenceWatchers.size === 0) return;
+
+  const now = new Date().toISOString();
+  const statuses = new Map();
+
+  for (const userId of publicPresenceWatchers.keys()) {
+    const room = io.sockets.adapter.rooms.get(`user_${userId}`);
+    const isOnline = (room?.size || 0) > 0;
+    statuses.set(userId, {
+      userId,
+      isOnline,
+      status: isOnline ? 'online' : 'offline',
+      lastSeen: null,
+      lastSeenLabel: null,
+      timestamp: now
+    });
+  }
+
+  for (const [userId, watchers] of publicPresenceWatchers.entries()) {
+    const payload = statuses.get(userId);
+    if (!payload) continue;
+
+    for (const sid of watchers) {
+      const sock = io.sockets.sockets.get(sid);
+      if (!sock) continue;
+      sock.emit('user_status', payload);
+    }
+  }
+}
+
+let presenceReconcileTimer = null;
+let callCleanupTimer = null;
+
+function startPeriodicMaintenance() {
+  if (!presenceReconcileTimer) {
+    presenceReconcileTimer = setInterval(() => {
+      reconcilePresenceSnapshot().catch((err) => {
+        console.error('Presence reconcile error:', err.message);
+      });
+    }, PRESENCE_RECONCILE_INTERVAL_MS);
+  }
+
+  if (!callCleanupTimer) {
+    callCleanupTimer = setInterval(async () => {
+      try {
+        const cutoff = new Date(Date.now() - (process.env.CALL_STALE_TIMEOUT_MS ? parseInt(process.env.CALL_STALE_TIMEOUT_MS, 10) : 60000));
+        const staleCalls = await Call.find({
+          status: 'calling',
+          created_at: { $lt: cutoff }
+        }).select('_id caller_id target_user_id').lean();
+
+        for (const call of staleCalls) {
+          const payload = {
+            id: String(call._id),
+            callId: String(call._id),
+            endedBy: 'system',
+            reason: 'timeout',
+            timestamp: new Date().toISOString()
+          };
+
+          // Notify both parties to prevent “stuck ringing” states.
+          io.to(`user_${String(call.caller_id)}`).emit('call_ended', payload);
+          io.to(`user_${String(call.target_user_id)}`).emit('call_ended', payload);
+          io.to(getCallRoomId(call.caller_id, call.target_user_id)).emit('call_ended', payload);
+
+          await Call.findByIdAndUpdate(call._id, {
+            status: 'missed',
+            ended_at: new Date(),
+            updated_at: new Date()
+          });
+        }
+      } catch (err) {
+        console.error('Call cleanup error:', err.message);
+      }
+    }, CALL_CLEANUP_INTERVAL_MS);
+  }
+}
+
+function stopPeriodicMaintenance() {
+  if (presenceReconcileTimer) {
+    clearInterval(presenceReconcileTimer);
+    presenceReconcileTimer = null;
+  }
+  if (callCleanupTimer) {
+    clearInterval(callCleanupTimer);
+    callCleanupTimer = null;
+  }
 }
 
 function getLastSeenLabel(lastSeenDate) {
@@ -1588,12 +1685,12 @@ io.on('connection', async (socket) => {
           };
         });
 
-        if (isPublicContext) {
-          setPublicPresenceSubscriptions(
-            socket.id,
-            statusInfo.filter((s) => !s.blocked).map((s) => s.userId)
-          );
-        }
+        // Persist watched IDs so we can push real-time status updates later.
+        // For chat context, we allow watching presence for users the client is allowed to see.
+        setPublicPresenceSubscriptions(
+          socket.id,
+          statusInfo.filter((s) => !s.blocked).map((s) => s.userId)
+        );
 
         socket.emit('users_status', { users, timestamp: new Date().toISOString() });
       } catch (error) {
@@ -1719,7 +1816,10 @@ const startServer = () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
-    
+
+    // Start periodic reconciliation and cleanup timers
+    startPeriodicMaintenance();
+
     // Start keep-alive pings only in production (Render)
     if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
       console.log(`🏓 Keep-alive enabled: Self-ping every 14 minutes to ${BACKEND_URL}`);
@@ -1740,6 +1840,7 @@ if (require.main === module) {
 // Graceful shutdown handler
 function gracefulShutdown(signal) {
   console.log(`\n⚠️  Received ${signal}. Shutting down gracefully...`);
+  stopPeriodicMaintenance();
   server.close(() => {
     console.log('✅ HTTP server closed.');
     io.close(() => {

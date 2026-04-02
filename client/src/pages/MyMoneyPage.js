@@ -13,16 +13,13 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  MenuItem,
   Alert,
   IconButton,
   InputAdornment,
-  Slide,
-  LinearProgress,
-  Tooltip
+  Slide
 } from '@mui/material';
 import { toast } from 'react-toastify';
-import { API_BASE_URL, TELEGRAM_CONFIG } from '../config/constants';
+import { TELEGRAM_CONFIG } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   AccountBalanceWallet as WalletIcon,
@@ -72,7 +69,7 @@ const MyMoneyPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { symbol, format, currencyCode } = useCurrency();
+  const { symbol, currencyCode } = useCurrency();
   
   // Tab state - initialize from URL param if present
   const initialTab = TAB_MAP[searchParams.get('tab')] ?? 0;
@@ -98,7 +95,6 @@ const MyMoneyPage = () => {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawAddress, setWithdrawAddress] = useState('');
   const [withdrawCrypto, setWithdrawCrypto] = useState('USDT');
-  const [paymentMethod, setPaymentMethod] = useState('crypto'); // 'crypto', 'wallet'
   const [cryptoSymbol, setCryptoSymbol] = useState('USDT');
   const [telegramDialog, setTelegramDialog] = useState(false);
   const [telegramAmount, setTelegramAmount] = useState('');
@@ -190,7 +186,6 @@ const MyMoneyPage = () => {
   // Kept as fallback in case any redirect-based flow is added later.
   useEffect(() => {
     const handlePaymentCallback = async () => {
-      const paymentStatus = searchParams.get('payment_status');
       const reference = searchParams.get('reference');
       const trxref = searchParams.get('trxref'); // Legacy reference parameter
       
@@ -243,54 +238,6 @@ const MyMoneyPage = () => {
     }
   }, [isAuthenticated, searchParams, setSearchParams, fetchAllData, symbol]);
 
-  // Handle escrow release
-  const handleRelease = async (escrowId) => {
-    if (!window.confirm('Release this payment? The provider will receive the funds.')) return;
-    
-    setActionLoading(true);
-    try {
-      const response = await apiClient.post('/escrow/complete', { escrowId });
-
-      // Update local state
-      setWalletData(prev => ({
-        ...prev,
-        escrows: prev.escrows.map(e => 
-          e.id === escrowId ? { ...e, status: 'released' } : e
-        )
-      }));
-      toast.success('Payment released successfully!');
-    } catch (error) {
-      console.error('Release error:', error);
-      toast.error(error.response?.data?.error || 'Failed to release payment.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // Handle escrow dispute
-  const handleDispute = async (escrowId) => {
-    const reason = prompt('What went wrong? Briefly describe:');
-    if (!reason) return;
-    
-    setActionLoading(true);
-    try {
-      const response = await apiClient.post('/escrow/dispute', { escrowId, reason });
-
-      setWalletData(prev => ({
-        ...prev,
-        escrows: prev.escrows.map(e => 
-          e.id === escrowId ? { ...e, status: 'disputed' } : e
-        )
-      }));
-      toast.info('Issue reported. Support will contact you.');
-    } catch (error) {
-      console.error('Dispute error:', error);
-      toast.error('Failed to report issue.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   // ==================== PIN VERIFICATION SYSTEM ====================
   
   // Copy PIN to clipboard
@@ -315,12 +262,10 @@ const MyMoneyPage = () => {
 
     setActionLoading(true);
     try {
-      const response = await apiClient.post('/escrow/enter-pin', {
+      await apiClient.post('/escrow/enter-pin', {
         escrowId: selectedEscrow.id, 
         pin: pinInput 
       });
-
-      const data = response.data;
 
       // Update local state
       setWalletData(prev => ({
@@ -352,9 +297,7 @@ const MyMoneyPage = () => {
 
     setActionLoading(true);
     try {
-      const response = await apiClient.post('/escrow/confirm', { escrowId: selectedEscrow.id });
-
-      const data = response.data;
+      await apiClient.post('/escrow/confirm', { escrowId: selectedEscrow.id });
 
       setWalletData(prev => ({
         ...prev,
@@ -390,12 +333,10 @@ const MyMoneyPage = () => {
 
     setActionLoading(true);
     try {
-      const response = await apiClient.post('/escrow/dispute', {
+      await apiClient.post('/escrow/dispute', {
         escrowId: selectedEscrow.id, 
         reason: disputeReason 
       });
-
-      const data = response.data;
 
       // Upload evidence if provided
       if (disputeEvidence) {
@@ -643,7 +584,7 @@ const MyMoneyPage = () => {
     
     setActionLoading(true);
     try {
-      const response = await apiClient.post('/payments/withdraw', {
+      await apiClient.post('/payments/withdraw', {
         amount: Number(withdrawAmount),
         cryptoSymbol: withdrawCrypto,
         network: withdrawCrypto,
@@ -706,6 +647,17 @@ const MyMoneyPage = () => {
         <WalletIcon sx={styles.headerIcon} />
         <Typography sx={styles.headerTitle}>My Money</Typography>
       </Box>
+
+      {successMessage && (
+        <Alert severity="success" sx={{ mb: 2, bgcolor: 'rgba(0, 255, 136, 0.1)' }}>
+          {successMessage}
+        </Alert>
+      )}
+      {errorMessage && (
+        <Alert severity="error" sx={{ mb: 2, bgcolor: 'rgba(255, 87, 34, 0.1)' }}>
+          {errorMessage}
+        </Alert>
+      )}
 
       {/* Balance Card */}
       <motion.div

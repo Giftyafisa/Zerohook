@@ -1,6 +1,73 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('./auth');
+const {
+  User,
+  Service,
+  AdultService,
+  Transaction,
+} = require('../config/database');
+
+/**
+ * @route   GET /api/status/marketplace-pulse
+ * @desc    Public pulse stats for homepage surfaces
+ * @access  Public
+ */
+router.get('/marketplace-pulse', async (req, res) => {
+  try {
+    const sevenDaysAgo = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
+
+    const onlineUsersPromise = req.userActivityMonitor
+      ? req.userActivityMonitor.getOnlineUsersCount()
+      : User.countDocuments({
+          last_active: { $gte: new Date(Date.now() - 5 * 60 * 1000) },
+          status: { $ne: 'deleted' },
+          is_banned: { $ne: true }
+        });
+
+    const [
+      onlineUsers,
+      verifiedProfiles,
+      activeServiceListings,
+      activeAdultServiceListings,
+      completedTransactions,
+      newUsersThisWeek
+    ] = await Promise.all([
+      onlineUsersPromise,
+      User.countDocuments({
+        verification_tier: { $gte: 2 },
+        status: { $ne: 'deleted' },
+        is_banned: { $ne: true }
+      }),
+      Service.countDocuments({ status: 'active' }),
+      AdultService.countDocuments({ status: 'active' }),
+      Transaction.countDocuments({ status: { $in: ['completed', 'released'] } }),
+      User.countDocuments({ created_at: { $gte: sevenDaysAgo } })
+    ]);
+
+    const data = {
+      onlineUsers: Number(onlineUsers) || 0,
+      verifiedProfiles: Number(verifiedProfiles) || 0,
+      activeListings: (Number(activeServiceListings) || 0) + (Number(activeAdultServiceListings) || 0),
+      completedTransactions: Number(completedTransactions) || 0,
+      newUsersThisWeek: Number(newUsersThisWeek) || 0,
+      lastUpdated: new Date().toISOString()
+    };
+
+    res.json({
+      success: true,
+      data,
+      message: 'Marketplace pulse loaded'
+    });
+  } catch (error) {
+    console.error('Error getting marketplace pulse:', error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
 
 /**
  * @route   GET /api/status/users/online

@@ -9,7 +9,7 @@
  * - Easy content creation with floating "+" button
  * - Category filters as horizontal pills overlay
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -18,8 +18,6 @@ import {
   Chip,
   Avatar,
   Fab,
-  Dialog,
-  Slide,
 } from '@mui/material';
 import {
   Favorite,
@@ -28,9 +26,7 @@ import {
   Share,
   MoreVert,
   Add,
-  Close,
   PlayArrow,
-  Pause,
   VolumeOff,
   VolumeUp,
   Verified,
@@ -42,12 +38,12 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { getDefaultImage } from '../config/images';
 import useCurrency from '../hooks/useCurrency';
 import ContentCreator from './ContentCreator';
 import { toast } from 'react-toastify';
+import usePresence from '../hooks/usePresence';
 
 // ============================================
 // FULL-SCREEN CONTENT CARD
@@ -62,6 +58,8 @@ const ContentCard = ({
   isLiked,
   isMuted,
   onToggleMute,
+  providerOnline = null,
+  providerLastSeenLabel = null,
 }) => {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -78,9 +76,12 @@ const ContentCard = ({
   const providerAvatar = provider.profile_image || provider.avatar;
   const verificationTier = provider.verification_tier || service.verification_tier || 0;
   const trustScore = provider.trust_score || service.trust_score;
-  const isOnline = provider.is_online || service.is_online;
+  const isOnline = typeof providerOnline === 'boolean'
+    ? providerOnline
+    : !!(provider.is_online || provider.isOnline || service.is_online || service.isOnline);
   const location = provider.location?.city || service.location?.city || '';
   const likesCount = service.likes_count || service.favorites_count || 0;
+  const lastSeenLabel = isOnline ? null : (providerLastSeenLabel || provider.lastSeenLabel || service.lastSeenLabel || null);
   
   // Media handling
   const media = service.images?.[0] || service.media?.[0] || getDefaultImage('SERVICE');
@@ -512,7 +513,7 @@ const ContentCard = ({
           </Typography>
         )}
 
-        {/* Tags Row - Price, Duration, Location */}
+        {/* Tags Row - Price, Duration, Location, Presence */}
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {/* Price */}
           {formatPrice(price) && (
@@ -561,6 +562,27 @@ const ContentCard = ({
               }}
             />
           )}
+
+          <Chip
+            icon={
+              <Circle
+                sx={{
+                  color: `${isOnline ? '#4ade80' : 'rgba(255,255,255,0.45)'} !important`,
+                  fontSize: 10,
+                }}
+              />
+            }
+            label={isOnline ? 'Online now' : (lastSeenLabel || 'Offline')}
+            size="small"
+            sx={{
+              bgcolor: isOnline ? 'rgba(74,222,128,0.18)' : 'rgba(255,255,255,0.12)',
+              color: isOnline ? '#7ef3a8' : 'rgba(255,255,255,0.78)',
+              fontWeight: 700,
+              fontSize: '0.72rem',
+              height: 26,
+              border: isOnline ? '1px solid rgba(74,222,128,0.35)' : '1px solid rgba(255,255,255,0.15)',
+            }}
+          />
         </Box>
       </Box>
     </Box>
@@ -584,7 +606,6 @@ const TikTokServiceFeed = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
-  const [showCategories, setShowCategories] = useState(false);
   const [showContentCreator, setShowContentCreator] = useState(false);
 
   // Refs
@@ -604,6 +625,76 @@ const TikTokServiceFeed = () => {
     { id: 'oral-services', label: 'Oral', color: '#ab47bc' },
     { id: 'special-services', label: 'Special', color: '#00bcd4' },
   ];
+
+  const serviceProviderIds = useMemo(
+    () => services
+      .map((service) => String(
+        service.provider?.id ||
+        service.provider?._id ||
+        service.provider_id ||
+        service.providerId ||
+        service.user_id ||
+        service.userId ||
+        ''
+      ))
+      .filter(Boolean),
+    [services]
+  );
+
+  const servicePresenceSeed = useMemo(
+    () => services.reduce((acc, service) => {
+      const providerId = String(
+        service.provider?.id ||
+        service.provider?._id ||
+        service.provider_id ||
+        service.providerId ||
+        service.user_id ||
+        service.userId ||
+        ''
+      );
+      if (!providerId) return acc;
+      acc[providerId] = !!(
+        service.provider?.isOnline ||
+        service.provider?.is_online ||
+        service.isOnline ||
+        service.is_online
+      );
+      return acc;
+    }, {}),
+    [services]
+  );
+
+  const { isUserOnline, getUserLastSeen } = usePresence(serviceProviderIds, {
+    context: 'feed',
+    initialStatusMap: servicePresenceSeed,
+  });
+
+  const activeService = services[currentIndex] || null;
+  const activeProviderId = activeService
+    ? String(
+      activeService.provider?.id ||
+      activeService.provider?._id ||
+      activeService.provider_id ||
+      activeService.providerId ||
+      activeService.user_id ||
+      activeService.userId ||
+      ''
+    )
+    : '';
+  const activeProviderOnline = activeProviderId
+    ? (isUserOnline(activeProviderId) ?? !!(
+      activeService?.provider?.isOnline ||
+      activeService?.provider?.is_online ||
+      activeService?.isOnline ||
+      activeService?.is_online
+    ))
+    : false;
+  const activeProviderLastSeen = activeProviderId
+    ? (getUserLastSeen(activeProviderId) ||
+      activeService?.provider?.lastSeenLabel ||
+      activeService?.lastSeenLabel ||
+      null)
+    : null;
 
   // Fetch unified feed (content posts + service listings)
   const fetchServices = useCallback(async (pageNum = 1, append = false) => {
@@ -887,7 +978,6 @@ const TikTokServiceFeed = () => {
   // Handle category change — only set state, useEffect handles the fetch
   const handleCategoryChange = (categoryId) => {
     setActiveCategory(categoryId);
-    setShowCategories(false);
   };
 
   // Loading state
@@ -1094,6 +1184,8 @@ const TikTokServiceFeed = () => {
               service={services[currentIndex]}
               isActive={true}
               isLiked={likedServices.has(services[currentIndex].id)}
+              providerOnline={activeProviderOnline}
+              providerLastSeenLabel={activeProviderLastSeen}
               isMuted={isMuted}
               onLike={handleLike}
               onMessage={handleMessage}

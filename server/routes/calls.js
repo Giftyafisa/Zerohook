@@ -4,6 +4,7 @@ const { User, Call } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { body, validationResult } = require('express-validator');
 const { createDistributedLimiter } = require('../utils/rateLimiters');
+const NotificationService = require('../services/NotificationService');
 const router = express.Router();
 
 const getCallRoomId = (userId1, userId2) => {
@@ -133,6 +134,24 @@ router.post('/request', authMiddleware, [
 
     // Emit call request via Socket.io
     req.io.to(`user_${targetUserId}`).emit('incoming_call', incomingCallPayload);
+
+    try {
+      await NotificationService.createAndEmit(req.io, {
+        userId: String(targetUserId),
+        type: 'call',
+        title: `Incoming ${normalizedType} call`,
+        message: `${req.user.username || req.user.profileData?.firstName || 'Someone'} is calling...`,
+        data: {
+          callId,
+          callerId: String(callerId),
+          callerName: req.user.username || req.user.profileData?.firstName || 'Someone',
+          callType: normalizedType,
+          targetUserId: String(targetUserId)
+        }
+      });
+    } catch (notificationError) {
+      console.error('Call request notification error:', notificationError.message);
+    }
 
     // Keep REST and socket flows aligned for caller-side listeners (multi-device support)
     req.io.to(`user_${callerId}`).emit('call_request_sent', {

@@ -1,7 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Box, Typography, Button, Chip } from '@mui/material';
+import { Box, Typography, Button, Chip, IconButton } from '@mui/material';
 import { motion } from 'framer-motion';
-import { ArrowForward } from '@mui/icons-material';
+import {
+  ArrowForward,
+  ChevronLeft,
+  ChevronRight,
+  Pause,
+  PlayArrow,
+} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
 // Video descriptions that rotate with videos
@@ -32,6 +38,8 @@ const videoFiles = [
   'video10.mp4'
 ];
 
+const VIDEO_SWIPE_THRESHOLD_PX = 42;
+
 const VideoShowcase = () => {
   const navigate = useNavigate();
   const videoRef = useRef(null);
@@ -41,6 +49,8 @@ const VideoShowcase = () => {
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
   const [videoCycle, setVideoCycle] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [showHint, setShowHint] = useState(true);
 
   // Get video URL
   const getVideoUrl = useCallback((index) => {
@@ -88,6 +98,7 @@ const VideoShowcase = () => {
     setCurrentDescription(getRandomDescription());
     setIsVideoReady(false);
     setPlaybackProgress(0);
+    setIsPaused(false);
     setVideoCycle((prev) => prev + 1);
   }, [currentIndex, getNextIndex, getRandomDescription]);
 
@@ -97,6 +108,7 @@ const VideoShowcase = () => {
     setCurrentIndex(nextIdx);
     setCurrentDescription(getRandomDescription());
     setPlaybackProgress(0);
+    setIsPaused(false);
     setVideoCycle((prev) => prev + 1);
   }, [currentIndex, getNextIndex, getRandomDescription]);
 
@@ -105,6 +117,47 @@ const VideoShowcase = () => {
     if (!element || !element.duration || !Number.isFinite(element.duration)) return;
     const ratio = Math.min(1, Math.max(0, element.currentTime / element.duration));
     setPlaybackProgress(ratio);
+  }, []);
+
+  const goToVideo = useCallback((targetIndex) => {
+    setCurrentIndex(targetIndex);
+    setCurrentDescription(getRandomDescription());
+    setIsVideoReady(false);
+    setPlaybackProgress(0);
+    setIsPaused(false);
+    setVideoCycle((prev) => prev + 1);
+  }, [getRandomDescription]);
+
+  const handleNextVideo = useCallback(() => {
+    goToVideo(getNextIndex(currentIndex));
+  }, [currentIndex, getNextIndex, goToVideo]);
+
+  const handlePreviousVideo = useCallback(() => {
+    goToVideo((currentIndex - 1 + videoFiles.length) % videoFiles.length);
+  }, [currentIndex, goToVideo]);
+
+  const handleVideoSurfaceSwipe = useCallback((offsetX) => {
+    if (offsetX <= -VIDEO_SWIPE_THRESHOLD_PX) {
+      handleNextVideo();
+      return;
+    }
+    if (offsetX >= VIDEO_SWIPE_THRESHOLD_PX) {
+      handlePreviousVideo();
+    }
+  }, [handleNextVideo, handlePreviousVideo]);
+
+  const togglePause = useCallback(() => {
+    const element = videoRef.current;
+    if (!element) return;
+
+    if (element.paused) {
+      element.play().catch(() => {});
+      setIsPaused(false);
+      return;
+    }
+
+    element.pause();
+    setIsPaused(true);
   }, []);
 
   // Preload next video
@@ -118,22 +171,31 @@ const VideoShowcase = () => {
 
   // Initial play attempt
   useEffect(() => {
+    if (isPaused) return undefined;
+
     const timer = setTimeout(() => {
       playVideo();
     }, 100);
     return () => clearTimeout(timer);
-  }, [currentIndex, playVideo]);
+  }, [currentIndex, isPaused, playVideo]);
 
   // Auto-advance if video stalls for too long
   useEffect(() => {
     const stallTimer = setTimeout(() => {
-      if (!isVideoReady) {
+      if (!isVideoReady && !isPaused) {
         // Video taking too long, try next
         handleVideoEnd();
       }
     }, 8000); // 8 seconds timeout
     return () => clearTimeout(stallTimer);
-  }, [currentIndex, isVideoReady, handleVideoEnd]);
+  }, [currentIndex, isVideoReady, isPaused, handleVideoEnd]);
+
+  useEffect(() => {
+    const hintTimer = setTimeout(() => {
+      setShowHint(false);
+    }, 7000);
+    return () => clearTimeout(hintTimer);
+  }, []);
 
   return (
     <Box
@@ -152,9 +214,19 @@ const VideoShowcase = () => {
         ref={videoRef}
         key={currentIndex}
         src={getVideoUrl(currentIndex)}
-        initial={{ opacity: 0, scale: 1.12 }}
-        animate={{ opacity: isVideoReady ? 1 : 0.65, scale: isVideoReady ? 1.02 : 1.08 }}
-        transition={{ duration: 0.8, ease: 'easeOut' }}
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.12}
+        dragMomentum={false}
+        onDragEnd={(_, info) => handleVideoSurfaceSwipe(info.offset.x)}
+        onPointerDown={() => setShowHint(false)}
+        initial={{ opacity: 0, scale: 1.14, filter: 'blur(4px)' }}
+        animate={{
+          opacity: isVideoReady ? 1 : 0.7,
+          scale: isVideoReady ? 1.01 : 1.08,
+          filter: isVideoReady ? 'blur(0px)' : 'blur(2px)',
+        }}
+        transition={{ duration: 0.9, ease: 'easeOut' }}
         style={{
           position: 'absolute',
           top: 0,
@@ -163,6 +235,8 @@ const VideoShowcase = () => {
           height: '100%',
           objectFit: 'cover',
           zIndex: 1,
+          transformOrigin: 'center center',
+          touchAction: 'pan-y',
         }}
         muted
         playsInline
@@ -182,6 +256,69 @@ const VideoShowcase = () => {
         playsInline
         preload="auto"
       />
+
+      {/* Lightweight mobile controls */}
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 8,
+          pointerEvents: 'none',
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '42%',
+            left: 0,
+            right: 0,
+            px: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <IconButton
+            onClick={handlePreviousVideo}
+            sx={{
+              pointerEvents: 'auto',
+              bgcolor: 'rgba(0,0,0,0.32)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.25)',
+            }}
+            size="small"
+            aria-label="Previous video"
+          >
+            <ChevronLeft />
+          </IconButton>
+          <IconButton
+            onClick={togglePause}
+            sx={{
+              pointerEvents: 'auto',
+              bgcolor: 'rgba(0,0,0,0.36)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.25)',
+            }}
+            size="small"
+            aria-label={isPaused ? 'Play video' : 'Pause video'}
+          >
+            {isPaused ? <PlayArrow /> : <Pause />}
+          </IconButton>
+          <IconButton
+            onClick={handleNextVideo}
+            sx={{
+              pointerEvents: 'auto',
+              bgcolor: 'rgba(0,0,0,0.32)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.25)',
+            }}
+            size="small"
+            aria-label="Next video"
+          >
+            <ChevronRight />
+          </IconButton>
+        </Box>
+      </Box>
 
       {/* Gradient Overlay - Bottom only */}
       <Box
@@ -236,6 +373,17 @@ const VideoShowcase = () => {
               fontSize: '0.7rem',
             }}
           />
+          <Chip
+            size="small"
+            label={isPaused ? 'Paused' : 'Auto-play'}
+            sx={{
+              color: '#d7fff9',
+              bgcolor: isPaused ? 'rgba(255,255,255,0.14)' : 'rgba(0, 242, 234, 0.16)',
+              border: '1px solid rgba(255,255,255,0.28)',
+              fontWeight: 700,
+              fontSize: '0.7rem',
+            }}
+          />
         </Box>
         <Typography
           sx={{
@@ -251,7 +399,7 @@ const VideoShowcase = () => {
         </Typography>
       </Box>
 
-      {/* Story-style progress bar */}
+      {/* Segmented progress like story reels */}
       <Box
         sx={{
           position: 'absolute',
@@ -259,22 +407,41 @@ const VideoShowcase = () => {
           left: 12,
           right: 12,
           zIndex: 9,
-          height: 3,
-          borderRadius: 999,
-          overflow: 'hidden',
-          bgcolor: 'rgba(255,255,255,0.20)',
+          display: 'grid',
+          gridTemplateColumns: `repeat(${videoFiles.length}, minmax(0, 1fr))`,
+          gap: 0.5,
         }}
       >
-        <motion.div
-          key={`${currentIndex}-${videoCycle}`}
-          style={{
-            height: '100%',
-            background: 'linear-gradient(90deg, #00f2ea 0%, #00d4aa 45%, #ff4f93 100%)',
-            borderRadius: '999px',
-          }}
-          animate={{ width: `${Math.max(2, Math.round(playbackProgress * 100))}%` }}
-          transition={{ duration: 0.15, ease: 'linear' }}
-        />
+        {videoFiles.map((_, index) => {
+          const width = index < currentIndex
+            ? '100%'
+            : index === currentIndex
+              ? `${Math.max(2, Math.round(playbackProgress * 100))}%`
+              : '0%';
+
+          return (
+            <Box
+              key={`progress-${index}`}
+              sx={{
+                height: 3,
+                borderRadius: 999,
+                overflow: 'hidden',
+                bgcolor: 'rgba(255,255,255,0.20)',
+              }}
+            >
+              <motion.div
+                key={`${currentIndex}-${videoCycle}-${index}`}
+                style={{
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #00f2ea 0%, #00d4aa 45%, #ff4f93 100%)',
+                  borderRadius: '999px',
+                }}
+                animate={{ width }}
+                transition={{ duration: index === currentIndex ? 0.15 : 0.3, ease: 'linear' }}
+              />
+            </Box>
+          );
+        })}
       </Box>
 
       {/* Bottom Content */}
@@ -327,6 +494,46 @@ const VideoShowcase = () => {
         >
           Real profiles • Verified providers • Safe connections
         </Typography>
+
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: { xs: 'center', md: 'flex-start' },
+            flexWrap: 'wrap',
+            gap: 0.8,
+            mb: 2.3,
+          }}
+        >
+          {['Escrow-secured', 'KYC-verified', '24/7 support'].map((item) => (
+            <Chip
+              key={item}
+              size="small"
+              label={item}
+              sx={{
+                color: '#e5fffb',
+                bgcolor: 'rgba(0, 242, 234, 0.12)',
+                border: '1px solid rgba(0, 242, 234, 0.3)',
+                fontWeight: 700,
+                fontSize: '0.68rem',
+              }}
+            />
+          ))}
+        </Box>
+
+        {showHint && (
+          <Typography
+            sx={{
+              color: 'rgba(255,255,255,0.68)',
+              fontSize: '0.72rem',
+              mb: 1.4,
+              fontFamily: '"Outfit", sans-serif',
+              textAlign: { xs: 'center', md: 'left' },
+            }}
+          >
+            Tap arrows to preview more clips and pause anytime.
+          </Typography>
+        )}
 
         {/* CTA Button */}
         <motion.div

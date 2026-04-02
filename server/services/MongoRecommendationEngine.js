@@ -461,7 +461,9 @@ class MongoRecommendationEngine {
     const hasProfileImage = !!(
       profile.profile_image ||
       profile.profile_image_url ||
+      profile.profile_picture ||
       profileData.profilePicture ||
+      profileData.profile_picture ||
       profileData.avatar ||
       profileData.profileImage ||
       (profile.profile_image_url && profile.profile_image_url !== '') ||

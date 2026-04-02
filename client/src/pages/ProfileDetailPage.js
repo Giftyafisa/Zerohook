@@ -35,8 +35,6 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { getDefaultImage } from '../config/images';
-import { useSocket } from '../contexts/SocketContext';
-import { API_BASE_URL, getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import useCurrency from '../hooks/useCurrency';
@@ -62,14 +60,17 @@ const ProfileDetailPage = () => {
   const [isFavorite, setIsFavorite] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState(null);
 
-  const { isConnected } = useSocket();
-
   // Real-time online status via socket (browse context = public visibility)
   const presenceIds = useMemo(() => profile ? [profile.id || profileId] : [profileId], [profile, profileId]);
-  const { isUserOnline, getUserLastSeen } = usePresence(presenceIds, { context: 'browse' });
-  const profileOnline = isUserOnline(profile?.id || profileId) ?? profile?.isOnline ?? false;
+  const presenceSeed = useMemo(() => {
+    const id = String(profile?.id || profileId || '');
+    if (!id) return {};
+    return { [id]: !!(profile?.isOnline || profile?.is_online) };
+  }, [profile, profileId]);
+  const { isUserOnline, getUserLastSeen } = usePresence(presenceIds, { context: 'browse', initialStatusMap: presenceSeed });
+  const profileOnline = isUserOnline(profile?.id || profileId) ?? profile?.isOnline ?? profile?.is_online ?? false;
   // Real-time lastSeenLabel (e.g. "5m ago") — falls back to static API value
-  const profileLastSeenLabel = getUserLastSeen(profile?.id || profileId) ?? profile?.lastSeenLabel ?? null;
+  const profileLastSeenLabel = getUserLastSeen(profile?.id || profileId) ?? profile?.lastSeenLabel ?? profile?.last_seen_label ?? null;
 
   // Check connection status with the profile user
   const checkConnectionStatus = useCallback(async () => {
@@ -146,15 +147,14 @@ const ProfileDetailPage = () => {
     });
   };
 
-  // Keep the dialog for contact requests if needed
-  const handleContactRequest = () => {
+  const handleOpenContactDialog = () => {
     if (!isAuthenticated) {
       navigate('/login', { state: { from: location.pathname } });
       return;
     }
-    
-    setContactMessage('');
+
     setContactType('contact_request');
+    setContactMessage('');
     setContactDialog(true);
   };
 
@@ -163,7 +163,7 @@ const ProfileDetailPage = () => {
 
     setSendingMessage(true);
     try {
-      const response = await apiClient.post('/connections/contact-request', {
+      await apiClient.post('/connections/contact-request', {
         toUserId: profile.id,
         message: contactMessage,
         connectionType: contactType
@@ -262,6 +262,8 @@ const ProfileDetailPage = () => {
   }
 
   const profileData = profile.profile_data || {};
+  const isConnectionAccepted = connectionStatus?.exists && connectionStatus.status === 'accepted';
+  const isConnectionPending = connectionStatus?.exists && connectionStatus.status !== 'accepted';
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 0.5, sm: 1, md: 4 }, pt: { xs: 0, sm: 0.5, md: 4 } }}>
@@ -357,6 +359,17 @@ const ProfileDetailPage = () => {
               {/* Consolidated Status Line */}
               <Box display="flex" gap={1} flexWrap="wrap" alignItems="center" mb={3}>
                 <Chip
+                  label={profileOnline ? 'Online now' : (profileLastSeenLabel || 'Offline')}
+                  size="small"
+                  sx={{
+                    bgcolor: profileOnline ? 'success.light' : 'grey.200',
+                    color: profileOnline ? 'success.dark' : 'text.secondary',
+                    border: 1,
+                    borderColor: profileOnline ? 'success.main' : 'grey.400',
+                    fontWeight: 600,
+                  }}
+                />
+                <Chip
                   icon={<Security sx={{ fontSize: 18 }} />}
                   label={getVerificationLabel(profile.verification_tier)}
                   size="small"
@@ -418,9 +431,9 @@ const ProfileDetailPage = () => {
                 <Button
                   variant="contained"
                   size="large"
-                  onClick={handleContact}
+                  onClick={isConnectionAccepted ? handleContact : handleOpenContactDialog}
                   startIcon={<Message />}
-                  disabled={connectionStatus?.exists && connectionStatus.status === 'accepted'}
+                  disabled={isConnectionPending}
                   sx={{ 
                     borderRadius: 2,
                     textTransform: 'none',
@@ -428,9 +441,9 @@ const ProfileDetailPage = () => {
                     px: 3
                   }}
                 >
-                  {connectionStatus?.exists && connectionStatus.status === 'accepted' 
+                  {isConnectionAccepted
                     ? 'Connected' 
-                    : connectionStatus?.exists 
+                    : isConnectionPending
                       ? 'Pending' 
                       : 'Contact'
                   }

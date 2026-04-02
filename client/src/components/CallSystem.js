@@ -20,6 +20,13 @@ import { useCall } from '../contexts/CallContext';
 
 const getUserId = (user) => String(user?.id || user?._id || user?.userId || '');
 
+// Tunable network quality thresholds (higher sensitivity = lower thresholds)
+const NET_QUALITY_POLL_MS = 3500;
+const NET_QUALITY_THRESHOLDS = {
+  poor: { lossRate: 0.08, rttMs: 400, jitter: 0.05 },
+  fair: { lossRate: 0.02, rttMs: 150, jitter: 0.02 },
+};
+
 // CSS-in-JS styles matching mobile Zerohook design
 const styles = {
   // Full screen call overlay
@@ -490,24 +497,17 @@ const CallSystem = () => {
       const canonicalCallId = getCallId(data);
       if (!canonicalCallId) return;
 
-      setOutgoingCall((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          id: canonicalCallId,
-          callId: canonicalCallId,
-          status: 'ringing'
-        };
-      });
+      // Ensure we keep outgoing state in sync even if the state update lags behind
+      const base = outgoingCallRef.current || {};
+      const updated = {
+        ...base,
+        id: canonicalCallId,
+        callId: canonicalCallId,
+        status: 'ringing'
+      };
 
-      outgoingCallRef.current = outgoingCallRef.current
-        ? {
-            ...outgoingCallRef.current,
-            id: canonicalCallId,
-            callId: canonicalCallId,
-            status: 'ringing'
-          }
-        : outgoingCallRef.current;
+      setOutgoingCall(updated);
+      outgoingCallRef.current = updated;
     };
 
     const handleCallAccepted = async (callData) => {
@@ -759,9 +759,17 @@ const CallSystem = () => {
         const lossRate = packetsLost / totalPackets;
         const rttMs = rtt != null ? rtt * 1000 : (prevRttRef.current ?? 0);
         prevRttRef.current = rttMs;
-        if (lossRate > 0.08 || rttMs > 400 || jitter > 0.05) {
+        if (
+          lossRate > NET_QUALITY_THRESHOLDS.poor.lossRate ||
+          rttMs > NET_QUALITY_THRESHOLDS.poor.rttMs ||
+          jitter > NET_QUALITY_THRESHOLDS.poor.jitter
+        ) {
           setNetworkQuality('poor');
-        } else if (lossRate > 0.02 || rttMs > 150 || jitter > 0.02) {
+        } else if (
+          lossRate > NET_QUALITY_THRESHOLDS.fair.lossRate ||
+          rttMs > NET_QUALITY_THRESHOLDS.fair.rttMs ||
+          jitter > NET_QUALITY_THRESHOLDS.fair.jitter
+        ) {
           setNetworkQuality('fair');
         } else {
           setNetworkQuality('good');
@@ -769,7 +777,7 @@ const CallSystem = () => {
       } catch (_) {
         // getStats unavailable or pc closed — ignore silently.
       }
-    }, 3500);
+    }, NET_QUALITY_POLL_MS);
   }, [stopNetQualityPolling]);
 
   const cleanupMediaStreams = () => {
@@ -826,7 +834,7 @@ const CallSystem = () => {
       peerUserId: targetUserId,
       targetName: targetName || 'User',
       type,
-      status: 'dialing'
+      status: 'calling'
     };
     setOutgoingElapsed(0);
     setOutgoingCall(callData);
@@ -1416,7 +1424,7 @@ const CallSystem = () => {
                 >
                   ●
                 </motion.span>
-                {outgoingCall.status === 'dialing' ? 'Dialing secure line...' : 'Ringing recipient...'}
+                {outgoingCall.status === 'calling' ? 'Dialing secure line...' : 'Ringing recipient...'}
               </Typography>
 
               <Typography

@@ -21,7 +21,6 @@ import {
   Slide,
   CircularProgress,
   LinearProgress,
-  Avatar,
 } from '@mui/material';
 import {
   Close,
@@ -29,8 +28,6 @@ import {
   Videocam,
   LocationOn,
   AttachMoney,
-  Category,
-  Check,
   ArrowBack,
   CloudUpload,
   Delete,
@@ -38,7 +35,6 @@ import {
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { toast } from 'react-toastify';
 
@@ -57,7 +53,7 @@ const CONTENT_CATEGORIES = [
 ];
 
 const ContentCreator = ({ open, onClose, onSuccess }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
   

@@ -20,7 +20,6 @@ import { SocketProvider } from './contexts/SocketContext';
 import { CallProvider } from './contexts/CallContext';
 
 // Layout Components
-import Footer from './components/layout/FooterNew';
 import MainLayout from './components/layout/MainLayout';
 
 // Route utilities - Single source of truth for route-based layout decisions
@@ -45,7 +44,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import './styles/global.css';
 
 // Error Reporter Service
-import { reportError, reportWarning } from './services/errorReporter';
+import { reportError } from './services/errorReporter';
 
 // Page Components — lazy-loaded to reduce initial bundle size
 const HomePage = lazy(() => import('./pages/HomePageNew'));
@@ -227,11 +226,8 @@ function AppContent() {
   // Get all layout configuration from centralized utility (single source of truth)
   const layoutConfig = getRouteLayoutConfig(location.pathname, isDesktop, prefersReducedMotion);
   const { 
-    showFooter, 
     showAnimatedBackground, 
     mountCallSystem, 
-    fullHeightLayout,
-    isChatRoute: chatRoute,
     toastPosition,
     toastDuration 
   } = layoutConfig;

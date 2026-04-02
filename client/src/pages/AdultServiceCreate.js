@@ -29,7 +29,6 @@ import {
   PhotoCamera
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 
@@ -739,7 +738,7 @@ const AdultServiceCreate = () => {
                         <CardContent sx={{ p: 1 }}>
                           <img
                             src={photo.preview}
-                            alt={`Photo ${index + 1}`}
+                            alt={`Service upload ${index + 1}`}
                             style={{
                               width: '100%',
                               height: '150px',

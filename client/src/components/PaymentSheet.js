@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -20,7 +20,6 @@ import {
   CheckCircle as CheckIcon,
   CurrencyBitcoin as CryptoIcon
 } from '@mui/icons-material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 import CryptoPayment from './payments/CryptoPayment';

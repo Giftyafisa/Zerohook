@@ -30,7 +30,6 @@ import {
 } from '@mui/material';
 import {
   ArrowBack,
-  ChevronRight,
   Lock,
   Visibility,
   LocationOn,
@@ -48,9 +47,8 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
-import { isSugarAccount, getAccountType } from '../utils/accountTypeUtils';
+import { isSugarAccount } from '../utils/accountTypeUtils';
 
 // Modern TikTok-style design system
 const styles = {
@@ -385,7 +383,7 @@ const PrivacySettings = () => {
       setIsSaving(true);
       setSaveError(null);
 
-      const response = await apiClient.put('/users/me', {
+      await apiClient.put('/users/me', {
         profile_data: {
           settings: settings,
           basePrice: settings.basePrice,

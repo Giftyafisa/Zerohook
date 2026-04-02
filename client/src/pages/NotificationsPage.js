@@ -33,7 +33,6 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { selectUser } from '../store/slices/authSlice';
 import { 
   selectNotificationsList,
   selectUnreadNotifications,
@@ -43,7 +42,6 @@ import {
   clearUnreadNotifications,
   removeFromNotificationsList
 } from '../store/slices/uiSlice';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import tokens from '../theme/tokens';
@@ -227,7 +225,6 @@ const formatTimeAgo = (dateString) => {
 const NotificationsPage = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const user = useSelector(selectUser);
   const notificationsList = useSelector(selectNotificationsList);
   const unreadCount = useSelector(selectUnreadNotifications);
   

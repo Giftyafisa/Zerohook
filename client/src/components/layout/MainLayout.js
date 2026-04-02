@@ -90,7 +90,6 @@ const MainLayout = ({ children, showNavigation = true }) => {
   const theme = useTheme();
   const location = useLocation();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md')); // >= 900px
-  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 900px
   
   // Get header configuration for current route
   const headerConfig = getHeaderConfig(location.pathname);

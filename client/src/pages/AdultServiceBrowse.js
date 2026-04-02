@@ -31,7 +31,6 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { getDefaultImage } from '../config/images';
 import { useAuth } from '../contexts/AuthContext';

@@ -7,9 +7,6 @@ import {
   AccordionDetails,
   TextField,
   Button,
-  Card,
-  CardContent,
-  Grid,
   Chip,
   IconButton,
   InputAdornment
@@ -21,7 +18,6 @@ import {
   Search as SearchIcon,
   Email as EmailIcon,
   Chat as ChatIcon,
-  Phone as PhoneIcon,
   Security as SecurityIcon,
   Payment as PaymentIcon,
   AccountCircle as AccountIcon,
@@ -31,10 +27,8 @@ import {
   Book as GuideIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
 
 const HelpSupportPage = () => {
-  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [contactMessage, setContactMessage] = useState('');

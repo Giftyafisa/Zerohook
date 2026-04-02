@@ -44,6 +44,7 @@ const VideoShowcase = () => {
   const navigate = useNavigate();
   const videoRef = useRef(null);
   const nextVideoRef = useRef(null);
+  const swipeIndicatorTimeoutRef = useRef(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentDescription, setCurrentDescription] = useState(videoDescriptions[0]);
   const [isVideoReady, setIsVideoReady] = useState(false);
@@ -51,6 +52,8 @@ const VideoShowcase = () => {
   const [videoCycle, setVideoCycle] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [showHint, setShowHint] = useState(true);
+  const [swipeIndicator, setSwipeIndicator] = useState(null);
+  const [swipePreviewDirection, setSwipePreviewDirection] = useState(null);
 
   // Get video URL
   const getVideoUrl = useCallback((index) => {
@@ -65,6 +68,23 @@ const VideoShowcase = () => {
   // Next video index
   const getNextIndex = useCallback((current) => {
     return (current + 1) % videoFiles.length;
+  }, []);
+
+  const triggerHapticFeedback = useCallback((pattern = 10) => {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  }, []);
+
+  const showSwipeDirection = useCallback((direction) => {
+    setSwipeIndicator(direction);
+    if (swipeIndicatorTimeoutRef.current) {
+      clearTimeout(swipeIndicatorTimeoutRef.current);
+    }
+
+    swipeIndicatorTimeoutRef.current = setTimeout(() => {
+      setSwipeIndicator(null);
+    }, 420);
   }, []);
 
   // Play current video
@@ -136,19 +156,50 @@ const VideoShowcase = () => {
     goToVideo((currentIndex - 1 + videoFiles.length) % videoFiles.length);
   }, [currentIndex, goToVideo]);
 
+  const handleNextVideoButton = useCallback(() => {
+    triggerHapticFeedback(8);
+    handleNextVideo();
+  }, [handleNextVideo, triggerHapticFeedback]);
+
+  const handlePreviousVideoButton = useCallback(() => {
+    triggerHapticFeedback(8);
+    handlePreviousVideo();
+  }, [handlePreviousVideo, triggerHapticFeedback]);
+
+  const handleVideoDrag = useCallback((_, info) => {
+    if (info.offset.x <= -14) {
+      setSwipePreviewDirection('next');
+      return;
+    }
+
+    if (info.offset.x >= 14) {
+      setSwipePreviewDirection('previous');
+      return;
+    }
+
+    setSwipePreviewDirection(null);
+  }, []);
+
   const handleVideoSurfaceSwipe = useCallback((offsetX) => {
+    setSwipePreviewDirection(null);
     if (offsetX <= -VIDEO_SWIPE_THRESHOLD_PX) {
+      triggerHapticFeedback([10, 20, 8]);
+      showSwipeDirection('next');
       handleNextVideo();
       return;
     }
     if (offsetX >= VIDEO_SWIPE_THRESHOLD_PX) {
+      triggerHapticFeedback([10, 20, 8]);
+      showSwipeDirection('previous');
       handlePreviousVideo();
     }
-  }, [handleNextVideo, handlePreviousVideo]);
+  }, [handleNextVideo, handlePreviousVideo, showSwipeDirection, triggerHapticFeedback]);
 
   const togglePause = useCallback(() => {
     const element = videoRef.current;
     if (!element) return;
+
+    triggerHapticFeedback(8);
 
     if (element.paused) {
       element.play().catch(() => {});
@@ -158,7 +209,7 @@ const VideoShowcase = () => {
 
     element.pause();
     setIsPaused(true);
-  }, []);
+  }, [triggerHapticFeedback]);
 
   // Preload next video
   useEffect(() => {
@@ -197,6 +248,16 @@ const VideoShowcase = () => {
     return () => clearTimeout(hintTimer);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (swipeIndicatorTimeoutRef.current) {
+        clearTimeout(swipeIndicatorTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const activeSwipeDirection = swipeIndicator || swipePreviewDirection;
+
   return (
     <Box
       sx={{
@@ -218,6 +279,7 @@ const VideoShowcase = () => {
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.12}
         dragMomentum={false}
+        onDrag={handleVideoDrag}
         onDragEnd={(_, info) => handleVideoSurfaceSwipe(info.offset.x)}
         onPointerDown={() => setShowHint(false)}
         initial={{ opacity: 0, scale: 1.14, filter: 'blur(4px)' }}
@@ -257,6 +319,55 @@ const VideoShowcase = () => {
         preload="auto"
       />
 
+      {activeSwipeDirection && (
+        <motion.div
+          key={activeSwipeDirection}
+          initial={{ opacity: 0, y: 8, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 11,
+            pointerEvents: 'none',
+          }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.6,
+              px: 1.1,
+              py: 0.65,
+              borderRadius: 999,
+              bgcolor: 'rgba(0,0,0,0.42)',
+              border: '1px solid rgba(255,255,255,0.22)',
+              backdropFilter: 'blur(8px)',
+            }}
+          >
+            {activeSwipeDirection === 'next' ? (
+              <ChevronRight sx={{ color: '#d7fff9', fontSize: 18 }} />
+            ) : (
+              <ChevronLeft sx={{ color: '#d7fff9', fontSize: 18 }} />
+            )}
+            <Typography
+              sx={{
+                color: '#f3fffc',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                letterSpacing: '0.03em',
+                fontFamily: '"Outfit", sans-serif',
+              }}
+            >
+              {activeSwipeDirection === 'next' ? 'Next clip' : 'Previous clip'}
+            </Typography>
+          </Box>
+        </motion.div>
+      )}
+
       {/* Lightweight mobile controls */}
       <Box
         sx={{
@@ -279,7 +390,7 @@ const VideoShowcase = () => {
           }}
         >
           <IconButton
-            onClick={handlePreviousVideo}
+            onClick={handlePreviousVideoButton}
             sx={{
               pointerEvents: 'auto',
               bgcolor: 'rgba(0,0,0,0.32)',
@@ -305,7 +416,7 @@ const VideoShowcase = () => {
             {isPaused ? <PlayArrow /> : <Pause />}
           </IconButton>
           <IconButton
-            onClick={handleNextVideo}
+            onClick={handleNextVideoButton}
             sx={{
               pointerEvents: 'auto',
               bgcolor: 'rgba(0,0,0,0.32)',
@@ -531,7 +642,7 @@ const VideoShowcase = () => {
               textAlign: { xs: 'center', md: 'left' },
             }}
           >
-            Tap arrows to preview more clips and pause anytime.
+            Swipe left or right for next clips, or tap arrows to control playback.
           </Typography>
         )}
 

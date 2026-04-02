@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import CryptoPayment from '../components/payments/CryptoPayment';
@@ -13,25 +13,16 @@ import {
   CardContent,
   CardActions,
   Grid,
-  Divider,
   List,
   ListItem,
   ListItemIcon,
   ListItemText,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Chip,
   LinearProgress,
-  Avatar,
-  IconButton
+  Avatar
 } from '@mui/material';
 import { 
   CheckCircle, 
-  Star, 
-  Payment, 
-  OpenInNew, 
   LocationOn, 
   Lock, 
   Shield,
@@ -41,8 +32,7 @@ import {
   Support,
   AutoAwesome,
   Bolt,
-  ArrowForward,
-  Close
+  ArrowForward
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { toast } from 'react-toastify';

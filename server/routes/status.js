@@ -8,6 +8,12 @@ const {
   Transaction,
 } = require('../config/database');
 
+const MARKETPLACE_PULSE_CACHE_TTL_MS = 20 * 1000;
+let marketplacePulseCache = {
+  data: null,
+  expiresAt: 0
+};
+
 /**
  * @route   GET /api/status/marketplace-pulse
  * @desc    Public pulse stats for homepage surfaces
@@ -15,6 +21,18 @@ const {
  */
 router.get('/marketplace-pulse', async (req, res) => {
   try {
+    const now = Date.now();
+    if (marketplacePulseCache.data && marketplacePulseCache.expiresAt > now) {
+      return res.json({
+        success: true,
+        data: {
+          ...marketplacePulseCache.data,
+          cached: true
+        },
+        message: 'Marketplace pulse loaded'
+      });
+    }
+
     const sevenDaysAgo = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
 
     const onlineUsersPromise = req.userActivityMonitor
@@ -51,7 +69,13 @@ router.get('/marketplace-pulse', async (req, res) => {
       activeListings: (Number(activeServiceListings) || 0) + (Number(activeAdultServiceListings) || 0),
       completedTransactions: Number(completedTransactions) || 0,
       newUsersThisWeek: Number(newUsersThisWeek) || 0,
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      cached: false
+    };
+
+    marketplacePulseCache = {
+      data,
+      expiresAt: now + MARKETPLACE_PULSE_CACHE_TTL_MS
     };
 
     res.json({

@@ -12,7 +12,7 @@
  */
 
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Box, Typography, IconButton, Badge } from '@mui/material';
 import { styled } from '@mui/system';
 import {
@@ -21,7 +21,6 @@ import {
   Notifications,
   MoreVert,
   FilterList,
-  Close,
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import { selectIsAuthenticated } from '../../store/slices/authSlice';
@@ -176,7 +175,6 @@ const MobileHeader = ({
   rightContent,
 }) => {
   const navigate = useNavigate();
-  const location = useLocation();
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const reduxNotificationCount = useSelector(selectUnreadNotifications);
   // Use Redux count if caller didn't pass an explicit count

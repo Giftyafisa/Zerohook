@@ -9,8 +9,7 @@ import {
   Fullscreen,
   FullscreenExit,
   Delete,
-  Videocam,
-  Close
+  Videocam
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Container,
   Typography,
   Card,
   CardContent,
@@ -11,16 +10,13 @@ import {
   Avatar,
   CircularProgress,
   LinearProgress,
-  Alert,
   IconButton,
   Collapse
 } from '@mui/material';
 import {
   CheckCircle,
-  Phone,
   Email,
   Security,
-  AccountCircle,
   VerifiedUser,
   Lock,
   ArrowBack,
@@ -29,14 +25,12 @@ import {
   WorkspacePremium,
   ExpandMore,
   ExpandLess,
-  Close,
   Info
 } from '@mui/icons-material';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../store/slices/authSlice';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { toast } from 'react-toastify';
 

@@ -6,10 +6,9 @@ import {
   Box,
   Container,
   Typography,
-  Alert,
   Divider,
 } from '@mui/material';
-import { Lock, Person, Email } from '@mui/icons-material';
+import { Lock, Email } from '@mui/icons-material';
 import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 
 const LoginPage = () => {

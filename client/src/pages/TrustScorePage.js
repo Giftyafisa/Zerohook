@@ -5,7 +5,6 @@ import {
   CircularProgress,
   LinearProgress
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   Verified as VerifiedIcon,

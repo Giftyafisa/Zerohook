@@ -24,11 +24,9 @@ import {
   Alert,
   IconButton,
   Divider,
-  Tooltip,
-  LinearProgress
+  Tooltip
 } from '@mui/material';
 import { toast } from 'react-toastify';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   Dashboard as DashIcon,
@@ -45,16 +43,14 @@ import {
   Warning as WarningIcon,
   Block as BanIcon,
   LockOpen as UnbanIcon,
-  History as HistoryIcon,
-  Receipt as ReceiptIcon,
-  Info as InfoIcon
+  Receipt as ReceiptIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const AdminDashboard = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   
   const [loading, setLoading] = useState(true);
@@ -235,7 +231,7 @@ const AdminDashboard = () => {
   const handleUnbanDecision = async (userId, approved) => {
     setActionLoading(true);
     try {
-      const res = await apiClient.post(`/admin/unban/${userId}`, {
+      await apiClient.post(`/admin/unban/${userId}`, {
         approved, adminNotes: approved ? 'Approved by admin' : 'Rejected by admin'
       });
       toast.success(approved ? 'User unbanned!' : 'Unban request rejected');

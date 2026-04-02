@@ -29,7 +29,6 @@ import {
   Star
 } from '@mui/icons-material';
 import { GlassCard, GlassButton, GlassInput } from '../components/ui';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 
 // Supported African countries with phone codes

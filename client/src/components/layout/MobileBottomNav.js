@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Box, Typography, Badge, Menu, MenuItem, Divider } from '@mui/material';
+import { Box, Typography, Menu, MenuItem, Divider } from '@mui/material';
 import { styled } from '@mui/system';
 import {
   Home,

@@ -41,7 +41,6 @@ import {
   CurrencyBitcoin as CryptoIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
-import { API_BASE_URL } from '../../config/constants';
 import apiClient from '../../services/apiClient';
 
 const CRYPTO_LOGOS = {
@@ -180,7 +179,7 @@ const CryptoPayment = ({
 
   if (!paymentData) return null;
 
-  const { reference, address: rawAddress, walletAddress, cryptoAmount, cryptoSymbol, network, fiatAmount, fiatCurrency, rate, rateSource } = paymentData;
+  const { reference, address: rawAddress, walletAddress, cryptoAmount, cryptoSymbol, network, fiatAmount, fiatCurrency, rate } = paymentData;
   const address = rawAddress || walletAddress; // Support both field names from different callers
   const logo = CRYPTO_LOGOS[cryptoSymbol] || '🪙';
 

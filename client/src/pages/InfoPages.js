@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Box, Container, Typography, Paper, Grid, Divider } from '@mui/material';
+import { Box, Container, Typography, Paper, Grid } from '@mui/material';
 import { 
   Info, 
   Security, 
@@ -18,8 +18,7 @@ import {
   Lock,
   AttachMoney,
   Support,
-  Email,
-  Phone
+  Email
 } from '@mui/icons-material';
 
 const PageContainer = ({ children, title, icon: Icon }) => (
@@ -278,7 +277,7 @@ export const ContactPage = () => (
   </PageContainer>
 );
 
-export default {
+const infoPagesExports = {
   AboutPage,
   PrivacyPage,
   TermsPage,
@@ -286,3 +285,5 @@ export default {
   HowItWorksPage,
   ContactPage
 };
+
+export default infoPagesExports;

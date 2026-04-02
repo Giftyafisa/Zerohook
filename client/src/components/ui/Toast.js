@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { Box, IconButton, Typography, Slide } from '@mui/material';
+import { Box, IconButton, Typography } from '@mui/material';
 import { styled, keyframes } from '@mui/system';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';

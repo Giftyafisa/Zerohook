@@ -8,7 +8,7 @@ import {
   CircularProgress
 } from '@mui/material';
 import ProfileCompletionReminder from '../components/ProfileCompletionReminder';
-import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import { getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   Notifications as NotificationsIcon,
@@ -29,7 +29,7 @@ import { colors } from '../theme/tokens';
 const DashboardPage = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
-  const { format, symbol } = useCurrency();
+  const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     walletBalance: 0,

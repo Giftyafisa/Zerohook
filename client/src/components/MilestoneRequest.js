@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Typography,
@@ -20,7 +20,6 @@ import {
   Send as SendIcon,
   AccountBalanceWallet as WalletIcon
 } from '@mui/icons-material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 

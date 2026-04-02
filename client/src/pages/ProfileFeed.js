@@ -47,7 +47,6 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { calculateDistance } from '../config/locations';
 import { resolveProfileImage } from '../utils/imageUtils';
@@ -56,7 +55,7 @@ import ProfileCompletionReminder from '../components/ProfileCompletionReminder';
 import useCurrency from '../hooks/useCurrency';
 import useProfileEngagement from '../hooks/useProfileEngagement';
 import useFeedFilters from '../hooks/useFeedFilters';
-import useLocationBootstrap, { getAllLocations, findNearestCity } from '../hooks/useLocationBootstrap';
+import useLocationBootstrap, { getAllLocations } from '../hooks/useLocationBootstrap';
 import useFeedQuery from '../hooks/useFeedQuery';
 import usePresence from '../hooks/usePresence';
 import TikTokProfileFeed from '../components/TikTokProfileFeed';
@@ -467,7 +466,6 @@ const ProfileCard = React.memo(({
   const {
     startTracking,
     stopTracking,
-    trackScrollDepth,
     trackContactClick
   } = useProfileEngagement(profile?.id);
   
@@ -997,7 +995,7 @@ const ProfileSkeleton = () => (
 // SUBSCRIPTION PAYWALL COMPONENT
 // ============================================
 
-const SubscriptionPaywall = ({ onSubscribe }) => {
+export const SubscriptionPaywall = ({ onSubscribe }) => {
   const navigate = useNavigate();
 
   return (
@@ -1122,7 +1120,7 @@ const SubscriptionPaywall = ({ onSubscribe }) => {
 const ProfileFeed = () => {
   const isMobile = useMediaQuery(useTheme().breakpoints.down('sm'));
   const navigate = useNavigate();
-  const { user: currentUser, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   // ── extracted hooks ──────────────────────────────
   const {
@@ -1135,7 +1133,7 @@ const ProfileFeed = () => {
     userLocation, locationLoading,
     showLocationPicker, setShowLocationPicker,
     locationLabel, setManualLocation,
-    availableLocations, countryKey,
+    countryKey,
   } = useLocationBootstrap();
 
   const {
@@ -1177,7 +1175,7 @@ const ProfileFeed = () => {
     _onFilterChange(filterId);
     resetProfiles();
     activityTracker.trackFilter('category', filterId);
-  }, [_onFilterChange, resetProfiles]);
+  }, [_onFilterChange, resetProfiles, activityTracker]);
 
   // Handle like
   const handleLike = useCallback((profileId) => {

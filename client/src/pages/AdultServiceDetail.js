@@ -39,9 +39,7 @@ import {
   LocationOn,
   Star,
   Security,
-  Phone,
   Email,
-  WhatsApp,
   Favorite,
   FavoriteBorder,
   Share,
@@ -55,7 +53,6 @@ import {
   CreditCard
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import VideoSystem from '../components/video/VideoSystem';
 import CryptoPayment from '../components/payments/CryptoPayment';

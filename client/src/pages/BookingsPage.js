@@ -2,14 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
-  CircularProgress,
   Chip,
   Button,
   Tab,
   Tabs,
   Avatar
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   CalendarToday as CalendarIcon,
@@ -31,7 +29,7 @@ import { ErrorState, TimeoutError } from '../components/ErrorState';
 const BookingsPage = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const { format, symbol } = useCurrency();
+  const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   const [bookings, setBookings] = useState([]);

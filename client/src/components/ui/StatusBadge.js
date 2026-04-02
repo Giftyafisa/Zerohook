@@ -446,7 +446,6 @@ export const TrustScoreBreakdown = ({
   const averageRating = parseFloat(profile.average_rating || profile.averageRating) || 4.0;
   const completionRate = parseFloat(profile.completion_rate || profile.completionRate) || 80;
   const disputeCount = parseInt(profile.dispute_count || profile.disputeCount) || 0;
-  const responseTime = parseFloat(profile.response_time || profile.responseTime) || 30; // minutes
   
   // Check if recently active (within last 24 hours)
   const lastActive = profile.last_active || profile.lastActive;
@@ -642,7 +641,7 @@ export const TrustScoreBreakdown = ({
   );
 };
 
-export default {
+const statusBadgeExports = {
   VerificationBadge,
   SubscriptionBadge,
   OnlineStatusBadge,
@@ -652,3 +651,5 @@ export default {
   getVerificationTierConfig,
   getSubscriptionTierConfig,
 };
+
+export default statusBadgeExports;

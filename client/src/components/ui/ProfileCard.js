@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography, Avatar, Chip } from '@mui/material';
+import { Box, Typography, Chip } from '@mui/material';
 import { styled, keyframes } from '@mui/system';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import StarIcon from '@mui/icons-material/Star';
@@ -12,15 +12,6 @@ const pulse = keyframes`
   }
   50% {
     opacity: 0.7;
-  }
-`;
-
-const shimmer = keyframes`
-  0% {
-    background-position: -200% center;
-  }
-  100% {
-    background-position: 200% center;
   }
 `;
 

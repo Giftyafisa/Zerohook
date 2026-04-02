@@ -24,7 +24,6 @@ import {
   ShoppingCart
 } from '@mui/icons-material';
 import { GlassCard, GlassButton } from '../components/ui';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import CryptoPayment from '../components/payments/CryptoPayment';
 
@@ -117,16 +116,6 @@ const SugarProfilesPage = () => {
     setCryptoPaymentData(null);
     // Refresh access status after payment
     await fetchAccessStatus();
-  };
-
-  // Verify payment (for development/testing)
-  const verifyPayment = async (reference) => {
-    try {
-      await apiClient.post('/sugar-access/verify', { reference });
-      await fetchAccessStatus();
-    } catch (err) {
-      console.error('Payment verification error:', err);
-    }
   };
 
   useEffect(() => {

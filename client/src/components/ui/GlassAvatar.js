@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Avatar, Typography, Badge } from '@mui/material';
+import { Box, Avatar, Typography } from '@mui/material';
 import { styled, keyframes } from '@mui/system';
 
 const onlinePulse = keyframes`

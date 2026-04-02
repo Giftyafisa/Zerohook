@@ -25,7 +25,6 @@ import {
   InputAdornment,
   Chip
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import {
@@ -68,8 +67,8 @@ const ProfilePage = () => {
   const [cityInputValue, setCityInputValue] = useState('');
   const [loadingRegions, setLoadingRegions] = useState(false);
   const [loadingCities, setLoadingCities] = useState(false);
-  const [locationLookupLoading, setLocationLookupLoading] = useState(false);
-  const [locationSuggestion, setLocationSuggestion] = useState(null);
+  const [, setLocationLookupLoading] = useState(false);
+  const [, setLocationSuggestion] = useState(null);
   
   const [profileData, setProfileData] = useState({
     firstName: '',

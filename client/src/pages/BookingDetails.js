@@ -8,7 +8,6 @@ import {
   LocationOn as LocationIcon,
   ArrowBack as BackIcon
 } from '@mui/icons-material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import useCurrency from '../hooks/useCurrency';
 

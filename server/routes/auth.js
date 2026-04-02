@@ -24,28 +24,103 @@ function sendSuccess(res, status, data, message) {
   });
 }
 
+const parsePositiveInt = (value, fallback) => {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const AUTH_RATE_LIMIT_DURATION_SECONDS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_DURATION_SECONDS, 900);
+const AUTH_RATE_LIMIT_IP_POINTS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_IP_POINTS, 40);
+const AUTH_RATE_LIMIT_IDENTIFIER_POINTS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_IDENTIFIER_POINTS, 12);
+
+const normalizeIdentifier = (value) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+};
+
+const getRateLimitScope = (req) => {
+  const path = String(req.path || '').toLowerCase();
+  if (path.includes('register')) return 'register';
+  if (path.includes('login')) return 'login';
+  return 'auth';
+};
+
+const getClientIp = (req) => {
+  if (typeof req.ip === 'string' && req.ip.trim()) {
+    return req.ip.trim();
+  }
+
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0].trim();
+  }
+
+  const cloudflareIp = req.headers['cf-connecting-ip'];
+  if (typeof cloudflareIp === 'string' && cloudflareIp.trim()) {
+    return cloudflareIp.trim();
+  }
+
+  return req.ip || 'unknown';
+};
+
+const getIdentifierFromRequest = (req) => normalizeIdentifier(req.body?.email || req.body?.username);
+
 // Rate limiting for auth endpoints - dual key: IP + identifier
 const authLimiterByIp = new RateLimiterMemory({
-  points: 10, // 10 attempts per IP
-  duration: 900, // Per 15 minutes
+  points: AUTH_RATE_LIMIT_IP_POINTS,
+  duration: AUTH_RATE_LIMIT_DURATION_SECONDS,
 });
 const authLimiterByIdentifier = new RateLimiterMemory({
-  points: 5, // 5 attempts per email/username
-  duration: 900, // Per 15 minutes
+  points: AUTH_RATE_LIMIT_IDENTIFIER_POINTS,
+  duration: AUTH_RATE_LIMIT_DURATION_SECONDS,
 });
 
+const buildRateLimitKeys = (req, explicitIdentifier = null) => {
+  const scope = getRateLimitScope(req);
+  const ipKey = `${scope}:ip:${getClientIp(req)}`;
+  const identifier = normalizeIdentifier(explicitIdentifier) || getIdentifierFromRequest(req);
+  const identifierKey = identifier ? `${scope}:id:${identifier}` : null;
+
+  return { ipKey, identifierKey };
+};
+
+const clearIdentifierRateLimit = async (req, identifierValue = null) => {
+  const { identifierKey } = buildRateLimitKeys(req, identifierValue);
+  if (!identifierKey) return;
+
+  try {
+    await authLimiterByIdentifier.delete(identifierKey);
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('Failed to clear auth identifier limiter key:', error.message);
+    }
+  }
+};
+
 const rateLimitMiddleware = async (req, res, next) => {
+  const { ipKey, identifierKey } = buildRateLimitKeys(req);
+
   try {
     // Always limit by IP
-    await authLimiterByIp.consume(req.ip);
+    await authLimiterByIp.consume(ipKey);
+
     // Also limit by email/username if provided (prevents credential stuffing)
-    const identifier = req.body?.email || req.body?.username;
-    if (identifier) {
-      await authLimiterByIdentifier.consume(identifier.toLowerCase());
+    if (identifierKey) {
+      await authLimiterByIdentifier.consume(identifierKey);
     }
+
     next();
   } catch (rejRes) {
-    return sendError(res, 429, 'Too many authentication attempts, please try again later.');
+    const retryAfterSeconds = Math.max(1, Math.ceil((rejRes?.msBeforeNext || 0) / 1000));
+    res.set('Retry-After', String(retryAfterSeconds));
+
+    return sendError(
+      res,
+      429,
+      `Too many authentication attempts, please try again later. Retry in ${retryAfterSeconds}s.`,
+      { retryAfterSeconds }
+    );
   }
 };
 
@@ -387,6 +462,9 @@ router.post('/register', rateLimitMiddleware, [
     const refreshToken = await generateRefreshToken(user._id, null, req);
     setRefreshTokenCookie(res, refreshToken);
 
+    // Successful registration should not leave identifier lockouts behind.
+    await clearIdentifierRateLimit(req, email || username);
+
     // Return user data (excluding sensitive info)
     res.status(201).json({
       success: true,
@@ -512,6 +590,9 @@ router.post('/login', rateLimitMiddleware, [
     const token = generateAccessToken(user);
     const refreshToken = await generateRefreshToken(user._id, null, req);
     setRefreshTokenCookie(res, refreshToken);
+
+    // Successful login should clear prior identifier lockouts.
+    await clearIdentifierRateLimit(req, loginIdentifier);
 
     // Record trust event for successful login
     await req.trustEngine.recordTrustEvent(

@@ -32,6 +32,41 @@ const parsePositiveInt = (value, fallback) => {
 const AUTH_RATE_LIMIT_DURATION_SECONDS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_DURATION_SECONDS, 900);
 const AUTH_RATE_LIMIT_IP_POINTS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_IP_POINTS, 40);
 const AUTH_RATE_LIMIT_IDENTIFIER_POINTS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_IDENTIFIER_POINTS, 12);
+const LEGACY_LOGIN_HINT_TTL_MS = parsePositiveInt(process.env.LEGACY_LOGIN_HINT_TTL_SECONDS, 300) * 1000;
+
+let legacyEncryptedUsersCache = {
+  checkedAt: 0,
+  hasLegacyEncryptedUsers: false
+};
+
+const hasLegacyEncryptedUsers = async () => {
+  const now = Date.now();
+  if (now - legacyEncryptedUsersCache.checkedAt < LEGACY_LOGIN_HINT_TTL_MS) {
+    return legacyEncryptedUsersCache.hasLegacyEncryptedUsers;
+  }
+
+  try {
+    const count = await User.countDocuments({
+      $or: [
+        { email: /^gAAAAA/ },
+        { username: /^gAAAAA/ },
+        { profile_data: { $type: 'string' } }
+      ]
+    });
+
+    legacyEncryptedUsersCache = {
+      checkedAt: now,
+      hasLegacyEncryptedUsers: count > 0
+    };
+  } catch (error) {
+    legacyEncryptedUsersCache = {
+      checkedAt: now,
+      hasLegacyEncryptedUsers: false
+    };
+  }
+
+  return legacyEncryptedUsersCache.hasLegacyEncryptedUsers;
+};
 
 const normalizeIdentifier = (value) => {
   if (typeof value !== 'string') return null;
@@ -551,7 +586,16 @@ router.post('/login', rateLimitMiddleware, [
     }
 
     if (!user) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+      const legacyMigrationHint = await hasLegacyEncryptedUsers();
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials',
+        message: legacyMigrationHint
+          ? 'Invalid credentials. If this account was created on an older build, it may require migration support.'
+          : 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS',
+        legacyMigrationHint
+      });
     }
 
     // Check if account is suspended
@@ -563,7 +607,15 @@ router.post('/login', rateLimitMiddleware, [
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials'
+      const legacyMigrationHint = await hasLegacyEncryptedUsers();
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials',
+        message: legacyMigrationHint
+          ? 'Invalid credentials. If this account was created on an older build, it may require migration support.'
+          : 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS',
+        legacyMigrationHint
       });
     }
 

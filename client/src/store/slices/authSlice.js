@@ -3,6 +3,20 @@ import authAPI from '../../services/authAPI';
 
 const readSubscribed = (user) => (user?.is_subscribed ?? user?.isSubscribed ?? false);
 
+const buildAuthErrorPayload = (error, fallbackMessage) => {
+  const responseData = error?.response?.data || {};
+  const message = responseData.error || responseData.message || fallbackMessage;
+
+  return {
+    error: message,
+    message,
+    status: error?.response?.status ?? null,
+    code: responseData.code || null,
+    details: responseData.details || null,
+    legacyMigrationHint: responseData.legacyMigrationHint || false
+  };
+};
+
 // Refresh token is now handled exclusively via HttpOnly cookie
 // No client-side storage needed - the browser sends the cookie automatically
 
@@ -16,7 +30,7 @@ export const loginUser = createAsyncThunk(
       // Refresh token is set as HttpOnly cookie by the server
       return response;
     } catch (error) {
-      return rejectWithValue(error.response?.data || { error: 'Login failed' });
+      return rejectWithValue(buildAuthErrorPayload(error, 'Login failed'));
     }
   }
 );
@@ -30,7 +44,7 @@ export const registerUser = createAsyncThunk(
       // Refresh token is set as HttpOnly cookie by the server
       return response;
     } catch (error) {
-      return rejectWithValue(error.response?.data || { error: 'Registration failed' });
+      return rejectWithValue(buildAuthErrorPayload(error, 'Registration failed'));
     }
   }
 );
@@ -44,7 +58,7 @@ export const refreshToken = createAsyncThunk(
       localStorage.setItem('token', response.token);
       return response;
     } catch (error) {
-      return rejectWithValue(error.response?.data || { error: 'Token refresh failed' });
+      return rejectWithValue(buildAuthErrorPayload(error, 'Token refresh failed'));
     }
   }
 );
@@ -86,7 +100,7 @@ export const verifyTier = createAsyncThunk(
       const response = await authAPI.verifyTier(verificationData);
       return response;
     } catch (error) {
-      return rejectWithValue(error.response?.data || { error: 'Verification failed' });
+      return rejectWithValue(buildAuthErrorPayload(error, 'Verification failed'));
     }
   }
 );

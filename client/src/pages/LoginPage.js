@@ -44,8 +44,22 @@ const LoginPage = () => {
         // Login successful, navigate to dashboard
         navigate('/dashboard');
       } else {
-        // Login failed, error is handled by Redux
-        console.error('Login failed:', resultAction.error);
+        const rejectedPayload = resultAction.payload || {};
+        const baseMessage = rejectedPayload.error
+          || rejectedPayload.message
+          || resultAction.error?.message
+          || 'Login failed';
+
+        const legacyHint = rejectedPayload.legacyMigrationHint
+          ? ' If this account was created on an older build, it may need migration support.'
+          : '';
+
+        setLocalError(`${baseMessage}${legacyHint}`);
+
+        console.error('Login failed:', {
+          payload: rejectedPayload,
+          thunkError: resultAction.error
+        });
       }
     } catch (error) {
       console.error('Login error:', error);

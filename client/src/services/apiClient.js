@@ -78,8 +78,15 @@ apiClient.interceptors.response.use(
   },
   async (error) => {
     const originalRequest = error.config;
+    const requestUrl = String(originalRequest?.url || '').toLowerCase();
+    const isAuthRoute = requestUrl.includes('/auth/login')
+      || requestUrl.includes('/auth/register')
+      || requestUrl.includes('/auth/refresh')
+      || requestUrl.includes('/auth/validate-token');
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Do not attempt refresh for authentication endpoints.
+    // A login/register 401 should surface directly to UI.
+    if (error.response?.status === 401 && !originalRequest?._retry && !isAuthRoute) {
       originalRequest._retry = true;
 
       if (isRefreshing) {

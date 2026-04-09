@@ -227,8 +227,9 @@ self.addEventListener('push', (event) => {
       badge: '/favicon.ico',
       vibrate: [100, 50, 100],
       data: {
+        ...data,
         dateOfArrival: Date.now(),
-        primaryKey: data.primaryKey
+        primaryKey: data.primaryKey || data.messageId || data.conversationId || data.callId || data.title || Date.now().toString()
       },
       actions: [
         {
@@ -253,12 +254,26 @@ self.addEventListener('push', (event) => {
 // Notification click handler
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  
-  if (event.action === 'explore') {
-    event.waitUntil(
-      clients.openWindow('/')
-    );
-  }
+
+  const data = event.notification.data || {};
+  const targetUrl = data.conversationId
+    ? `/chat?conversation=${encodeURIComponent(data.conversationId)}`
+    : data.callId
+      ? '/chat'
+      : '/notifications';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+
+      return clients.openWindow(targetUrl);
+    })
+  );
 });
 
 // IndexedDB helpers for offline actions

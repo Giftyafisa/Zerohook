@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const { Message, Conversation, isDatabaseAvailable } = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { inferMessageType } = require('../utils/inferMessageType');
+const { formatMessagePreview } = require('../utils/messagePreview');
 const { body, validationResult } = require('express-validator');
 const { createDistributedLimiter } = require('../utils/rateLimiters');
 const router = express.Router();
@@ -25,34 +26,7 @@ const debugLog = isDev ? (...args) => console.log(...args) : () => {};
  * Converts http(s) / /uploads/ / data: URIs to friendly labels.
  * CRITICAL: Handles both already-formatted previews and raw content.
  */
-const normalizeLastMessagePreview = (content = '', messageType = 'text') => {
-  if (!content && !messageType) return '';
-
-  // If content is already an emoji label, return as-is (avoid double-formatting)
-  if (typeof content === 'string' && /^[\u{1F4F7}\u{1F3AC}\u{1F3B5}\u{1F4CE}\u{1F4CD}\u{1F464}]/u.test(content)) {
-    return content;
-  }
-
-  // Infer type from both content and explicit messageType
-  const resolvedType = inferMessageType({ messageType, content: String(content || ''), metadata: {} });
-
-  // Return emoji label for non-text types
-  switch (resolvedType) {
-    case 'image': return '📷 Photo';
-    case 'video': return '🎬 Video';
-    case 'audio': return '🎵 Audio';
-    case 'file': return '📎 File';
-    case 'location': return '📍 Location';
-    case 'contact': return '👤 Contact';
-    default: break;
-  }
-
-  // For text messages, return the content itself (truncated for display)
-  if (typeof content === 'string') {
-    return content.substring(0, 100);
-  }
-  return String(content || '');
-};
+const normalizeLastMessagePreview = (content = '', messageType = 'text') => formatMessagePreview(content, messageType);
 
 const buildVisibleConversationFilter = (userId) => ({
   status: { $ne: 'deleted' },
@@ -473,11 +447,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
         message = newMessage;
         
         // Format a human-readable preview for the conversation sidebar
-        let lastMessagePreview = content;
-        if (resolvedMessageType === 'image') lastMessagePreview = '📷 Photo';
-        else if (resolvedMessageType === 'video') lastMessagePreview = '🎬 Video';
-        else if (resolvedMessageType === 'file') lastMessagePreview = '📎 File';
-        else if (resolvedMessageType === 'audio') lastMessagePreview = '🎵 Audio';
+        const lastMessagePreview = formatMessagePreview(content, resolvedMessageType, metadata || {});
 
         await Conversation.findByIdAndUpdate(conversationId, {
           lastMessage: lastMessagePreview,
@@ -516,12 +486,7 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
           const senderName = req.user.username || 'Someone';
           
           // Format notification preview based on message type — never show raw URLs for media
-          let preview;
-          if (resolvedMessageType === 'image') preview = '📷 Photo';
-          else if (resolvedMessageType === 'video') preview = '🎬 Video';
-          else if (resolvedMessageType === 'file') preview = '📎 File';
-          else if (resolvedMessageType === 'audio') preview = '🎵 Audio';
-          else preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
+          const preview = formatMessagePreview(content, resolvedMessageType, metadata, 50);
           
           await NotificationService.createAndEmit(req.io, {
             userId: recipientId,
@@ -818,18 +783,12 @@ router.delete('/messages/:messageId', authMiddleware, async (req, res) => {
     // Recompute conversation preview from latest remaining message
     const latest = await Message.findOne({ conversationId: message.conversationId })
       .sort({ createdAt: -1 })
-      .select('content messageType createdAt');
+      .select('content messageType metadata createdAt');
 
     let nextPreview = '';
     let nextTime = null;
     if (latest) {
-      if (latest.messageType === 'image') nextPreview = '📷 Photo';
-      else if (latest.messageType === 'video') nextPreview = '🎬 Video';
-      else if (latest.messageType === 'file') nextPreview = '📎 File';
-      else if (latest.messageType === 'audio') nextPreview = '🎵 Audio';
-      else if (latest.messageType === 'location') nextPreview = '📍 Location';
-      else if (latest.messageType === 'contact') nextPreview = '👤 Contact';
-      else nextPreview = latest.content || '';
+      nextPreview = formatMessagePreview(latest.content, latest.messageType, latest.metadata || {});
       nextTime = latest.createdAt || null;
     }
 

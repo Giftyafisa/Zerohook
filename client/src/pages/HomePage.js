@@ -11,8 +11,7 @@ import {
   Chip,
   Alert,
   Paper,
-  Avatar,
-  AvatarGroup
+  Avatar
 } from '@mui/material';
 import {
   Shield,

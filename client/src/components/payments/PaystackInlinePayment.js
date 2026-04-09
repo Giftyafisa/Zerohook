@@ -19,7 +19,7 @@
  * />
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import PaystackPop from '@paystack/inline-js';
 import {
   Box,
@@ -31,8 +31,6 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  TextField,
   IconButton,
   Divider,
 } from '@mui/material';
@@ -43,10 +41,8 @@ import {
   QrCode2 as QRIcon,
   Close as CloseIcon,
   Lock as LockIcon,
-  CheckCircle as CheckIcon,
   Info as InfoIcon,
 } from '@mui/icons-material';
-import { API_BASE_URL } from '../../config/constants';
 import apiClient from '../../services/apiClient';
 import useCurrency from '../../hooks/useCurrency';
 

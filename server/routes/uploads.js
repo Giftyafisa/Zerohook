@@ -739,7 +739,7 @@ router.post('/content', authMiddleware, contentUpload.single('media'), magicByte
 router.get('/content/feed', async (req, res) => {
   try {
     const { category } = req.query;
-    const pg = safePagination(req.query);
+    const pg = safePagination(req.query.page, req.query.limit);
 
     const query = {
       upload_type: 'content_post',
@@ -789,7 +789,7 @@ router.get('/content/feed', async (req, res) => {
         shares: post.metadata?.shares || 0,
         userId: post.user_id,
         username: post.username || user?.username || 'Anonymous',
-        userAvatar: user?.profile_data?.profilePicture || user?.profile_data?.photos?.[0] || null,
+        userAvatar: user?.profile_data?.profilePicture || user?.profile_data?.profile_image || user?.profile_data?.profile_image_url || user?.profile_data?.profile_picture?.url || user?.profile_data?.photos?.[0] || null,
         createdAt: post.created_at,
         storageType: post.storage_type
       };
@@ -818,7 +818,7 @@ router.get('/content/feed', async (req, res) => {
 router.get('/content/my', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const pg = safePagination(req.query);
+    const pg = safePagination(req.query.page, req.query.limit);
 
     const content = await FileUpload.find({
       user_id: userId,

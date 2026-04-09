@@ -17,7 +17,9 @@ import {
   Skeleton,
   Divider,
   Snackbar,
-  Alert
+  Alert,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
@@ -51,7 +53,7 @@ const styles = {
   container: {
     minHeight: '100vh',
     background: tokens.colors.background.primary,
-    pb: 10,
+    pb: { xs: 12, md: 10 },
   },
   header: {
     position: 'sticky',
@@ -60,30 +62,38 @@ const styles = {
     background: `${tokens.colors.background.primary}f2`,
     backdropFilter: tokens.backdropBlur.md,
     borderBottom: `1px solid ${tokens.colors.border.primary}`,
-    px: 3,
-    py: 2,
+    px: { xs: 1.5, sm: 3 },
+    py: { xs: 1.5, sm: 2 },
   },
   headerContent: {
     display: 'flex',
+    flexDirection: { xs: 'column', sm: 'row' },
     alignItems: 'center',
     justifyContent: 'space-between',
     maxWidth: '800px',
     mx: 'auto',
+    gap: { xs: 1.5, sm: 2 },
+    width: '100%',
   },
   title: {
     fontFamily: '"Outfit", sans-serif',
     fontWeight: tokens.fontWeight.bold,
-    fontSize: `${tokens.fontSize.xl}px`,
+    fontSize: { xs: '20px', sm: `${tokens.fontSize.xl}px` },
     color: tokens.colors.text.primary,
+    lineHeight: 1.1,
   },
   tabs: {
     maxWidth: '800px',
     mx: 'auto',
-    px: 2,
+    px: { xs: 0, sm: 2 },
+    mt: { xs: 1, sm: 0.5 },
     '& .MuiTabs-indicator': {
       background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
       height: '3px',
       borderRadius: '3px',
+    },
+    '& .MuiTabs-flexContainer': {
+      gap: { xs: 0.5, sm: 0 },
     },
     '& .MuiTab-root': {
       color: 'rgba(255, 255, 255, 0.5)',
@@ -101,18 +111,19 @@ const styles = {
   content: {
     maxWidth: '800px',
     mx: 'auto',
-    px: 2,
-    py: 2,
+    px: { xs: 1, sm: 2 },
+    py: { xs: 1.5, sm: 2 },
   },
   notificationItem: {
     display: 'flex',
-    gap: 2,
-    p: 2,
-    minHeight: '56px',  // Comfortable touch target
+    gap: { xs: 1.5, sm: 2 },
+    p: { xs: 1.5, sm: 2 },
+    minHeight: { xs: '72px', sm: '56px' },
     borderRadius: '12px',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     position: 'relative',
+    alignItems: 'center',
     '&:hover': {
       background: 'rgba(255, 255, 255, 0.06)',
     },
@@ -189,11 +200,11 @@ const styles = {
 
 // Notification type configs - maps backend types to UI
 const notificationTypes = {
-  message: { icon: <Chat />, color: '#00f2ea', route: '/chat' },
-  new_message: { icon: <Chat />, color: '#00f2ea', route: '/chat' },
-  connection: { icon: <Person />, color: '#ff0055', route: '/chat' },
-  connection_request: { icon: <Person />, color: '#ff0055', route: '/chat' },
-  connection_accepted: { icon: <Person />, color: '#00ff88', route: '/chat' },
+  message: { icon: <Chat />, color: '#00f2ea', route: '/messages' },
+  new_message: { icon: <Chat />, color: '#00f2ea', route: '/messages' },
+  connection: { icon: <Person />, color: '#ff0055', route: '/profiles' },
+  connection_request: { icon: <Person />, color: '#ff0055', route: '/profiles' },
+  connection_accepted: { icon: <Person />, color: '#00ff88', route: '/profiles' },
   payment: { icon: <Payment />, color: '#00ff88', route: '/wallet' },
   payment_received: { icon: <Payment />, color: '#00ff88', route: '/wallet' },
   payment_sent: { icon: <Payment />, color: '#ffd700', route: '/wallet' },
@@ -222,7 +233,49 @@ const formatTimeAgo = (dateString) => {
   return date.toLocaleDateString();
 };
 
+const resolveChatTarget = (notification) => {
+  const metadata = notification?.metadata || notification?.data || {};
+  return {
+    conversationId:
+      metadata.conversationId ||
+      metadata.conversation_id ||
+      notification?.conversationId ||
+      notification?.conversation_id ||
+      null,
+    recipientId:
+      metadata.senderId ||
+      metadata.sender_id ||
+      metadata.recipientId ||
+      metadata.recipient_id ||
+      notification?.senderId ||
+      notification?.sender_id ||
+      notification?.recipientId ||
+      notification?.recipient_id ||
+      null,
+    recipientName:
+      metadata.senderName ||
+      metadata.sender_name ||
+      metadata.recipientName ||
+      metadata.recipient_name ||
+      notification?.senderName ||
+      notification?.sender_name ||
+      notification?.recipientName ||
+      notification?.recipient_name ||
+      null,
+    recipientAvatar:
+      metadata.senderAvatar ||
+      metadata.sender_avatar ||
+      metadata.recipientAvatar ||
+      metadata.recipient_avatar ||
+      notification?.senderAvatar ||
+      notification?.recipientAvatar ||
+      null,
+  };
+};
+
 const NotificationsPage = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const notificationsList = useSelector(selectNotificationsList);
@@ -326,19 +379,36 @@ const NotificationsPage = () => {
     if (config.route) {
       // For messages, include conversation context if available
       if (notification.type === 'message' || notification.type === 'new_message') {
-        // Check both conversationId and conversation_id for compatibility
-        const metadata = notification.metadata || notification.data || {};
-        const convId = metadata?.conversationId || metadata?.conversation_id;
-        if (convId) {
-          navigate('/chat', {
+        const chatTarget = resolveChatTarget(notification);
+        const chatQuery = new URLSearchParams();
+        if (chatTarget.recipientId) chatQuery.set('recipientId', chatTarget.recipientId);
+        if (chatTarget.conversationId) chatQuery.set('conversationId', chatTarget.conversationId);
+        const chatPath = `/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`;
+        if (chatTarget.conversationId || chatTarget.recipientId) {
+          navigate(chatPath, {
             state: {
-              conversationId: convId,
-              recipientId: metadata?.senderId || metadata?.sender_id || null,
-              recipientName: metadata?.senderName || metadata?.sender_name || null
+              ...chatTarget,
+              from: '/notifications'
             }
           });
         } else {
-          navigate(config.route);
+          navigate('/chat');
+        }
+      } else if (notification.type === 'connection' || notification.type === 'connection_request' || notification.type === 'connection_accepted') {
+        const metadata = notification.metadata || notification.data || {};
+        const requesterId =
+          metadata.fromUserId ||
+          metadata.from_user_id ||
+          metadata.senderId ||
+          metadata.sender_id ||
+          notification.fromUserId ||
+          notification.senderId ||
+          null;
+
+        if (requesterId) {
+          navigate(`/profile/${requesterId}`);
+        } else {
+          navigate('/profiles');
         }
       } else if (notification.type === 'booking' || notification.type.includes('booking')) {
         const metadata = notification.metadata || notification.data || {};
@@ -403,7 +473,7 @@ const NotificationsPage = () => {
       {/* Header */}
       <Box sx={styles.header}>
         <Box sx={styles.headerContent}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, width: '100%', flexWrap: 'wrap' }}>
             <IconButton 
               onClick={() => navigate(-1)}
               sx={{ color: '#fff' }}
@@ -428,7 +498,7 @@ const NotificationsPage = () => {
             )}
           </Box>
           
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'space-between', sm: 'flex-end' } }}>
             <IconButton 
               onClick={() => fetchNotifications({ showRefreshIndicator: true })}
               disabled={refreshing}
@@ -460,6 +530,9 @@ const NotificationsPage = () => {
           value={activeTab} 
           onChange={handleTabChange}
           sx={styles.tabs}
+          variant={isMobile ? 'fullWidth' : 'scrollable'}
+          scrollButtons={isMobile ? false : 'auto'}
+          allowScrollButtonsMobile
         >
           <Tab label="All" />
           <Tab label={`Unread (${displayUnreadCount})`} />
@@ -471,7 +544,7 @@ const NotificationsPage = () => {
         {loading ? (
           // Loading skeletons
           [...Array(5)].map((_, i) => (
-            <Box key={i} sx={{ display: 'flex', gap: 2, p: 2 }}>
+            <Box key={i} sx={{ display: 'flex', gap: 2, p: { xs: 1.5, sm: 2 }, alignItems: 'center' }}>
               <Skeleton variant="circular" width={48} height={48} sx={{ bgcolor: 'rgba(255,255,255,0.1)' }} />
               <Box sx={{ flex: 1 }}>
                 <Skeleton width="60%" height={24} sx={{ bgcolor: 'rgba(255,255,255,0.1)' }} />
@@ -488,7 +561,7 @@ const NotificationsPage = () => {
             </Typography>
             <Button 
               onClick={() => fetchNotifications({})}
-              sx={{ color: '#00f2ea', textTransform: 'none' }}
+                sx={{ color: '#00f2ea', textTransform: 'none', minHeight: 44, px: 3 }}
             >
               Try Again
             </Button>
@@ -550,17 +623,18 @@ const NotificationsPage = () => {
                     </Avatar>
                     
                     {/* Content */}
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, flexDirection: { xs: 'column', sm: 'row' }, width: '100%' }}>
                         <Typography sx={{ 
                           color: '#fff', 
                           fontWeight: 600, 
                           fontSize: '15px',
                           fontFamily: '"Outfit", sans-serif',
+                          pr: { xs: 0, sm: 1 },
                         }}>
                           {notification.title}
                         </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, alignSelf: { xs: 'flex-end', sm: 'auto' } }}>
                           <Typography sx={{ 
                             color: 'rgba(255,255,255,0.4)', 
                             fontSize: '12px',
@@ -588,7 +662,10 @@ const NotificationsPage = () => {
                         mt: 0.5,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        display: '-webkit-box',
+                        WebkitLineClamp: { xs: 2, sm: 1 },
+                        WebkitBoxOrient: 'vertical',
+                        whiteSpace: { xs: 'normal', sm: 'nowrap' },
                       }}>
                         {notification.body || notification.message || ''}
                       </Typography>
@@ -609,7 +686,7 @@ const NotificationsPage = () => {
             <Button
               onClick={() => fetchNotifications({ cursor: nextCursor, append: true, showRefreshIndicator: true })}
               disabled={refreshing || !nextCursor}
-              sx={{ color: '#00f2ea', textTransform: 'none' }}
+              sx={{ color: '#00f2ea', textTransform: 'none', minHeight: 44, width: { xs: '100%', sm: 'auto' }, px: 3 }}
             >
               {refreshing ? 'Loading...' : 'Load more'}
             </Button>

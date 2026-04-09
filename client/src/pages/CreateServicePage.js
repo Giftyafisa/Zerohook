@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Container,
@@ -31,6 +31,8 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import apiClient from '../services/apiClient';
 import { SERVICE_CATEGORIES } from '../config/constants';
 
 const CreateServicePage = () => {
@@ -56,6 +58,8 @@ const CreateServicePage = () => {
 
   const [currentTag, setCurrentTag] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [categoryIdMap, setCategoryIdMap] = useState({});
   const [errors, setErrors] = useState({});
 
   const fadeInUp = {
@@ -63,6 +67,52 @@ const CreateServicePage = () => {
     animate: { opacity: 1, y: 0 },
     transition: { duration: 0.5 }
   };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchCategories = async () => {
+      try {
+        const response = await apiClient.get('/services/categories');
+        const data = response.data;
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (data?.success && Array.isArray(data.categories)) {
+          const nextCategoryIds = data.categories.reduce((accumulator, category) => {
+            if (category?.name && typeof category.id === 'string' && /^[a-f\d]{24}$/i.test(category.id)) {
+              accumulator[category.name] = category.id;
+            }
+            return accumulator;
+          }, {});
+
+          setCategoryIdMap(nextCategoryIds);
+
+          if (Object.keys(nextCategoryIds).length === 0) {
+            toast.error('Service categories are unavailable right now.');
+          }
+        } else {
+          toast.error('Unable to load service categories right now.');
+        }
+      } catch (error) {
+        if (isMounted) {
+          toast.error(error.response?.data?.error || 'Unable to load service categories right now.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingCategories(false);
+        }
+      }
+    };
+
+    fetchCategories();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -124,14 +174,48 @@ const CreateServicePage = () => {
       return;
     }
 
+    const categoryId = categoryIdMap[formData.category];
+
+    if (!categoryId) {
+      toast.error('Service categories are still loading or unavailable.');
+      return;
+    }
+
     setLoading(true);
     
     try {
-      console.log('Creating service:', formData);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      navigate('/dashboard');
+      const response = await apiClient.post('/services', {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        price: Number(formData.price),
+        duration_minutes: Number(formData.duration) || 60,
+        category_id: categoryId,
+        location_type: formData.locationType,
+        location_data: {
+          city: formData.locationData.city.trim(),
+          address: formData.locationData.address.trim()
+        },
+        requirements: {
+          minimumTier: Number(formData.requirements.minimumTier),
+          ageRestriction: formData.requirements.ageRestriction,
+          identityVerification: formData.requirements.identityVerification,
+          tags: formData.tags
+        },
+        media_urls: []
+      });
+
+      const service = response.data?.service;
+      const serviceId = service?._id ? String(service._id) : service?.id;
+
+      if (!serviceId) {
+        throw new Error('Service created but no service id was returned.');
+      }
+
+      toast.success(response.data?.message || 'Service created successfully');
+      navigate(`/adult-services/${serviceId}`);
     } catch (error) {
       console.error('Service creation failed:', error);
+      toast.error(error.response?.data?.error || error.response?.data?.message || 'Failed to create service. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -452,10 +536,10 @@ const CreateServicePage = () => {
                       type="submit"
                       variant="contained"
                       size="large"
-                      disabled={loading}
+                      disabled={loading || loadingCategories || !Object.keys(categoryIdMap).length}
                       sx={{ px: 4, py: 1.5, fontSize: '1.1rem', fontWeight: 'bold' }}
                     >
-                      {loading ? 'Creating Service...' : 'Create Service'}
+                      {loading ? 'Creating Service...' : loadingCategories ? 'Loading Categories...' : Object.keys(categoryIdMap).length ? 'Create Service' : 'Categories Unavailable'}
                     </Button>
                   </Grid>
                 </Grid>

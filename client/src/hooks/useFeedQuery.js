@@ -123,7 +123,7 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
               isPremium: u.is_subscribed,
               isOnline: u.isOnline || u.is_online || false,
               lastActive: u.last_active || u.lastActive || u.created_at,
-              lastSeenLabel: u.lastSeen,
+              lastSeenLabel: u.lastSeenLabel ?? u.last_seen_label ?? u.lastSeen ?? null,
               createdAt: u.created_at,
               distance: u.distance != null ? parseFloat(u.distance) : null,
               distanceEstimated: u.distanceEstimated,

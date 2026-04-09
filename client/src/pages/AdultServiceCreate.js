@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Container,
@@ -35,6 +35,7 @@ import useCurrency from '../hooks/useCurrency';
 const AdultServiceCreate = () => {
   const navigate = useNavigate();
   const { symbol: currencySymbol } = useCurrency();
+  const redirectTimeoutRef = useRef(null);
   
   const [activeStep, setActiveStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -80,6 +81,15 @@ const AdultServiceCreate = () => {
   const [success, setSuccess] = useState('');
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+        redirectTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Fetch categories from backend API
   useEffect(() => {
@@ -272,7 +282,10 @@ const AdultServiceCreate = () => {
        setSuccess('Service created successfully! Redirecting...');
        
        // Redirect to the new service page after a short delay
-       setTimeout(() => {
+       if (redirectTimeoutRef.current) {
+         clearTimeout(redirectTimeoutRef.current);
+       }
+       redirectTimeoutRef.current = setTimeout(() => {
          navigate(`/adult-services/${serviceId}`);
        }, 2000);
       

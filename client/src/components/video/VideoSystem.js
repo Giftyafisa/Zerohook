@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Box, IconButton, Typography, LinearProgress, Alert } from '@mui/material';
 import {
   CloudUpload,
@@ -151,6 +151,7 @@ const VideoSystem = ({
 }) => {
   const videoRef = useRef(null);
   const fileInputRef = useRef(null);
+  const uploadIntervalRef = useRef(null);
   
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -165,6 +166,19 @@ const VideoSystem = ({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+
+  useEffect(() => {
+    return () => {
+      if (uploadIntervalRef.current) {
+        clearInterval(uploadIntervalRef.current);
+        uploadIntervalRef.current = null;
+      }
+
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
   // Format time
   const formatTime = (secs) => {
@@ -239,6 +253,11 @@ const VideoSystem = ({
 
     // Simulate upload (or call actual upload function)
     if (onUpload) {
+      if (uploadIntervalRef.current) {
+        clearInterval(uploadIntervalRef.current);
+        uploadIntervalRef.current = null;
+      }
+
       setIsUploading(true);
       
       // Simulated progress
@@ -248,15 +267,26 @@ const VideoSystem = ({
         setUploadProgress(progress);
         if (progress >= 100) {
           clearInterval(interval);
+          uploadIntervalRef.current = null;
           setIsUploading(false);
           onUpload(file, url);
         }
       }, 200);
+
+      uploadIntervalRef.current = interval;
     }
   }, [onUpload]);
 
   // Handle delete
   const handleDelete = () => {
+    if (uploadIntervalRef.current) {
+      clearInterval(uploadIntervalRef.current);
+      uploadIntervalRef.current = null;
+    }
+
+    setIsUploading(false);
+    setUploadProgress(0);
+
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);

@@ -10,11 +10,23 @@
  * @param {Object} [opts.metadata]    - File metadata (mimeType, filename, etc.)
  * @returns {string} One of: 'text', 'image', 'video', 'audio', 'file', 'location', 'contact'
  */
+function normalizeDeclaredMessageType(rawType) {
+  const value = String(rawType || '').trim().toLowerCase();
+  if (!value) return '';
+  if (value === 'text' || value.startsWith('text/')) return 'text';
+  if (value === 'image' || value.startsWith('image/')) return 'image';
+  if (value === 'video' || value.startsWith('video/')) return 'video';
+  if (value === 'audio' || value.startsWith('audio/')) return 'audio';
+  if (value === 'file' || value === 'location' || value === 'contact') return value;
+  if (value.includes('/')) return 'file';
+  return value;
+}
+
 function inferMessageType({ messageType, type, content, metadata = {} } = {}) {
-  const directType = messageType ?? type;
-  // Explicitly provided messageType/type should override inference (including 'text').
-  // This keeps server behavior consistent with the client-side helper.
-  if (directType) return directType;
+  const directType = normalizeDeclaredMessageType(messageType ?? type);
+  // Explicit media/file types should override inference, but text stays permissive
+  // so URL-like content can still be recognized as media.
+  if (directType && directType !== 'text') return directType;
 
   const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
   const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
@@ -30,13 +42,20 @@ function inferMessageType({ messageType, type, content, metadata = {} } = {}) {
   if (value.startsWith('data:image/')) return 'image';
   if (value.startsWith('data:video/')) return 'video';
   if (value.startsWith('data:audio/')) return 'audio';
+  if (value.startsWith('blob:')) return 'file';
   if (/\/image\/upload\//.test(value)) return 'image';
   if (/\/video\/upload\//.test(value)) return 'video';
   if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
   if (/\.(mp4|mov|avi|webm|mkv|m4v|3gp)$/.test(value) || /video|vid/.test(value)) return 'video';
   if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
   // Fallback: treat links as file-like content
-  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
+  if (
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('/uploads/') ||
+    value.startsWith('uploads/') ||
+    value.startsWith('data:')
+  ) return 'file';
 
   return 'text';
 }

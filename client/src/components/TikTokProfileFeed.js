@@ -270,9 +270,6 @@ const SearchOverlay = ({ open, onClose }) => {
     localStorage.setItem('zerohook_recent_searches', JSON.stringify(updated));
     
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return; // Only track for authenticated users — can't use apiClient without token context
-
       const params = new URLSearchParams({
         search: query,
         limit: '20',
@@ -299,8 +296,9 @@ const SearchOverlay = ({ open, onClose }) => {
       } catch (e) {
       console.log('Search failed:', e);
       setSearchResults([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // Handle suggestion click
@@ -1396,25 +1394,25 @@ const TikTokProfileFeed = () => {
 
   // Handle message - Navigate to chat with this user
   const handleMessage = useCallback((profile) => {
-    if (!isAuthenticated) {
-      navigate('/login', { state: { from: '/profiles' } });
-      return;
-    }
     const avatar = resolveProfileImage(profile.profileData);
     const recipientId = profile.id || profile._id || profile.userId;
+    const recipientName = profile.profileData?.firstName || profile.username || 'User';
     if (!recipientId) {
       toast.error('Unable to open chat for this profile right now.');
       return;
     }
-    navigate('/chat', {
-      state: {
-        recipientId,
-        recipientName: profile.profileData?.firstName || profile.username,
-        recipientAvatar: avatar,
-        from: '/profiles'
-      }
+    const chatState = {
+      recipientId,
+      recipientName,
+      recipientAvatar: avatar,
+      from: '/profiles'
+    };
+    const chatQuery = new URLSearchParams();
+    chatQuery.set('recipientId', String(recipientId));
+    navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+      state: chatState
     });
-  }, [isAuthenticated, navigate]);
+  }, [navigate]);
 
   // Handle view profile
   const handleViewProfile = useCallback((profile) => {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import CryptoPayment from '../components/payments/CryptoPayment';
 import {
@@ -67,9 +67,11 @@ const SUPPORTED_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 const SubscriptionPage = () => {
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const { userCountry, detectedCountry } = useSelector(state => state.country);
+  const redirectTimeoutRef = useRef(null);
   
   const [loading] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -78,6 +80,37 @@ const SubscriptionPage = () => {
   const [error, setError] = useState('');
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [detectingLocation, setDetectingLocation] = useState(true);
+
+  const getRegisterReturnState = useCallback(() => {
+    const fromState = currentLocation.state?.from;
+
+    if (fromState && typeof fromState === 'object') {
+      return {
+        pathname: fromState.pathname || currentLocation.pathname,
+        search: fromState.search || '',
+        hash: fromState.hash || ''
+      };
+    }
+
+    if (typeof fromState === 'string' && fromState.trim()) {
+      return { pathname: fromState };
+    }
+
+    return {
+      pathname: currentLocation.pathname,
+      search: currentLocation.search,
+      hash: currentLocation.hash
+    };
+  }, [currentLocation.pathname, currentLocation.search, currentLocation.hash, currentLocation.state]);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+        redirectTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Detect country on mount
   useEffect(() => {
@@ -124,9 +157,13 @@ const SubscriptionPage = () => {
 
   useEffect(() => {
     if (!user) {
-      navigate('/register');
+      navigate('/register', {
+        state: {
+          from: getRegisterReturnState()
+        }
+      });
     }
-  }, [user, navigate]);
+  }, [user, navigate, getRegisterReturnState]);
 
   const handleSubscribe = async () => {
     if (!selectedCountry) {
@@ -184,13 +221,19 @@ const SubscriptionPage = () => {
       // Update frontend state
       dispatch(setSubscriptionStatus(true));
       toast.success('🎉 Subscription activated successfully!');
-      setTimeout(() => navigate('/dashboard'), 2000);
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+      }
+      redirectTimeoutRef.current = setTimeout(() => navigate('/dashboard'), 2000);
     } catch (error) {
       console.error('Payment success handler error:', error);
       // Still mark as success since blockchain confirmed
       dispatch(setSubscriptionStatus(true));
       toast.success('🎉 Payment confirmed! Your subscription is being activated.');
-      setTimeout(() => navigate('/dashboard'), 3000);
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+      }
+      redirectTimeoutRef.current = setTimeout(() => navigate('/dashboard'), 3000);
     }
   };
 

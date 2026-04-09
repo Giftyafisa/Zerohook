@@ -11,7 +11,6 @@ import {
   Alert
 } from '@mui/material';
 import { toast } from 'react-toastify';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   AccountBalanceWallet as WalletIcon,

@@ -21,6 +21,7 @@
  */
 
 const { User, UserActivityLog, SugarAccessPayment, Transaction, Conversation, Message, UserEngagementMetric } = require('../config/database');
+const { buildAccountTypeQuery, buildPublicVisibilityFilter } = require('../utils/accountTypeUtils');
 const ProfileCompletenessService = require('./ProfileCompletenessService');
 const LocationVerificationService = require('./LocationVerificationService');
 
@@ -625,26 +626,24 @@ class MongoRecommendationEngine {
       debugLog('   Filters:', filters);
 
       // Build MongoDB query
-      const mongoQuery = {
-        $or: [
-          { 'profile_data.accountType': accountTypeFilter },
-          { 'profileData.accountType': accountTypeFilter }
-        ]
-      };
+      const queryParts = [buildAccountTypeQuery(accountTypeFilter)];
+
+      if (!userId) {
+        queryParts.push(buildPublicVisibilityFilter());
+      }
 
       // Exclude current user (guard invalid IDs to avoid runtime cast errors)
       if (userId) {
         const mongoose = require('mongoose');
         if (mongoose.Types.ObjectId.isValid(userId)) {
-          mongoQuery._id = { $ne: new mongoose.Types.ObjectId(userId) };
+          queryParts.push({ _id: { $ne: new mongoose.Types.ObjectId(userId) } });
         }
       }
 
       // Apply country filter (UBER-STYLE: prioritize same country)
       if (filters.country && filters.country !== 'all') {
         const escapedCountry = this.escapeRegExp(filters.country);
-        mongoQuery.$and = mongoQuery.$and || [];
-        mongoQuery.$and.push({
+        queryParts.push({
           $or: [
             { 'profile_data.location.country': new RegExp(escapedCountry, 'i') },
             { 'profileData.location.country': new RegExp(escapedCountry, 'i') }
@@ -655,8 +654,7 @@ class MongoRecommendationEngine {
       // Apply city filter
       if (filters.city) {
         const escapedCity = this.escapeRegExp(filters.city);
-        mongoQuery.$and = mongoQuery.$and || [];
-        mongoQuery.$and.push({
+        queryParts.push({
           $or: [
             { 'profile_data.location.city': new RegExp(escapedCity, 'i') },
             { 'profileData.location.city': new RegExp(escapedCity, 'i') }
@@ -666,8 +664,7 @@ class MongoRecommendationEngine {
 
       // Apply verification filter
       if (filters.filterMode === 'verified') {
-        mongoQuery.$and = mongoQuery.$and || [];
-        mongoQuery.$and.push({
+        queryParts.push({
           $or: [
             { verification_tier: { $gte: 2 } },
             { verificationTier: { $gte: 2 } }
@@ -678,8 +675,7 @@ class MongoRecommendationEngine {
       // Apply online filter
       if (filters.filterMode === 'online') {
         const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-        mongoQuery.$and = mongoQuery.$and || [];
-        mongoQuery.$and.push({
+        queryParts.push({
           $or: [
             { last_active: { $gte: fifteenMinutesAgo } },
             { lastActive: { $gte: fifteenMinutesAgo } }
@@ -690,8 +686,7 @@ class MongoRecommendationEngine {
       // Apply nearby filter — only include profiles that have location data
       // so distance-based sorting can work meaningfully
       if (filters.filterMode === 'nearby') {
-        mongoQuery.$and = mongoQuery.$and || [];
-        mongoQuery.$and.push({
+        queryParts.push({
           $or: [
             { 'profile_data.location': { $exists: true, $ne: null } },
             { 'profileData.location': { $exists: true, $ne: null } }
@@ -701,8 +696,7 @@ class MongoRecommendationEngine {
 
       // Apply trending / top-rated filter — show highly-rated profiles
       if (filters.filterMode === 'trending') {
-        mongoQuery.$and = mongoQuery.$and || [];
-        mongoQuery.$and.push({
+        queryParts.push({
           $or: [
             { reputation_score: { $gte: 50 } },
             { reputationScore: { $gte: 50 } }
@@ -713,8 +707,7 @@ class MongoRecommendationEngine {
       // Apply search filter
       if (filters.searchQuery && filters.searchQuery.trim()) {
         const searchTerm = this.escapeRegExp(filters.searchQuery.trim());
-        mongoQuery.$and = mongoQuery.$and || [];
-        mongoQuery.$and.push({
+        queryParts.push({
           $or: [
             { username: new RegExp(searchTerm, 'i') },
             { 'profile_data.firstName': new RegExp(searchTerm, 'i') },
@@ -724,6 +717,8 @@ class MongoRecommendationEngine {
           ]
         });
       }
+
+      const mongoQuery = queryParts.length === 1 ? queryParts[0] : { $and: queryParts };
 
       // Fetch candidates via aggregation preselection:
       // 1) same-country profiles first (if country is known)
@@ -1040,12 +1035,7 @@ class MongoRecommendationEngine {
       // Build query for verified providers
       const mongoQuery = {
         $and: [
-          {
-            $or: [
-              { 'profile_data.accountType': 'provider' },
-              { 'profileData.accountType': 'provider' }
-            ]
-          },
+          buildAccountTypeQuery('provider'),
           {
             $or: [
               { verification_tier: { $gte: 2 } },
@@ -1065,6 +1055,7 @@ class MongoRecommendationEngine {
       if (preferredGender && preferredGender !== 'any') {
         mongoQuery.$and.push({
           $or: [
+            { gender: preferredGender },
             { 'profile_data.gender': preferredGender },
             { 'profileData.gender': preferredGender }
           ]

@@ -52,7 +52,7 @@ import {
   Lock,
   CreditCard
 } from '@mui/icons-material';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import VideoSystem from '../components/video/VideoSystem';
 import CryptoPayment from '../components/payments/CryptoPayment';
@@ -66,6 +66,7 @@ const AdultServiceDetail = () => {
   const isSmallMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated } = useAuth();
   const { symbol: currencySymbol } = useCurrency();
   
@@ -89,6 +90,14 @@ const AdultServiceDetail = () => {
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
   const [showCryptoPayment, setShowCryptoPayment] = useState(false);
+
+  const getLoginRedirectState = () => ({
+    from: {
+      pathname: location.pathname,
+      search: location.search,
+      hash: location.hash
+    }
+  });
 
   useEffect(() => {
     // Fetch real service data from API
@@ -164,7 +173,7 @@ const AdultServiceDetail = () => {
 
   const handleFavorite = async () => {
     if (!isAuthenticated) {
-      navigate('/login', { state: { from: `/adult-services/${id}` } });
+      navigate('/login', { state: getLoginRedirectState() });
       return;
     }
     setIsFavorite(!isFavorite);
@@ -188,7 +197,7 @@ const AdultServiceDetail = () => {
 
   const handleReport = async () => {
     if (!isAuthenticated) {
-      navigate('/login', { state: { from: `/adult-services/${id}` } });
+      navigate('/login', { state: getLoginRedirectState() });
       return;
     }
     if (service) {
@@ -216,7 +225,7 @@ const AdultServiceDetail = () => {
   const handleBookNowClick = () => {
     if (!isAuthenticated) {
       // Redirect to login with return path
-      navigate('/login', { state: { from: `/services/${id}` } });
+      navigate('/login', { state: getLoginRedirectState() });
       return;
     }
     setShowBookingDialog(true);
@@ -224,7 +233,7 @@ const AdultServiceDetail = () => {
 
   const handleBookingSubmit = async () => {
     if (!isAuthenticated) {
-      navigate('/login', { state: { from: `/services/${id}` } });
+      navigate('/login', { state: getLoginRedirectState() });
       return;
     }
 
@@ -779,17 +788,23 @@ const AdultServiceDetail = () => {
                   fullWidth
                   size="large"
                   onClick={() => {
-                    if (!isAuthenticated) {
-                      navigate('/login', { state: { from: `/service/${id}` } });
+                    const recipientId = service?.provider?.id || service?.providerId || service?.provider_id || service?.user_id || null;
+                    const recipientName = service?.provider?.username || service?.providerName || service?.provider_name || 'Provider';
+                    const recipientAvatar = service?.provider?.profilePicture || service?.providerAvatar || null;
+                    if (!recipientId) {
+                      toast.error('Unable to open chat for this provider right now.');
                       return;
                     }
-                    // Navigate to chat with this provider
-                    navigate('/chat', { 
-                      state: { 
-                        recipientId: service?.providerId || service?.provider_id,
-                        recipientName: service?.providerName || service?.provider_name || 'Provider',
-                        recipientAvatar: service?.providerAvatar || null
-                      } 
+                    const chatState = {
+                      recipientId,
+                      recipientName,
+                      recipientAvatar,
+                      from: `/service/${id}`
+                    };
+                    const chatQuery = new URLSearchParams();
+                    chatQuery.set('recipientId', String(recipientId));
+                    navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+                      state: chatState
                     });
                   }}
                   sx={{
@@ -813,7 +828,7 @@ const AdultServiceDetail = () => {
                   size="large"
                   onClick={() => {
                     if (!isAuthenticated) {
-                      navigate('/login', { state: { from: `/service/${id}` } });
+                      navigate('/login', { state: getLoginRedirectState() });
                       return;
                     }
                     setShowBookingDialog(true);

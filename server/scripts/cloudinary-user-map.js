@@ -1,0 +1,20 @@
+﻿const mongoose=require('mongoose');
+(async()=>{
+  await mongoose.connect(process.env.MONGODB_URI, {serverSelectionTimeoutMS:15000,socketTimeoutMS:45000});
+  const db=mongoose.connection.db;
+  const corrupted=await db.collection('users').find({status:'suspended'}).project({_id:1,username:1,email:1}).toArray();
+  const ids=corrupted.map(u=>u._id);
+  const fileUploads=await db.collection('fileuploads').find({user_id:{$in:ids}, $or:[{storage_type:'cloudinary'},{cloudinary_public_id:{$exists:true,$ne:null}},{file_path:/cloudinary\\.com/}]}).project({user_id:1,username:1,file_path:1,cloudinary_public_id:1,storage_type:1,upload_type:1,created_at:1}).toArray();
+  const contentPosts=await db.collection('contentposts').find({user_id:{$in:ids}, $or:[{storage_type:'cloudinary'},{cloudinary_public_id:{$exists:true,$ne:null}},{media_url:/cloudinary\\.com/}]}).project({user_id:1,username:1,media_url:1,cloudinary_public_id:1,storage_type:1,created_at:1}).toArray();
+  console.log('corruptedUsers',corrupted.length);
+  console.log('cloudinaryFileUploads',fileUploads.length);
+  console.log('cloudinaryContentPosts',contentPosts.length);
+  const userMap=new Map();
+  corrupted.forEach(u=>userMap.set(u._id.toString(),{user:u,files:[],posts:[]}));
+  fileUploads.forEach(f=>{const key=f.user_id?.toString(); if(key&&userMap.has(key))userMap.get(key).files.push(f);});
+  contentPosts.forEach(p=>{const key=p.user_id?.toString(); if(key&&userMap.has(key))userMap.get(key).posts.push(p);});
+  const agg=Array.from(userMap.values()).map(v=>({id:v.user._id.toString(),username:v.user.username,email:v.user.email,fileCount:v.files.length,postCount:v.posts.length}));
+  console.log('summary',JSON.stringify(agg.filter(x=>x.fileCount||x.postCount),null,2));
+  await mongoose.disconnect();
+  process.exit(0);
+})();

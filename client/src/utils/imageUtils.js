@@ -1,5 +1,21 @@
 import { getUploadUrl } from '../config/constants';
 
+const normalizeImageSource = (value) => {
+  if (!value) return null;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  if (typeof value === 'object' && typeof value.url === 'string') {
+    const trimmed = value.url.trim();
+    return trimmed || null;
+  }
+
+  return null;
+};
+
 /**
  * Resolves profile image from multiple possible storage formats
  * Handles: photos[], profile_picture{}, profilePicture string
@@ -9,37 +25,21 @@ import { getUploadUrl } from '../config/constants';
 export const resolveProfileImage = (profileData) => {
   if (!profileData) return null;
 
-  // 1. Check for photos array (test data format)
-  if (profileData.photos && Array.isArray(profileData.photos) && profileData.photos.length > 0) {
-    const photo = profileData.photos[0];
-    if (typeof photo === 'string') {
-      // Always normalize via getUploadUrl to handle legacy upload hosts too.
-      return getUploadUrl(photo);
+  const imageSources = [
+    Array.isArray(profileData.photos) && profileData.photos.length > 0 ? profileData.photos[0] : null,
+    profileData.profile_image_url,
+    profileData.profileImageUrl,
+    profileData.profile_image,
+    profileData.profileImage,
+    profileData.profile_picture,
+    profileData.profilePicture,
+  ];
+
+  for (const source of imageSources) {
+    const imagePath = normalizeImageSource(source);
+    if (imagePath) {
+      return getUploadUrl(imagePath);
     }
-  }
-  
-  // 2. Check for profile_picture (can be object or string)
-  if (profileData.profile_picture) {
-    if (typeof profileData.profile_picture === 'object') {
-      // Object format: { url: '...', fileSize: ..., mimeType: ... }
-      const url = profileData.profile_picture.url;
-      if (url && typeof url === 'string') {
-        // Always normalize via getUploadUrl to handle legacy upload hosts too.
-        return getUploadUrl(url);
-      }
-    } else if (typeof profileData.profile_picture === 'string') {
-      // String format: '/uploads/profile-xxx.jpg'
-      const pic = profileData.profile_picture;
-      // Always normalize via getUploadUrl to handle legacy upload hosts too.
-      return getUploadUrl(pic);
-    }
-  }
-  
-  // 3. Check for profilePicture string (legacy/test data)
-  if (profileData.profilePicture && typeof profileData.profilePicture === 'string') {
-    const pic = profileData.profilePicture;
-    // Always normalize via getUploadUrl to handle legacy upload hosts too.
-    return getUploadUrl(pic);
   }
   
   // No image available
@@ -55,23 +55,21 @@ export const resolveProfileImage = (profileData) => {
 export const extractProfileImagePath = (profileData) => {
   if (!profileData) return null;
 
-  // Check photos array first
-  if (profileData.photos && Array.isArray(profileData.photos) && profileData.photos.length > 0) {
-    return profileData.photos[0];
-  }
-  
-  // Check profile_picture (can be object or string)
-  if (profileData.profile_picture) {
-    if (typeof profileData.profile_picture === 'object' && profileData.profile_picture.url) {
-      return profileData.profile_picture.url;
-    } else if (typeof profileData.profile_picture === 'string') {
-      return profileData.profile_picture;
+  const imageSources = [
+    Array.isArray(profileData.photos) && profileData.photos.length > 0 ? profileData.photos[0] : null,
+    profileData.profile_image_url,
+    profileData.profileImageUrl,
+    profileData.profile_image,
+    profileData.profileImage,
+    profileData.profile_picture,
+    profileData.profilePicture,
+  ];
+
+  for (const source of imageSources) {
+    const imagePath = normalizeImageSource(source);
+    if (imagePath) {
+      return imagePath;
     }
-  }
-  
-  // Check profilePicture string
-  if (profileData.profilePicture) {
-    return profileData.profilePicture;
   }
   
   return null;

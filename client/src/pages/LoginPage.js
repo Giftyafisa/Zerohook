@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { loginUser } from '../store/slices/authSlice';
 import {
@@ -13,6 +13,7 @@ import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const dispatch = useDispatch();
   const { loading, error: authError } = useSelector((state) => state.auth);
   
@@ -21,6 +22,27 @@ const LoginPage = () => {
     password: ''
   });
   const [localError, setLocalError] = useState('');
+
+  const resolvePostLoginDestination = () => {
+    const fromState = location.state?.from;
+
+    if (fromState && typeof fromState === 'object') {
+      const pathname = fromState.pathname || '/dashboard';
+      const search = fromState.search || '';
+      const hash = fromState.hash || '';
+
+      return {
+        pathname: `${pathname}${search}${hash}`,
+        state: fromState.state,
+      };
+    }
+
+    if (typeof fromState === 'string' && fromState.trim()) {
+      return { pathname: fromState };
+    }
+
+    return { pathname: '/dashboard' };
+  };
 
   const handleChange = (e) => {
     setFormData({
@@ -41,8 +63,11 @@ const LoginPage = () => {
       }));
       
       if (loginUser.fulfilled.match(resultAction)) {
-        // Login successful, navigate to dashboard
-        navigate('/dashboard');
+        const destination = resolvePostLoginDestination();
+        navigate(destination.pathname, destination.state !== undefined
+          ? { replace: true, state: destination.state }
+          : { replace: true }
+        );
       } else {
         const rejectedPayload = resultAction.payload || {};
         const baseMessage = rejectedPayload.error

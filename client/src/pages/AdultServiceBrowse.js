@@ -30,6 +30,7 @@ import {
   Close
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
+import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import { getDefaultImage } from '../config/images';
@@ -239,12 +240,21 @@ const AdultServiceBrowse = () => {
                   sx={{ minWidth: 52, borderRadius: 2.5, borderColor: '#d1d5db', color: '#6b7280' }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    navigate('/chat', {
-                      state: {
-                        recipientId: service.provider?.id || service.providerId || service.provider_id || service.user_id,
-                        recipientName: providerName,
-                        recipientAvatar: service.provider?.profilePicture || service.providerAvatar || null
-                      }
+                    const recipientId = service.provider?.id || service.providerId || service.provider_id || service.user_id;
+                    const chatState = {
+                      recipientId,
+                      recipientName: providerName,
+                      recipientAvatar: service.provider?.profilePicture || service.providerAvatar || null,
+                      from: '/adult-services'
+                    };
+                    if (!recipientId) {
+                      toast.error('Unable to open chat for this provider right now.');
+                      return;
+                    }
+                    const chatQuery = new URLSearchParams();
+                    chatQuery.set('recipientId', String(recipientId));
+                    navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+                      state: chatState
                     });
                   }}
                 >

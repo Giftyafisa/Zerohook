@@ -26,11 +26,17 @@ export const useCall = () => {
 
 export const CallProvider = ({ children }) => {
   const startCallRef = useRef(null);
+  const pendingStartCallRef = useRef(null);
   const [isInCall, setIsInCall] = useState(false);
 
   // CallSystem registers its startCall implementation here
   const registerStartCall = useCallback((fn) => {
     startCallRef.current = fn;
+    if (fn && pendingStartCallRef.current) {
+      const pending = pendingStartCallRef.current;
+      pendingStartCallRef.current = null;
+      fn(pending.targetUserId, pending.type, pending.targetName);
+    }
   }, []);
 
   // Any component can trigger a call via this function
@@ -38,6 +44,7 @@ export const CallProvider = ({ children }) => {
     if (startCallRef.current) {
       startCallRef.current(targetUserId, type, targetName);
     } else {
+      pendingStartCallRef.current = { targetUserId, type, targetName };
       console.warn('CallSystem not mounted — cannot start call');
     }
   }, []);

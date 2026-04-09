@@ -8,7 +8,6 @@ import {
   CircularProgress
 } from '@mui/material';
 import ProfileCompletionReminder from '../components/ProfileCompletionReminder';
-import { getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   Notifications as NotificationsIcon,
@@ -24,6 +23,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import useCurrency from '../hooks/useCurrency';
+import { resolveProfileImage } from '../utils/imageUtils';
 import { colors } from '../theme/tokens';
 
 const DashboardPage = () => {
@@ -38,6 +38,14 @@ const DashboardPage = () => {
     unreadMessages: 0,
     activeConnections: 0,
     pendingRequests: 0
+  });
+
+  const profileData = user?.profile_data || user?.profileData || {};
+  const profileImage = resolveProfileImage({
+    ...profileData,
+    profile_image: user?.profile_image,
+    profile_image_url: user?.profile_image_url,
+    profilePicture: user?.profilePicture,
   });
 
   useEffect(() => {
@@ -100,14 +108,14 @@ const DashboardPage = () => {
       <Box sx={styles.header}>
         <Box sx={styles.headerLeft}>
           <Avatar
-            src={getUploadUrl(user?.profilePicture)}
+            src={profileImage || undefined}
             sx={styles.avatar}
           >
             {user?.username?.[0]?.toUpperCase() || 'U'}
           </Avatar>
           <Box>
             <Typography variant="h5" sx={styles.greeting}>
-              Hey, {user?.profileData?.firstName || user?.username || 'there'}! 👋
+              Hey, {profileData.firstName || user?.username || 'there'}! 👋
             </Typography>
             <Box sx={styles.verifiedRow}>
               {user?.verificationTier >= 2 && (

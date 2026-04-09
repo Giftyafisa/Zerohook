@@ -8,6 +8,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const { inferMessageType } = require('./utils/inferMessageType');
+const { formatMessagePreview } = require('./utils/messagePreview');
 // Load environment variables based on NODE_ENV
 const envPath = process.env.NODE_ENV === 'production' ? './env.production' : './env.local';
 require('dotenv').config({ path: envPath });
@@ -42,6 +43,7 @@ const subscriptionRoutes = require('./routes/subscriptions');
 const userConnectionRoutes = require('./routes/userConnections');
 const notificationRoutes = require('./routes/notifications');
 const callRoutes = require('./routes/calls');
+const debugRoutes = require('./routes/debug');
 const geolocationRoutes = require('./routes/geolocation');
 const bookingsRoutes = require('./routes/bookings');
 const milestoneRoutes = require('./routes/milestone');
@@ -732,6 +734,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/connections', userConnectionRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calls', callRoutes);
+app.use('/api/debug', debugRoutes);
 app.use('/api/geolocation', geolocationRoutes);
 app.use('/api/sugar-access', sugarAccessRoutes);
 app.use('/api/admin', adminRoutes);
@@ -1075,13 +1078,15 @@ io.on('connection', async (socket) => {
         }
         
         // Emit call rejected to caller
-        socket.to(`user_${data.targetUserId}`).emit('call_rejected', {
+        const rejectedPayload = {
           id: data.callId,
           callId: data.callId,
           targetUserId: socket.userId,
           reason: data.reason || 'rejected',
           timestamp: new Date().toISOString()
-        });
+        };
+        socket.to(`user_${data.targetUserId}`).emit('call_rejected', rejectedPayload);
+        socket.to(getCallRoomId(socket.userId, data.targetUserId)).emit('call_rejected', rejectedPayload);
         
       } catch (error) {
         console.error('Error handling call rejection:', error);
@@ -1187,13 +1192,15 @@ io.on('connection', async (socket) => {
         }
         
         // Emit call cancelled to target user
-        socket.to(`user_${data.targetUserId}`).emit('call_cancelled', {
+        const cancelledPayload = {
           id: data.callId,
           callId: data.callId,
           callerId: socket.userId,
           reason: 'cancelled',
           timestamp: new Date().toISOString()
-        });
+        };
+        socket.to(`user_${data.targetUserId}`).emit('call_cancelled', cancelledPayload);
+        socket.to(getCallRoomId(socket.userId, data.targetUserId)).emit('call_cancelled', cancelledPayload);
         
       } catch (error) {
         console.error('Error handling call cancellation:', error);
@@ -1229,13 +1236,15 @@ io.on('connection', async (socket) => {
           }
         }
 
-        socket.to(`user_${data.targetUserId}`).emit('call_cancelled', {
+        const timeoutPayload = {
           id: data.callId,
           callId: data.callId,
           callerId: socket.userId,
           reason: 'timeout',
           timestamp: new Date().toISOString()
-        });
+        };
+        socket.to(`user_${data.targetUserId}`).emit('call_cancelled', timeoutPayload);
+        socket.to(getCallRoomId(socket.userId, data.targetUserId)).emit('call_cancelled', timeoutPayload);
       } catch (error) {
         console.error('Error handling call timeout:', error);
       }
@@ -1251,6 +1260,7 @@ io.on('connection', async (socket) => {
         }
         console.log(`📡 WebRTC offer from ${socket.username} to user ${data.targetUserId}`);
         socket.to(`user_${data.targetUserId}`).emit('webrtc_offer', {
+          callId: data.callId || null,
           offer: data.offer,
           callerId: socket.userId,
           callerName: socket.username,
@@ -1269,6 +1279,7 @@ io.on('connection', async (socket) => {
         }
         console.log(`📡 WebRTC answer from ${socket.username} to user ${data.targetUserId}`);
         socket.to(`user_${data.targetUserId}`).emit('webrtc_answer', {
+          callId: data.callId || null,
           answer: data.answer,
           answererId: socket.userId
         });
@@ -1285,6 +1296,7 @@ io.on('connection', async (socket) => {
         }
         console.log(`🧊 ICE candidate from ${socket.username} to user ${data.targetUserId}`);
         socket.to(`user_${data.targetUserId}`).emit('ice_candidate', {
+          callId: data.callId || null,
           candidate: data.candidate,
           senderId: socket.userId
         });
@@ -1446,12 +1458,7 @@ io.on('connection', async (socket) => {
           io.to(`user_${otherUserId}`).emit('new_message', messageData);
 
           try {
-            let preview;
-            if (resolvedMessageType === 'image') preview = '📷 Photo';
-            else if (resolvedMessageType === 'video') preview = '🎬 Video';
-            else if (resolvedMessageType === 'file') preview = '📎 File';
-            else if (resolvedMessageType === 'audio') preview = '🎵 Audio';
-            else preview = normalizedContent.slice(0, 50);
+            const preview = formatMessagePreview(normalizedContent, resolvedMessageType, metadata, 50);
 
             await NotificationService.createAndEmit(io, {
               userId: otherUserId,

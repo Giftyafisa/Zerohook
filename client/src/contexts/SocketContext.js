@@ -4,6 +4,15 @@ import { useAuth } from './AuthContext';
 import { useDispatch } from 'react-redux';
 import { toast } from 'react-toastify';
 import apiClient from '../services/apiClient';
+import {
+  disableBrowserPushSubscription,
+  enableBrowserPushSubscription
+} from '../services/browserPushService';
+import {
+  flushRealtimeTrace,
+  registerRealtimeTraceLifecycle,
+  traceRealtime
+} from '../utils/realtimeTrace';
 import { 
   incrementUnreadMessages, 
   incrementUnreadNotifications,
@@ -12,6 +21,7 @@ import {
 } from '../store/slices/uiSlice';
 import { setSubscriptionStatus } from '../store/slices/authSlice';
 import { inferMessageTypeFromContent } from '../utils/messageTypeUtils';
+import { isCallEligibleRoute } from '../utils/routeUtils';
 
 const SocketContext = createContext({});
 
@@ -69,51 +79,121 @@ export const SocketProvider = ({ children }) => {
   const onlineUsersRef = React.useRef(new Map());
   // Heartbeat interval ref for cleanup
   const heartbeatIntervalRef = React.useRef(null);
+  const currentUserId = getUserId(user);
+  const pushNotificationsEnabled = user?.profile_data?.settings?.pushNotifications
+    ?? user?.profileData?.settings?.pushNotifications
+    ?? true;
 
   useEffect(() => {
-    const currentUserId = getUserId(user);
+    let cancelled = false;
+
+    const syncBrowserPush = async () => {
+      if (!isAuthenticated || !currentUserId || typeof window === 'undefined') {
+        return;
+      }
+
+      if (pushNotificationsEnabled === false) {
+        await disableBrowserPushSubscription().catch(() => {});
+        return;
+      }
+
+      const result = await enableBrowserPushSubscription({
+        requestPermission: typeof Notification !== 'undefined' && Notification.permission === 'default'
+      }).catch((error) => ({
+        success: false,
+        message: error?.message || 'Failed to sync browser push subscription.'
+      }));
+
+      if (!cancelled && !result?.success && process.env.NODE_ENV !== 'production') {
+        console.warn('Browser push sync skipped:', result?.message || 'Unknown browser push error');
+      }
+    };
+
+    syncBrowserPush();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, currentUserId, pushNotificationsEnabled]);
+
+  useEffect(() => {
     const presenceCache = onlineUsersRef.current;
+    let activeSocket = socket;
+    let detachHeartbeatBoosters = () => {};
+    const detachRealtimeTrace = registerRealtimeTraceLifecycle();
 
-    // Only attempt connection if authenticated and have user data
-    if (isAuthenticated && user && localStorage.getItem('token')) {
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
+    const cleanupSocket = () => {
+      if (detachHeartbeatBoosters) {
+        detachHeartbeatBoosters();
+        detachHeartbeatBoosters = () => {};
       }
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      if (activeSocket) {
+        try {
+          activeSocket.disconnect();
+        } catch (err) {
+          console.warn('Failed to disconnect socket:', err?.message || err);
+        }
+        activeSocket = null;
+      }
+      presenceCache.clear();
+      setIsConnected(false);
+    };
 
-      // Prevent reconnect churn: only reconnect if user ID actually changed
-      if (socket && userIdRef.current === currentUserId) {
-        return; // Same user, same socket — no action needed
-      }
-      // Clean up previous socket if user switched
+    // Disconnect if the user is no longer authenticated.
+    if (!isAuthenticated || !user || !localStorage.getItem('token')) {
       if (socket) {
-        socket.disconnect();
+        cleanupSocket();
+        setSocket(null);
       }
-      userIdRef.current = currentUserId;
+      return () => {
+        cleanupSocket();
+      };
+    }
 
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('🔌 Attempting socket connection...');
-      }
-      
-      // Import SOCKET_URL from the single source of truth (config/constants.js)
-      // instead of computing it from env vars here.
-      const { SOCKET_URL: socketUrl } = require('../config/constants');
-      
-      const newSocket = io(socketUrl, {
-        auth: {
-          token: localStorage.getItem('token')
-        },
-        transports: ['websocket'],
-        timeout: 10000, // 10 second timeout
-        reconnection: true,
-        reconnectionAttempts: 10,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 10000
+    // Prevent reconnect churn: only reconnect if user ID actually changed
+    if (socket && userIdRef.current === currentUserId) {
+      return;
+    }
+
+    // Clean up previous socket if user switched
+    if (socket) {
+      socket.disconnect();
+      setSocket(null);
+    }
+    userIdRef.current = currentUserId;
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🔌 Attempting socket connection...');
+    }
+    
+    // Import SOCKET_URL from the single source of truth (config/constants.js)
+    // instead of computing it from env vars here.
+    const { SOCKET_URL: socketUrl } = require('../config/constants');
+    
+    const newSocket = io(socketUrl, {
+      auth: {
+        token: localStorage.getItem('token')
+      },
+      transports: ['websocket', 'polling'],
+      timeout: 10000, // 10 second timeout
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000
+    });
+
+    activeSocket = newSocket;
+
+    newSocket.on('connect', () => {
+      setIsConnected(true);
+      traceRealtime('socket', 'connect', {
+        socketId: newSocket.id || null,
+        transport: newSocket.io?.engine?.transport?.name || null,
       });
-
-      let detachHeartbeatBoosters = () => {};
-
-      newSocket.on('connect', () => {
-        setIsConnected(true);
         if (process.env.NODE_ENV !== 'production') {
           console.log(`✅ Connected to server at ${socketUrl}`);
         }
@@ -169,12 +249,14 @@ export const SocketProvider = ({ children }) => {
 
       newSocket.on('disconnect', (reason) => {
         setIsConnected(false);
+        traceRealtime('socket', 'disconnect', { reason: reason || 'unknown' });
         if (process.env.NODE_ENV !== 'production') {
           console.log('❌ Disconnected from server:', reason);
         }
       });
 
       newSocket.on('connect_error', (error) => {
+        traceRealtime('socket', 'connect_error', { message: error?.message || 'unknown' });
         if (process.env.NODE_ENV !== 'production') {
           console.log('❌ Socket connection error:', error.message);
         }
@@ -193,6 +275,13 @@ export const SocketProvider = ({ children }) => {
           const arr = [...processedMessageIds.current];
           processedMessageIds.current = new Set(arr.slice(-100));
         }
+
+        traceRealtime('socket', 'new_message', {
+          conversationId: data.conversationId || null,
+          messageId: data.id || null,
+          senderId: data.senderId || null,
+          messageType: data.messageType || data.type || null,
+        });
 
         const pathname = window?.location?.pathname || '';
         const isChatRoute = pathname.startsWith('/chat') || pathname.startsWith('/messages');
@@ -246,7 +335,9 @@ export const SocketProvider = ({ children }) => {
         if (data.type !== 'message') {
           showNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification', 'info');
         }
-        showDeviceNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification');
+        if (data.type !== 'message') {
+          showDeviceNotification('🔔 ' + (data.title || 'Notification'), data.message || 'You have a new notification');
+        }
       });
 
       // CONNECTION REQUEST notification
@@ -270,9 +361,13 @@ export const SocketProvider = ({ children }) => {
       // INCOMING CALL notification (from call system)
       // Only toast when NOT on a call-eligible route (CallSystem handles its own UI there)
       newSocket.on('incoming_call', (data) => {
+        traceRealtime('socket', 'incoming_call', {
+          callId: data?.callId || data?.id || null,
+          callerId: data?.callerId || null,
+          callType: data?.type || data?.callType || null,
+        });
         const currentPath = window?.location?.pathname || '';
-        const callRoutes = ['/chat', '/messages', '/inbox', '/profile/', '/dashboard'];
-        const isOnCallRoute = callRoutes.some(r => currentPath.startsWith(r));
+        const isOnCallRoute = isCallEligibleRoute(currentPath);
         if (!isOnCallRoute) {
           dispatch(incrementUnreadNotifications());
           const callTypeLabel = data.type === 'audio' ? '📞 Incoming Call' : '📹 Incoming Video Call';
@@ -355,6 +450,8 @@ export const SocketProvider = ({ children }) => {
         if (process.env.NODE_ENV !== 'production') {
           console.log('🔌 Cleaning up socket connection...');
         }
+        detachRealtimeTrace();
+        void flushRealtimeTrace({ reason: 'socket-cleanup' });
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         detachHeartbeatBoosters();
         newSocket.disconnect();
@@ -363,19 +460,6 @@ export const SocketProvider = ({ children }) => {
         setIsConnected(false);
         userIdRef.current = null;
       };
-    } else {
-      // Clear socket if not authenticated
-      if (socket) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('🔌 User not authenticated, clearing socket...');
-        }
-        socket.disconnect();
-        presenceCache.clear();
-        setSocket(null);
-        setIsConnected(false);
-        userIdRef.current = null;
-      }
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.id, user?._id, user?.userId]); // Only reconnect when auth state or user ID changes (not user object reference)
 

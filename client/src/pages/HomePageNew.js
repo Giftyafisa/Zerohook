@@ -14,7 +14,7 @@ import {
   Bolt
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { selectIsAuthenticated, selectIsSubscribed } from '../store/slices/authSlice';
 import { GlassCard, GlassButton } from '../components/ui';
 import useCurrency from '../hooks/useCurrency';
@@ -147,6 +147,7 @@ const StatBox = styled(Box)({
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isAuthenticated = useSelector(selectIsAuthenticated);
@@ -250,7 +251,7 @@ const HomePage = () => {
               </Box>
               <GlassButton
                 variant="primary"
-                onClick={() => navigate('/subscription')}
+                onClick={() => navigate('/subscription', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } })}
                 startIcon={<Star />}
               >
                 Subscribe Now
@@ -707,14 +708,14 @@ const HomePage = () => {
                   <GlassButton
                     variant="primary"
                     glowing
-                    onClick={() => navigate('/register')}
+                    onClick={() => navigate('/register', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } })}
                     sx={{ px: 4, py: 2 }}
                   >
                     Create Account
                   </GlassButton>
                   <GlassButton
                     variant="outlined"
-                    onClick={() => navigate('/login')}
+                    onClick={() => navigate('/login', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } })}
                     sx={{ px: 4, py: 2 }}
                   >
                     Sign In

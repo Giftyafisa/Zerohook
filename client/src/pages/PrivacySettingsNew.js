@@ -6,8 +6,8 @@
  * NOW WITH BACKEND PERSISTENCE - settings are loaded on mount and saved to server
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useSelector } from 'react-redux';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
   Typography,
@@ -49,6 +49,11 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import apiClient from '../services/apiClient';
 import { isSugarAccount } from '../utils/accountTypeUtils';
+import {
+  disableBrowserPushSubscription,
+  enableBrowserPushSubscription
+} from '../services/browserPushService';
+import { updateUser as updateUserAction } from '../store/slices/authSlice';
 
 // Modern TikTok-style design system
 const styles = {
@@ -88,6 +93,7 @@ const styles = {
   },
   section: {
     mb: 1,
+    scrollMarginTop: { xs: '84px', sm: '96px' },
   },
   sectionHeader: {
     display: 'flex',
@@ -247,6 +253,7 @@ const privacyLevels = [
 const PrivacySettings = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const dispatch = useDispatch();
   const { token, user } = useSelector((state) => state.auth);
   const [expandedSection, setExpandedSection] = useState('privacy');
   const [hasChanges, setHasChanges] = useState(false);
@@ -257,6 +264,8 @@ const PrivacySettings = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const sectionRefs = useRef({});
+  const pendingScrollSectionRef = useRef(null);
   
   // Default settings - will be overwritten by backend data
   const defaultSettings = {
@@ -352,12 +361,27 @@ const PrivacySettings = () => {
   useEffect(() => {
     const focusSection = location.state?.focusSection;
     const focusVerification = location.state?.focusVerification;
-    if (focusSection) {
-      setExpandedSection(focusSection);
-    } else if (focusVerification) {
-      setExpandedSection('security');
-    }
+    const targetSection = focusSection || (focusVerification ? 'security' : null);
+    if (!targetSection) return;
+
+    pendingScrollSectionRef.current = targetSection;
+    setExpandedSection(targetSection);
   }, [location.state]);
+
+  useEffect(() => {
+    const targetSection = pendingScrollSectionRef.current;
+    if (!targetSection || isLoading || expandedSection !== targetSection) return;
+
+    const sectionNode = sectionRefs.current[targetSection];
+    if (!sectionNode || typeof window === 'undefined') return;
+
+    const timer = window.setTimeout(() => {
+      sectionNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      pendingScrollSectionRef.current = null;
+    }, 200);
+
+    return () => window.clearTimeout(timer);
+  }, [isLoading, expandedSection]);
   
   const handleToggle = (key) => {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
@@ -390,6 +414,24 @@ const PrivacySettings = () => {
           currency: settings.priceCurrency,
         }
       });
+
+      const currentProfileData = user?.profile_data || user?.profileData || {};
+      const updatedProfileData = {
+        ...currentProfileData,
+        settings: {
+          ...(currentProfileData.settings || {}),
+          ...settings
+        },
+        basePrice: settings.basePrice,
+        currency: settings.priceCurrency,
+      };
+      dispatch(updateUserAction({ profile_data: updatedProfileData }));
+
+      if (settings.pushNotifications) {
+        await enableBrowserPushSubscription({ requestPermission: true }).catch(() => {});
+      } else {
+        await disableBrowserPushSubscription().catch(() => {});
+      }
 
       setHasChanges(false);
       setShowSaveSnackbar(true);
@@ -429,7 +471,16 @@ const PrivacySettings = () => {
     const isExpanded = expandedSection === section.id;
     
     return (
-      <Box sx={styles.section}>
+      <Box
+        ref={(node) => {
+          if (node) {
+            sectionRefs.current[section.id] = node;
+          } else {
+            delete sectionRefs.current[section.id];
+          }
+        }}
+        sx={styles.section}
+      >
         <Box 
           sx={styles.sectionHeader}
           onClick={() => toggleSection(section.id)}

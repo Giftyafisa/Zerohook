@@ -22,24 +22,14 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Avatar,
-  Divider,
-  Paper,
-  useTheme
+  Avatar
 } from '@mui/material';
 import {
   Security,
   Verified,
   Pending,
-  Error,
   CheckCircle,
   Upload,
-  CameraAlt,
   Fingerprint,
   Face,
   DocumentScanner,
@@ -52,17 +42,11 @@ import {
   Star,
   Shield,
   Camera,
-  CloudUpload,
-  Delete,
-  Edit,
-  Visibility,
-  VisibilityOff
+  CloudUpload
 } from '@mui/icons-material';
 
 const VerificationCenter = () => {
-  const theme = useTheme();
-  
-  const [currentTier, setCurrentTier] = useState(1);
+  const [currentTier] = useState(1);
   const [verificationStatus, setVerificationStatus] = useState({
     basic: { completed: true, score: 100, documents: ['phone', 'email', 'age'] },
     advanced: { completed: false, score: 60, documents: ['id', 'facial', 'address'] },
@@ -247,11 +231,6 @@ const VerificationCenter = () => {
     } catch (error) {
       console.error('Verification failed:', error);
     }
-  };
-
-  const getDocumentIcon = (documentType) => {
-    const doc = documentTypes.find(d => d.value === documentType);
-    return doc ? doc.icon : <DocumentScanner />;
   };
 
   const getDocumentLabel = (documentType) => {

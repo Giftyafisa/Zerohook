@@ -59,7 +59,7 @@ For any command:
 
 ### FrontendArchitect (/f-*)
 
-- /f-uiprobe, /f-trace, /f-a11y, /f-stabilize, /f-ux
+- /f-uiprobe, /f-trace, /f-a11y, /f-stabilize, /f-ux, /f-layout, /f-density, /f-rubric, /f-snapshot
 - /f-proof, /f-sim, /f-belief, /f-redteam, /f-twin
 - /f-neurosym, /f-temporal, /f-drift, /f-debate
 

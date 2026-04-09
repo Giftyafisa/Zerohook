@@ -57,9 +57,7 @@ const NotificationSystem = () => {
 
   // Sync local notifications with Redux
   useEffect(() => {
-    if (notificationsList && notificationsList.length > 0) {
-      setNotifications(notificationsList);
-    }
+    setNotifications(notificationsList || []);
   }, [notificationsList]);
 
   // REMOVED: Duplicate socket.on handlers - SocketContext is the SINGLE source of truth
@@ -107,20 +105,46 @@ const NotificationSystem = () => {
     // Handle different notification types - NAVIGATE to appropriate pages
     switch (notification.type) {
       case 'connection_request':
-        navigate('/chat');
+        {
+          const metadata = notification?.data || notification?.metadata || {};
+          const requesterId =
+            metadata.fromUserId ||
+            metadata.from_user_id ||
+            metadata.senderId ||
+            metadata.sender_id ||
+            notification?.fromUserId ||
+            notification?.senderId ||
+            null;
+
+          if (requesterId) {
+            navigate(`/profile/${requesterId}`);
+          } else {
+            navigate('/profiles');
+          }
+        }
         break;
       case 'message':
-        // Navigate to chat — conversationId passed as query param since /chat/:id route doesn't exist
-        if (notification.data?.conversationId || notification.data?.conversation_id) {
-          const conversationId = notification.data.conversationId || notification.data.conversation_id;
-          navigate(`/chat?conversation=${conversationId}`);
+      case 'new_message': {
+        const chatTarget = resolveChatTarget(notification);
+        const chatQuery = new URLSearchParams();
+        if (chatTarget.recipientId) chatQuery.set('recipientId', chatTarget.recipientId);
+        if (chatTarget.conversationId) chatQuery.set('conversationId', chatTarget.conversationId);
+        const chatPath = `/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`;
+        if (chatTarget.conversationId || chatTarget.recipientId) {
+          navigate(chatPath, {
+            state: {
+              ...chatTarget,
+              from: '/notifications'
+            }
+          });
         } else {
           navigate('/chat');
         }
         break;
+      }
       case 'video_call':
         // Navigate to chat (video calls are initiated from within chat)
-        navigate('/chat');
+        navigate('/messages');
         break;
       case 'verification':
         navigate('/verification');
@@ -155,7 +179,9 @@ const NotificationSystem = () => {
     try {
       await apiClient.put('/notifications/mark-all-read');
 
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      const updatedNotifications = notifications.map(n => ({ ...n, read: true }));
+      setNotifications(updatedNotifications);
+      dispatch(setNotificationsList(updatedNotifications));
       // Update Redux state
       dispatch(clearUnreadNotifications());
     } catch (error) {
@@ -210,6 +236,46 @@ const NotificationSystem = () => {
     return `${days}d ago`;
   };
 
+  const resolveChatTarget = (notification) => {
+    const data = notification?.data || notification?.metadata || {};
+    return {
+      conversationId:
+        data.conversationId ||
+        data.conversation_id ||
+        notification?.conversationId ||
+        notification?.conversation_id ||
+        null,
+      recipientId:
+        data.senderId ||
+        data.sender_id ||
+        data.recipientId ||
+        data.recipient_id ||
+        notification?.senderId ||
+        notification?.sender_id ||
+        notification?.recipientId ||
+        notification?.recipient_id ||
+        null,
+      recipientName:
+        data.senderName ||
+        data.sender_name ||
+        data.recipientName ||
+        data.recipient_name ||
+        notification?.senderName ||
+        notification?.sender_name ||
+        notification?.recipientName ||
+        notification?.recipient_name ||
+        null,
+      recipientAvatar:
+        data.senderAvatar ||
+        data.sender_avatar ||
+        data.recipientAvatar ||
+        data.recipient_avatar ||
+        notification?.senderAvatar ||
+        notification?.recipientAvatar ||
+        null,
+    };
+  };
+
   const handleMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);
   };
@@ -238,19 +304,23 @@ const NotificationSystem = () => {
         onClose={handleMenuClose}
         PaperProps={{
           sx: {
-            width: isMobile ? '90vw' : 400,
-            maxHeight: 500
+            width: isMobile ? 'calc(100vw - 24px)' : 400,
+            maxWidth: 'calc(100vw - 24px)',
+            maxHeight: 'min(70vh, 540px)',
+            borderRadius: 3,
+            overflow: 'hidden'
           }
         }}
       >
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Box display="flex" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6">Notifications</Typography>
+        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', background: 'rgba(255,255,255,0.02)' }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
+            <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 700 }}>Notifications</Typography>
             {unreadCount > 0 && (
               <Button
                 size="small"
                 onClick={markAllAsRead}
                 disabled={loading}
+                sx={{ minHeight: 40, textTransform: 'none' }}
               >
                 Mark all read
               </Button>
@@ -274,6 +344,9 @@ const NotificationSystem = () => {
                     button
                     onClick={() => handleNotificationClick(notification)}
                     sx={{
+                      py: 1.25,
+                      px: 2,
+                      minHeight: 72,
                       backgroundColor: notification.read ? 'transparent' : 'action.hover',
                       '&:hover': {
                         backgroundColor: 'action.selected'

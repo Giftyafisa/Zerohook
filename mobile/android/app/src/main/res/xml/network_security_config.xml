@@ -3,6 +3,7 @@
     <!-- Production: HTTPS only for all domains -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">zerohook-api-f3ss.onrender.com</domain>
+        <domain includeSubdomains="true">zerohook-api-eoyr.onrender.com</domain>
         <domain includeSubdomains="true">zerohook.com</domain>
         <domain includeSubdomains="true">opue.me</domain>
     </domain-config>

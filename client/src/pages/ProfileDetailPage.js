@@ -125,31 +125,37 @@ const ProfileDetailPage = () => {
   }, [profileId, fetchProfileDetails]);
 
   const handleContact = () => {
-    if (!isAuthenticated) {
-      navigate('/login', { state: { from: location.pathname } });
-      return;
-    }
-    
-    // Navigate directly to chat with this user
     const avatar = resolveProfileImage(profile?.profile_data || profile?.profileData);
     const recipientId = profile?.id || profile?._id || profile?.userId;
+    const recipientName = profile?.profile_data?.firstName || profile?.profileData?.firstName || profile?.username || 'User';
     if (!recipientId) {
       toast.error('Unable to open chat for this profile right now.');
       return;
     }
-    navigate('/chat', {
-      state: {
-        recipientId,
-        recipientName: profile?.profile_data?.firstName || profile?.profileData?.firstName || profile?.username || 'User',
-        recipientAvatar: avatar,
-        from: location.pathname
-      }
+    const chatState = {
+      recipientId,
+      recipientName,
+      recipientAvatar: avatar,
+      from: location.pathname
+    };
+    const chatQuery = new URLSearchParams();
+    chatQuery.set('recipientId', String(recipientId));
+    navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+      state: chatState
     });
   };
 
   const handleOpenContactDialog = () => {
     if (!isAuthenticated) {
-      navigate('/login', { state: { from: location.pathname } });
+      navigate('/login', {
+        state: {
+          from: {
+            pathname: location.pathname,
+            search: location.search,
+            hash: location.hash
+          }
+        }
+      });
       return;
     }
 

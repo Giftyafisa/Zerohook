@@ -44,12 +44,13 @@ import {
   WorkspacePremium as PremiumIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import authAPI from '../services/authAPI';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   const { user, updateUser, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -401,7 +402,15 @@ const ProfilePage = () => {
               <Button
                 variant="contained"
                 startIcon={<PremiumIcon />}
-                onClick={() => navigate('/subscription')}
+                onClick={() => navigate('/subscription', {
+                  state: {
+                    from: {
+                      pathname: currentLocation.pathname,
+                      search: currentLocation.search,
+                      hash: currentLocation.hash
+                    }
+                  }
+                })}
                 fullWidth
                 sx={{
                   mt: 2,
@@ -825,7 +834,7 @@ const ProfilePage = () => {
         startIcon={<LogoutIcon />}
         onClick={() => {
           logout();
-          navigate('/login');
+            navigate('/login', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } });
         }}
         fullWidth
         sx={{

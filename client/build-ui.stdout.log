@@ -1,0 +1,85 @@
+
+> zerohook-client@1.0.0 build
+> cross-env CI=false react-scripts build
+
+Creating an optimized production build...
+Compiled with warnings.
+
+[eslint] 
+src\pages\MyMoneyPage.js
+  Line 149:21:  The ref value 'timeoutIdsRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'timeoutIdsRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+src\pages\SugarProfilesPage.js
+  Line 135:6:  React Hook useEffect has missing dependencies: 'currentLocation.hash', 'currentLocation.pathname', and 'currentLocation.search'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
+
+File sizes after gzip:
+
+  217.97 kB  build\static\js\main.51194ce2.js
+  34.12 kB   build\static\js\12.4f422d65.chunk.js
+  20.73 kB   build\static\js\3174.1a0eb4c6.chunk.js
+  17.77 kB   build\static\js\7038.c907f02e.chunk.js
+  13.02 kB   build\static\js\7658.9685be5e.chunk.js
+  12.77 kB   build\static\js\8949.1439a38d.chunk.js
+  11.19 kB   build\static\js\9358.aa377a8c.chunk.js
+  10.76 kB   build\static\js\5006.f7b56834.chunk.js
+  10.02 kB   build\static\js\7873.d39f162f.chunk.js
+  9.88 kB    build\static\js\7832.38bce631.chunk.js
+  9.18 kB    build\static\js\3232.2df54f33.chunk.js
+  8.68 kB    build\static\js\9701.e0a60a3d.chunk.js
+  8.42 kB    build\static\js\3744.6a2a6aa5.chunk.js
+  7.86 kB    build\static\js\9576.f1d54bb2.chunk.js
+  7.36 kB    build\static\js\5174.c34a6b88.chunk.js
+  7.22 kB    build\static\js\911.6a9127a6.chunk.js
+  7.02 kB    build\static\js\3459.e6610057.chunk.js
+  6.79 kB    build\static\js\3133.6f686194.chunk.js
+  6.69 kB    build\static\css\main.40f92766.css
+  6.31 kB    build\static\js\2100.62abc5df.chunk.js
+  6.24 kB    build\static\js\6012.32e20caa.chunk.js
+  6.24 kB    build\static\js\7774.f1d76cf6.chunk.js
+  5.84 kB    build\static\js\443.c2afb329.chunk.js
+  5.83 kB    build\static\js\6154.6d503a4c.chunk.js
+  5.82 kB    build\static\js\1212.b13459c3.chunk.js
+  5.77 kB    build\static\js\9053.d4ae99a4.chunk.js
+  5.58 kB    build\static\js\7757.5d7ce056.chunk.js
+  5.58 kB    build\static\js\4225.b07912fb.chunk.js
+  5.55 kB    build\static\js\7188.f744d815.chunk.js
+  5.52 kB    build\static\js\6826.b065b84a.chunk.js
+  5.23 kB    build\static\js\8322.dcbc1774.chunk.js
+  4.86 kB    build\static\js\1041.e6f1d735.chunk.js
+  4.86 kB    build\static\js\8466.97c6d20a.chunk.js
+  4.35 kB    build\static\js\5868.1d3291c2.chunk.js
+  4.25 kB    build\static\js\591.db06202e.chunk.js
+  4.1 kB     build\static\js\8216.ff209be8.chunk.js
+  3.89 kB    build\static\js\9441.884c719e.chunk.js
+  3.58 kB    build\static\js\1781.992cb28a.chunk.js
+  3.28 kB    build\static\js\303.3260414c.chunk.js
+  3.23 kB    build\static\js\3756.13d1cbf4.chunk.js
+  3.18 kB    build\static\js\1527.20fd84aa.chunk.js
+  3.05 kB    build\static\js\9492.4a82f116.chunk.js
+  2.95 kB    build\static\js\8040.e269da6b.chunk.js
+  2.8 kB     build\static\js\794.ce33419a.chunk.js
+  2.8 kB     build\static\js\1437.7e07aac3.chunk.js
+  2.79 kB    build\static\js\8844.c114ea62.chunk.js
+  2.71 kB    build\static\js\1530.6b24437a.chunk.js
+  2.42 kB    build\static\js\3440.6a76f2b4.chunk.js
+  2.27 kB    build\static\js\7121.a5e5ae61.chunk.js
+  2.14 kB    build\static\js\8903.f59a5a00.chunk.js
+  1.85 kB    build\static\js\9093.25aca05a.chunk.js
+  1.78 kB    build\static\js\5973.9dd16e7a.chunk.js
+
+The project was built assuming it is hosted at /.
+You can control this with the homepage field in your package.json.
+
+The build folder is ready to be deployed.
+You may serve it with a static server:
+
+  npm install -g serve
+  serve -s build
+
+Find out more about deployment here:
+
+  https://cra.link/deployment
+

@@ -1,4 +1,4 @@
-﻿import { inferMessageTypeFromContent, formatMessagePreview } from './messageTypeUtils';
+import { inferMessageTypeFromContent, formatMessagePreview } from './messageTypeUtils';
 
 describe('messageTypeUtils', () => {
   test('infers image from common URL patterns', () => {
@@ -40,10 +40,20 @@ describe('messageTypeUtils', () => {
     expect(formatMessagePreview('https://example.com/voice.mp3')).toBe('🎵 Audio');
   });
 
+  test('formatMessagePreview still infers media labels when explicit type is text', () => {
+    expect(formatMessagePreview('https://example.com/photo.jpg', 'text')).toBe('📷 Photo');
+    expect(formatMessagePreview('https://example.com/video.mp4', 'text')).toBe('🎬 Video');
+  });
+
   test('formatMessagePreview respects explicit type override', () => {
     // Even though the content is plain text, the explicit type should dictate the preview
     expect(formatMessagePreview('hello world', 'audio')).toBe('🎵 Audio');
     expect(formatMessagePreview('hello world', 'image')).toBe('📷 Photo');
+  });
+
+  test('formatMessagePreview normalizes MIME-style explicit types', () => {
+    expect(formatMessagePreview('hello world', 'image/jpeg')).toBe('📷 Photo');
+    expect(formatMessagePreview('hello world', 'video/mp4')).toBe('🎬 Video');
   });
 
   test('formatMessagePreview falls back to text for plain messages', () => {

@@ -118,6 +118,10 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name="com.zerohook.app.receivers.CallNotificationActionReceiver"
+            android:exported="false" />
+
         <!-- Background Sync Worker -->
         <provider
             android:name="androidx.startup.InitializationProvider"

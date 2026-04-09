@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
   CardContent,
   Typography,
   Chip,
-  Button,
   Collapse,
   IconButton,
   Alert,
@@ -18,7 +17,6 @@ import {
   ExpandMore,
   ExpandLess,
   Refresh,
-  Warning
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../config/constants';
 
@@ -33,13 +31,28 @@ const PerformanceMonitor = ({ show = false }) => {
   });
   const [isMonitoring, setIsMonitoring] = useState(false);
 
-  useEffect(() => {
-    if (show && expanded) {
-      startMonitoring();
+  const measureNetworkLatency = useCallback(async () => {
+    const start = performance.now();
+    try {
+      await fetch(`${API_BASE_URL}/health`, { method: 'HEAD' });
+      return Math.round(performance.now() - start);
+    } catch {
+      return 0;
     }
-  }, [show, expanded]);
+  }, []);
 
-  const startMonitoring = async () => {
+  const measureRenderTime = useCallback(() => {
+    const paintEntries = performance.getEntriesByType('paint');
+    const fcp = paintEntries.find(entry => entry.name === 'first-contentful-paint');
+    return fcp ? Math.round(fcp.startTime) : 0;
+  }, []);
+
+  const estimateBundleSize = useCallback(() => {
+    // This is a rough estimate based on the build output
+    return 320; // KB from the build output
+  }, []);
+
+  const startMonitoring = useCallback(async () => {
     setIsMonitoring(true);
     
     // Measure page load time
@@ -68,28 +81,13 @@ const PerformanceMonitor = ({ show = false }) => {
     });
     
     setIsMonitoring(false);
-  };
+  }, [estimateBundleSize, measureNetworkLatency, measureRenderTime]);
 
-  const measureNetworkLatency = async () => {
-    const start = performance.now();
-    try {
-      await fetch(`${API_BASE_URL}/health`, { method: 'HEAD' });
-      return Math.round(performance.now() - start);
-    } catch {
-      return 0;
+  useEffect(() => {
+    if (show && expanded) {
+      startMonitoring();
     }
-  };
-
-  const measureRenderTime = () => {
-    const paintEntries = performance.getEntriesByType('paint');
-    const fcp = paintEntries.find(entry => entry.name === 'first-contentful-paint');
-    return fcp ? Math.round(fcp.startTime) : 0;
-  };
-
-  const estimateBundleSize = () => {
-    // This is a rough estimate based on the build output
-    return 320; // KB from the build output
-  };
+  }, [show, expanded, startMonitoring]);
 
   const getPerformanceColor = (value, thresholds) => {
     if (value <= thresholds.good) return 'success';

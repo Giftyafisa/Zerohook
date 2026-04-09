@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -14,6 +14,7 @@ import { Error, Payment } from '@mui/icons-material';
 const SubscriptionErrorPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   
   const reason = searchParams.get('reason') || 'unknown';
 
@@ -90,7 +91,7 @@ const SubscriptionErrorPage = () => {
         <Button
           variant="contained"
           size="large"
-          onClick={() => navigate('/subscription')}
+          onClick={() => navigate('/subscription', location.state ? { state: location.state } : undefined)}
           startIcon={<Payment />}
           sx={{ px: 4, py: 1.5, fontSize: '1.1rem', fontWeight: 'bold' }}
         >

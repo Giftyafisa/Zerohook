@@ -1,11 +1,24 @@
 // Utility helpers for chat message type inference and preview formatting.
 // This is shared between frontend chat UI components.
 
+const normalizeDeclaredMessageType = (rawType) => {
+  const value = String(rawType || '').trim().toLowerCase();
+  if (!value) return '';
+  if (value === 'text' || value.startsWith('text/')) return 'text';
+  if (value === 'image' || value.startsWith('image/')) return 'image';
+  if (value === 'video' || value.startsWith('video/')) return 'video';
+  if (value === 'audio' || value.startsWith('audio/')) return 'audio';
+  if (value === 'file' || value === 'location' || value === 'contact') return value;
+  if (value.includes('/')) return 'file';
+  return value;
+};
+
 export const inferMessageTypeFromContent = (content = '', explicitType = null, metadata = {}) => {
+  const normalizedExplicitType = normalizeDeclaredMessageType(explicitType);
   const mimeType = String(metadata?.mimeType || metadata?.mimetype || '').toLowerCase();
   const fileName = String(metadata?.filename || metadata?.fileName || metadata?.name || '').toLowerCase();
 
-  if (explicitType && explicitType !== 'text') return explicitType;
+  if (normalizedExplicitType && normalizedExplicitType !== 'text') return normalizedExplicitType;
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('audio/')) return 'audio';
@@ -18,6 +31,7 @@ export const inferMessageTypeFromContent = (content = '', explicitType = null, m
   if (value.startsWith('data:image/')) return 'image';
   if (value.startsWith('data:video/')) return 'video';
   if (value.startsWith('data:audio/')) return 'audio';
+  if (value.startsWith('blob:')) return 'file';
   if (/\/image\/upload\//.test(value)) return 'image';
   if (/\/video\/upload\//.test(value)) return 'video';
   if (/\.(jpe?g|png|gif|webp|heic|bmp|svg|tiff?)$/.test(value) || /image|photo|img/.test(value)) return 'image';
@@ -25,13 +39,26 @@ export const inferMessageTypeFromContent = (content = '', explicitType = null, m
   if (/\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(value) || /audio|voice/.test(value)) return 'audio';
 
   // Treat any URL-like string as a generic file.
-  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/uploads/') || value.startsWith('data:')) return 'file';
+  if (
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('/uploads/') ||
+    value.startsWith('uploads/') ||
+    value.startsWith('data:')
+  ) return 'file';
 
-  return explicitType || 'text';
+  return normalizedExplicitType || 'text';
 };
 
 export const formatMessagePreview = (content, messageType) => {
-  const resolvedType = inferMessageTypeFromContent(content, messageType);
+  const resolvedType = (() => {
+    const explicitType = normalizeDeclaredMessageType(messageType);
+    if (explicitType && explicitType !== 'text') {
+      return explicitType;
+    }
+
+    return inferMessageTypeFromContent(content);
+  })();
   const safeContent = typeof content === 'string' ? content : String(content || '');
   if (!resolvedType || resolvedType === 'text') return safeContent;
 

@@ -33,3 +33,6 @@ nul
 
 # Build artifacts (generated on deploy, not committed)
 client/build/
+
+# Incident recovery artifacts (local forensic backups)
+server/recovery-artifacts/

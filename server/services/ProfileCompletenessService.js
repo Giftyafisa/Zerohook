@@ -24,7 +24,7 @@ class ProfileCompletenessService {
       },
       profilePhoto: {
         weight: 15,
-        fields: ['profile_image', 'profile_image_url', 'profile_data.profile_picture', 'profile_data.profilePicture', 'profile_data.photos'],
+        fields: ['profile_image', 'profile_image_url', 'profile_data.profile_picture', 'profile_data.profilePicture', 'profile_data.profile_image', 'profile_data.profileImage', 'profile_data.photos', 'profile_data.gallery_images', 'profile_data.galleryImages', 'gallery_images', 'galleryImages'],
         description: 'Profiles with photos get 10x more messages',
         category: 'critical'
       },
@@ -64,7 +64,7 @@ class ProfileCompletenessService {
       // OPTIONAL FIELDS (25% total) - Nice to have
       galleryPhotos: {
         weight: 10,
-        fields: ['gallery_images', 'profile_data.gallery_images', 'profile_data.photos'],
+        fields: ['gallery_images', 'galleryImages', 'profile_data.gallery_images', 'profile_data.galleryImages', 'profile_data.photos'],
         minCount: 3,
         description: 'More photos increase your visibility',
         category: 'optional'

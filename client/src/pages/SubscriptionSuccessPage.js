@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import {
   Box,
@@ -18,6 +18,7 @@ import subscriptionAPI from '../services/subscriptionAPI';
 const SubscriptionSuccessPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const dispatch = useDispatch();
   
   const verified = searchParams.get('verified') === 'true';
@@ -63,7 +64,10 @@ const SubscriptionSuccessPage = () => {
         <Alert severity="error" sx={{ mb: 4 }}>
           Invalid subscription verification. Please contact support.
         </Alert>
-        <Button variant="contained" onClick={() => navigate('/subscription')}>
+        <Button
+          variant="contained"
+          onClick={() => navigate('/subscription', location.state ? { state: location.state } : undefined)}
+        >
           Go to Subscription Page
         </Button>
       </Container>

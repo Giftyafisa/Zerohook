@@ -76,8 +76,13 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
     });
     if (hasSeed) {
       setStatusMap(prev => ({ ...prev, ...seedUpdates }));
+      if (onlineUsersRef?.current) {
+        Object.entries(seedUpdates).forEach(([id, isOnline]) => {
+          onlineUsersRef.current.set(id, isOnline);
+        });
+      }
     }
-  }, [initialStatusMap, idsKey, sortedIds]);
+  }, [initialStatusMap, idsKey, sortedIds, onlineUsersRef]);
 
   // ── Seed from global presence cache — removes flash-of-offline on mount ──
   // The SocketContext keeps onlineUsersRef up-to-date from broadcast events,
@@ -160,9 +165,18 @@ const usePresence = (userIds = [], { context = 'chat', initialStatusMap = {} } =
 
     fetchPresenceSnapshot();
 
+    // Periodic fallback reconcile in case websocket events are missed
+    const fallbackTimer = setInterval(() => {
+      if (!active) return;
+      fetchPresenceSnapshot().catch((err) => {
+        console.error('Presence fallback snapshot failed:', err);
+      });
+    }, 30000); // 30s
+
     return () => {
       active = false;
       controller.abort();
+      clearInterval(fallbackTimer);
     };
   }, [idsKey, sortedIds, trackedIdSet, context, onlineUsersRef]);
 

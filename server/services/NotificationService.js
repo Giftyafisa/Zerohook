@@ -11,6 +11,8 @@ const { Notification, DeviceToken } = require('../config/database');
 
 let firebaseAdmin = null;
 let firebaseMessaging = null;
+let webPush = null;
+let webPushConfigured = false;
 
 try {
   // Optional dependency: app continues to work without firebase-admin.
@@ -32,6 +34,60 @@ try {
   // firebase-admin is optional; keep runtime resilient.
   firebaseMessaging = null;
 }
+
+try {
+  webPush = require('web-push');
+
+  const vapidPublicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || process.env.WEB_PUSH_PUBLIC_KEY;
+  const vapidPrivateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || process.env.WEB_PUSH_PRIVATE_KEY;
+  const vapidSubject = process.env.WEB_PUSH_SUBJECT || 'mailto:support@zerohook.com';
+
+  if (vapidPublicKey && vapidPrivateKey) {
+    webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    webPushConfigured = true;
+  }
+} catch (error) {
+  webPush = null;
+  webPushConfigured = false;
+}
+
+const buildPushPayload = (notification) => {
+  const notificationData = notification?.data || {};
+
+  return {
+    title: String(notification?.title || 'Zerohook'),
+    body: String(notification?.message || ''),
+    message: String(notification?.message || ''),
+    type: String(notification?.type || 'system'),
+    conversationId: String(notificationData.conversationId || ''),
+    senderId: String(notificationData.senderId || ''),
+    messageId: String(notificationData.messageId || ''),
+    senderName: String(notificationData.senderName || ''),
+    callId: String(notificationData.callId || ''),
+    callerId: String(notificationData.callerId || ''),
+    callerName: String(notificationData.callerName || ''),
+    callType: String(notificationData.callType || ''),
+    targetUserId: String(notificationData.targetUserId || ''),
+    primaryKey: String(notification?.id || notificationData.messageId || notificationData.conversationId || notificationData.callId || Date.now())
+  };
+};
+
+const normalizeWebPushSubscription = (subscription) => {
+  if (!subscription) return null;
+
+  if (typeof subscription === 'string') {
+    try {
+      return JSON.parse(subscription);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  if (typeof subscription !== 'object') return null;
+  if (!subscription.endpoint || !subscription.keys) return null;
+
+  return subscription;
+};
 
 class NotificationService {
   /**
@@ -221,60 +277,99 @@ class NotificationService {
 
   static async sendPushToDevices(userId, notification) {
     try {
-      if (!firebaseMessaging) return;
+      if (!firebaseMessaging && !webPushConfigured) return;
       if (!mongoose.Types.ObjectId.isValid(userId)) return;
 
       const devices = await DeviceToken.find({
         user_id: new mongoose.Types.ObjectId(userId),
         active: true,
-        provider: 'fcm',
-        platform: 'android'
-      }).select('token').lean();
+      }).select('token provider platform subscription').lean();
 
-      const tokens = devices.map(d => d.token).filter(Boolean);
-      if (tokens.length === 0) return;
+      if (devices.length === 0) return;
 
-      const payload = {
-        data: {
-          type: String(notification.type || 'system'),
-          title: String(notification.title || 'Zerohook'),
-          body: String(notification.message || ''),
-          message: String(notification.message || ''),
-          conversationId: String(notification.data?.conversationId || ''),
-          senderId: String(notification.data?.senderId || ''),
-          messageId: String(notification.data?.messageId || ''),
-          senderName: String(notification.data?.senderName || ''),
-          callId: String(notification.data?.callId || ''),
-          callerId: String(notification.data?.callerId || ''),
-          callerName: String(notification.data?.callerName || ''),
-          callType: String(notification.data?.callType || ''),
-          targetUserId: String(notification.data?.targetUserId || '')
-        },
-        android: {
-          priority: 'high'
-        },
-        tokens
-      };
+      const payload = buildPushPayload(notification);
+      const fcmTokens = [];
+      const webTargets = [];
 
-      const result = await firebaseMessaging.sendEachForMulticast(payload);
+      devices.forEach((device) => {
+        const platform = String(device.platform || '').toLowerCase();
+        const provider = String(device.provider || 'fcm').toLowerCase();
 
-      if (result.failureCount > 0) {
-        const invalidTokens = [];
-        result.responses.forEach((resp, idx) => {
-          if (!resp.success) {
-            const code = resp.error?.code || '';
-            if (
-              code.includes('registration-token-not-registered') ||
-              code.includes('invalid-registration-token')
-            ) {
-              invalidTokens.push(tokens[idx]);
+        if (platform === 'web') {
+          const subscription = normalizeWebPushSubscription(device.subscription);
+          if (subscription) {
+            webTargets.push({ token: device.token, subscription });
+          }
+          return;
+        }
+
+        if (provider === 'fcm' && device.token) {
+          fcmTokens.push(device.token);
+        }
+      });
+
+      const uniqueFcmTokens = Array.from(new Set(fcmTokens));
+
+      if (uniqueFcmTokens.length > 0 && firebaseMessaging) {
+        const fcmPayload = {
+          data: payload,
+          android: {
+            priority: 'high'
+          },
+          tokens: uniqueFcmTokens
+        };
+
+        const result = await firebaseMessaging.sendEachForMulticast(fcmPayload);
+
+        if (result.failureCount > 0) {
+          const invalidTokens = [];
+          result.responses.forEach((resp, idx) => {
+            if (!resp.success) {
+              const code = resp.error?.code || '';
+              if (
+                code.includes('registration-token-not-registered') ||
+                code.includes('invalid-registration-token')
+              ) {
+                invalidTokens.push(uniqueFcmTokens[idx]);
+              }
             }
+          });
+
+          if (invalidTokens.length > 0) {
+            await DeviceToken.updateMany(
+              { token: { $in: invalidTokens } },
+              { $set: { active: false, last_seen_at: new Date() } }
+            );
+          }
+        }
+      }
+
+      if (webTargets.length > 0) {
+        if (!webPushConfigured || !webPush) {
+          console.warn('Web push subscriptions exist, but web push is not configured.');
+          return;
+        }
+
+        const webPayload = JSON.stringify(payload);
+        const webResults = await Promise.allSettled(
+          webTargets.map(({ subscription }) => webPush.sendNotification(subscription, webPayload))
+        );
+
+        const invalidWebTokens = [];
+        webResults.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            const error = result.reason || {};
+            const statusCode = error.statusCode || error.status || null;
+            if (statusCode === 404 || statusCode === 410) {
+              invalidWebTokens.push(webTargets[index].token);
+            }
+            console.error('Web push delivery failed:', error.message || error);
           }
         });
 
-        if (invalidTokens.length > 0) {
+        if (invalidWebTokens.length > 0) {
           await DeviceToken.updateMany(
-            { token: { $in: invalidTokens } },
+            { token: { $in: invalidWebTokens }, platform: 'web', provider: 'webpush' },
             { $set: { active: false, last_seen_at: new Date() } }
           );
         }

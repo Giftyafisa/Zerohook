@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -9,7 +9,6 @@ import {
   Switch,
   FormControlLabel,
   FormGroup,
-  Divider,
   Button,
   Alert,
   Chip,
@@ -18,10 +17,6 @@ import {
   ListItemIcon,
   ListItemText,
   ListItemSecondaryAction,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Slider,
   TextField,
   FormControl,
   InputLabel,
@@ -31,49 +26,32 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  InputAdornment,
-  useTheme
+  InputAdornment
 } from '@mui/material';
-import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
 import {
   Security,
-  Visibility,
-  VisibilityOff,
   LocationOn,
-  Phone,
-  Email,
-  Chat,
   PhotoCamera,
   Public,
   Lock,
   Verified,
-  ExpandMore,
   Save,
   Refresh,
   Delete,
   Download,
-  Settings,
   PrivacyTip,
   Shield,
-  Notifications,
   Block,
   CheckCircle,
   Warning,
-  AttachMoney,
-  MoneyOff
+  AttachMoney
 } from '@mui/icons-material';
 
 const PrivacySettings = () => {
-  const theme = useTheme();
-  
-  // Expanded accordion state
-  const [expandedAccordion, setExpandedAccordion] = useState('privacy-level');
-  
-  const handleAccordionChange = (panel) => (event, isExpanded) => {
-    setExpandedAccordion(isExpanded ? panel : false);
-  };
-  
+  const saveSuccessTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
+  const delayedActionsRef = useRef(new Set());
   const [privacySettings, setPrivacySettings] = useState({
     // Privacy Level
     privacyLevel: 'standard',
@@ -123,7 +101,7 @@ const PrivacySettings = () => {
     allowVerificationChecks: true
   });
 
-  const [consentHistory, setConsentHistory] = useState([
+  const [consentHistory] = useState([
     {
       id: 1,
       type: 'Profile Data Sharing',
@@ -154,6 +132,41 @@ const PrivacySettings = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+
+  useEffect(() => {
+    const pendingActions = delayedActionsRef.current;
+
+    return () => {
+      mountedRef.current = false;
+
+      if (saveSuccessTimeoutRef.current) {
+        clearTimeout(saveSuccessTimeoutRef.current);
+        saveSuccessTimeoutRef.current = null;
+      }
+
+      pendingActions.forEach(action => {
+        clearTimeout(action.timeoutId);
+        action.resolve();
+      });
+      pendingActions.clear();
+    };
+  }, []);
+
+  const scheduleDelayedAction = useCallback((delayMs) => {
+    return new Promise(resolve => {
+      const action = {
+        timeoutId: null,
+        resolve
+      };
+
+      action.timeoutId = setTimeout(() => {
+        delayedActionsRef.current.delete(action);
+        resolve();
+      }, delayMs);
+
+      delayedActionsRef.current.add(action);
+    });
+  }, []);
 
   const privacyLevels = [
     {
@@ -231,7 +244,7 @@ const PrivacySettings = () => {
     setLoading(true);
     
     try {
-      const response = await apiClient.put('/users/me', {
+      await apiClient.put('/users/me', {
         profile_data: {
           // Privacy visibility settings
           privacySettings: {
@@ -265,7 +278,13 @@ const PrivacySettings = () => {
       });
       
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      if (saveSuccessTimeoutRef.current) {
+        clearTimeout(saveSuccessTimeoutRef.current);
+      }
+      saveSuccessTimeoutRef.current = setTimeout(() => {
+        setSaveSuccess(false);
+        saveSuccessTimeoutRef.current = null;
+      }, 3000);
       
     } catch (error) {
       console.error('Error saving privacy settings:', error);
@@ -313,7 +332,8 @@ const PrivacySettings = () => {
   const handleDataDeletion = async () => {
     try {
       // In real app, this would request data deletion from backend
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await scheduleDelayedAction(2000);
+      if (!mountedRef.current) return;
       
       setShowDeleteDialog(false);
       // Redirect to logout or show success message
@@ -326,7 +346,8 @@ const PrivacySettings = () => {
   const handleDataExport = async () => {
     try {
       // In real app, this would generate and download data export
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await scheduleDelayedAction(1000);
+      if (!mountedRef.current) return;
       
       setShowExportDialog(false);
       // Trigger download

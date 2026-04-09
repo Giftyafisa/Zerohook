@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { registerUser } from '../store/slices/authSlice';
 import {
@@ -47,6 +47,7 @@ const AFRICAN_COUNTRIES = [
 
 const RegisterPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const dispatch = useDispatch();
   const { loading, error: authError } = useSelector((state) => state.auth);
 
@@ -69,6 +70,37 @@ const RegisterPage = () => {
   const formRef = useRef(null);
   const errorRef = useRef(null);
   const bottomErrorRef = useRef(null);
+  const scrollTimeoutRef = useRef(null);
+
+  const resolvePostRegisterDestination = () => {
+    const fromState = location.state?.from;
+
+    if (fromState && typeof fromState === 'object') {
+      const pathname = fromState.pathname || '/subscription';
+      const search = fromState.search || '';
+      const hash = fromState.hash || '';
+
+      return {
+        pathname: `${pathname}${search}${hash}`,
+        state: fromState.state,
+      };
+    }
+
+    if (typeof fromState === 'string' && fromState.trim()) {
+      return { pathname: fromState };
+    }
+
+    return { pathname: '/subscription' };
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Detect user's country on mount
   useEffect(() => {
@@ -103,7 +135,11 @@ const RegisterPage = () => {
 
   // Scroll to error message so user can see what's wrong
   const scrollToError = () => {
-    setTimeout(() => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
       if (bottomErrorRef.current) {
         bottomErrorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else if (errorRef.current) {
@@ -216,7 +252,11 @@ const RegisterPage = () => {
       }));
       
       if (registerUser.fulfilled.match(resultAction)) {
-        navigate('/subscription');
+        const destination = resolvePostRegisterDestination();
+        navigate(destination.pathname, destination.state !== undefined
+          ? { replace: true, state: destination.state }
+          : { replace: true }
+        );
       } else {
         console.error('Registration failed:', resultAction.error);
         scrollToError();

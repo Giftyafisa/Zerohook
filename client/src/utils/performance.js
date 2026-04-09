@@ -127,7 +127,7 @@ export const lazyLoadComponent = (importFn) => {
   })));
 };
 
-export default {
+const performanceUtils = {
   useDebounce,
   useLazyImage,
   useVirtualScroll,
@@ -136,3 +136,5 @@ export default {
   optimizeImageUrl,
   lazyLoadComponent
 };
+
+export default performanceUtils;

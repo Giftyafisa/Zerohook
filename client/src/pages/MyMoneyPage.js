@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CryptoPayment from '../components/payments/CryptoPayment';
 import {
   Box,
@@ -51,7 +51,7 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import useCurrency from '../hooks/useCurrency';
 
 // Fullscreen transition for dialogs
@@ -68,8 +68,11 @@ const TAB_MAP = {
 const MyMoneyPage = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { symbol, currencyCode } = useCurrency();
+  const mountedRef = useRef(true);
+  const timeoutIdsRef = useRef(new Set());
   
   // Tab state - initialize from URL param if present
   const initialTab = TAB_MAP[searchParams.get('tab')] ?? 0;
@@ -126,6 +129,41 @@ const MyMoneyPage = () => {
     return [10, 20, 50, 100, 500];
   };
 
+  const scheduleTimeout = useCallback((callback, delay) => {
+    const timeoutId = setTimeout(() => {
+      timeoutIdsRef.current.delete(timeoutId);
+
+      if (mountedRef.current) {
+        callback();
+      }
+    }, delay);
+
+    timeoutIdsRef.current.add(timeoutId);
+    return timeoutId;
+  }, []);
+
+  useEffect(() => {
+    const activeTimeoutIds = timeoutIdsRef.current;
+
+    return () => {
+      mountedRef.current = false;
+      activeTimeoutIds.forEach(clearTimeout);
+      activeTimeoutIds.clear();
+    };
+  }, []);
+
+  const openTelegramChat = (username, message) => {
+    const encodedMessage = encodeURIComponent(message);
+    const telegramUrl = `https://t.me/${username}?text=${encodedMessage}`;
+    const newWindow = window.open(telegramUrl, '_blank', 'noopener,noreferrer');
+
+    if (newWindow) {
+      newWindow.opener = null;
+    } else {
+      toast.error('Popup blocked. Please allow pop-ups to open Telegram.');
+    }
+  };
+
   // Fetch all wallet data
   const fetchAllData = useCallback(async () => {
     if (!isAuthenticated) {
@@ -162,6 +200,8 @@ const MyMoneyPage = () => {
         escrows = data.escrows || data.data || [];
       }
 
+      if (!mountedRef.current) return;
+
       setWalletData({
         balance,
         escrowHeld,
@@ -172,7 +212,9 @@ const MyMoneyPage = () => {
     } catch (error) {
       console.error('Fetch error:', error);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [isAuthenticated]);
 
@@ -198,6 +240,8 @@ const MyMoneyPage = () => {
         try {
           const response = await apiClient.post('/payments/verify-inline', { reference: paymentRef });
           const data = response.data;
+
+          if (!mountedRef.current) return;
           
           if (data.success) {
             console.log('✅ Payment verified successfully:', data);
@@ -218,6 +262,8 @@ const MyMoneyPage = () => {
           toast.error('Failed to verify payment. Please contact support if funds were deducted.');
           setErrorMessage('Verification failed. Contact support if charged.');
         }
+
+        if (!mountedRef.current) return;
         
         // Clear URL params
         setSearchParams({});
@@ -226,7 +272,7 @@ const MyMoneyPage = () => {
         await fetchAllData();
         
         // Clear messages after delay
-        setTimeout(() => {
+        scheduleTimeout(() => {
           setSuccessMessage(null);
           setErrorMessage(null);
         }, 5000);
@@ -236,7 +282,7 @@ const MyMoneyPage = () => {
     if (isAuthenticated) {
       handlePaymentCallback();
     }
-  }, [isAuthenticated, searchParams, setSearchParams, fetchAllData, symbol]);
+  }, [isAuthenticated, searchParams, setSearchParams, fetchAllData, symbol, scheduleTimeout]);
 
   // ==================== PIN VERIFICATION SYSTEM ====================
   
@@ -547,7 +593,7 @@ const MyMoneyPage = () => {
         setActionLoading(false);
         setAddMoneyDialog(false);
         setAddAmount('');
-        setTimeout(() => {
+        scheduleTimeout(() => {
           fetchAllData();
           setSuccessMessage(null);
         }, 2000);
@@ -565,7 +611,7 @@ const MyMoneyPage = () => {
     setCryptoPaymentData(null);
     toast.success('Deposit confirmed!');
     setSuccessMessage('Deposit confirmed and added to wallet!');
-    setTimeout(() => {
+    scheduleTimeout(() => {
       fetchAllData();
       setSuccessMessage(null);
     }, 2000);
@@ -622,7 +668,7 @@ const MyMoneyPage = () => {
           </Typography>
           <Button 
             variant="contained" 
-            onClick={() => navigate('/login')}
+            onClick={() => navigate('/login', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } })}
             sx={styles.primaryBtn}
           >
             Login
@@ -1510,8 +1556,7 @@ const MyMoneyPage = () => {
               const message = telegramAmount
                 ? `Hi, I want to deposit ${symbol}${Number(telegramAmount).toLocaleString()} to my Zerohook wallet. My username is ${user?.username || 'N/A'}.`
                 : `Hi, I want to make a deposit to my Zerohook wallet. My username is ${user?.username || 'N/A'}.`;
-              const encodedMessage = encodeURIComponent(message);
-              window.open(`https://t.me/${TELEGRAM_CONFIG.botUsername}?text=${encodedMessage}`, '_blank');
+              openTelegramChat(TELEGRAM_CONFIG.botUsername, message);
             }}
             sx={{
               bgcolor: '#0088cc',
@@ -1537,8 +1582,7 @@ const MyMoneyPage = () => {
               const message = telegramAmount
                 ? `Hi, I want to deposit ${symbol}${Number(telegramAmount).toLocaleString()} to my Zerohook wallet. My username is ${user?.username || 'N/A'}.`
                 : `Hi, I need help with a payment for my Zerohook wallet. My username is ${user?.username || 'N/A'}.`;
-              const encodedMessage = encodeURIComponent(message);
-              window.open(`https://t.me/${TELEGRAM_CONFIG.adminUsername}?text=${encodedMessage}`, '_blank');
+                openTelegramChat(TELEGRAM_CONFIG.adminUsername, message);
             }}
             sx={{
               borderColor: 'rgba(0, 136, 204, 0.5)',

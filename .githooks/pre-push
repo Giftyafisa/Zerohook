@@ -1,0 +1,19 @@
+#!/bin/sh
+
+if [ "$ZEROHOOK_SKIP_UI_GATE" = "1" ]; then
+  echo "[pre-push] ZEROHOOK_SKIP_UI_GATE=1, skipping UI gate."
+  exit 0
+fi
+
+echo "[pre-push] Running Zerohook UI baseline gate (public-core)..."
+npm run ui:gate
+status=$?
+
+if [ $status -ne 0 ]; then
+  echo "[pre-push] UI gate failed."
+  echo "[pre-push] If this was an intentional UI change, update baselines with: npm run ui:baseline:update"
+  exit $status
+fi
+
+echo "[pre-push] UI gate passed."
+exit 0

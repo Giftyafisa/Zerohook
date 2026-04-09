@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { authMiddleware, optionalAuthMiddleware } = require('./auth');
 const { User, BlockedUser, Conversation, SugarAccessPayment, isDatabaseAvailable } = require('../config/database');
 const MongoRecommendationEngine = require('../services/MongoRecommendationEngine');
+const { getAccountType, buildAccountTypeQuery, buildPublicVisibilityFilter } = require('../utils/accountTypeUtils');
 const { safePagination } = require('../utils/routeHelpers');
 const router = express.Router();
 
@@ -22,6 +23,25 @@ function getLastSeenLabel(lastSeenDate) {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
   return `${Math.floor(diffDays / 7)}w ago`;
+}
+
+function normalizeBrowseSort(sort, sortBy) {
+  const requestedSort = String(sort || sortBy || 'recommendation').trim();
+
+  switch (requestedSort) {
+    case 'forYou':
+    case 'distance':
+      return 'recommendation';
+    case 'trustScore':
+    case 'popularity':
+      return 'rating';
+    case 'verificationTier':
+      return 'verification';
+    case 'recent':
+      return 'newest';
+    default:
+      return requestedSort;
+  }
 }
 
 // In-memory dedup cache for engagement events (prevents socket + REST double-counting)
@@ -117,7 +137,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     const user = await User.findById(userId).select(
-      'username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt created_at createdAt last_active lastActive'
+      'username email verification_tier verificationTier reputation_score reputationScore profile_data profileData accountType account_type profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt created_at createdAt last_active lastActive'
     ).lean();
 
     if (!user) {
@@ -169,7 +189,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     
     const user = await User.findById(userId).select(
-      'username email verification_tier verificationTier reputation_score reputationScore profile_data profileData profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt created_at createdAt last_active lastActive'
+      'username email verification_tier verificationTier reputation_score reputationScore profile_data profileData accountType account_type profile_visibility profileVisibility is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt created_at createdAt last_active lastActive'
     ).lean();
 
     if (!user) {
@@ -433,7 +453,7 @@ const handleBrowseProfiles = async (req, res) => {
       currentUserId = req.user.userId;
       isAuthenticated = true;
 
-      currentUserDoc = await User.findById(currentUserId).select('username is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt profile_data profileData');
+      currentUserDoc = await User.findById(currentUserId).select('username is_subscribed isSubscribed subscription_tier subscriptionTier subscription_expires_at subscriptionExpiresAt profile_data profileData accountType account_type');
       
       if (currentUserDoc) {
         const profileData = currentUserDoc.profile_data || currentUserDoc.profileData || {};
@@ -443,7 +463,7 @@ const handleBrowseProfiles = async (req, res) => {
           is_subscribed: currentUserDoc.is_subscribed || currentUserDoc.isSubscribed || false,
           subscription_tier: currentUserDoc.subscription_tier || currentUserDoc.subscriptionTier || 'free',
           subscription_expires_at: currentUserDoc.subscription_expires_at || currentUserDoc.subscriptionExpiresAt,
-          accountType: profileData.accountType || 'client',
+          accountType: getAccountType(currentUserDoc) || 'client',
           location: profileData.location || null
         };
         debugLog(`🔒 Authenticated: ${currentUser.username} (${currentUser.accountType})`);
@@ -467,6 +487,7 @@ const handleBrowseProfiles = async (req, res) => {
       filter,
       search,
       sort = 'recommendation',
+      sortBy,
       lat,
       lng,
       // Frontend sends these parameter names - support both naming conventions
@@ -480,6 +501,7 @@ const handleBrowseProfiles = async (req, res) => {
     } = req.query;
 
     const pg = safePagination(req.query, 50);
+    const sortMode = normalizeBrowseSort(sort, sortBy);
 
     // ============================================
     // STEP 3: DETECT USER LOCATION (UBER/BOLT-STYLE)
@@ -551,10 +573,7 @@ const handleBrowseProfiles = async (req, res) => {
     // STEP 4: DETERMINE ACCOUNT TYPE FILTER
     // ============================================
     // accountType can be at top-level OR inside profile_data depending on how it was saved
-    const viewerAccountType = currentUser?.accountType 
-      || currentUser?.profile_data?.accountType 
-      || currentUser?.profileData?.accountType 
-      || 'client';
+    const viewerAccountType = getAccountType(currentUser) || 'client';
     let accountTypeFilter = 'provider'; // Default: show providers
     
     if (viewerAccountType === 'provider') {
@@ -584,7 +603,7 @@ const handleBrowseProfiles = async (req, res) => {
     // ============================================
     let result;
     
-    if (sort === 'recommendation' || sort === 'forYou' || !sort) {
+    if (sortMode === 'recommendation' || !sortMode) {
       // Use the Uber/Bolt-style algorithm
       debugLog('🎯 Using UBER/BOLT-STYLE recommendation algorithm');
       
@@ -604,9 +623,9 @@ const handleBrowseProfiles = async (req, res) => {
       result = await getSimpleSortedProfiles({
         currentUserId,
         isAuthenticated,
-        accountTypeFilter,
+        viewerAccountType,
         filters,
-        sort,
+        sort: sortMode,
         limitNum: pg.limit,
         offset: pg.skip
       });
@@ -651,7 +670,7 @@ const handleBrowseProfiles = async (req, res) => {
         recommendationScore: profile.recommendationScore,
         hasProfileImage: profile.hasProfileImage || false,
         lastSeen: profile.lastSeen,
-        lastSeenLabel: profile.lastSeen || null,
+        lastSeenLabel: profile.lastSeenLabel || profile.lastSeen || null,
         successRate: profile.successRate
       };
     });
@@ -676,7 +695,7 @@ const handleBrowseProfiles = async (req, res) => {
       metadata: {
         authenticated: isAuthenticated,
         filterMode: filter || 'all',
-        sortMode: sort,
+        sortMode,
         algorithm: 'uber_bolt_style_v1',
         userLocationDetected: !!userLocation,
         userCountry: userLocation?.country || null,
@@ -704,38 +723,23 @@ const handleBrowseProfiles = async (req, res) => {
 /**
  * Helper function for simple sorted queries (non-recommendation)
  */
-async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, accountTypeFilter, filters, sort, limitNum, offset }) {
+async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, viewerAccountType, filters, sort, limitNum, offset }) {
   const mongoose = require('mongoose');
-  
-  // Build MongoDB query
-  const mongoQuery = {
-    $or: [
-      { 'profile_data.accountType': accountTypeFilter },
-      { 'profileData.accountType': accountTypeFilter }
-    ]
-  };
-  
-  if (currentUserId) {
-    mongoQuery._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+
+  const queryParts = [buildAccountTypeQuery(viewerAccountType)];
+
+  if (currentUserId && mongoose.Types.ObjectId.isValid(currentUserId)) {
+    queryParts.push({ _id: { $ne: new mongoose.Types.ObjectId(currentUserId) } });
   }
-  
+
   if (!isAuthenticated) {
-    mongoQuery.$and = mongoQuery.$and || [];
-    mongoQuery.$and.push({
-      $or: [
-        { profileVisibility: 'public' },
-        { profileVisibility: { $exists: false } },
-        { profile_visibility: 'public' },
-        { profile_visibility: { $exists: false } }
-      ]
-    });
+    queryParts.push(buildPublicVisibilityFilter());
   }
   
   // Apply filters
   if (filters.country) {
     const escapedCountry = filters.country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    mongoQuery.$and = mongoQuery.$and || [];
-    mongoQuery.$and.push({
+    queryParts.push({
       $or: [
         { 'profile_data.location.country': new RegExp(escapedCountry, 'i') },
         { 'profileData.location.country': new RegExp(escapedCountry, 'i') }
@@ -745,15 +749,20 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, account
   
   if (filters.searchQuery) {
     const escapedSearch = filters.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    mongoQuery.$and = mongoQuery.$and || [];
-    mongoQuery.$and.push({
+    queryParts.push({
       $or: [
         { username: new RegExp(escapedSearch, 'i') },
         { 'profile_data.firstName': new RegExp(escapedSearch, 'i') },
-        { 'profileData.firstName': new RegExp(escapedSearch, 'i') }
+        { 'profileData.firstName': new RegExp(escapedSearch, 'i') },
+        { 'profile_data.bio': new RegExp(escapedSearch, 'i') },
+        { 'profileData.bio': new RegExp(escapedSearch, 'i') },
+        { 'profile_data.location.city': new RegExp(escapedSearch, 'i') },
+        { 'profileData.location.city': new RegExp(escapedSearch, 'i') }
       ]
     });
   }
+
+  const mongoQuery = queryParts.length === 1 ? queryParts[0] : { $and: queryParts };
   
   // Build sort
   let sortOptions = {};
@@ -761,11 +770,25 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, account
     case 'newest':
       sortOptions = { created_at: -1, createdAt: -1 };
       break;
+    case 'verification':
+      sortOptions = { verification_tier: -1, verificationTier: -1, reputation_score: -1, reputationScore: -1 };
+      break;
     case 'rating':
+    case 'trustScore':
+    case 'popularity':
       sortOptions = { reputation_score: -1, reputationScore: -1 };
       break;
     case 'online':
       sortOptions = { last_active: -1, lastActive: -1 };
+      break;
+    case 'price':
+      sortOptions = { 'profile_data.basePrice': 1, 'profileData.basePrice': 1 };
+      break;
+    case 'priceHigh':
+      sortOptions = { 'profile_data.basePrice': -1, 'profileData.basePrice': -1 };
+      break;
+    case 'age':
+      sortOptions = { 'profile_data.age': 1, 'profileData.age': 1 };
       break;
     default:
       sortOptions = { last_active: -1, lastActive: -1 };

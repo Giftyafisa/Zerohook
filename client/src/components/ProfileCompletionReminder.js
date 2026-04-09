@@ -43,7 +43,26 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
     const profileData = user.profile_data || user.profileData || {};
     const loc = profileData.location || {};
     const coordinates = loc.coordinates || {};
-    const profileImage = resolveProfileImage(profileData) || user.profile_image || user.profile_image_url || user.profilePicture || user.avatar || null;
+    const galleryPhotos = [
+      ...(Array.isArray(user.gallery_images) ? user.gallery_images : []),
+      ...(Array.isArray(user.galleryImages) ? user.galleryImages : []),
+      ...(Array.isArray(profileData.gallery_images) ? profileData.gallery_images : []),
+      ...(Array.isArray(profileData.galleryImages) ? profileData.galleryImages : [])
+    ];
+    const galleryPhotoPreview = galleryPhotos
+      .map((photo) => {
+        if (typeof photo === 'string') return photo.trim() || null;
+        if (photo && typeof photo.url === 'string') return photo.url.trim() || null;
+        return null;
+      })
+      .find(Boolean) || null;
+    const profileImage = resolveProfileImage({
+      ...profileData,
+      profile_image: profileData.profile_image || user.profile_image,
+      profile_image_url: profileData.profile_image_url || user.profile_image_url,
+      profilePicture: profileData.profilePicture || user.profilePicture,
+      photos: Array.isArray(profileData.photos) && profileData.photos.length > 0 ? profileData.photos : galleryPhotos,
+    }) || galleryPhotoPreview || user.profile_image || user.profile_image_url || user.profilePicture || user.avatar || null;
     const services = Array.isArray(profileData.services)
       ? profileData.services
       : Array.isArray(profileData.specializations)
@@ -51,8 +70,8 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
         : Array.isArray(profileData.serviceCategories)
           ? profileData.serviceCategories
           : [];
-    const photoCount = Array.isArray(profileData.photos) ? profileData.photos.length : 0;
-    const hasDisplayName = Boolean((profileData.firstName && String(profileData.firstName).trim()) || (profileData.lastName && String(profileData.lastName).trim()) || user.username);
+    const photoCount = (Array.isArray(profileData.photos) ? profileData.photos.length : 0) + galleryPhotos.length;
+    const hasDisplayName = Boolean((profileData.firstName && String(profileData.firstName).trim()) || (profileData.lastName && String(profileData.lastName).trim()));
     const hasAge = Number.isFinite(Number(profileData.age));
     const hasLocation = Boolean(loc.city && loc.country);
     const hasGps = Boolean(
@@ -98,7 +117,7 @@ const ProfileCompletionReminder = ({ variant = 'card', showDismiss = true, onDis
       {
         key: 'name',
         label: 'Confirm your display name',
-        detail: hasDisplayName ? 'Name is visible' : 'Help users recognize you',
+        detail: hasDisplayName ? 'Name is visible' : 'Add a first or last name people can recognize',
         icon: Person,
         done: hasDisplayName,
         weight: 10,

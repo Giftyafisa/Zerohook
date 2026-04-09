@@ -41,8 +41,8 @@ android {
             }
         }
     }
-    val apiBaseUrl: String = localProps.getProperty("API_BASE_URL", "https://zerohook-api-f3ss.onrender.com/api")
-    val socketUrl: String  = localProps.getProperty("SOCKET_URL",   "https://zerohook-api-f3ss.onrender.com")
+    val apiBaseUrl: String = localProps.getProperty("API_BASE_URL", "https://zerohook-api-eoyr.onrender.com/api")
+    val socketUrl: String  = localProps.getProperty("SOCKET_URL",   "https://zerohook-api-eoyr.onrender.com")
 
     defaultConfig {
         applicationId = "com.zerohook.app"

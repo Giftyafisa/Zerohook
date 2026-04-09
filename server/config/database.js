@@ -387,6 +387,20 @@ const userPresenceSchema = new mongoose.Schema({
   currentPage: { type: String }
 }, { timestamps: true });
 
+const socketTraceSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  trace: { type: [String], default: [] },
+  trace_events: { type: [String], default: [] },
+  origin: { type: String, default: 'mobile' },
+  device_info: { type: mongoose.Schema.Types.Mixed, default: {} }
+}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+// Socket trace indexes tuned for recent/day/event triage queries
+socketTraceSchema.index({ created_at: -1 });
+socketTraceSchema.index({ user_id: 1, created_at: -1 });
+socketTraceSchema.index({ trace_events: 1, created_at: -1 });
+socketTraceSchema.index({ user_id: 1, trace_events: 1, created_at: -1 });
+
 const userSessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sessionToken: { type: String }, // No index on this field - compound index below handles uniqueness
@@ -611,6 +625,7 @@ const SubscriptionPlan = mongoose.model('SubscriptionPlan', subscriptionPlanSche
 const Subscription = mongoose.model('Subscription', subscriptionSchema);
 const Call = mongoose.model('Call', callSchema);
 const UserPresence = mongoose.model('UserPresence', userPresenceSchema);
+const SocketTrace = mongoose.model('SocketTrace', socketTraceSchema);
 const UserSession = mongoose.model('UserSession', userSessionSchema);
 const UserActivityLog = mongoose.model('UserActivityLog', userActivityLogSchema);
 const ApiPerformanceLog = mongoose.model('ApiPerformanceLog', apiPerformanceLogSchema);
@@ -643,6 +658,7 @@ const deviceTokenSchema = new mongoose.Schema({
   platform: { type: String, enum: ['android', 'ios', 'web'], required: true },
   provider: { type: String, default: 'fcm' },
   token: { type: String, required: true },
+  subscription: { type: mongoose.Schema.Types.Mixed, default: null },
   device_id: { type: String, default: null },
   app_version: { type: String, default: null },
   active: { type: Boolean, default: true },
@@ -743,6 +759,7 @@ const initializeCollections = async () => {
     await Transaction.createIndexes();
     await Conversation.createIndexes();
     await Message.createIndexes();
+    await SocketTrace.createIndexes();
     
     console.log('✅ MongoDB indexes created');
     
@@ -829,6 +846,7 @@ module.exports = {
   Subscription,
   Call,
   UserPresence,
+  SocketTrace,
   UserSession,
   UserActivityLog,
   ApiPerformanceLog,

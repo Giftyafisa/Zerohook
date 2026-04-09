@@ -877,10 +877,6 @@ const TikTokServiceFeed = () => {
 
   // Handle message
   const handleMessage = useCallback((service) => {
-    if (!isAuthenticated) {
-      navigate('/login', { state: { from: '/adult-services' } });
-      return;
-    }
     const provider = service.provider || {};
     const recipientId =
       provider.id ||
@@ -889,20 +885,27 @@ const TikTokServiceFeed = () => {
       service.providerId ||
       service.user_id ||
       service.userId;
+    const recipientName = provider.username || service.username || 'Provider';
+    const recipientAvatar = provider.profile_image || provider.profilePicture || provider.avatar || null;
 
     if (!recipientId) {
       toast.error('Unable to open chat for this provider right now.');
       return;
     }
 
-    navigate('/messages', {
-      state: {
-        recipientId,
-        recipientName: provider.username || service.username,
-        recipientAvatar: provider.profile_image || provider.profilePicture || provider.avatar,
-      }
+    const chatState = {
+      recipientId,
+      recipientName,
+      recipientAvatar,
+      from: '/adult-services'
+    };
+
+    const chatQuery = new URLSearchParams();
+    chatQuery.set('recipientId', String(recipientId));
+    navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+      state: chatState
     });
-  }, [isAuthenticated, navigate]);
+  }, [navigate]);
 
   // Handle share
   const handleShare = useCallback(async (service) => {

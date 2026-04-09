@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -11,14 +11,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Divider,
   Alert,
   CircularProgress,
-  Avatar
 } from '@mui/material';
 import {
   Language,
@@ -31,7 +25,6 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { colors } from '../../theme/colors';
-import { API_BASE_URL } from '../../config/constants';
 import apiClient from '../../services/apiClient';
 
 const CountrySelector = ({ 
@@ -46,14 +39,7 @@ const CountrySelector = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchCountries();
-    if (showDetected) {
-      detectUserCountry();
-    }
-  }, [showDetected]);
-
-  const fetchCountries = async () => {
+  const fetchCountries = useCallback(async () => {
     try {
       const { data } = await apiClient.get('/countries');
       if (data.success) {
@@ -66,9 +52,9 @@ const CountrySelector = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const detectUserCountry = async () => {
+  const detectUserCountry = useCallback(async () => {
     try {
       // Get user's IP address (simplified - in production use a proper IP service)
       const ipResponse = await fetch('https://api.ipify.org?format=json');
@@ -78,15 +64,23 @@ const CountrySelector = ({
       
       if (data.success) {
         setDetectedCountry(data.detectedCountry);
-        if (!selectedCountry) {
-          setSelectedCountry(data.detectedCountry);
+        setSelectedCountry((previousCountry) => {
+          if (previousCountry) return previousCountry;
           onCountryChange?.(data.detectedCountry);
-        }
+          return data.detectedCountry;
+        });
       }
     } catch (error) {
       console.error('Country detection failed:', error);
     }
-  };
+  }, [onCountryChange]);
+
+  useEffect(() => {
+    fetchCountries();
+    if (showDetected) {
+      detectUserCountry();
+    }
+  }, [showDetected, fetchCountries, detectUserCountry]);
 
   const handleCountrySelect = (country) => {
     setSelectedCountry(country);

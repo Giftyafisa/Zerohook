@@ -5,28 +5,23 @@
  * Shows live exchange rates. Replaces the old PaymentMethodSelector (Paystack/Stripe).
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
   CardContent,
   Typography,
   RadioGroup,
-  FormControlLabel,
-  Radio,
   Button,
   Grid,
   CircularProgress,
   Alert,
-  Chip,
 } from '@mui/material';
 import {
-  CurrencyBitcoin,
   CheckCircle,
   Lock,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { API_BASE_URL } from '../../config/constants';
 import apiClient from '../../services/apiClient';
 
 const CRYPTO_INFO = {
@@ -52,11 +47,7 @@ const CryptoMethodSelector = ({
   const [loadingRates, setLoadingRates] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchRates();
-  }, [currency]);
-
-  const fetchRates = async () => {
+  const fetchRates = useCallback(async () => {
     try {
       setLoadingRates(true);
       const response = await apiClient.get(`/payments/rates?fiatCurrency=${currency}`);
@@ -70,7 +61,11 @@ const CryptoMethodSelector = ({
     } finally {
       setLoadingRates(false);
     }
-  };
+  }, [currency]);
+
+  useEffect(() => {
+    fetchRates();
+  }, [fetchRates]);
 
   const handleSelect = (crypto) => {
     setSelectedCrypto(crypto);

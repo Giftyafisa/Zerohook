@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -29,6 +29,7 @@ import CryptoPayment from '../components/payments/CryptoPayment';
 
 const SugarProfilesPage = () => {
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   const { user, token, isAuthenticated } = useSelector((state) => state.auth);
   
   const [loading, setLoading] = useState(true);
@@ -120,7 +121,7 @@ const SugarProfilesPage = () => {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } });
       return;
     }
     
@@ -131,7 +132,15 @@ const SugarProfilesPage = () => {
     }
 
     fetchAccessStatus();
-  }, [isAuthenticated, isProvider, navigate, fetchAccessStatus]);
+  }, [
+    isAuthenticated,
+    isProvider,
+    navigate,
+    fetchAccessStatus,
+    currentLocation.pathname,
+    currentLocation.search,
+    currentLocation.hash
+  ]);
 
   useEffect(() => {
     if (accessStatus) {

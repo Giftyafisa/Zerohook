@@ -13,6 +13,7 @@
     "test-complete": "node test-complete-system.js",
     "test-final": "node test-final-integration.js",
     "fix-chat": "node fix-chat-schema.js",
+    "backfill:socket-trace-events": "node scripts/backfill-socket-trace-events.js",
     "start-system": "node start-system.js",
     "setup-full": "npm run setup-db && npm run test-system"
   },
@@ -43,7 +44,8 @@
     "redis": "^4.6.10",
     "socket.io": "^4.7.4",
     "tiny-secp256k1": "^2.2.4",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "jest": "^29.7.0",

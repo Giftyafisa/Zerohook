@@ -75,10 +75,10 @@ module.exports = defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'npm run start',
+    command: 'npx cross-env BROWSER=none npm run start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    timeout: Number(process.env.UI_BASELINE_WEBSERVER_TIMEOUT || 300 * 1000),
   },
 });
 

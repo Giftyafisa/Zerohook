@@ -61,6 +61,7 @@ import apiClient from '../services/apiClient';
 import { useDispatch } from 'react-redux';
 import { decrementUnreadMessages } from '../store/slices/uiSlice';
 import { inferMessageTypeFromContent, formatMessagePreview } from '../utils/messageTypeUtils';
+import { traceRealtime } from '../utils/realtimeTrace';
 
 // Environment-gated debug logger — no-ops in production builds
 const isDev = process.env.NODE_ENV === 'development';
@@ -241,7 +242,14 @@ const ChatSystem = ({
   const location = useLocation();
 
   // Recipient / navigation state
-  const routeState = location?.state || {};
+  const routeState = (() => {
+    const rawState = location?.state;
+    if (!rawState || typeof rawState !== 'object') return {};
+    if (rawState.state && typeof rawState.state === 'object') {
+      return rawState.state;
+    }
+    return rawState;
+  })();
   const query = new URLSearchParams(location.search || '');
   const queryRecipientId = query.get('recipientId') || query.get('recipientID') || query.get('targetUserId') || query.get('userId') || null;
   const queryConversationId = query.get('conversation') || query.get('conversationId') || query.get('conversationID') || null;
@@ -373,25 +381,30 @@ const ChatSystem = ({
       .filter(Boolean))];
   }, [conversations]);
 
-  // After conversations load, query online status for each participant
-  useEffect(() => {
-    if (!socket || !isConnected || participantIdsForPresence.length === 0) return;
-
-    if (participantIdsForPresence.length > 0) {
-      socket.emit('get_users_status', { userIds: participantIdsForPresence, context: 'chat' });
-    }
-
-  }, [socket, isConnected, participantIdsForPresence]);
-
   // Track conversation ID separately so room join/leave only fires on actual
   // conversation switches — not on every object-reference change (online status,
   // escrow updates, etc.) which would cause leave+rejoin and lost messages.
   const selectedConversationId = selectedConversation?.id || null;
 
+  // After conversations load, query online status for each participant
+  useEffect(() => {
+    if (!socket || !isConnected || participantIdsForPresence.length === 0) return;
+
+    if (participantIdsForPresence.length > 0) {
+      traceRealtime('chat', 'presence_snapshot_request', {
+        conversationId: selectedConversationId || null,
+        userCount: participantIdsForPresence.length,
+      });
+      socket.emit('get_users_status', { userIds: participantIdsForPresence, context: 'chat' });
+    }
+
+  }, [socket, isConnected, participantIdsForPresence, selectedConversationId]);
+
   useEffect(() => {
     if (selectedConversationId) {
       loadMessages(selectedConversationId);
       if (socket && isConnected) {
+        traceRealtime('chat', 'join_conversation', { conversationId: selectedConversationId });
         socket.emit('join_conversation', selectedConversationId);
       }
       setRemoteTyping(false);
@@ -399,6 +412,7 @@ const ChatSystem = ({
     // Cleanup: leave conversation room when switching or unmounting
     return () => {
       if (selectedConversationId && socket && isConnected) {
+        traceRealtime('chat', 'leave_conversation', { conversationId: selectedConversationId });
         socket.emit('leave_conversation', selectedConversationId);
       }
     };
@@ -408,12 +422,14 @@ const ChatSystem = ({
   useEffect(() => {
     const prevId = prevConversationIdRef.current;
     if (prevId && prevId !== selectedConversationId && socket && isConnected) {
+      traceRealtime('chat', 'typing_stop', { conversationId: prevId, reason: 'conversation-switch' });
       socket.emit('typing_stop', { conversationId: prevId });
     }
     prevConversationIdRef.current = selectedConversationId;
 
     return () => {
       if (prevConversationIdRef.current && socket && isConnected) {
+        traceRealtime('chat', 'typing_stop', { conversationId: prevConversationIdRef.current, reason: 'cleanup' });
         socket.emit('typing_stop', { conversationId: prevConversationIdRef.current });
       }
     };
@@ -577,6 +593,10 @@ const ChatSystem = ({
     // Handle read receipts — other participant read our messages
     const handleMessageRead = ({ conversationId, userId: readerId, timestamp }) => {
       if (String(readerId || '') === currentUserId) return; // Ignore our own read events
+      traceRealtime('chat', 'message_read', {
+        conversationId: conversationId || null,
+        readerId: readerId || null,
+      });
       // Update messages in currently viewed conversation
       if (normalizeId(selectedConversationRef.current?.id) === normalizeId(conversationId)) {
         setMessages((prev) =>
@@ -630,6 +650,12 @@ const ChatSystem = ({
 
     const handleUsersStatus = ({ users = [] }) => {
       if (!Array.isArray(users) || users.length === 0) return;
+
+      traceRealtime('chat', 'users_status', {
+        conversationId: selectedConversationRef.current?.id || null,
+        userCount: users.length,
+        onlineCount: users.filter((entry) => entry?.isOnline).length,
+      });
 
       const statusMap = new Map(
         users.map((entry) => [
@@ -909,6 +935,12 @@ const ChatSystem = ({
       debugLog('📤 Message sent successfully, data:', data);
       const saved = data.message;
       if (saved) {
+        traceRealtime('chat', 'send_message', {
+          conversationId: selectedConversation.id,
+          messageId: saved.id || saved._id || null,
+          messageType: saved.messageType || messageType,
+          hasMetadata: !!(metadata && Object.keys(metadata).length),
+        });
         setMessages(prev =>
           prev.map(msg =>
             msg.id === tempId ? { ...saved, status: 'sent' } : msg
@@ -917,7 +949,7 @@ const ChatSystem = ({
         setConversations(prev =>
           prev
             .map(conv => conv.id === selectedConversation.id
-              ? { ...conv, lastMessage: formatMessagePreview(saved.content, messageType), lastMessageTime: saved.createdAt }
+              ? { ...conv, lastMessage: formatMessagePreview(saved.content, saved.messageType || messageType), lastMessageTime: saved.createdAt }
               : conv)
             .sort((a, b) => new Date(b.lastMessageTime || b.createdAt || 0) - new Date(a.lastMessageTime || a.createdAt || 0))
         );
@@ -926,6 +958,11 @@ const ChatSystem = ({
       console.error('Failed to send message:', error);
       setMessages(prev => prev.map(msg => msg.id === tempId ? { ...msg, status: 'failed' } : msg));
       const errData = error.response?.data;
+      traceRealtime('chat', 'send_message_failed', {
+        conversationId: selectedConversation.id,
+        messageType,
+        reason: errData?.message || errData?.error || error?.message || 'unknown',
+      });
       toast.error(errData?.message || errData?.error || 'Failed to send message.');
     }
   };
@@ -948,14 +985,18 @@ const ChatSystem = ({
     
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
-      alert('File is too large. Maximum size is 10MB.');
+      toast.error('File is too large. Maximum size is 10MB.');
+      setPendingFile(null);
+      setAttachmentPreview(null);
       event.target.value = '';
       return;
     }
     
     // Validate file type
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      alert('File type not supported. Allowed: images and video.');
+      toast.error('File type not supported. Allowed: images and video.');
+      setPendingFile(null);
+      setAttachmentPreview(null);
       event.target.value = '';
       return;
     }
@@ -983,12 +1024,16 @@ const ChatSystem = ({
     
     // Validate file size and type
     if (file.size > MAX_FILE_SIZE) {
-      alert('File is too large. Maximum size is 10MB.');
+      toast.error('File is too large. Maximum size is 10MB.');
+      setPendingFile(null);
+      setAttachmentPreview(null);
       if (event?.target) event.target.value = '';
       return;
     }
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      alert('File type not supported.');
+      toast.error('File type not supported.');
+      setPendingFile(null);
+      setAttachmentPreview(null);
       if (event?.target) event.target.value = '';
       return;
     }
@@ -1020,12 +1065,14 @@ const ChatSystem = ({
     setNewMessage(e.target.value);
     if (socket && isConnected && selectedConversation && !isTyping) {
       setIsTyping(true);
+      traceRealtime('chat', 'typing_start', { conversationId: selectedConversation.id });
       socket.emit('typing_start', { conversationId: selectedConversation.id });
     }
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       if (socket && isConnected && selectedConversation) {
         setIsTyping(false);
+        traceRealtime('chat', 'typing_stop', { conversationId: selectedConversation.id, reason: 'timeout' });
         socket.emit('typing_stop', { conversationId: selectedConversation.id });
       }
     }, 2000);
@@ -1300,6 +1347,7 @@ const ChatSystem = ({
   const markConversationRead = async (conversationId) => {
     try {
       await apiClient.post(`/chat/read/${conversationId}`);
+      traceRealtime('chat', 'mark_conversation_read', { conversationId });
       // NOTE: The REST endpoint already emits 'message_read' via socket.
       // Do NOT also emit 'mark_read' here — that causes double emission
       // (4 events per read to the other participant).

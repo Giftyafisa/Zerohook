@@ -35,12 +35,13 @@ import {
   Favorite,
   Message,
   Chat,
+  VideoCall,
   FilterList,
   ViewModule,
   ViewList,
   Search
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSelector } from 'react-redux';
 import { selectIsSubscribed } from '../store/slices/authSlice';
@@ -52,9 +53,9 @@ import {
 } from '../config/locations';
 import { getDefaultImage } from '../config/images';
 import ChatSystem from '../components/ChatSystem';
-import { API_BASE_URL, getUploadUrl } from '../config/constants';
+import { API_BASE_URL } from '../config/constants';
 import apiClient from '../services/apiClient';
-import { extractProfileImagePath } from '../utils/imageUtils';
+import { extractProfileImagePath, resolveProfileImage } from '../utils/imageUtils';
 import usePresence from '../hooks/usePresence';
 
 const ProfileBrowse = () => {
@@ -63,6 +64,7 @@ const ProfileBrowse = () => {
   // const isSmallMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px - unused
   const isLargeScreen = useMediaQuery(theme.breakpoints.up('xl')); // >= 1536px
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   const { user: currentUser, isAuthenticated } = useAuth();
   const isSubscribed = useSelector(selectIsSubscribed);
   
@@ -99,6 +101,11 @@ const ProfileBrowse = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('distance');
+  const searchTermRef = useRef(searchTerm);
+  const sortByRef = useRef(sortBy);
+  const filtersRef = useRef(filters);
+  const userLocationRef = useRef(userLocation);
+  const previousSortRef = useRef(sortBy);
 
   // Search timeout ref for debounced search
   const searchTimeout = useRef(null);
@@ -115,80 +122,12 @@ const ProfileBrowse = () => {
   // Ref to prevent infinite loops
   const isInitialMount = useRef(true);
 
-  // Fallback mock data for when API is unavailable
-  const fallbackProfiles = [
-    {
-      id: '1',
-      username: 'Sarah_Professional',
-      profileData: {
-        firstName: 'Sarah',
-        lastName: 'Johnson',
-        age: 28,
-        bio: 'Professional escort with 5+ years experience. Discreet and reliable.',
-        location: { city: 'Lagos', country: 'Nigeria' },
-        occupation: 'Professional Escort',
-        languages: ['English', 'Yoruba'],
-        specializations: ['Long Term', 'Short Term'],
-        serviceCategories: ['Long Term', 'Short Term'],
-        basePrice: 250,
-        availability: ['Weekdays', 'Weekends']
-      },
-      verificationTier: 3,
-      trustScore: 95,
-      is_subscribed: true,
-      subscription_tier: 'premium',
-      created_at: '2024-01-15T10:00:00Z',
-      lastActive: '2024-08-15T14:30:00Z'
-    },
-    {
-      id: '2',
-      username: 'Grace_Elegant',
-      profileData: {
-        firstName: 'Grace',
-        lastName: 'Williams',
-        age: 25,
-        bio: 'Elegant and sophisticated companion for discerning clients.',
-        location: { city: 'Accra', country: 'Ghana' },
-        occupation: 'High-End Companion',
-        languages: ['English', 'Twi'],
-        specializations: ['Special Services', 'Long Term'],
-        serviceCategories: ['Special Services', 'Long Term'],
-        basePrice: 400,
-        availability: ['Weekends', 'Evenings']
-      },
-      verificationTier: 2,
-      trustScore: 88,
-      is_subscribed: true,
-      subscription_tier: 'elite',
-      created_at: '2024-02-20T12:00:00Z',
-      lastActive: '2024-08-15T16:45:00Z'
-    },
-    {
-      id: '3',
-      username: 'Maria_Charming',
-      profileData: {
-        firstName: 'Maria',
-        lastName: 'Rodriguez',
-        age: 26,
-        bio: 'Charming and attentive companion. Specializing in oral services.',
-        location: { city: 'Port Harcourt', country: 'Nigeria' },
-        occupation: 'Companion',
-        languages: ['English', 'Spanish'],
-        specializations: ['Oral Services', 'Short Term'],
-        serviceCategories: ['Oral Services', 'Short Term'],
-        basePrice: 180,
-        availability: ['Weekdays', 'Evenings']
-      },
-      verificationTier: 1,
-      trustScore: 75,
-      is_subscribed: false,
-      subscription_tier: 'free',
-      created_at: '2024-03-10T09:00:00Z',
-      lastActive: '2024-08-15T13:20:00Z'
-    }
-  ];
   const isLocationDetecting = useRef(false);
-  const isFetchingProfiles = useRef(false);
+
+  useEffect(() => { searchTermRef.current = searchTerm; }, [searchTerm]);
+  useEffect(() => { sortByRef.current = sortBy; }, [sortBy]);
+  useEffect(() => { filtersRef.current = filters; }, [filters]);
+  useEffect(() => { userLocationRef.current = userLocation; }, [userLocation]);
 
   // Get all available cities for filters
   const allCities = getAllCities();
@@ -204,6 +143,7 @@ const ProfileBrowse = () => {
       setLocationPermission('prompt');
       const location = await getUserLocation();
       setUserLocation(location);
+      userLocationRef.current = location;
       setLocationPermission('granted');
       
       // Auto-set city filter to nearest city
@@ -227,11 +167,13 @@ const ProfileBrowse = () => {
       // Set default location for testing
       if (debugMode && process.env.NODE_ENV !== 'production') {
         console.log('📍 Setting default location for debugging');
-        setUserLocation({
+        const defaultLocation = {
           coordinates: { lat: 5.5600, lng: -0.2057 }, // Accra, Ghana
           nearestCity: { name: 'Accra', country: 'Ghana' },
           distance: 0
-        });
+        };
+        setUserLocation(defaultLocation);
+        userLocationRef.current = defaultLocation;
       }
     } finally {
       isLocationDetecting.current = false;
@@ -259,9 +201,13 @@ const ProfileBrowse = () => {
       setLoading(true);
       setError(null);
       setIsRetrying(false);
+      setApiUnavailable(false);
       
       // Use passed filters or current state filters
-      const filtersToUse = currentFilters || filters;
+      const filtersToUse = currentFilters || filtersRef.current;
+      const searchValue = searchTermRef.current.trim();
+      const sortValue = sortByRef.current;
+      const locationToUse = userLocationRef.current;
       
       // Build query parameters
       const queryParams = new URLSearchParams({
@@ -298,15 +244,18 @@ const ProfileBrowse = () => {
         queryParams.append('availability', filtersToUse.availability);
       }
       
-      // Add sortBy to server request for server-side sorting
-      if (sortBy) {
-        queryParams.append('sortBy', sortBy);
+      if (searchValue) {
+        queryParams.append('search', searchValue);
+      }
+
+      if (sortValue) {
+        queryParams.append('sort', sortValue);
       }
       
       // Add user location for distance calculation if available
-      if (userLocation?.coordinates) {
-        queryParams.append('lat', userLocation.coordinates.lat.toString());
-        queryParams.append('lng', userLocation.coordinates.lng.toString());
+      if (locationToUse?.coordinates) {
+        queryParams.append('lat', locationToUse.coordinates.lat.toString());
+        queryParams.append('lng', locationToUse.coordinates.lng.toString());
       }
       
       // Fetch profiles with filters, pagination, and AbortController signal
@@ -320,43 +269,16 @@ const ProfileBrowse = () => {
         if (fetchError.name === 'AbortError' || fetchError.code === 'ERR_CANCELED') {
           throw fetchError;
         }
-        // Handle 500 with fallback data
+        // Surface backend outages as real errors rather than demo content
         if (fetchError.response?.status === 500) {
           if (process.env.NODE_ENV !== 'production') {
-            console.log('⚠️ API returned 500 error, using fallback data');
+            console.log('⚠️ API returned 500 error, showing outage state');
           }
           setApiUnavailable(true);
-          
-          const processedFallbackProfiles = fallbackProfiles.map(user => {
-            try {
-              if (isAuthenticated && currentUser && currentUser.id === user.id) {
-                return null;
-              }
-              
-              return {
-                id: user.id,
-                username: user.username,
-                email: 'sample@example.com',
-                profileData: user.profileData,
-                verificationTier: user.verificationTier,
-                trustScore: user.trustScore,
-                createdAt: user.created_at,
-                lastActive: user.lastActive,
-                subscriptionStatus: user.is_subscribed ? 'subscribed' : 'free',
-                subscriptionTier: user.subscription_tier || 'basic',
-                isPremium: user.is_subscribed && (user.subscription_tier === 'premium' || user.subscription_tier === 'elite'),
-                distance: null
-              };
-            } catch (profileError) {
-              console.error('Error processing fallback profile:', profileError);
-              return null;
-            }
-          }).filter(Boolean);
-          
-          setProfiles(processedFallbackProfiles);
+          setProfiles([]);
           setTotalPages(1);
           setPage(1);
-          setError('API temporarily unavailable. Showing sample profiles for demonstration.');
+          setError('The backend API is temporarily unavailable. Please try again in a moment.');
           setLoading(false);
           return;
         }
@@ -477,7 +399,8 @@ const ProfileBrowse = () => {
     }
   // Dependencies minimized - filters and userLocation passed as params, not deps
   // This prevents excessive re-creations of the callback
-  }, [isAuthenticated, currentUser?.id, sortBy]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, currentUser?.id, reduxUser?.id, convertPrice]);
 
   // FIXED: Initial mount effect - runs once on component mount
   useEffect(() => {
@@ -511,9 +434,17 @@ const ProfileBrowse = () => {
       if (process.env.NODE_ENV !== 'production') {
         console.log('📍 Location changed, refetching profiles with distance calculations');
       }
-      fetchProfiles(1, filters);
+      fetchProfiles(1, filtersRef.current);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userLocation]); // Simplified: only re-run when location changes
+
+  useEffect(() => {
+    if (previousSortRef.current === sortBy) return;
+    previousSortRef.current = sortBy;
+    setPage(1);
+    fetchProfiles(1, filtersRef.current);
+  }, [sortBy, fetchProfiles]);
 
   // Debug effect to monitor state changes (only in development)
   useEffect(() => {
@@ -532,6 +463,7 @@ const ProfileBrowse = () => {
       ...filters,
       [field]: value
     };
+    filtersRef.current = newFilters;
     setFilters(newFilters);
     setPage(1); // Reset to first page when filters change
     
@@ -565,10 +497,7 @@ const ProfileBrowse = () => {
       // Show instructions to enable location
       toast.info('Please enable location services in your browser settings to get location-based results.');
     } else {
-      detectUserLocation().then(() => {
-        // Refetch profiles after location is detected to include distance calculations
-        fetchProfiles(1, filters);
-      }).catch((error) => {
+      detectUserLocation().catch((error) => {
         if (process.env.NODE_ENV !== 'production') {
           console.error('Location detection failed:', error);
         }
@@ -704,13 +633,13 @@ const ProfileBrowse = () => {
 
   const handlePageChange = (event, value) => {
     setPage(value);
-    fetchProfiles(value, filters);
+    fetchProfiles(value, filtersRef.current);
   };
 
   const handleConnect = (user) => {
     if (!isAuthenticated) {
       // Redirect to login if not authenticated
-      navigate('/login', { state: { from: '/profiles' } });
+      navigate('/login', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } });
       return;
     }
     
@@ -719,12 +648,24 @@ const ProfileBrowse = () => {
   };
 
   const handleQuickChat = (profile) => {
-    if (!isAuthenticated) {
-      // Redirect to login if not authenticated
-      navigate('/login', { state: { from: '/profiles' } });
+    const avatar = resolveProfileImage(profile.profileData);
+    const recipientId = profile.id || profile._id || profile.userId;
+    const recipientName = profile.profileData?.firstName || profile.username || 'User';
+    if (!recipientId) {
+      toast.error('Unable to open chat for this profile right now.');
       return;
     }
-    
+    const chatState = {
+      recipientId,
+      recipientName,
+      recipientAvatar: avatar,
+      from: '/profiles'
+    };
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: { pathname: '/messages', state: chatState } } });
+      return;
+    }
+
     setSelectedUser(profile);
     setQuickChatDialog(true);
   };
@@ -827,9 +768,13 @@ const ProfileBrowse = () => {
             
             <Button 
               variant="text" 
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                setError(null);
+                setRetryCount(0);
+                fetchProfiles(page, filtersRef.current);
+              }}
             >
-              Reload Page
+              Retry With Current Filters
             </Button>
           </Box>
           
@@ -940,6 +885,7 @@ const ProfileBrowse = () => {
                   API_BASE_URL,
                   error
                 });
+                }
               }}
             >
               🔍 Debug Info
@@ -991,9 +937,8 @@ const ProfileBrowse = () => {
       {apiUnavailable && (
         <Alert severity="warning" sx={{ mb: 3 }}>
           <Typography variant="body2">
-            <strong>Demo Mode:</strong> The backend API is temporarily unavailable. 
-            Showing sample profiles to demonstrate the application functionality. 
-            All features like filtering, contact, and real-time updates will work normally once the API is restored.
+            <strong>Live data unavailable:</strong> The backend API is temporarily unavailable.
+            Retry to refresh the profile list once service is restored.
           </Typography>
         </Alert>
       )}
@@ -1021,14 +966,15 @@ const ProfileBrowse = () => {
               placeholder={isMobile ? 'Search profiles...' : 'Search profiles by name, bio, or occupation...'}
               value={searchTerm}
               onChange={(e) => {
-                setSearchTerm(e.target.value);
+                const nextSearch = e.target.value;
+                searchTermRef.current = nextSearch;
+                setSearchTerm(nextSearch);
                 // Debounce search to avoid too many API calls
                 if (searchTimeout.current) {
                   clearTimeout(searchTimeout.current);
                 }
                 searchTimeout.current = setTimeout(() => {
-                  const newFilters = { ...filters };
-                  fetchProfiles(1, newFilters);
+                  fetchProfiles(1, filtersRef.current);
                 }, 500);
               }}
               inputProps={{
@@ -1074,9 +1020,9 @@ const ProfileBrowse = () => {
               <Select
                 value={sortBy}
                 onChange={(e) => {
-                  setSortBy(e.target.value);
-                  // Refetch profiles when sorting changes
-                  fetchProfiles(1, filters);
+                  const nextSort = e.target.value;
+                  sortByRef.current = nextSort;
+                  setSortBy(nextSort);
                 }}
                 label="Sort"
                 sx={{ height: isMobile ? 36 : 40 }}
@@ -1513,7 +1459,7 @@ const ProfileBrowse = () => {
             {apiUnavailable && (
               <Box component="span" sx={{ display: 'block', mt: 0.5 }}>
                 <Typography variant="body2" color="warning.main">
-                  ⚠️ Demo Mode - Sample Profiles
+                  ⚠️ Live data unavailable
                 </Typography>
               </Box>
             )}
@@ -1607,19 +1553,26 @@ const ProfileBrowse = () => {
       {paginatedProfiles.length === 0 && !loading ? (
         <Box textAlign="center" py={8}>
           <Typography variant="h6" color="text.secondary" gutterBottom>
-            {apiUnavailable ? 'No sample profiles available' : 'No profiles found'}
+            {apiUnavailable ? 'No live profiles available' : 'No profiles found'}
           </Typography>
           <Typography variant="body2" color="text.secondary" mb={3}>
             {apiUnavailable 
-              ? 'The sample data is currently unavailable. Please try again later or contact support.'
+              ? 'The backend API is currently unavailable. Please try again later.'
               : 'Try adjusting your filters or search criteria'
             }
           </Typography>
-          {!apiUnavailable && (
+          {apiUnavailable ? (
+            <Button
+              variant="contained"
+              onClick={() => fetchProfiles(1, filtersRef.current)}
+            >
+              Retry Now
+            </Button>
+          ) : (
             <Button
               variant="outlined"
               onClick={() => {
-                setFilters({
+                const newFilters = {
                   country: 'all',
                   city: '',
                   ageRange: [18, 50],
@@ -1631,8 +1584,10 @@ const ProfileBrowse = () => {
                   availability: 'all',
                   languages: [],
                   specializations: []
-                });
-                fetchProfiles(1);
+                };
+                setFilters(newFilters);
+                setPage(1);
+                fetchProfiles(1, newFilters);
               }}
             >
               Reset Filters
@@ -1693,7 +1648,7 @@ const ProfileBrowse = () => {
               <CardMedia
                 component="img"
                 height={isMobile ? "200" : "250"}
-                image={getUploadUrl(profile.profileData?.profilePicture) || getDefaultImage('PROFILE', profile.profileData?.gender)}
+                image={resolveProfileImage(profile.profileData) || getDefaultImage('PROFILE', profile.profileData?.gender)}
                 alt={`${profile.profileData?.firstName || 'User'} ${profile.profileData?.lastName || ''} profile photo`}
                 loading="lazy"
                 decoding="async"
@@ -1960,7 +1915,7 @@ const ProfileBrowse = () => {
                         }
                       }}
                     >
-                      <Message sx={{ color: '#00f2ea' }} />
+                      <VideoCall sx={{ color: '#00f2ea' }} />
                     </IconButton>
                   </Box>
                   
@@ -2019,7 +1974,7 @@ const ProfileBrowse = () => {
                     <Alert severity="info" sx={{ mt: 1, fontSize: '0.75rem' }}>
                       <Typography variant="caption">
                         💎 Premium features require subscription. 
-                        <Button size="small" onClick={() => navigate('/subscription')}>
+                        <Button size="small" onClick={() => navigate('/subscription', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } })}>
                           Upgrade Now
                         </Button>
                       </Typography>
@@ -2075,42 +2030,62 @@ const ProfileBrowse = () => {
             <Button
               variant="outlined"
               size={isMobile ? "small" : "medium"}
-              onClick={() => setFilters({
-                ...filters,
-                distance: Math.min(filters.distance + 50, 200)
-              })}
+              onClick={() => {
+                const newFilters = {
+                  ...filters,
+                  distance: Math.min(filters.distance + 50, 200)
+                };
+                setFilters(newFilters);
+                setPage(1);
+                fetchProfiles(1, newFilters);
+              }}
             >
               📍 Increase Search Radius
             </Button>
             <Button
               variant="outlined"
               size={isMobile ? "small" : "medium"}
-              onClick={() => setFilters({
-                ...filters,
-                country: 'all',
-                city: ''
-              })}
+              onClick={() => {
+                const newFilters = {
+                  ...filters,
+                  country: 'all',
+                  city: ''
+                };
+                setFilters(newFilters);
+                setPage(1);
+                fetchProfiles(1, newFilters);
+              }}
             >
               🌍 Search All Countries
             </Button>
             <Button
               variant="outlined"
               size={isMobile ? "small" : "medium"}
-              onClick={() => setFilters({
-                ...filters,
-                priceRange: [0, 1000]
-              })}
+              onClick={() => {
+                const newFilters = {
+                  ...filters,
+                  priceRange: [0, 1000]
+                };
+                setFilters(newFilters);
+                setPage(1);
+                fetchProfiles(1, newFilters);
+              }}
             >
               💰 Remove Price Filter
             </Button>
             <Button
               variant="outlined"
               size="small"
-              onClick={() => setFilters({
-                ...filters,
-                verificationTier: 'all',
-                trustScore: [0, 100]
-              })}
+              onClick={() => {
+                const newFilters = {
+                  ...filters,
+                  verificationTier: 'all',
+                  trustScore: [0, 100]
+                };
+                setFilters(newFilters);
+                setPage(1);
+                fetchProfiles(1, newFilters);
+              }}
             >
               ⭐ Remove Verification Filter
             </Button>
@@ -2127,22 +2102,32 @@ const ProfileBrowse = () => {
                   <Button
                     size="small"
                     variant="text"
-                    onClick={() => setFilters({
-                      ...filters,
-                      city: userLocation.nearestCity.name,
-                      country: userLocation.nearestCity.country.toLowerCase()
-                    })}
+                    onClick={() => {
+                      const newFilters = {
+                        ...filters,
+                        city: userLocation.nearestCity.name,
+                        country: userLocation.nearestCity.country.toLowerCase()
+                      };
+                      setFilters(newFilters);
+                      setPage(1);
+                      fetchProfiles(1, newFilters);
+                    }}
                   >
                     📍 {userLocation.nearestCity.name}
                   </Button>
                   <Button
                     size="small"
                     variant="text"
-                    onClick={() => setFilters({
-                      ...filters,
-                      country: 'all',
-                      city: ''
-                    })}
+                    onClick={() => {
+                      const newFilters = {
+                        ...filters,
+                        country: 'all',
+                        city: ''
+                      };
+                      setFilters(newFilters);
+                      setPage(1);
+                      fetchProfiles(1, newFilters);
+                    }}
                   >
                     🌍 All Countries
                   </Button>
@@ -2180,7 +2165,11 @@ const ProfileBrowse = () => {
               flexDirection: 'column'
             }}
           >
-            <ChatSystem currentUser={selectedUser} />
+            <ChatSystem
+              recipientId={selectedUser?.id || selectedUser?._id || selectedUser?.userId || null}
+              recipientName={selectedUser?.profileData?.firstName || selectedUser?.profile_data?.firstName || selectedUser?.username || 'User'}
+              recipientAvatar={resolveProfileImage(selectedUser?.profileData || selectedUser?.profile_data)}
+            />
           </DialogContent>
         </Dialog>
       )}
@@ -2212,7 +2201,11 @@ const ProfileBrowse = () => {
                 flexDirection: 'column'
               }}
             >
-              <ChatSystem currentUser={selectedUser} />
+              <ChatSystem
+                recipientId={selectedUser?.id || selectedUser?._id || selectedUser?.userId || null}
+                recipientName={selectedUser?.profileData?.firstName || selectedUser?.profile_data?.firstName || selectedUser?.username || 'User'}
+                recipientAvatar={resolveProfileImage(selectedUser?.profileData || selectedUser?.profile_data)}
+              />
             </DialogContent>
             <DialogActions>
               <Button 

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Box, useTheme } from '@mui/material';
+import React, { useState, useRef, useMemo } from 'react';
+import { Box } from '@mui/material';
 import { useVirtualScroll } from '../utils/performance';
 
 const VirtualizedList = ({
@@ -12,7 +12,6 @@ const VirtualizedList = ({
   className,
   sx = {}
 }) => {
-  const theme = useTheme();
   const [scrollTop, setScrollTop] = useState(0);
   const scrollElementRef = useRef(null);
   

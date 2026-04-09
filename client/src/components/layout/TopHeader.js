@@ -6,8 +6,8 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, IconButton, Badge, Menu, MenuItem, Divider } from '@mui/material';
-import { styled, keyframes } from '@mui/system';
+import { Box, Typography, IconButton, Badge } from '@mui/material';
+import { styled } from '@mui/system';
 import {
   Search,
   Notifications,
@@ -15,13 +15,8 @@ import {
   Close
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
-import { selectIsAuthenticated, selectUser } from '../../store/slices/authSlice';
+import { selectIsAuthenticated } from '../../store/slices/authSlice';
 import { selectUnreadNotifications } from '../../store/slices/uiSlice';
-
-const glowPulse = keyframes`
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-`;
 
 const HeaderContainer = styled(Box)({
   display: 'flex',
@@ -142,7 +137,6 @@ const SearchInput = styled('input')({
 const TopHeader = ({ title, showSearch = true, showNotifications = true, showFilter = false, onFilterClick }) => {
   const navigate = useNavigate();
   const isAuthenticated = useSelector(selectIsAuthenticated);
-  const user = useSelector(selectUser);
   const unreadNotifications = useSelector(selectUnreadNotifications);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

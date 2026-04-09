@@ -47,11 +47,12 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const AdminDashboard = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -263,7 +264,7 @@ const AdminDashboard = () => {
         <Box sx={styles.centerBox}>
           <DashIcon sx={{ fontSize: 64, color: '#333', mb: 2 }} />
           <Typography color="text.secondary">Login required</Typography>
-          <Button variant="contained" onClick={() => navigate('/login')} sx={{ mt: 2, bgcolor: '#00f2ea', color: '#000' }}>Login</Button>
+          <Button variant="contained" onClick={() => navigate('/login', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } })} sx={{ mt: 2, bgcolor: '#00f2ea', color: '#000' }}>Login</Button>
         </Box>
       </Box>
     );
@@ -306,6 +307,22 @@ const AdminDashboard = () => {
         <Typography sx={{ fontWeight: 800, fontSize: '1.4rem', color: '#fff', flex: 1 }}>
           Admin Dashboard
         </Typography>
+        <Button
+          variant="outlined"
+          onClick={() => navigate('/admin/socket-trace')}
+          sx={{
+            borderColor: 'rgba(0,242,234,0.45)',
+            color: '#00f2ea',
+            mr: 1,
+            fontWeight: 700,
+            '&:hover': {
+              borderColor: '#00f2ea',
+              backgroundColor: 'rgba(0,242,234,0.08)'
+            }
+          }}
+        >
+          Socket Trace
+        </Button>
         <IconButton onClick={fetchAdminData} sx={{ color: '#00f2ea' }}>
           <RefreshIcon />
         </IconButton>

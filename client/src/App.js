@@ -72,6 +72,7 @@ const BookingDetails = lazy(() => import('./pages/BookingDetails'));
 const MyMoneyPage = lazy(() => import('./pages/MyMoneyPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+const AdminSocketTraceDashboard = lazy(() => import('./pages/AdminSocketTraceDashboard'));
 const HelpSupportPage = lazy(() => import('./pages/HelpSupportPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const SugarProfilesPage = lazy(() => import('./pages/SugarProfilesPage'));
@@ -351,6 +352,12 @@ function AppContent() {
         <Route path="/admin-panel" element={
           <ProtectedRoute requireSubscription={false}>
             <ErrorBoundary><AdminPanel /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/admin/socket-trace" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><AdminSocketTraceDashboard /></ErrorBoundary>
           </ProtectedRoute>
         } />
         

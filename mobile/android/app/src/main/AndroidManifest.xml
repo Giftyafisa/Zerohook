@@ -79,6 +79,10 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name=".receivers.CallNotificationActionReceiver"
+            android:exported="false" />
+
         <!-- Background Sync Worker -->
         <provider
             android:name="androidx.startup.InitializationProvider"

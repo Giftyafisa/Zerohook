@@ -30,26 +30,102 @@ const SUGAR_TYPES = [ACCOUNT_TYPES.SUGAR_DADDY, ACCOUNT_TYPES.SUGAR_MOMMY];
 // All valid account types
 const ALL_ACCOUNT_TYPES = Object.values(ACCOUNT_TYPES);
 
+const ACCOUNT_TYPE_FIELD_PATHS = [
+  'accountType',
+  'account_type',
+  'profile_data.accountType',
+  'profile_data.account_type',
+  'profileData.accountType',
+  'profileData.account_type'
+]
+
+const PROFILE_VISIBILITY_FIELD_PATHS = [
+  'profileVisibility',
+  'profile_visibility',
+  'profile_data.profileVisibility',
+  'profile_data.profile_visibility',
+  'profileData.profileVisibility',
+  'profileData.profile_visibility'
+]
+
+const SUGAR_VISIBILITY_FIELD_PATHS = [
+  'sugarVisibility',
+  'profile_data.sugarVisibility',
+  'profileData.sugarVisibility'
+]
+
+const GENDER_FIELD_PATHS = [
+  'gender',
+  'profile_data.gender',
+  'profileData.gender'
+]
+
+const normalizeAccountTypeValue = (value) => {
+  if (typeof value !== 'string') return null;
+
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+};
+
+const resolveAccountTypeInput = (input) => {
+  if (typeof input === 'string') {
+    return normalizeAccountTypeValue(input);
+  }
+
+  return getAccountType(input);
+};
+
+const buildAnyFieldQuery = (fields, value) => ({
+  $or: fields.map((field) => ({ [field]: value }))
+});
+
+const buildAnyFieldRegexQuery = (fields, regex) => ({
+  $or: fields.map((field) => ({ [field]: regex }))
+});
+
+const buildAnyFieldInQuery = (fields, values) => ({
+  $or: values.flatMap((value) => fields.map((field) => ({ [field]: value })))
+});
+
+const buildAllFieldsNinQuery = (fields, values) => ({
+  $and: fields.map((field) => ({ [field]: { $nin: values } }))
+});
+
+const buildPublicVisibilityFilter = () => ({
+  $or: PROFILE_VISIBILITY_FIELD_PATHS.flatMap((field) => ([
+    { [field]: 'public' },
+    { [field]: { $exists: false } },
+    { [field]: null }
+  ]))
+});
+
+const buildAccountTypeQuery = (accountType) => {
+  const normalizedType = normalizeAccountTypeValue(accountType) || ACCOUNT_TYPES.PROVIDER;
+
+  return buildAnyFieldQuery(ACCOUNT_TYPE_FIELD_PATHS, normalizedType);
+};
+
 /**
  * Get account type from user object
  * Handles various data structures (profile_data, etc.)
  */
 const getAccountType = (user) => {
   if (!user) return null;
-  
-  // Check profile_data (common format)
-  if (user.profile_data?.accountType) {
-    return user.profile_data.accountType;
-  }
-  
-  // Check direct accountType property
-  if (user.accountType) {
-    return user.accountType;
-  }
-  
-  // Check account_type (snake_case from DB queries)
-  if (user.account_type) {
-    return user.account_type;
+
+  const candidateValues = [
+    user.profile_data?.accountType,
+    user.profile_data?.account_type,
+    user.profileData?.accountType,
+    user.profileData?.account_type,
+    user.accountType,
+    user.account_type
+  ];
+
+  for (const candidateValue of candidateValues) {
+    const normalized = normalizeAccountTypeValue(candidateValue);
+    if (normalized) {
+      return normalized;
+    }
   }
   
   return null;
@@ -129,40 +205,24 @@ const getVisibleAccountTypes = (user) => {
  * @returns {Object} MongoDB query filter object
  */
 const buildAccountTypeFilter = (viewer, options = {}) => {
-  const viewerType = getAccountType(viewer);
+  const viewerType = resolveAccountTypeInput(viewer);
   
   switch (viewerType) {
     case ACCOUNT_TYPES.CLIENT:
       // Clients see only providers
-      return {
-        $or: [
-          { 'profile_data.accountType': 'provider' },
-          { 'profileData.accountType': 'provider' }
-        ]
-      };
+      return buildAccountTypeQuery(ACCOUNT_TYPES.PROVIDER);
       
     case ACCOUNT_TYPES.PROVIDER:
       // Providers see only clients (sugar access handled separately)
-      return {
-        $or: [
-          { 'profile_data.accountType': 'client' },
-          { 'profileData.accountType': 'client' }
-        ]
-      };
+      return buildAccountTypeQuery(ACCOUNT_TYPES.CLIENT);
       
     case ACCOUNT_TYPES.SUGAR_DADDY:
       // Sugar daddy sees verified female providers
       return {
         $and: [
-          { $or: [
-            { 'profile_data.accountType': 'provider' },
-            { 'profileData.accountType': 'provider' }
-          ]},
+          buildAccountTypeQuery(ACCOUNT_TYPES.PROVIDER),
           { verification_tier: { $gte: 2 } },
-          { $or: [
-            { 'profile_data.gender': { $regex: /^female$/i } },
-            { 'profileData.gender': { $regex: /^female$/i } }
-          ]}
+          buildAnyFieldRegexQuery(GENDER_FIELD_PATHS, /^female$/i)
         ]
       };
       
@@ -170,26 +230,15 @@ const buildAccountTypeFilter = (viewer, options = {}) => {
       // Sugar mommy sees verified male providers
       return {
         $and: [
-          { $or: [
-            { 'profile_data.accountType': 'provider' },
-            { 'profileData.accountType': 'provider' }
-          ]},
+          buildAccountTypeQuery(ACCOUNT_TYPES.PROVIDER),
           { verification_tier: { $gte: 2 } },
-          { $or: [
-            { 'profile_data.gender': { $regex: /^male$/i } },
-            { 'profileData.gender': { $regex: /^male$/i } }
-          ]}
+          buildAnyFieldRegexQuery(GENDER_FIELD_PATHS, /^male$/i)
         ]
       };
       
     default:
       // Unauthenticated or unknown - show providers only
-      return {
-        $or: [
-          { 'profile_data.accountType': 'provider' },
-          { 'profileData.accountType': 'provider' }
-        ]
-      };
+      return buildAccountTypeQuery(ACCOUNT_TYPES.PROVIDER);
   }
 };
 
@@ -201,33 +250,31 @@ const buildAccountTypeFilter = (viewer, options = {}) => {
  * @returns {Object} MongoDB query filter object
  */
 const buildSugarVisibilityFilter = (viewer, hasSugarAccess = false) => {
-  const viewerType = getAccountType(viewer);
+  const viewerType = resolveAccountTypeInput(viewer);
   
   // Only providers can see sugar profiles
   if (viewerType !== ACCOUNT_TYPES.PROVIDER) {
-    return {
-      $and: [
-        { 'profile_data.accountType': { $nin: ['sugar_daddy', 'sugar_mommy'] } }
-      ]
-    };
+    return buildAllFieldsNinQuery(ACCOUNT_TYPE_FIELD_PATHS, SUGAR_TYPES);
   }
   
   // Provider without sugar access - exclude sugar profiles
   if (!hasSugarAccess) {
-    return {
-      'profile_data.accountType': { $nin: ['sugar_daddy', 'sugar_mommy'] }
-    };
+    return buildAllFieldsNinQuery(ACCOUNT_TYPE_FIELD_PATHS, SUGAR_TYPES);
   }
   
   // Provider with sugar access - include visible sugar profiles
+  const sugarVisibilityQuery = {
+    $or: SUGAR_VISIBILITY_FIELD_PATHS.flatMap((field) => ([
+      { [field]: 'visible' },
+      { [field]: { $exists: false } },
+      { [field]: null }
+    ]))
+  };
+
   return {
-    $or: [
-      { 'profile_data.accountType': { $in: ['sugar_daddy', 'sugar_mommy'] } }
-    ],
-    $or: [
-      { 'profile_data.sugarVisibility': 'visible' },
-      { 'profile_data.sugarVisibility': { $exists: false } },
-      { 'profile_data.sugarVisibility': null }
+    $and: [
+      buildAnyFieldInQuery(ACCOUNT_TYPE_FIELD_PATHS, SUGAR_TYPES),
+      sugarVisibilityQuery
     ]
   };
 };
@@ -303,6 +350,8 @@ module.exports = {
   SUGAR_TYPES,
   ALL_ACCOUNT_TYPES,
   getAccountType,
+  buildAccountTypeQuery,
+  buildPublicVisibilityFilter,
   isClient,
   isProvider,
   isSugarDaddy,

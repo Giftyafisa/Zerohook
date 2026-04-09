@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -21,7 +21,7 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import useCurrency from '../hooks/useCurrency';
 import { ListSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState, TimeoutError } from '../components/ErrorState';
@@ -29,12 +29,15 @@ import { ErrorState, TimeoutError } from '../components/ErrorState';
 const BookingsPage = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const currentLocation = useLocation();
   const { format } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   const [bookings, setBookings] = useState([]);
   const [error, setError] = useState(null);
   const [isTimeout, setIsTimeout] = useState(false);
+  const mountedRef = useRef(true);
+  const requestRef = useRef({ controller: null, timeoutId: null });
 
   const mockBookings = useMemo(() => [
     {
@@ -49,29 +52,61 @@ const BookingsPage = () => {
     },
   ], []);
 
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+
+      if (requestRef.current.timeoutId) {
+        clearTimeout(requestRef.current.timeoutId);
+      }
+
+      if (requestRef.current.controller) {
+        requestRef.current.controller.abort();
+      }
+    };
+  }, []);
+
   const fetchBookings = useCallback(async () => {
+      if (!mountedRef.current) return;
+
+      if (requestRef.current.controller) {
+        requestRef.current.controller.abort();
+      }
+
+      if (requestRef.current.timeoutId) {
+        clearTimeout(requestRef.current.timeoutId);
+      }
+
+      const controller = new AbortController();
       setLoading(true);
       setError(null);
       setIsTimeout(false);
 
       // 10 second timeout
       const timeoutId = setTimeout(() => {
+        if (!mountedRef.current) return;
+
         setIsTimeout(true);
         setLoading(false);
+        controller.abort();
       }, 10000);
+
+      requestRef.current = { controller, timeoutId };
 
       try {
         const response = await apiClient.get('/bookings', {
-          signal: AbortSignal.timeout(10000)
+          signal: controller.signal
         });
         
         clearTimeout(timeoutId);
+        if (!mountedRef.current) return;
         
         const data = response.data;
         setBookings(data.bookings || []);
         setError(null);
       } catch (error) {
         clearTimeout(timeoutId);
+        if (!mountedRef.current) return;
         console.error('Bookings fetch error:', error);
         
         if (error.name === 'TimeoutError' || error.name === 'AbortError') {
@@ -85,7 +120,13 @@ const BookingsPage = () => {
           setError('Unable to load bookings right now. Please try again.');
         }
       } finally {
-        setLoading(false);
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+
+        if (requestRef.current.controller === controller) {
+          requestRef.current = { controller: null, timeoutId: null };
+        }
       }
   }, [mockBookings]);
 
@@ -139,7 +180,7 @@ const BookingsPage = () => {
           <Typography color="text.secondary" sx={{ mb: 2 }}>Please log in to view your bookings</Typography>
           <Button 
             variant="contained" 
-            onClick={() => navigate('/login')}
+            onClick={() => navigate('/login', { state: { from: { pathname: currentLocation.pathname, search: currentLocation.search, hash: currentLocation.hash } } })}
             sx={styles.primaryButton}
           >
             Login

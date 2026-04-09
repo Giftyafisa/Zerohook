@@ -1,0 +1,25 @@
+{
+  "public-core": {
+    "description": "Core public acquisition and browse routes used as push-gate baseline.",
+    "routes": [
+      { "id": "home", "path": "/" },
+      { "id": "login", "path": "/login" },
+      { "id": "register", "path": "/register" },
+      { "id": "subscription", "path": "/subscription" },
+      { "id": "adult-services", "path": "/adult-services" },
+      { "id": "profiles", "path": "/profiles" }
+    ]
+  },
+  "public-info": {
+    "description": "Brand, trust, and policy public information surfaces.",
+    "routes": [
+      { "id": "about", "path": "/about" },
+      { "id": "help", "path": "/help" },
+      { "id": "privacy", "path": "/privacy" },
+      { "id": "terms", "path": "/terms" },
+      { "id": "trust-safety", "path": "/trust-safety" },
+      { "id": "how-it-works", "path": "/how-it-works" },
+      { "id": "contact", "path": "/contact" }
+    ]
+  }
+}

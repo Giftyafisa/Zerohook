@@ -250,8 +250,8 @@ const MobileBottomNav = () => {
       icon: <Chat />, 
       label: 'Messages',
       ariaLabel: unreadMessages > 0 ? `Messages, ${unreadMessages} unread` : 'View messages', 
-      paths: ['/chat', '/messages'],
-      onClick: () => navigate('/chat'),
+      paths: ['/messages', '/chat'],
+      onClick: () => navigate('/messages'),
       badge: unreadMessages > 0 ? unreadMessages : null
     },
     { 

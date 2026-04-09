@@ -42,13 +42,43 @@ const sanitizeText = (text) => {
   return String(text).replace(/<[^>]*>/g, '').trim();
 };
 
+const getProfileImage = (entity) => {
+  if (!entity) return null;
+
+  const profileData = entity.profile_data || entity.profileData || entity;
+  const sources = [
+    entity.profile_image,
+    entity.profile_image_url,
+    entity.profilePicture,
+    entity.profile_picture,
+    entity.avatar,
+    profileData.profile_image,
+    profileData.profile_image_url,
+    profileData.profilePicture,
+    profileData.profile_picture,
+    profileData.avatar,
+    Array.isArray(profileData.photos) && profileData.photos.length > 0 ? profileData.photos[0] : null
+  ];
+
+  for (const source of sources) {
+    if (typeof source === 'string' && source.trim()) {
+      return source.trim();
+    }
+    if (source && typeof source === 'object' && typeof source.url === 'string' && source.url.trim()) {
+      return source.url.trim();
+    }
+  }
+
+  return null;
+};
+
 // ========================================
 // UNIFIED FEED - Merges content posts + service listings
 // ========================================
 router.get('/feed', async (req, res) => {
   try {
     const { category, type = 'all' } = req.query;
-    const pg = safePagination(req.query, 50);
+    const pg = safePagination(req.query.page, req.query.limit, 50);
 
     // Optional auth for personalization
     let currentUserId = null;
@@ -100,7 +130,7 @@ router.get('/feed', async (req, res) => {
         provider: {
           id: p.user_id?._id,
           username: p.user_id?.username || p.username,
-          profile_image: p.user_id?.profile_data?.profilePicture || p.user_id?.profile_data?.photos?.[0],
+          profile_image: getProfileImage(p.user_id),
           verification_tier: p.user_id?.verification_tier || 0,
           trust_score: p.user_id?.trust_score || 0,
         },
@@ -148,7 +178,7 @@ router.get('/feed', async (req, res) => {
           provider: {
             id: s.provider_id?._id,
             username: s.provider_id?.username,
-            profile_image: s.provider_id?.profile_data?.profilePicture || s.provider_id?.profile_data?.photos?.[0],
+            profile_image: getProfileImage(s.provider_id),
             verification_tier: s.provider_id?.verification_tier || 0,
             trust_score: s.provider_id?.trust_score || 0,
           },
@@ -524,7 +554,7 @@ router.get('/posts/:postId/comments', async (req, res) => {
     const enrichedComments = comments.map(c => ({
       ...c,
       reply_count: replyMap[c._id.toString()] || 0,
-      user_avatar: c.user_id?.profile_data?.profilePicture || c.user_id?.profile_data?.photos?.[0] || null
+      user_avatar: getProfileImage(c.user_id)
     }));
 
     res.json({ success: true, comments: enrichedComments, total, pagination: { page: pg.page, limit: pg.limit } });

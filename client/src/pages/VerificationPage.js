@@ -91,7 +91,7 @@ const VerificationPage = () => {
       await apiClient.post('/verification/send-email-otp', { email: user?.email });
       toast.success('OTP sent to your email!');
     } catch (error) {
-      toast.info('OTP sent! (Demo mode)');
+      toast.error(error.response?.data?.error || 'Failed to send OTP');
     } finally {
       setSubmitting(false);
     }
@@ -110,7 +110,7 @@ const VerificationPage = () => {
       setVerificationStatus(prev => ({ ...prev, emailVerified: true }));
       setExpandedStep(null);
     } catch (error) {
-      toast.error('Verification failed');
+      toast.error(error.response?.data?.error || 'Verification failed');
     } finally {
       setSubmitting(false);
     }
@@ -133,8 +133,7 @@ const VerificationPage = () => {
       toast.success('ID verification submitted! Pending review.');
       setExpandedStep(null);
     } catch (error) {
-      toast.info('Submitted for review (Demo mode)');
-      setExpandedStep(null);
+      toast.error(error.response?.data?.error || 'Failed to submit ID verification');
     } finally {
       setSubmitting(false);
     }

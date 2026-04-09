@@ -15,7 +15,7 @@ import {
   Divider,
   Chip
 } from '@mui/material';
-import { styled, keyframes } from '@mui/system';
+import { styled } from '@mui/system';
 import {
   Menu as MenuIcon,
   Person,
@@ -27,23 +27,11 @@ import {
   Explore,
   Whatshot,
   Chat,
-  Close,
-  Diamond,  // For sugar profiles
-  WorkOutline  // For provider services
+  Diamond  // For sugar profiles
 } from '@mui/icons-material';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsAuthenticated, selectIsSubscribed, logout } from '../../store/slices/authSlice';
 import NotificationSystem from '../NotificationSystem';
-import { colors } from '../../theme/colors';
-
-const glowPulse = keyframes`
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(0, 242, 234, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(0, 242, 234, 0.5);
-  }
-`;
 
 const GlassAppBar = styled(AppBar)({
   background: 'rgba(15, 15, 19, 0.85)',
@@ -403,7 +391,7 @@ const Navbar = () => {
         <>
           <GlassMenuItem
             onClick={() => {
-              navigate('/chat');
+              navigate('/messages');
               handleMenuClose();
             }}
           >

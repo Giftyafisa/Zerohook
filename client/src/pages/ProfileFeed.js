@@ -45,7 +45,7 @@ import {
   CheckCircle,
   AccessTime,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import apiClient from '../services/apiClient';
 import { calculateDistance } from '../config/locations';
@@ -997,6 +997,7 @@ const ProfileSkeleton = () => (
 
 export const SubscriptionPaywall = ({ onSubscribe }) => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <Box
@@ -1079,7 +1080,7 @@ export const SubscriptionPaywall = ({ onSubscribe }) => {
             fullWidth
             variant="contained"
             size="large"
-            onClick={() => navigate('/subscription')}
+            onClick={() => navigate('/subscription', { state: { from: { pathname: location.pathname, search: location.search, hash: location.hash } } })}
             sx={{
               background: tokens.gradients.primary,
               color: '#000',
@@ -1189,25 +1190,25 @@ const ProfileFeed = () => {
 
   // Handle message
   const handleMessage = useCallback((profile) => {
-    if (!isAuthenticated) {
-      navigate('/login', { state: { from: '/profiles' } });
-      return;
-    }
     const avatar = resolveProfileImage(profile.profileData);
     const recipientId = profile.id || profile._id || profile.userId;
+    const recipientName = profile.profileData?.firstName || profile.username || 'User';
     if (!recipientId) {
       toast.error('Unable to open chat for this profile right now.');
       return;
     }
-    navigate('/chat', {
-      state: {
-        recipientId,
-        recipientName: profile.profileData?.firstName || profile.username,
-        recipientAvatar: avatar,
-        from: '/profiles'
-      }
+    const chatState = {
+      recipientId,
+      recipientName,
+      recipientAvatar: avatar,
+      from: '/profiles'
+    };
+    const chatQuery = new URLSearchParams();
+    chatQuery.set('recipientId', String(recipientId));
+    navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+      state: chatState
     });
-  }, [isAuthenticated, navigate]);
+  }, [navigate]);
 
   // Handle profile click
   const handleProfileClick = useCallback((profile) => {
@@ -1390,7 +1391,6 @@ const ProfileFeed = () => {
           </Box>
         )}
 
-        {/* Profiles Grid */}
         {!loading && !error && (
           <>
             {/* Radius Expansion Suggestion */}

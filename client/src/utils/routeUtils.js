@@ -23,7 +23,7 @@ export const CHAT_ROUTE_PREFIXES = ['/chat', '/messages', '/inbox'];
  * Route prefixes where calls can be initiated/received
  * CallSystem should only mount on these routes to avoid socket overhead
  */
-export const CALL_ELIGIBLE_ROUTES = ['/chat', '/messages', '/inbox', '/profile/', '/dashboard'];
+export const CALL_ELIGIBLE_ROUTES = ['/chat', '/messages', '/inbox', '/profiles', '/profile/', '/dashboard'];
 
 /**
  * Performance-sensitive routes where AnimatedBackground should be simplified/disabled

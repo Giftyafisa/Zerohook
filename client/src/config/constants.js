@@ -22,6 +22,11 @@ export const SERVER_URL = process.env.REACT_APP_SOCKET_URL ||
 export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL ||
   (process.env.NODE_ENV === 'production' ? PROD_SERVER_URL : window.location.origin);
 
+export const WEB_PUSH_VAPID_PUBLIC_KEY =
+  process.env.REACT_APP_WEB_PUSH_VAPID_PUBLIC_KEY ||
+  process.env.REACT_APP_WEB_PUSH_PUBLIC_KEY ||
+  '';
+
 /**
  * Get the full URL for uploaded files (profile pictures, service images, etc.)
  * Handles both relative paths (/uploads/...) and full URLs

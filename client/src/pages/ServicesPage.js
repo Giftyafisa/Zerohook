@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -43,6 +44,7 @@ import { motion } from 'framer-motion';
 import { colors } from '../theme/colors';
 
 const ServicesPage = () => {
+  const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
@@ -556,6 +558,23 @@ const ServicesPage = () => {
                     startIcon={<Message />}
                     size="small"
                     sx={{ mb: 1 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!profile?.id) {
+                        toast.error('Unable to open chat for this profile right now.');
+                        return;
+                      }
+                      const chatQuery = new URLSearchParams();
+                      chatQuery.set('recipientId', String(profile.id));
+                      navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+                        state: {
+                          recipientId: profile.id,
+                          recipientName: profile.name,
+                          recipientAvatar: profile.photos?.[0] || null,
+                          from: '/services'
+                        }
+                      });
+                    }}
                   >
                     Message
                   </Button>
@@ -741,8 +760,17 @@ const ServicesPage = () => {
                 variant="outlined"
                 startIcon={<Message />}
                 onClick={() => {
+                  const chatQuery = new URLSearchParams();
+                  chatQuery.set('recipientId', String(selectedProfile.id));
                   setProfileDialogOpen(false);
-                  // Navigate to chat or open message modal
+                  navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+                    state: {
+                      recipientId: selectedProfile.id,
+                      recipientName: selectedProfile.name,
+                      recipientAvatar: selectedProfile.photos?.[0] || null,
+                      from: '/services'
+                    }
+                  });
                 }}
               >
                 Send Message

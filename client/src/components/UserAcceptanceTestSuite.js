@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Container,
@@ -10,12 +10,6 @@ import {
   Chip,
   Alert,
   CircularProgress,
-  Stepper,
-  Step,
-  StepLabel,
-  StepContent,
-  useTheme,
-  useMediaQuery,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -31,29 +25,18 @@ import {
   Info,
   ExpandMore,
   PlayArrow,
-  Stop,
   Refresh,
-  VideoCall,
-  Notifications,
-  Chat,
-  Dashboard,
-  Person,
-  Settings,
-  Speed,
-  Memory,
-  Storage
+  Speed
 } from '@mui/icons-material';
 import { authenticatedGet } from '../utils/apiUtils';
 import { API_BASE_URL } from '../config/constants';
 
 const UserAcceptanceTestSuite = () => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [testResults, setTestResults] = useState({});
   const [isRunning, setIsRunning] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [overallStatus, setOverallStatus] = useState('pending');
-  const [performanceMetrics, setPerformanceMetrics] = useState({});
+  const [, setPerformanceMetrics] = useState({});
 
   const testScenarios = [
     {
@@ -202,7 +185,6 @@ const UserAcceptanceTestSuite = () => {
     setCurrentStep(0);
 
     const results = {};
-    let passed = 0;
     let failed = 0;
     let warnings = 0;
     let errors = 0;
@@ -219,8 +201,7 @@ const UserAcceptanceTestSuite = () => {
           scenario: scenario.name
         };
 
-        if (result.status === 'pass') passed++;
-        else if (result.status === 'fail') failed++;
+        if (result.status === 'fail') failed++;
         else if (result.status === 'warning') warnings++;
         else if (result.status === 'error') errors++;
 

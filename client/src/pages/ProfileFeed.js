@@ -550,6 +550,22 @@ const ProfileCard = React.memo(({
   const scoreBreakdown = profile.scoreBreakdown || {};
   const matchPercentage = Math.round(recommendationScore) || (scoreBreakdown.compatibility ? Math.round(scoreBreakdown.compatibility) : null);
 
+  // Get profile image using shared utility
+  const profileImage = resolveProfileImage(profileData);
+  const [failedImageUrl, setFailedImageUrl] = useState(null);
+
+  useEffect(() => {
+    setFailedImageUrl(null);
+  }, [profile.id, profileImage]);
+
+  const displayProfileImage = profileImage && profileImage !== failedImageUrl ? profileImage : null;
+
+  const handleProfileImageError = useCallback(() => {
+    if (profileImage) {
+      setFailedImageUrl(profileImage);
+    }
+  }, [profileImage]);
+
   // Helper function to format last active time
   const formatLastActive = (lastActiveDate) => {
     // If we have a pre-formatted label, use it (but not "Online now" since we show online indicator separately)
@@ -575,9 +591,6 @@ const ProfileCard = React.memo(({
     if (diffDays < 7) return `${diffDays}d ago`;
     return `${Math.floor(diffDays / 7)}w ago`;
   };
-
-  // Get profile image using shared utility
-  const profileImage = resolveProfileImage(profileData);
 
   return (
     <Fade in timeout={300 + index * 50}>
@@ -615,12 +628,13 @@ const ProfileCard = React.memo(({
       >
         {/* Profile Image Section */}
         <Box sx={{ position: 'relative', pt: '100%' }}>
-          {profileImage ? (
+          {displayProfileImage ? (
             <Box
               component="img"
-              src={profileImage}
+              src={displayProfileImage}
               alt={displayName}
               loading="lazy"
+              onError={handleProfileImageError}
               sx={{
                 position: 'absolute',
                 top: 0,

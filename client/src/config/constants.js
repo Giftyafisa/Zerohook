@@ -22,6 +22,49 @@ export const SERVER_URL = process.env.REACT_APP_SOCKET_URL ||
 export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL ||
   (process.env.NODE_ENV === 'production' ? PROD_SERVER_URL : window.location.origin);
 
+const LEGACY_UPLOAD_HOSTS = new Set(['opue.me', 'www.opue.me']);
+const ONRENDER_UPLOAD_HOST_PATTERN = /^zerohook-api-[a-z0-9-]+\.onrender\.com$/i;
+
+const getServerHostname = () => {
+  try {
+    return new URL(SERVER_URL).hostname.toLowerCase();
+  } catch (_) {
+    return '';
+  }
+};
+
+const shouldRewriteLegacyUploadHost = (hostname) => {
+  const normalized = String(hostname || '').toLowerCase();
+  if (!normalized) return false;
+
+  if (LEGACY_UPLOAD_HOSTS.has(normalized)) {
+    return true;
+  }
+
+  if (!ONRENDER_UPLOAD_HOST_PATTERN.test(normalized)) {
+    return false;
+  }
+
+  const serverHostname = getServerHostname();
+  return !serverHostname || normalized !== serverHostname;
+};
+
+export const normalizeLegacyUploadHostUrl = (value) => {
+  if (typeof value !== 'string') return value;
+  if (!value.startsWith('http://') && !value.startsWith('https://')) return value;
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.pathname.startsWith('/uploads/') && shouldRewriteLegacyUploadHost(parsed.hostname)) {
+      return `${SERVER_URL}${parsed.pathname}${parsed.search}`;
+    }
+  } catch (_) {
+    // If URL parsing fails, return the original value.
+  }
+
+  return value;
+};
+
 export const WEB_PUSH_VAPID_PUBLIC_KEY =
   process.env.REACT_APP_WEB_PUSH_VAPID_PUBLIC_KEY ||
   process.env.REACT_APP_WEB_PUSH_PUBLIC_KEY ||
@@ -37,16 +80,7 @@ export const getUploadUrl = (path) => {
   if (!path) return null;
   // If it's already a full URL, return as-is unless it points to a legacy uploads host.
   if (path.startsWith('http://') || path.startsWith('https://')) {
-    try {
-      const parsed = new URL(path);
-      const legacyUploadHosts = new Set(['opue.me', 'www.opue.me']);
-      if (legacyUploadHosts.has(parsed.hostname.toLowerCase()) && parsed.pathname.startsWith('/uploads/')) {
-        return `${SERVER_URL}${parsed.pathname}`;
-      }
-    } catch (_) {
-      // If URL parsing fails, fall back to returning the original path.
-    }
-    return path;
+    return normalizeLegacyUploadHostUrl(path);
   }
   // If it's a relative path starting with /uploads, prepend the server URL
   if (path.startsWith('/uploads')) {

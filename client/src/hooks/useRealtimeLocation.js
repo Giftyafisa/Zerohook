@@ -20,17 +20,16 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSocket } from '../contexts/SocketContext';
-import { useAuth } from '../contexts/AuthContext';
+
+const GEOLOCATION_TIMEOUT_CODE = 3;
 
 const useRealtimeLocation = (options = {}) => {
   const { 
-    role = 'client',           // 'provider' or 'client'
     updateInterval = 15000,    // Update frequency (ms) - 15 seconds default
     enableHighAccuracy = true  // GPS accuracy preference
   } = options;
 
   const { socket, isConnected } = useSocket();
-  const { user } = useAuth();
   
   // State
   const [isSharing, setIsSharing] = useState(false);
@@ -42,28 +41,53 @@ const useRealtimeLocation = (options = {}) => {
   const watchIdRef = useRef(null);
   const updateIntervalRef = useRef(null);
   const lastUpdateRef = useRef(null);
+  const isStartingRef = useRef(false);
+
+  const isGeolocationTimeout = useCallback((error) => {
+    return Number(error?.code) === GEOLOCATION_TIMEOUT_CODE;
+  }, []);
 
   /**
    * Get current position with promise wrapper
    */
-  const getCurrentPosition = useCallback(() => {
+  const getCurrentPosition = useCallback((overrideOptions = {}) => {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
         reject(new Error('Geolocation not supported'));
         return;
       }
 
+      const geolocationOptions = {
+        enableHighAccuracy,
+        timeout: 12000,
+        maximumAge: 45000,
+        ...overrideOptions,
+      };
+
       navigator.geolocation.getCurrentPosition(
         resolve,
         reject,
-        {
-          enableHighAccuracy,
-          timeout: 10000,
-          maximumAge: 30000  // Accept cached position up to 30s old
-        }
+        geolocationOptions
       );
     });
   }, [enableHighAccuracy]);
+
+  const getCurrentPositionWithFallback = useCallback(async () => {
+    try {
+      return await getCurrentPosition();
+    } catch (error) {
+      if (!isGeolocationTimeout(error)) {
+        throw error;
+      }
+
+      // Timeout fallback: allow cached/coarse location before failing the cycle.
+      return getCurrentPosition({
+        enableHighAccuracy: false,
+        timeout: 20000,
+        maximumAge: 180000,
+      });
+    }
+  }, [getCurrentPosition, isGeolocationTimeout]);
 
   /**
    * Send location update to server
@@ -111,9 +135,25 @@ const useRealtimeLocation = (options = {}) => {
       return false;
     }
 
+    if (isSharing || isStartingRef.current) {
+      return true;
+    }
+
+    isStartingRef.current = true;
+
     try {
+      // Clear previous listeners/timers defensively to avoid duplicate streams.
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
+      }
+
       // Get initial position
-      const position = await getCurrentPosition();
+      const position = await getCurrentPositionWithFallback();
       await sendLocationUpdate(position);
       
       // Start watching position
@@ -122,6 +162,11 @@ const useRealtimeLocation = (options = {}) => {
           sendLocationUpdate(pos);
         },
         (error) => {
+          if (isGeolocationTimeout(error)) {
+            console.debug('Location watch timed out; continuing with next cycle.');
+            return;
+          }
+
           console.error('Location watch error:', error);
           setLocationError(error.message);
         },
@@ -135,9 +180,13 @@ const useRealtimeLocation = (options = {}) => {
       // Also set up interval as backup
       updateIntervalRef.current = setInterval(async () => {
         try {
-          const pos = await getCurrentPosition();
+          const pos = await getCurrentPositionWithFallback();
           sendLocationUpdate(pos);
         } catch (err) {
+          if (isGeolocationTimeout(err)) {
+            console.debug('Interval location fetch timed out; retrying on next interval.');
+            return;
+          }
           console.warn('Interval location fetch failed:', err);
         }
       }, updateInterval);
@@ -154,10 +203,24 @@ const useRealtimeLocation = (options = {}) => {
 
     } catch (error) {
       console.error('Failed to start location sharing:', error);
-      setLocationError(error.message);
+      const message = isGeolocationTimeout(error)
+        ? 'Location request timed out. Please try moving to an open area or disable high-accuracy mode.'
+        : error.message;
+      setLocationError(message);
       return false;
+    } finally {
+      isStartingRef.current = false;
     }
-  }, [getCurrentPosition, sendLocationUpdate, socket, isConnected, enableHighAccuracy, updateInterval]);
+  }, [
+    getCurrentPositionWithFallback,
+    sendLocationUpdate,
+    socket,
+    isConnected,
+    enableHighAccuracy,
+    updateInterval,
+    isGeolocationTimeout,
+    isSharing,
+  ]);
 
   /**
    * Stop location sharing
@@ -172,6 +235,8 @@ const useRealtimeLocation = (options = {}) => {
       clearInterval(updateIntervalRef.current);
       updateIntervalRef.current = null;
     }
+
+    isStartingRef.current = false;
 
     // Notify server
     if (socket && isConnected) {
@@ -261,22 +326,6 @@ const useRealtimeLocation = (options = {}) => {
       socket.off('location_acknowledged', handleAcknowledged);
     };
   }, [socket, isConnected]);
-
-  // Auto-start for providers with location sharing enabled
-  useEffect(() => {
-    const accountType = user?.profileData?.accountType || user?.profile_data?.accountType;
-    const autoShare = user?.profileData?.autoShareLocation || user?.profile_data?.autoShareLocation;
-    
-    if (role === 'provider' && accountType === 'provider' && autoShare) {
-      startSharing();
-    }
-
-    return () => {
-      if (isSharing) {
-        stopSharing();
-      }
-    };
-  }, [role, user, startSharing, stopSharing, isSharing]);
 
   // Cleanup on unmount
   useEffect(() => {

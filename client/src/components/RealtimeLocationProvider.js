@@ -37,6 +37,12 @@ const RealtimeLocationProvider = () => {
 
   // Auto-start location sharing for authenticated providers
   useEffect(() => {
+    if ((!isAuthenticated || !isProvider) && isSharing) {
+      stopSharing();
+      hasStartedRef.current = false;
+      return;
+    }
+
     if (isAuthenticated && isProvider && !isSharing && !hasStartedRef.current) {
       hasStartedRef.current = true;
       // Small delay to ensure socket connection is established
@@ -51,12 +57,6 @@ const RealtimeLocationProvider = () => {
       }, 2000);
       
       return () => clearTimeout(timer);
-    }
-    
-    // Stop sharing on logout
-    if (!isAuthenticated && isSharing) {
-      stopSharing();
-      hasStartedRef.current = false;
     }
   }, [isAuthenticated, isProvider, isSharing, startSharing, stopSharing]);
 

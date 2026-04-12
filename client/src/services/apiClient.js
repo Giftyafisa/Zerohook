@@ -6,31 +6,14 @@
  * To change the backend URL, update REACT_APP_API_URL in your .env or Render env vars.
  */
 import axios from 'axios';
-import { API_BASE_URL, SERVER_URL } from '../config/constants';
+import { API_BASE_URL, normalizeLegacyUploadHostUrl } from '../config/constants';
 
 let isRefreshing = false;
 let failedQueue = [];
-const LEGACY_UPLOAD_HOSTS = new Set(['opue.me', 'www.opue.me']);
-
-const normalizeLegacyUploadUrl = (value) => {
-  if (typeof value !== 'string') return value;
-  if (!value.startsWith('http://') && !value.startsWith('https://')) return value;
-
-  try {
-    const parsed = new URL(value);
-    if (LEGACY_UPLOAD_HOSTS.has(parsed.hostname.toLowerCase()) && parsed.pathname.startsWith('/uploads/')) {
-      return `${SERVER_URL}${parsed.pathname}`;
-    }
-  } catch (_) {
-    // Ignore parse errors and return the original value.
-  }
-
-  return value;
-};
 
 const normalizeLegacyUploadData = (input) => {
   if (input == null) return input;
-  if (typeof input === 'string') return normalizeLegacyUploadUrl(input);
+  if (typeof input === 'string') return normalizeLegacyUploadHostUrl(input);
   if (Array.isArray(input)) return input.map(normalizeLegacyUploadData);
   if (typeof input !== 'object') return input;
 

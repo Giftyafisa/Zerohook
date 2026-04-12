@@ -47,6 +47,13 @@ const DashboardPage = () => {
     profile_image_url: user?.profile_image_url,
     profilePicture: user?.profilePicture,
   });
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [profileImage]);
+
+  const displayProfileImage = avatarLoadFailed ? null : profileImage;
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -108,7 +115,10 @@ const DashboardPage = () => {
       <Box sx={styles.header}>
         <Box sx={styles.headerLeft}>
           <Avatar
-            src={profileImage || undefined}
+            src={displayProfileImage || undefined}
+            imgProps={{
+              onError: () => setAvatarLoadFailed(true)
+            }}
             sx={styles.avatar}
           >
             {user?.username?.[0]?.toUpperCase() || 'U'}

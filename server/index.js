@@ -278,18 +278,26 @@ function startPeriodicMaintenance() {
         }).select('_id caller_id target_user_id').lean();
 
         for (const call of staleCalls) {
-          const payload = {
+          const timeoutPayload = {
             id: String(call._id),
             callId: String(call._id),
             endedBy: 'system',
             reason: 'timeout',
             timestamp: new Date().toISOString()
           };
+          const cancelledPayload = {
+            id: String(call._id),
+            callId: String(call._id),
+            callerId: String(call.caller_id),
+            targetUserId: String(call.target_user_id),
+            reason: 'timeout',
+            timestamp: new Date().toISOString()
+          };
 
           // Notify both parties to prevent “stuck ringing” states.
-          io.to(`user_${String(call.caller_id)}`).emit('call_ended', payload);
-          io.to(`user_${String(call.target_user_id)}`).emit('call_ended', payload);
-          io.to(getCallRoomId(call.caller_id, call.target_user_id)).emit('call_ended', payload);
+          io.to(`user_${String(call.caller_id)}`).emit('call_timeout', timeoutPayload);
+          io.to(`user_${String(call.target_user_id)}`).emit('call_cancelled', cancelledPayload);
+          io.to(getCallRoomId(call.caller_id, call.target_user_id)).emit('call_timeout', timeoutPayload);
 
           await Call.findByIdAndUpdate(call._id, {
             status: 'missed',
@@ -958,30 +966,53 @@ io.on('connection', async (socket) => {
           }
         }
         
+        const targetUserId = String(data.targetUserId || '').trim();
+        const targetRoom = io.sockets.adapter.rooms.get(`user_${targetUserId}`);
+        const isTargetOnline = (targetRoom?.size || 0) > 0;
+
+        // Acknowledge caller with canonical call ID (used for timeout/cancel/end)
+        socket.emit('call_request_sent', {
+          id: persistedCallId,
+          callId: persistedCallId,
+          targetUserId,
+          type: normalizedCallType,
+          callType: normalizedCallType,
+          timestamp: new Date().toISOString()
+        });
+
+        if (!isTargetOnline) {
+          console.log(`📴 Target user ${targetUserId} is offline; rejecting call immediately`);
+          socket.emit('call_rejected', {
+            id: persistedCallId,
+            callId: persistedCallId,
+            targetUserId,
+            reason: 'offline',
+            timestamp: new Date().toISOString()
+          });
+          if (mongoose.Types.ObjectId.isValid(persistedCallId)) {
+            await Call.findByIdAndUpdate(persistedCallId, {
+              status: 'missed',
+              ended_at: new Date(),
+              updated_at: new Date()
+            }).catch((e) => console.error('Failed to persist offline call rejection:', e.message));
+          }
+          return;
+        }
+
         // Emit incoming call to target user
-        socket.to(`user_${data.targetUserId}`).emit('incoming_call', {
+        socket.to(`user_${targetUserId}`).emit('incoming_call', {
           id: persistedCallId,
           callId: persistedCallId,
           callerId: socket.userId,
-          targetUserId: data.targetUserId,
+          targetUserId,
           callerName: socket.username,
           type: normalizedCallType,
           callType: normalizedCallType,
           timestamp: new Date().toISOString()
         });
 
-        // Acknowledge caller with canonical call ID (used for timeout/cancel/end)
-        socket.emit('call_request_sent', {
-          id: persistedCallId,
-          callId: persistedCallId,
-          targetUserId: data.targetUserId,
-          type: normalizedCallType,
-          callType: normalizedCallType,
-          timestamp: new Date().toISOString()
-        });
-        
         // Join call room (normalized)
-        const callRoomId = getCallRoomId(socket.userId, data.targetUserId);
+        const callRoomId = getCallRoomId(socket.userId, targetUserId);
         socket.join(callRoomId);
         
       } catch (error) {
@@ -992,11 +1023,13 @@ io.on('connection', async (socket) => {
     // Handle call acceptance
     socket.on('accept_call', async (data) => {
       try {
-        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId)) {
+        const targetUserId = String(data?.targetUserId || data?.callerId || '').trim();
+        if (!targetUserId || targetUserId === String(socket.userId)) {
           return;
         }
         console.log(`✅ Call accepted by ${socket.username}`);
 
+        const callRoomId = getCallRoomId(socket.userId, targetUserId);
         let resolvedCallId = data.callId;
         if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
           try {
@@ -1025,22 +1058,25 @@ io.on('connection', async (socket) => {
         
         // ✅ CRITICAL: Emit call_accepted with clear field semantics so the caller
         // knows exactly which peer accepted and can correctly route WebRTC signaling.
-        socket.to(`user_${data.targetUserId}`).emit('call_accepted', {
+        const payload = {
           id: resolvedCallId,
           callId: resolvedCallId,
           // WHO ACCEPTED — this is the peer the caller needs to send WebRTC offer to
           acceptedBy: socket.userId,
+          calleeId: socket.userId,
           peerUserId: socket.userId,
           targetUserId: socket.userId,
           // WHO MADE THE ORIGINAL CALL (for disambiguation)
-          callerId: data.targetUserId,
+          callerId: targetUserId,
           callType: data.callType || data.type || 'video',
           type: data.callType || data.type || 'video',
           timestamp: new Date().toISOString()
-        });
-        
+        };
+
+        socket.to(`user_${targetUserId}`).emit('call_accepted', payload);
+        socket.to(callRoomId).emit('call_accepted', payload);
+
         // Join call room (normalized)
-        const callRoomId = getCallRoomId(socket.userId, data.targetUserId);
         socket.join(callRoomId);
         
       } catch (error) {
@@ -1255,17 +1291,21 @@ io.on('connection', async (socket) => {
     // Handle WebRTC offer from caller
     socket.on('webrtc_offer', async (data) => {
       try {
-        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId) || !data?.offer) {
+        const targetUserId = String(data?.targetUserId || data?.callerId || '').trim();
+        if (!targetUserId || targetUserId === String(socket.userId) || !data?.offer) {
           return;
         }
-        console.log(`📡 WebRTC offer from ${socket.username} to user ${data.targetUserId}`);
-        socket.to(`user_${data.targetUserId}`).emit('webrtc_offer', {
+        const callRoomId = getCallRoomId(socket.userId, targetUserId);
+        console.log(`📡 WebRTC offer from ${socket.username} to user ${targetUserId}`);
+        const payload = {
           callId: data.callId || null,
           offer: data.offer,
           callerId: socket.userId,
           callerName: socket.username,
           callType: data.callType || 'video'
-        });
+        };
+        socket.to(`user_${targetUserId}`).emit('webrtc_offer', payload);
+        socket.to(callRoomId).emit('webrtc_offer', payload);
       } catch (error) {
         console.error('Error handling WebRTC offer:', error);
       }
@@ -1274,15 +1314,19 @@ io.on('connection', async (socket) => {
     // Handle WebRTC answer from callee
     socket.on('webrtc_answer', async (data) => {
       try {
-        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId) || !data?.answer) {
+        const targetUserId = String(data?.targetUserId || data?.callerId || '').trim();
+        if (!targetUserId || targetUserId === String(socket.userId) || !data?.answer) {
           return;
         }
-        console.log(`📡 WebRTC answer from ${socket.username} to user ${data.targetUserId}`);
-        socket.to(`user_${data.targetUserId}`).emit('webrtc_answer', {
+        const callRoomId = getCallRoomId(socket.userId, targetUserId);
+        console.log(`📡 WebRTC answer from ${socket.username} to user ${targetUserId}`);
+        const payload = {
           callId: data.callId || null,
           answer: data.answer,
           answererId: socket.userId
-        });
+        };
+        socket.to(`user_${targetUserId}`).emit('webrtc_answer', payload);
+        socket.to(callRoomId).emit('webrtc_answer', payload);
       } catch (error) {
         console.error('Error handling WebRTC answer:', error);
       }
@@ -1291,15 +1335,19 @@ io.on('connection', async (socket) => {
     // Handle ICE candidate exchange
     socket.on('ice_candidate', async (data) => {
       try {
-        if (!data?.targetUserId || String(data.targetUserId) === String(socket.userId) || !data?.candidate) {
+        const targetUserId = String(data?.targetUserId || data?.callerId || '').trim();
+        if (!targetUserId || targetUserId === String(socket.userId) || !data?.candidate) {
           return;
         }
-        console.log(`🧊 ICE candidate from ${socket.username} to user ${data.targetUserId}`);
-        socket.to(`user_${data.targetUserId}`).emit('ice_candidate', {
+        const callRoomId = getCallRoomId(socket.userId, targetUserId);
+        console.log(`🧊 ICE candidate from ${socket.username} to user ${targetUserId}`);
+        const payload = {
           callId: data.callId || null,
           candidate: data.candidate,
           senderId: socket.userId
-        });
+        };
+        socket.to(`user_${targetUserId}`).emit('ice_candidate', payload);
+        socket.to(callRoomId).emit('ice_candidate', payload);
       } catch (error) {
         console.error('Error handling ICE candidate:', error);
       }

@@ -1,2 +1,30 @@
-<testsuites id="" name="" tests="0" failures="0" skipped="0" errors="0" time="305.057261">
+<testsuites id="" name="" tests="12" failures="0" skipped="0" errors="0" time="89.143871">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-10T22:56:09.298Z" hostname="chromium" tests="6" failures="0" skipped="0" time="33.205" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="10.616">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.579">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="4.747">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="5.209">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="4.002">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="4.052">
+</testcase>
+</testsuite>
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-10T22:56:09.298Z" hostname="Mobile Chrome" tests="6" failures="0" skipped="0" time="26.707" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="5.841">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.498">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="4.254">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="4.048">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="3.801">
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="4.265">
+</testcase>
+</testsuite>
 </testsuites>

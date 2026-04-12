@@ -163,12 +163,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 10616,
+                      "duration": 15823,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:12.809Z",
+                      "startTime": "2026-04-12T16:20:01.321Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -197,12 +197,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4579,
+                      "duration": 17510,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:23.927Z",
+                      "startTime": "2026-04-12T16:20:17.513Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -231,12 +231,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4747,
+                      "duration": 32210,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:28.532Z",
+                      "startTime": "2026-04-12T16:20:35.065Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -265,12 +265,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5209,
+                      "duration": 15207,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:33.301Z",
+                      "startTime": "2026-04-12T16:21:07.374Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -299,12 +299,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4002,
+                      "duration": 13603,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:38.531Z",
+                      "startTime": "2026-04-12T16:21:22.715Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -333,12 +333,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4052,
+                      "duration": 11465,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:42.552Z",
+                      "startTime": "2026-04-12T16:21:36.355Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -367,12 +367,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5841,
+                      "duration": 11732,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:49.059Z",
+                      "startTime": "2026-04-12T16:21:49.803Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -401,12 +401,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4498,
+                      "duration": 6679,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:55.126Z",
+                      "startTime": "2026-04-12T16:22:01.832Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -421,7 +421,7 @@
             },
             {
               "title": "public-core:register",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -434,18 +434,73 @@
                     {
                       "workerIndex": 1,
                       "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 4254,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 6739,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveScreenshot\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\n  2941 pixels (ratio 0.02 of all image pixels) are different.\n\n  Snapshot: public-core-register.png\n\nCall log:\n\u001b[2m  - Expect \"toHaveScreenshot(public-core-register.png)\" with timeout 45000ms\u001b[22m\n\u001b[2m    - verifying given screenshot expectation\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - 2941 pixels (ratio 0.02 of all image pixels) are different.\u001b[22m\n\u001b[2m  - waiting 100ms before taking screenshot\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - captured a stable screenshot\u001b[22m\n\u001b[2m  - 2941 pixels (ratio 0.02 of all image pixels) are different.\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveScreenshot\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\n  2941 pixels (ratio 0.02 of all image pixels) are different.\n\n  Snapshot: public-core-register.png\n\nCall log:\n\u001b[2m  - Expect \"toHaveScreenshot(public-core-register.png)\" with timeout 45000ms\u001b[22m\n\u001b[2m    - verifying given screenshot expectation\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - 2941 pixels (ratio 0.02 of all image pixels) are different.\u001b[22m\n\u001b[2m  - waiting 100ms before taking screenshot\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - captured a stable screenshot\u001b[22m\n\u001b[2m  - 2941 pixels (ratio 0.02 of all image pixels) are different.\u001b[22m\n\n    at C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js:83:28",
+                        "location": {
+                          "file": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js",
+                          "column": 28,
+                          "line": 83
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 81 |\u001b[39m         )\u001b[33m.\u001b[39mtoBeLessThanOrEqual(overflow\u001b[33m.\u001b[39mclientWidth \u001b[33m+\u001b[39m \u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 82 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 83 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m`${packName}-${route.id}.png`\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 84 |\u001b[39m           animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 85 |\u001b[39m           caret\u001b[33m:\u001b[39m \u001b[32m'hide'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 86 |\u001b[39m           fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js",
+                            "column": 28,
+                            "line": 83
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveScreenshot\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\n  2941 pixels (ratio 0.02 of all image pixels) are different.\n\n  Snapshot: public-core-register.png\n\nCall log:\n\u001b[2m  - Expect \"toHaveScreenshot(public-core-register.png)\" with timeout 45000ms\u001b[22m\n\u001b[2m    - verifying given screenshot expectation\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - 2941 pixels (ratio 0.02 of all image pixels) are different.\u001b[22m\n\u001b[2m  - waiting 100ms before taking screenshot\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - captured a stable screenshot\u001b[22m\n\u001b[2m  - 2941 pixels (ratio 0.02 of all image pixels) are different.\u001b[22m\n\n\n\u001b[0m \u001b[90m 81 |\u001b[39m         )\u001b[33m.\u001b[39mtoBeLessThanOrEqual(overflow\u001b[33m.\u001b[39mclientWidth \u001b[33m+\u001b[39m \u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 82 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 83 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m`${packName}-${route.id}.png`\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 84 |\u001b[39m           animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 85 |\u001b[39m           caret\u001b[33m:\u001b[39m \u001b[32m'hide'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 86 |\u001b[39m           fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js:83:28\u001b[22m"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:56:59.656Z",
+                      "startTime": "2026-04-12T16:22:08.604Z",
                       "annotations": [],
-                      "attachments": []
+                      "attachments": [
+                        {
+                          "name": "public-core-register-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js-snapshots\\public-core-register-Mobile-Chrome-win32.png"
+                        },
+                        {
+                          "name": "public-core-register-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\\public-core-register-actual.png"
+                        },
+                        {
+                          "name": "public-core-register-diff.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\\public-core-register-diff.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\\error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js",
+                        "column": 28,
+                        "line": 83
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "af1796aed854675f90aa-d46aeb1062ef4ebaa803",
@@ -466,15 +521,15 @@
                   "projectName": "Mobile Chrome",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 2,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 4048,
+                      "duration": 9452,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:57:03.963Z",
+                      "startTime": "2026-04-12T16:22:17.653Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -500,15 +555,15 @@
                   "projectName": "Mobile Chrome",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 2,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3801,
+                      "duration": 8715,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:57:08.039Z",
+                      "startTime": "2026-04-12T16:22:27.358Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -523,7 +578,7 @@
             },
             {
               "title": "public-core:profiles",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -534,20 +589,75 @@
                   "projectName": "Mobile Chrome",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 2,
                       "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 4265,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 7039,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveScreenshot\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\n  17408 pixels (ratio 0.07 of all image pixels) are different.\n\n  Snapshot: public-core-profiles.png\n\nCall log:\n\u001b[2m  - Expect \"toHaveScreenshot(public-core-profiles.png)\" with timeout 45000ms\u001b[22m\n\u001b[2m    - verifying given screenshot expectation\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - 17408 pixels (ratio 0.07 of all image pixels) are different.\u001b[22m\n\u001b[2m  - waiting 100ms before taking screenshot\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - captured a stable screenshot\u001b[22m\n\u001b[2m  - 17408 pixels (ratio 0.07 of all image pixels) are different.\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveScreenshot\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\n  17408 pixels (ratio 0.07 of all image pixels) are different.\n\n  Snapshot: public-core-profiles.png\n\nCall log:\n\u001b[2m  - Expect \"toHaveScreenshot(public-core-profiles.png)\" with timeout 45000ms\u001b[22m\n\u001b[2m    - verifying given screenshot expectation\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - 17408 pixels (ratio 0.07 of all image pixels) are different.\u001b[22m\n\u001b[2m  - waiting 100ms before taking screenshot\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - captured a stable screenshot\u001b[22m\n\u001b[2m  - 17408 pixels (ratio 0.07 of all image pixels) are different.\u001b[22m\n\n    at C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js:83:28",
+                        "location": {
+                          "file": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js",
+                          "column": 28,
+                          "line": 83
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 81 |\u001b[39m         )\u001b[33m.\u001b[39mtoBeLessThanOrEqual(overflow\u001b[33m.\u001b[39mclientWidth \u001b[33m+\u001b[39m \u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 82 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 83 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m`${packName}-${route.id}.png`\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 84 |\u001b[39m           animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 85 |\u001b[39m           caret\u001b[33m:\u001b[39m \u001b[32m'hide'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 86 |\u001b[39m           fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js",
+                            "column": 28,
+                            "line": 83
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveScreenshot\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\n  17408 pixels (ratio 0.07 of all image pixels) are different.\n\n  Snapshot: public-core-profiles.png\n\nCall log:\n\u001b[2m  - Expect \"toHaveScreenshot(public-core-profiles.png)\" with timeout 45000ms\u001b[22m\n\u001b[2m    - verifying given screenshot expectation\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - 17408 pixels (ratio 0.07 of all image pixels) are different.\u001b[22m\n\u001b[2m  - waiting 100ms before taking screenshot\u001b[22m\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m    - disabled all CSS animations\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n\u001b[2m  - captured a stable screenshot\u001b[22m\n\u001b[2m  - 17408 pixels (ratio 0.07 of all image pixels) are different.\u001b[22m\n\n\n\u001b[0m \u001b[90m 81 |\u001b[39m         )\u001b[33m.\u001b[39mtoBeLessThanOrEqual(overflow\u001b[33m.\u001b[39mclientWidth \u001b[33m+\u001b[39m \u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 82 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 83 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m`${packName}-${route.id}.png`\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 84 |\u001b[39m           animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 85 |\u001b[39m           caret\u001b[33m:\u001b[39m \u001b[32m'hide'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 86 |\u001b[39m           fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js:83:28\u001b[22m"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-10T22:57:11.864Z",
+                      "startTime": "2026-04-12T16:22:36.146Z",
                       "annotations": [],
-                      "attachments": []
+                      "attachments": [
+                        {
+                          "name": "public-core-profiles-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js-snapshots\\public-core-profiles-Mobile-Chrome-win32.png"
+                        },
+                        {
+                          "name": "public-core-profiles-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\\public-core-profiles-actual.png"
+                        },
+                        {
+                          "name": "public-core-profiles-diff.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\\public-core-profiles-diff.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\test-results\\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\\error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\OS\\Desktop\\Zerohook\\client\\tests\\ui-baseline.spec.js",
+                        "column": 28,
+                        "line": 83
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "af1796aed854675f90aa-37589022b6ac1c1484a3",
@@ -562,11 +672,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-04-10T22:55:47.541Z",
-    "duration": 89143.871,
-    "expected": 12,
+    "startTime": "2026-04-12T16:19:55.254Z",
+    "duration": 168174.45200000002,
+    "expected": 10,
     "skipped": 0,
-    "unexpected": 0,
+    "unexpected": 2,
     "flaky": 0
   }
 }

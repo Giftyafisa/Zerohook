@@ -1,30 +1,164 @@
-<testsuites id="" name="" tests="12" failures="0" skipped="0" errors="0" time="89.143871">
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-10T22:56:09.298Z" hostname="chromium" tests="6" failures="0" skipped="0" time="33.205" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="10.616">
+<testsuites id="" name="" tests="12" failures="2" skipped="0" errors="0" time="168.17445200000003">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T16:19:55.747Z" hostname="chromium" tests="6" failures="0" skipped="0" time="105.818" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="15.823">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.579">
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="17.51">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="4.747">
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="32.21">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="5.209">
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="15.207">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="4.002">
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="13.603">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="4.052">
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="11.465">
 </testcase>
 </testsuite>
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-10T22:56:09.298Z" hostname="Mobile Chrome" tests="6" failures="0" skipped="0" time="26.707" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="5.841">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T16:19:55.747Z" hostname="Mobile Chrome" tests="6" failures="2" skipped="0" time="50.356" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="11.732">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.498">
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="6.679">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="4.254">
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="6.739">
+<failure message="ui-baseline.spec.js:59:7 public-core:register" type="FAILURE">
+<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:register ──────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      2941 pixels (ratio 0.02 of all image pixels) are different.
+
+      Snapshot: public-core-register.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-register.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 2941 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 2941 pixels (ratio 0.02 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-register (image/png) ────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-register-Mobile-Chrome-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\public-core-register-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\public-core-register-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-register-Mobile-Chrome-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\public-core-register-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\public-core-register-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-Mobile-Chrome\error-context.md]]
+]]>
+</system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="4.048">
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="9.452">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="3.801">
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="8.715">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="4.265">
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="7.039">
+<failure message="ui-baseline.spec.js:59:7 public-core:profiles" type="FAILURE">
+<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:profiles ──────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      17408 pixels (ratio 0.07 of all image pixels) are different.
+
+      Snapshot: public-core-profiles.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-profiles.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 17408 pixels (ratio 0.07 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 17408 pixels (ratio 0.07 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-profiles (image/png) ────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-profiles-Mobile-Chrome-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\public-core-profiles-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\public-core-profiles-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-profiles-Mobile-Chrome-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\public-core-profiles-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\public-core-profiles-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-Mobile-Chrome\error-context.md]]
+]]>
+</system-out>
 </testcase>
 </testsuite>
 </testsuites>

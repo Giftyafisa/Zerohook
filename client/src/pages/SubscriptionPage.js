@@ -715,6 +715,8 @@ const SubscriptionPage = () => {
         <CryptoPayment
           open={showPaymentDialog}
           paymentData={paymentData}
+          verifyEndpoint="/subscriptions/verify-payment-by-reference"
+          verifyPayloadBuilder={(data) => ({ paymentReference: data.reference })}
           onSuccess={handlePaymentSuccess}
           onClose={handlePaymentClose}
           title="Subscription Payment"

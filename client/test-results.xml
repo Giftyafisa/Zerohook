@@ -1,30 +1,203 @@
-<testsuites id="" name="" tests="12" failures="2" skipped="0" errors="0" time="168.17445200000003">
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T16:19:55.747Z" hostname="chromium" tests="6" failures="0" skipped="0" time="105.818" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="15.823">
-</testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="17.51">
-</testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="32.21">
-</testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="15.207">
-</testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="13.603">
-</testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="11.465">
-</testcase>
-</testsuite>
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T16:19:55.747Z" hostname="Mobile Chrome" tests="6" failures="2" skipped="0" time="50.356" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="11.732">
-</testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="6.679">
-</testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="6.739">
-<failure message="ui-baseline.spec.js:59:7 public-core:register" type="FAILURE">
-<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:register ──────
+<testsuites id="" name="" tests="12" failures="12" skipped="0" errors="0" time="302.18525600000004">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T18:41:47.063Z" hostname="chromium" tests="6" failures="6" skipped="0" time="111.047" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="56.457">
+<failure message="ui-baseline.spec.js:59:7 public-core:home" type="FAILURE">
+<![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:home ───────────────
 
     Error: expect(page).toHaveScreenshot(expected) failed
 
-      2941 pixels (ratio 0.02 of all image pixels) are different.
+    Timeout: 45000ms
+      Failed to take two consecutive stable screenshots.
+
+      Snapshot: public-core-home.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-home.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - Expected an image 1280px by 720px, received 1280px by 3209px. 3913169 pixels (ratio 0.96 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 297104 pixels (ratio 0.08 of all image pixels) are different.
+      - waiting 250ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 231823 pixels (ratio 0.06 of all image pixels) are different.
+      - waiting 500ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 289010 pixels (ratio 0.08 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 104619 pixels (ratio 0.03 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 65202 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 80241 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 53338 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 115707 pixels (ratio 0.03 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 48061 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - Timeout 45000ms exceeded.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-home (image/png) ────────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-home-chromium-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\public-core-home-actual.png
+    Previous: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\public-core-home-previous.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\public-core-home-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-home-chromium-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\public-core-home-previous.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\public-core-home-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\public-core-home-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="5.7">
+<failure message="ui-baseline.spec.js:59:7 public-core:login" type="FAILURE">
+<![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:login ──────────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      831054 pixels (ratio 0.91 of all image pixels) are different.
+
+      Snapshot: public-core-login.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-login.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 831054 pixels (ratio 0.91 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 831054 pixels (ratio 0.91 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-login (image/png) ───────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-login-chromium-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\public-core-login-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\public-core-login-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-login-chromium-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\public-core-login-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\public-core-login-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="25.29">
+<failure message="ui-baseline.spec.js:59:7 public-core:register" type="FAILURE">
+<![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:register ───────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      Expected an image 1280px by 720px, received 1280px by 1371px. 1639413 pixels (ratio 0.94 of all image pixels) are different.
 
       Snapshot: public-core-register.png
 
@@ -35,14 +208,561 @@
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 2941 pixels (ratio 0.02 of all image pixels) are different.
+      - Expected an image 1280px by 720px, received 1280px by 1371px. 1639413 pixels (ratio 0.94 of all image pixels) are different.
       - waiting 100ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
       - captured a stable screenshot
-      - 2941 pixels (ratio 0.02 of all image pixels) are different.
+      - Expected an image 1280px by 720px, received 1280px by 1371px. 1639413 pixels (ratio 0.94 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-register (image/png) ────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-register-chromium-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\public-core-register-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\public-core-register-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-register-chromium-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\public-core-register-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\public-core-register-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-register-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="7.712">
+<failure message="ui-baseline.spec.js:59:7 public-core:subscription" type="FAILURE">
+<![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:subscription ───────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      Expected an image 1280px by 720px, received 1280px by 1371px. 1692544 pixels (ratio 0.97 of all image pixels) are different.
+
+      Snapshot: public-core-subscription.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-subscription.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - Expected an image 1280px by 720px, received 1280px by 1371px. 1692544 pixels (ratio 0.97 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - Expected an image 1280px by 720px, received 1280px by 1371px. 1692544 pixels (ratio 0.97 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-subscription (image/png) ────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-subscription-chromium-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\public-core-subscription-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\public-core-subscription-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-subscription-chromium-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\public-core-subscription-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\public-core-subscription-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="7.631">
+<failure message="ui-baseline.spec.js:59:7 public-core:adult-services" type="FAILURE">
+<![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:adult-services ─────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      874514 pixels (ratio 0.95 of all image pixels) are different.
+
+      Snapshot: public-core-adult-services.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-adult-services.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 874514 pixels (ratio 0.95 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 874514 pixels (ratio 0.95 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-adult-services (image/png) ──────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-adult-services-chromium-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\public-core-adult-services-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\public-core-adult-services-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-adult-services-chromium-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\public-core-adult-services-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\public-core-adult-services-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="8.257">
+<failure message="ui-baseline.spec.js:59:7 public-core:profiles" type="FAILURE">
+<![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:profiles ───────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      860135 pixels (ratio 0.94 of all image pixels) are different.
+
+      Snapshot: public-core-profiles.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-profiles.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - Expected an image 1280px by 720px, received 1280px by 1069px. 1302685 pixels (ratio 0.96 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - Expected an image 1280px by 1069px, received 1280px by 720px. 443641 pixels (ratio 0.33 of all image pixels) are different.
+      - waiting 250ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 860135 pixels (ratio 0.94 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-profiles (image/png) ────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-profiles-chromium-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\public-core-profiles-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\public-core-profiles-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-profiles-chromium-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\public-core-profiles-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\public-core-profiles-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-profiles-chromium\error-context.md]]
+]]>
+</system-out>
+</testcase>
+</testsuite>
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T18:41:47.063Z" hostname="Mobile Chrome" tests="6" failures="6" skipped="0" time="121.773" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="54.377">
+<failure message="ui-baseline.spec.js:59:7 public-core:home" type="FAILURE">
+<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:home ──────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+    Timeout: 45000ms
+      Failed to take two consecutive stable screenshots.
+
+      Snapshot: public-core-home.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-home.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 235794 pixels (ratio 0.83 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 3231 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 250ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 6581 pixels (ratio 0.03 of all image pixels) are different.
+      - waiting 500ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 5488 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 10779 pixels (ratio 0.04 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 100162 pixels (ratio 0.36 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 87973 pixels (ratio 0.31 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 59602 pixels (ratio 0.21 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 80169 pixels (ratio 0.29 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 17259 pixels (ratio 0.07 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 12370 pixels (ratio 0.05 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 12057 pixels (ratio 0.05 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 6335 pixels (ratio 0.03 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 11746 pixels (ratio 0.05 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 14685 pixels (ratio 0.06 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 15891 pixels (ratio 0.06 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 4942 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 10673 pixels (ratio 0.04 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 20717 pixels (ratio 0.08 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 24569 pixels (ratio 0.09 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 9061 pixels (ratio 0.04 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 5653 pixels (ratio 0.02 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - Timeout 45000ms exceeded.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-home (image/png) ────────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-home-Mobile-Chrome-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\public-core-home-actual.png
+    Previous: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\public-core-home-previous.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\public-core-home-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-home-Mobile-Chrome-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\public-core-home-previous.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\public-core-home-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\public-core-home-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-home-Mobile-Chrome\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="8.488">
+<failure message="ui-baseline.spec.js:59:7 public-core:login" type="FAILURE">
+<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:login ─────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      268184 pixels (ratio 0.94 of all image pixels) are different.
+
+      Snapshot: public-core-login.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-login.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 268184 pixels (ratio 0.94 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 268184 pixels (ratio 0.94 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-login (image/png) ───────────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-login-Mobile-Chrome-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\public-core-login-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\public-core-login-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-login-Mobile-Chrome-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\public-core-login-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\public-core-login-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-login-Mobile-Chrome\error-context.md]]
+]]>
+</system-out>
+</testcase>
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="20.138">
+<failure message="ui-baseline.spec.js:59:7 public-core:register" type="FAILURE">
+<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:register ──────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      267555 pixels (ratio 0.94 of all image pixels) are different.
+
+      Snapshot: public-core-register.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-register.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 267555 pixels (ratio 0.94 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 267555 pixels (ratio 0.94 of all image pixels) are different.
 
 
       81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
@@ -87,17 +807,151 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="9.452">
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="13.026">
+<failure message="ui-baseline.spec.js:59:7 public-core:subscription" type="FAILURE">
+<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:subscription ──
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      267079 pixels (ratio 0.94 of all image pixels) are different.
+
+      Snapshot: public-core-subscription.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-subscription.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 267079 pixels (ratio 0.94 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 267079 pixels (ratio 0.94 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-subscription (image/png) ────────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-subscription-Mobile-Chrome-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\public-core-subscription-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\public-core-subscription-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-subscription-Mobile-Chrome-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\public-core-subscription-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\public-core-subscription-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-public-core-public-core-subscription-Mobile-Chrome\error-context.md]]
+]]>
+</system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="8.715">
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="13.524">
+<failure message="ui-baseline.spec.js:59:7 public-core:adult-services" type="FAILURE">
+<![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:adult-services 
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      270820 pixels (ratio 0.95 of all image pixels) are different.
+
+      Snapshot: public-core-adult-services.png
+
+    Call log:
+      - Expect "toHaveScreenshot(public-core-adult-services.png)" with timeout 45000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 270820 pixels (ratio 0.95 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 270820 pixels (ratio 0.95 of all image pixels) are different.
+
+
+      81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+      82 |
+    > 83 |         await expect(page).toHaveScreenshot(`${packName}-${route.id}.png`, {
+         |                            ^
+      84 |           animations: 'disabled',
+      85 |           caret: 'hide',
+      86 |           fullPage: true,
+        at C:\Users\OS\Desktop\Zerohook\client\tests\ui-baseline.spec.js:83:28
+
+    attachment #1: public-core-adult-services (image/png) ──────────────────────────────────────────
+    Expected: ui-baseline.spec.js-snapshots\public-core-adult-services-Mobile-Chrome-win32.png
+    Received: ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\public-core-adult-services-actual.png
+    Diff:     ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\public-core-adult-services-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: video (video/webm) ──────────────────────────────────────────────────────────────
+    ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ..\test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\error-context.md
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|tests\ui-baseline.spec.js-snapshots\public-core-adult-services-Mobile-Chrome-win32.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\public-core-adult-services-actual.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\public-core-adult-services-diff.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\test-failed-1.png]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\video.webm]]
+
+[[ATTACHMENT|test-results\ui-baseline-ui-baseline-pu-416b2--public-core-adult-services-Mobile-Chrome\error-context.md]]
+]]>
+</system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="7.039">
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="12.22">
 <failure message="ui-baseline.spec.js:59:7 public-core:profiles" type="FAILURE">
 <![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:profiles ──────
 
     Error: expect(page).toHaveScreenshot(expected) failed
 
-      17408 pixels (ratio 0.07 of all image pixels) are different.
+      267815 pixels (ratio 0.94 of all image pixels) are different.
 
       Snapshot: public-core-profiles.png
 
@@ -108,14 +962,14 @@
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 17408 pixels (ratio 0.07 of all image pixels) are different.
+      - 267815 pixels (ratio 0.94 of all image pixels) are different.
       - waiting 100ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
       - captured a stable screenshot
-      - 17408 pixels (ratio 0.07 of all image pixels) are different.
+      - 267815 pixels (ratio 0.94 of all image pixels) are different.
 
 
       81 |         ).toBeLessThanOrEqual(overflow.clientWidth + 1);

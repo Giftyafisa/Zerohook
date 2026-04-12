@@ -62,6 +62,8 @@ const CryptoPayment = ({
   onClose,
   open = true,
   title = 'Complete Crypto Payment',
+  verifyEndpoint = '/payments/verify-inline',
+  verifyPayloadBuilder,
 }) => {
   const [status, setStatus] = useState('pending'); // pending, checking, confirmed, failed, expired
   const [copied, setCopied] = useState(null); // 'address' | 'amount' | null
@@ -96,7 +98,11 @@ const CryptoPayment = ({
     try {
       setStatus('checking');
 
-      const response = await apiClient.post('/payments/verify-inline', { reference: paymentData.reference });
+      const payload = verifyPayloadBuilder
+        ? verifyPayloadBuilder(paymentData)
+        : { reference: paymentData.reference };
+
+      const response = await apiClient.post(verifyEndpoint, payload);
       const data = response.data;
 
       if (data?.status === 'expired') {
@@ -105,7 +111,11 @@ const CryptoPayment = ({
         return false;
       }
       
-      if (data.success && (data.status === 'confirmed' || data.status === 'already_verified')) {
+      const isConfirmedStatus = data?.status === 'confirmed' || data?.status === 'already_verified';
+      const isImplicitSuccess = data?.success && !data?.status;
+      const isSubscriptionSuccess = data?.isSubscribed === true;
+
+      if (data?.success && (isConfirmedStatus || isImplicitSuccess || isSubscriptionSuccess)) {
         setStatus('confirmed');
         setError(null);
         onSuccess?.(data);
@@ -125,7 +135,7 @@ const CryptoPayment = ({
       }
       return false;
     }
-  }, [paymentData?.reference, onSuccess]);
+  }, [paymentData?.reference, onSuccess, verifyEndpoint, verifyPayloadBuilder]);
 
   // Auto-poll for confirmation
   useEffect(() => {

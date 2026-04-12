@@ -538,6 +538,7 @@ const SugarProfilesPage = () => {
           open={showCryptoPayment}
           onClose={() => { setShowCryptoPayment(false); setCryptoPaymentData(null); }}
           paymentData={cryptoPaymentData}
+          verifyEndpoint="/sugar-access/verify"
           onSuccess={handleCryptoPaymentConfirmed}
         />
       )}

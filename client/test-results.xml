@@ -1,6 +1,6 @@
-<testsuites id="" name="" tests="12" failures="12" skipped="0" errors="0" time="302.18525600000004">
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T18:41:47.063Z" hostname="chromium" tests="6" failures="6" skipped="0" time="111.047" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="56.457">
+<testsuites id="" name="" tests="12" failures="12" skipped="0" errors="0" time="239.04665999999997">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T19:22:31.366Z" hostname="chromium" tests="6" failures="6" skipped="0" time="99.37" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="58.976">
 <failure message="ui-baseline.spec.js:59:7 public-core:home" type="FAILURE">
 <![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:home ───────────────
 
@@ -18,61 +18,61 @@
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - Expected an image 1280px by 720px, received 1280px by 3209px. 3913169 pixels (ratio 0.96 of all image pixels) are different.
+      - Expected an image 1280px by 720px, received 1280px by 3209px. 3832411 pixels (ratio 0.94 of all image pixels) are different.
       - waiting 100ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 297104 pixels (ratio 0.08 of all image pixels) are different.
+      - 264573 pixels (ratio 0.07 of all image pixels) are different.
       - waiting 250ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 231823 pixels (ratio 0.06 of all image pixels) are different.
+      - 368352 pixels (ratio 0.09 of all image pixels) are different.
       - waiting 500ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 289010 pixels (ratio 0.08 of all image pixels) are different.
+      - 236936 pixels (ratio 0.06 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 104619 pixels (ratio 0.03 of all image pixels) are different.
+      - 83820 pixels (ratio 0.03 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 65202 pixels (ratio 0.02 of all image pixels) are different.
+      - 77424 pixels (ratio 0.02 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 80241 pixels (ratio 0.02 of all image pixels) are different.
+      - 46406 pixels (ratio 0.02 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 53338 pixels (ratio 0.02 of all image pixels) are different.
+      - 117596 pixels (ratio 0.03 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 115707 pixels (ratio 0.03 of all image pixels) are different.
+      - 78511 pixels (ratio 0.02 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 48061 pixels (ratio 0.02 of all image pixels) are different.
+      - 342322 pixels (ratio 0.09 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - Timeout 45000ms exceeded.
 
@@ -122,7 +122,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="5.7">
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="5.616">
 <failure message="ui-baseline.spec.js:59:7 public-core:login" type="FAILURE">
 <![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:login ──────────────
 
@@ -191,7 +191,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="25.29">
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="6.829">
 <failure message="ui-baseline.spec.js:59:7 public-core:register" type="FAILURE">
 <![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:register ───────────
 
@@ -260,7 +260,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="7.712">
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="12.06">
 <failure message="ui-baseline.spec.js:59:7 public-core:subscription" type="FAILURE">
 <![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:subscription ───────
 
@@ -329,7 +329,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="7.631">
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="9.747">
 <failure message="ui-baseline.spec.js:59:7 public-core:adult-services" type="FAILURE">
 <![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:adult-services ─────
 
@@ -398,7 +398,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="8.257">
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="6.142">
 <failure message="ui-baseline.spec.js:59:7 public-core:profiles" type="FAILURE">
 <![CDATA[  [chromium] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:profiles ───────────
 
@@ -415,14 +415,8 @@
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - Expected an image 1280px by 720px, received 1280px by 1069px. 1302685 pixels (ratio 0.96 of all image pixels) are different.
+      - 860135 pixels (ratio 0.94 of all image pixels) are different.
       - waiting 100ms before taking screenshot
-      - taking page screenshot
-        - disabled all CSS animations
-      - waiting for fonts to load...
-      - fonts loaded
-      - Expected an image 1280px by 1069px, received 1280px by 720px. 443641 pixels (ratio 0.33 of all image pixels) are different.
-      - waiting 250ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
@@ -474,8 +468,8 @@
 </system-out>
 </testcase>
 </testsuite>
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T18:41:47.063Z" hostname="Mobile Chrome" tests="6" failures="6" skipped="0" time="121.773" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="54.377">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-12T19:22:31.366Z" hostname="Mobile Chrome" tests="6" failures="6" skipped="0" time="76.266" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="51.762">
 <failure message="ui-baseline.spec.js:59:7 public-core:home" type="FAILURE">
 <![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:home ──────────
 
@@ -493,133 +487,193 @@
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 235794 pixels (ratio 0.83 of all image pixels) are different.
+      - 235055 pixels (ratio 0.83 of all image pixels) are different.
       - waiting 100ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 3231 pixels (ratio 0.02 of all image pixels) are different.
+      - 5321 pixels (ratio 0.02 of all image pixels) are different.
       - waiting 250ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 6581 pixels (ratio 0.03 of all image pixels) are different.
+      - 5879 pixels (ratio 0.03 of all image pixels) are different.
       - waiting 500ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 5488 pixels (ratio 0.02 of all image pixels) are different.
+      - 6341 pixels (ratio 0.03 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 10779 pixels (ratio 0.04 of all image pixels) are different.
+      - 98441 pixels (ratio 0.35 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 100162 pixels (ratio 0.36 of all image pixels) are different.
+      - 93036 pixels (ratio 0.33 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 87973 pixels (ratio 0.31 of all image pixels) are different.
+      - 71454 pixels (ratio 0.26 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 59602 pixels (ratio 0.21 of all image pixels) are different.
+      - 77123 pixels (ratio 0.27 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 80169 pixels (ratio 0.29 of all image pixels) are different.
+      - 8922 pixels (ratio 0.04 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 17259 pixels (ratio 0.07 of all image pixels) are different.
+      - 22938 pixels (ratio 0.09 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 12370 pixels (ratio 0.05 of all image pixels) are different.
+      - 9828 pixels (ratio 0.04 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 12057 pixels (ratio 0.05 of all image pixels) are different.
+      - 11984 pixels (ratio 0.05 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 6335 pixels (ratio 0.03 of all image pixels) are different.
+      - 12827 pixels (ratio 0.05 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 11746 pixels (ratio 0.05 of all image pixels) are different.
+      - 9555 pixels (ratio 0.04 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 14685 pixels (ratio 0.06 of all image pixels) are different.
+      - 8069 pixels (ratio 0.03 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 15891 pixels (ratio 0.06 of all image pixels) are different.
+      - 9847 pixels (ratio 0.04 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 4942 pixels (ratio 0.02 of all image pixels) are different.
+      - 13810 pixels (ratio 0.05 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 10673 pixels (ratio 0.04 of all image pixels) are different.
+      - 15210 pixels (ratio 0.06 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 20717 pixels (ratio 0.08 of all image pixels) are different.
+      - 9399 pixels (ratio 0.04 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 24569 pixels (ratio 0.09 of all image pixels) are different.
+      - 10476 pixels (ratio 0.04 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 9061 pixels (ratio 0.04 of all image pixels) are different.
+      - 21483 pixels (ratio 0.08 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - taking page screenshot
         - disabled all CSS animations
       - waiting for fonts to load...
       - fonts loaded
-      - 5653 pixels (ratio 0.02 of all image pixels) are different.
+      - 23507 pixels (ratio 0.09 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 11507 pixels (ratio 0.05 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 9311 pixels (ratio 0.04 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 10600 pixels (ratio 0.04 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 96572 pixels (ratio 0.34 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 56687 pixels (ratio 0.20 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 10592 pixels (ratio 0.04 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 79936 pixels (ratio 0.28 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 14875 pixels (ratio 0.06 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 29322 pixels (ratio 0.11 of all image pixels) are different.
+      - waiting 1000ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 35227 pixels (ratio 0.13 of all image pixels) are different.
       - waiting 1000ms before taking screenshot
       - Timeout 45000ms exceeded.
 
@@ -669,7 +723,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="8.488">
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.804">
 <failure message="ui-baseline.spec.js:59:7 public-core:login" type="FAILURE">
 <![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:login ─────────
 
@@ -738,7 +792,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="20.138">
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="4.893">
 <failure message="ui-baseline.spec.js:59:7 public-core:register" type="FAILURE">
 <![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:register ──────
 
@@ -807,7 +861,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="13.026">
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="5.375">
 <failure message="ui-baseline.spec.js:59:7 public-core:subscription" type="FAILURE">
 <![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:subscription ──
 
@@ -876,7 +930,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="13.524">
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="4.485">
 <failure message="ui-baseline.spec.js:59:7 public-core:adult-services" type="FAILURE">
 <![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:adult-services 
 
@@ -945,7 +999,7 @@
 ]]>
 </system-out>
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="12.22">
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="4.947">
 <failure message="ui-baseline.spec.js:59:7 public-core:profiles" type="FAILURE">
 <![CDATA[  [Mobile Chrome] › ui-baseline.spec.js:59:7 › ui-baseline:public-core › public-core:profiles ──────
 

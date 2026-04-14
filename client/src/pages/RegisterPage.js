@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { registerUser } from '../store/slices/authSlice';
@@ -11,27 +11,35 @@ import {
   Checkbox,
   Grid,
   FormControl,
+  FormHelperText,
   InputLabel,
   Select,
   MenuItem,
   Collapse,
-  Alert
+  Alert,
+  LinearProgress,
+  Tooltip,
+  IconButton,
+  useMediaQuery,
 } from '@mui/material';
-import { 
-  Lock, 
-  Person, 
+import {
+  Lock,
+  Person,
   Email,
   PersonAdd,
   Cake,
   Wc,
   VerifiedUser,
   Diamond,
-  Star
+  Star,
+  InfoOutlined,
+  ArrowBack,
+  ArrowForward,
+  SaveOutlined,
 } from '@mui/icons-material';
 import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 import apiClient from '../services/apiClient';
 
-// Supported African countries with phone codes
 const AFRICAN_COUNTRIES = [
   { code: 'NG', name: 'Nigeria', flag: '🇳🇬', phoneCode: '+234' },
   { code: 'GH', name: 'Ghana', flag: '🇬🇭', phoneCode: '+233' },
@@ -42,14 +50,71 @@ const AFRICAN_COUNTRIES = [
   { code: 'RW', name: 'Rwanda', flag: '🇷🇼', phoneCode: '+250' },
   { code: 'BW', name: 'Botswana', flag: '🇧🇼', phoneCode: '+267' },
   { code: 'ZM', name: 'Zambia', flag: '🇿🇲', phoneCode: '+260' },
-  { code: 'MW', name: 'Malawi', flag: '🇲🇼', phoneCode: '+265' }
+  { code: 'MW', name: 'Malawi', flag: '🇲🇼', phoneCode: '+265' },
 ];
+
+const REGISTRATION_DRAFT_STORAGE_KEY = 'zerohook-registration-draft-v2';
+const REGISTRATION_ANALYTICS_STORAGE_KEY = 'zerohook-registration-analytics-v2';
+
+const WIZARD_STEPS = [
+  {
+    id: 0,
+    title: 'Personal Information',
+    shortLabel: 'Personal',
+    requiredFields: ['firstName', 'lastName', 'gender', 'dateOfBirth'],
+  },
+  {
+    id: 1,
+    title: 'Contact Details',
+    shortLabel: 'Contact',
+    requiredFields: ['email', 'phone'],
+  },
+  {
+    id: 2,
+    title: 'Account Setup',
+    shortLabel: 'Setup',
+    requiredFields: ['accountType', 'password', 'confirmPassword'],
+  },
+  {
+    id: 3,
+    title: 'Verification & Terms',
+    shortLabel: 'Terms',
+    requiredFields: ['agreeTerms'],
+  },
+];
+
+const VALIDATION_ORDER = [
+  'firstName',
+  'lastName',
+  'gender',
+  'dateOfBirth',
+  'email',
+  'phone',
+  'accountType',
+  'password',
+  'confirmPassword',
+  'agreeTerms',
+];
+
+const summarizeDraftTimestamp = (savedAt) => {
+  if (!savedAt) {
+    return '';
+  }
+
+  const parsed = new Date(savedAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  return parsed.toLocaleString();
+};
 
 const RegisterPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const dispatch = useDispatch();
   const { loading, error: authError } = useSelector((state) => state.auth);
+  const isMobile = useMediaQuery('(max-width:600px)');
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -58,19 +123,51 @@ const RegisterPage = () => {
     phone: '',
     password: '',
     confirmPassword: '',
-    accountType: 'client',
+    accountType: '',
     gender: '',
     dateOfBirth: '',
     faceVerificationConsent: false,
-    agreeTerms: false
+    agreeTerms: false,
   });
   const [localError, setLocalError] = useState('');
-  const [selectedCountry, setSelectedCountry] = useState(AFRICAN_COUNTRIES[0]); // Default to Nigeria
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [selectedCountry, setSelectedCountry] = useState(AFRICAN_COUNTRIES[0]);
   const [detectingLocation, setDetectingLocation] = useState(true);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [statusNotice, setStatusNotice] = useState({ type: 'info', message: '' });
+  const [lastDraftSavedAt, setLastDraftSavedAt] = useState('');
+
   const formRef = useRef(null);
   const errorRef = useRef(null);
   const bottomErrorRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
+  const autoSaveTimeoutRef = useRef(null);
+  const registrationSessionIdRef = useRef(`reg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+  const startedFieldsRef = useRef(new Set());
+  const registrationCompletedRef = useRef(false);
+  const currentStepRef = useRef(0);
+  const formProgressRef = useRef(0);
+  const completedRequiredFieldsRef = useRef(0);
+  const viewportRef = useRef(isMobile ? 'mobile' : 'desktop');
+
+  const totalSteps = WIZARD_STEPS.length;
+  const isLastStep = currentStep === totalSteps - 1;
+
+  const completionChecks = useMemo(() => ([
+    Boolean(formData.firstName.trim()),
+    Boolean(formData.lastName.trim()),
+    Boolean(formData.gender),
+    Boolean(formData.dateOfBirth),
+    Boolean(formData.email.trim()),
+    Boolean(formData.phone.trim()),
+    Boolean(formData.accountType),
+    Boolean(formData.password),
+    Boolean(formData.confirmPassword),
+    Boolean(formData.agreeTerms),
+  ]), [formData]);
+
+  const completedRequiredFields = completionChecks.filter(Boolean).length;
+  const formProgress = Math.round((completedRequiredFields / completionChecks.length) * 100);
 
   const resolvePostRegisterDestination = () => {
     const fromState = location.state?.from;
@@ -94,28 +191,79 @@ const RegisterPage = () => {
   };
 
   useEffect(() => {
-    return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-        scrollTimeoutRef.current = null;
+    currentStepRef.current = currentStep;
+  }, [currentStep]);
+
+  useEffect(() => {
+    formProgressRef.current = formProgress;
+  }, [formProgress]);
+
+  useEffect(() => {
+    completedRequiredFieldsRef.current = completedRequiredFields;
+  }, [completedRequiredFields]);
+
+  useEffect(() => {
+    viewportRef.current = isMobile ? 'mobile' : 'desktop';
+  }, [isMobile]);
+
+  const appendRegistrationAnalytics = useCallback((eventName, details = {}) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem(REGISTRATION_ANALYTICS_STORAGE_KEY) || '{}');
+      const events = Array.isArray(existing.events) ? existing.events : [];
+      const fieldDropoff = existing.fieldDropoff || { desktop: {}, mobile: {} };
+      const viewport = viewportRef.current;
+
+      if (eventName === 'field_validation_error' && details.field) {
+        const viewportCounts = fieldDropoff[viewport] || {};
+        fieldDropoff[viewport] = {
+          ...viewportCounts,
+          [details.field]: (viewportCounts[details.field] || 0) + 1,
+        };
       }
-    };
+
+      const eventPayload = {
+        eventName,
+        sessionId: registrationSessionIdRef.current,
+        step: typeof details.step === 'number' ? details.step : currentStepRef.current,
+        viewport,
+        completionPercent: formProgressRef.current,
+        timestamp: new Date().toISOString(),
+        ...details,
+      };
+
+      localStorage.setItem(
+        REGISTRATION_ANALYTICS_STORAGE_KEY,
+        JSON.stringify({
+          ...existing,
+          events: [...events, eventPayload].slice(-500),
+          fieldDropoff,
+          lastUpdated: eventPayload.timestamp,
+        })
+      );
+    } catch (trackingError) {
+      console.debug('Registration analytics tracking skipped:', trackingError);
+    }
   }, []);
 
-  // Detect user's country on mount
+  useEffect(() => {
+    appendRegistrationAnalytics('step_viewed', {
+      stepName: WIZARD_STEPS[currentStep]?.title || 'Unknown step',
+    });
+  }, [appendRegistrationAnalytics, currentStep]);
+
   useEffect(() => {
     const detectCountry = async () => {
       try {
         const { data } = await apiClient.post('/countries/detect');
+
         if (data.success && data.detectedCountry) {
-          const detected = AFRICAN_COUNTRIES.find(c => c.code === data.detectedCountry.code);
+          const detected = AFRICAN_COUNTRIES.find((country) => country.code === data.detectedCountry.code);
           if (detected) {
             setSelectedCountry(detected);
-            console.log('📍 Country detected for phone:', detected.name, detected.phoneCode);
           }
         }
       } catch (error) {
-        console.log('Country detection failed, using default:', error);
+        console.debug('Country detection failed, fallback used:', error);
       } finally {
         setDetectingLocation(false);
       }
@@ -124,120 +272,380 @@ const RegisterPage = () => {
     detectCountry();
   }, []);
 
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData({
-      ...formData,
-      [name]: type === 'checkbox' ? checked : value
-    });
-    setLocalError(''); // Clear error when user types
-  };
+  useEffect(() => {
+    try {
+      const rawDraft = localStorage.getItem(REGISTRATION_DRAFT_STORAGE_KEY);
+      if (!rawDraft) {
+        return;
+      }
 
-  // Scroll to error message so user can see what's wrong
-  const scrollToError = () => {
+      const parsedDraft = JSON.parse(rawDraft);
+      if (!parsedDraft?.formData) {
+        return;
+      }
+
+      const {
+        formData: draftFormData,
+        selectedCountryCode,
+        currentStep: draftStep,
+        savedAt,
+      } = parsedDraft;
+
+      setFormData((prev) => ({
+        ...prev,
+        ...draftFormData,
+        password: '',
+        confirmPassword: '',
+      }));
+
+      if (selectedCountryCode) {
+        const matchedCountry = AFRICAN_COUNTRIES.find((country) => country.code === selectedCountryCode);
+        if (matchedCountry) {
+          setSelectedCountry(matchedCountry);
+        }
+      }
+
+      if (typeof draftStep === 'number' && draftStep >= 0 && draftStep < totalSteps) {
+        setCurrentStep(draftStep);
+      }
+
+      setLastDraftSavedAt(savedAt || '');
+      setStatusNotice({
+        type: 'info',
+        message: 'Recovered your saved draft. For security, please re-enter your password before submitting.',
+      });
+
+      appendRegistrationAnalytics('draft_restored', {
+        restoredStep: typeof draftStep === 'number' ? draftStep : 0,
+      });
+    } catch (draftError) {
+      console.debug('Draft restore skipped:', draftError);
+    }
+  }, [appendRegistrationAnalytics, totalSteps]);
+
+  const scrollToError = (fieldName) => {
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
     }
 
     scrollTimeoutRef.current = setTimeout(() => {
+      if (fieldName && formRef.current) {
+        const fieldElement = formRef.current.querySelector(`[name="${fieldName}"]`);
+        if (fieldElement) {
+          fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          fieldElement.focus();
+          return;
+        }
+      }
+
       if (bottomErrorRef.current) {
         bottomErrorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      } else if (errorRef.current) {
+        return;
+      }
+
+      if (errorRef.current) {
         errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    }, 100);
+    }, 80);
   };
 
-  const validateForm = () => {
-    // Check required fields first
+  const getValidationErrors = () => {
+    const errors = {};
+
     if (!formData.firstName.trim()) {
-      setLocalError('Please enter your first name');
-      scrollToError();
-      return false;
+      errors.firstName = 'Please enter your first name';
     }
+
     if (!formData.lastName.trim()) {
-      setLocalError('Please enter your last name');
-      scrollToError();
-      return false;
+      errors.lastName = 'Please enter your last name';
     }
-    if (!formData.email.trim()) {
-      setLocalError('Please enter your email address');
-      scrollToError();
-      return false;
-    }
-    if (!formData.phone.trim()) {
-      setLocalError('Please enter your phone number');
-      scrollToError();
-      return false;
-    }
-    if (formData.password !== formData.confirmPassword) {
-      setLocalError('Passwords do not match');
-      scrollToError();
-      return false;
-    }
-    if (formData.password.length < 8) {
-      setLocalError('Password must be at least 8 characters long');
-      scrollToError();
-      return false;
-    }
-    if (!/[A-Z]/.test(formData.password)) {
-      setLocalError('Password must contain at least one uppercase letter');
-      scrollToError();
-      return false;
-    }
-    if (!/[a-z]/.test(formData.password)) {
-      setLocalError('Password must contain at least one lowercase letter');
-      scrollToError();
-      return false;
-    }
-    if (!/\d/.test(formData.password)) {
-      setLocalError('Password must contain at least one number');
-      scrollToError();
-      return false;
-    }
+
     if (!formData.gender) {
-      setLocalError('Please select your gender');
-      scrollToError();
-      return false;
+      errors.gender = 'Please select your gender';
     }
+
     if (!formData.dateOfBirth) {
-      setLocalError('Please enter your date of birth');
-      scrollToError();
-      return false;
+      errors.dateOfBirth = 'Please enter your date of birth';
+    } else {
+      const birthDate = new Date(formData.dateOfBirth);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age -= 1;
+      }
+
+      if (age < 18) {
+        errors.dateOfBirth = 'You must be at least 18 years old to register';
+      }
     }
-    // Validate age (must be 18+)
-    const birthDate = new Date(formData.dateOfBirth);
-    const today = new Date();
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
+
+    if (!formData.email.trim()) {
+      errors.email = 'Please enter your email address';
+    } else if (!/^\S+@\S+\.\S+$/.test(formData.email.trim())) {
+      errors.email = 'Please enter a valid email address';
     }
-    if (age < 18) {
-      setLocalError('You must be at least 18 years old to register');
-      scrollToError();
-      return false;
+
+    if (!formData.phone.trim()) {
+      errors.phone = 'Please enter your phone number';
+    } else if (formData.phone.trim().length < 7) {
+      errors.phone = 'Phone number looks too short';
     }
+
+    if (!formData.accountType) {
+      errors.accountType = 'Please select your account type';
+    }
+
+    if (!formData.password) {
+      errors.password = 'Please create a password';
+    } else if (formData.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters long';
+    } else if (!/[A-Z]/.test(formData.password)) {
+      errors.password = 'Password must contain at least one uppercase letter';
+    } else if (!/[a-z]/.test(formData.password)) {
+      errors.password = 'Password must contain at least one lowercase letter';
+    } else if (!/\d/.test(formData.password)) {
+      errors.password = 'Password must contain at least one number';
+    }
+
+    if (!formData.confirmPassword) {
+      errors.confirmPassword = 'Please confirm your password';
+    } else if (formData.password !== formData.confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
+    }
+
     if (!formData.agreeTerms) {
-      setLocalError('You must agree to the Terms of Service and Privacy Policy');
-      scrollToError();
+      errors.agreeTerms = 'You must agree to the Terms of Service and Privacy Policy';
+    }
+
+    return errors;
+  };
+
+  const validateStep = (stepIndex) => {
+    const stepDefinition = WIZARD_STEPS.find((step) => step.id === stepIndex);
+    if (!stepDefinition) {
+      return true;
+    }
+
+    const allErrors = getValidationErrors();
+    const stepErrors = stepDefinition.requiredFields.reduce((acc, fieldName) => {
+      if (allErrors[fieldName]) {
+        acc[fieldName] = allErrors[fieldName];
+      }
+
+      return acc;
+    }, {});
+
+    if (Object.keys(stepErrors).length > 0) {
+      setFieldErrors((prev) => ({ ...prev, ...stepErrors }));
+      const firstInvalidField = stepDefinition.requiredFields.find((fieldName) => stepErrors[fieldName]);
+
+      if (firstInvalidField) {
+        const message = stepErrors[firstInvalidField];
+        setLocalError(message);
+        appendRegistrationAnalytics('field_validation_error', {
+          field: firstInvalidField,
+          message,
+          step: stepIndex,
+        });
+        scrollToError(firstInvalidField);
+      }
+
       return false;
     }
+
+    setLocalError('');
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      stepDefinition.requiredFields.forEach((fieldName) => {
+        delete next[fieldName];
+      });
+      return next;
+    });
+
     return true;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const validateForm = () => {
+    const errors = getValidationErrors();
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      const firstInvalidField = VALIDATION_ORDER.find((fieldName) => errors[fieldName]) || Object.keys(errors)[0];
+
+      setLocalError(errors[firstInvalidField]);
+      appendRegistrationAnalytics('field_validation_error', {
+        field: firstInvalidField,
+        message: errors[firstInvalidField],
+        step: currentStep,
+      });
+      scrollToError(firstInvalidField);
+      return false;
+    }
+
+    return true;
+  };
+
+  const saveDraft = useCallback((source = 'manual') => {
+    try {
+      const draft = {
+        formData: {
+          ...formData,
+          password: '',
+          confirmPassword: '',
+        },
+        selectedCountryCode: selectedCountry.code,
+        currentStep,
+        savedAt: new Date().toISOString(),
+      };
+
+      localStorage.setItem(REGISTRATION_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      setLastDraftSavedAt(draft.savedAt);
+      appendRegistrationAnalytics('draft_saved', { source });
+
+      if (source === 'manual') {
+        setStatusNotice({
+          type: 'success',
+          message: 'Draft saved on this device. You can continue later from this step.',
+        });
+      }
+    } catch (draftError) {
+      console.debug('Draft save skipped:', draftError);
+    }
+  }, [appendRegistrationAnalytics, currentStep, formData, selectedCountry.code]);
+
+  useEffect(() => {
+    if (completedRequiredFields === 0) {
+      return;
+    }
+
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      saveDraft('autosave');
+    }, 1800);
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+        autoSaveTimeoutRef.current = null;
+      }
+    };
+  }, [completedRequiredFields, currentStep, formData, saveDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (!registrationCompletedRef.current) {
+        appendRegistrationAnalytics('registration_abandoned', {
+          completedRequiredFields: completedRequiredFieldsRef.current,
+          totalRequiredFields: completionChecks.length,
+        });
+      }
+
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [appendRegistrationAnalytics, completionChecks.length]);
+
+  const clearDraft = () => {
+    localStorage.removeItem(REGISTRATION_DRAFT_STORAGE_KEY);
+    setLastDraftSavedAt('');
+  };
+
+  const handleChange = (event) => {
+    const { name, value, type, checked } = event.target;
+    const nextValue = name === 'phone' ? value.replace(/[^\d]/g, '') : value;
+
+    if (name && !startedFieldsRef.current.has(name)) {
+      startedFieldsRef.current.add(name);
+      appendRegistrationAnalytics('field_started', { field: name });
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : nextValue,
+    }));
+
+    setFieldErrors((prev) => {
+      if (!prev[name]) {
+        return prev;
+      }
+
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+
     setLocalError('');
+    setStatusNotice((prev) => (prev.message ? { type: '', message: '' } : prev));
+  };
+
+  const handleNextStep = () => {
+    if (!validateStep(currentStep)) {
+      return;
+    }
+
+    const nextStep = Math.min(currentStep + 1, totalSteps - 1);
+    if (nextStep !== currentStep) {
+      setCurrentStep(nextStep);
+      appendRegistrationAnalytics('step_advanced', { fromStep: currentStep, toStep: nextStep });
+      setStatusNotice({ type: '', message: '' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleBackStep = () => {
+    const previousStep = Math.max(currentStep - 1, 0);
+    if (previousStep !== currentStep) {
+      setCurrentStep(previousStep);
+      appendRegistrationAnalytics('step_reversed', { fromStep: currentStep, toStep: previousStep });
+      setStatusNotice({ type: '', message: '' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleStepClick = (stepIndex) => {
+    if (stepIndex === currentStep) {
+      return;
+    }
+
+    if (stepIndex < currentStep) {
+      setCurrentStep(stepIndex);
+      appendRegistrationAnalytics('step_revisited', { fromStep: currentStep, toStep: stepIndex });
+      return;
+    }
+
+    handleNextStep();
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setLocalError('');
+
+    if (!isLastStep) {
+      handleNextStep();
+      return;
+    }
 
     if (!validateForm()) {
       return;
     }
 
-    // Combine country code with phone number
     const fullPhoneNumber = `${selectedCountry.phoneCode}${formData.phone.replace(/^0+/, '')}`;
 
     try {
+      appendRegistrationAnalytics('registration_submit_attempt', {
+        accountType: formData.accountType,
+      });
+
       const resultAction = await dispatch(registerUser({
         email: formData.email,
         password: formData.password,
@@ -248,37 +656,732 @@ const RegisterPage = () => {
         gender: formData.gender,
         dateOfBirth: formData.dateOfBirth,
         faceVerificationConsent: formData.faceVerificationConsent,
-        countryCode: selectedCountry.code
+        countryCode: selectedCountry.code,
       }));
-      
+
       if (registerUser.fulfilled.match(resultAction)) {
+        registrationCompletedRef.current = true;
+        clearDraft();
+
+        appendRegistrationAnalytics('registration_completed', {
+          accountType: formData.accountType,
+          totalProgress: formProgress,
+        });
+
         const destination = resolvePostRegisterDestination();
-        navigate(destination.pathname, destination.state !== undefined
-          ? { replace: true, state: destination.state }
-          : { replace: true }
+        navigate(
+          destination.pathname,
+          destination.state !== undefined
+            ? { replace: true, state: destination.state }
+            : { replace: true }
         );
       } else {
-        console.error('Registration failed:', resultAction.error);
+        appendRegistrationAnalytics('registration_failed', {
+          reason: resultAction.error?.message || 'Unknown registration error',
+        });
         scrollToError();
       }
-    } catch (err) {
+    } catch (submitError) {
       setLocalError('Registration failed. Please try again.');
+      appendRegistrationAnalytics('registration_failed', {
+        reason: submitError.message || 'Submit catch block triggered',
+      });
       scrollToError();
     }
   };
 
+  const WhyAskIcon = ({ title }) => (
+    <Tooltip title={title} arrow placement="top">
+      <IconButton
+        size="small"
+        sx={{
+          color: 'rgba(255, 255, 255, 0.6)',
+          p: 0.25,
+          ml: 0.5,
+          '&:hover': {
+            color: '#00f2ea',
+          },
+        }}
+      >
+        <InfoOutlined sx={{ fontSize: 16 }} />
+      </IconButton>
+    </Tooltip>
+  );
+
+  const SectionHeader = ({ icon, title, subtitle, why }) => (
+    <Box sx={{ mb: 2.5 }}>
+      <Typography
+        variant="h6"
+        sx={{
+          color: '#00f2ea',
+          fontFamily: '"Outfit", sans-serif',
+          fontWeight: 700,
+          fontSize: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
+      >
+        {icon}
+        {title}
+        {why ? <WhyAskIcon title={why} /> : null}
+      </Typography>
+      {subtitle ? (
+        <Typography
+          sx={{
+            color: 'rgba(255, 255, 255, 0.6)',
+            fontFamily: '"Outfit", sans-serif',
+            fontSize: '13px',
+            mt: 0.5,
+          }}
+        >
+          {subtitle}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+
+  const renderPersonalStep = () => (
+    <Box>
+      <SectionHeader
+        icon={<Person sx={{ fontSize: 20 }} />}
+        title="Step 1. Personal Information"
+        subtitle="Tell us who you are so we can create your profile correctly."
+      />
+
+      <Grid container spacing={2}>
+        <Grid item xs={12} sm={6}>
+          <GlassInput
+            name="firstName"
+            label="First Name *"
+            value={formData.firstName}
+            onChange={handleChange}
+            startIcon={<Person sx={{ color: '#00f2ea' }} />}
+            placeholder="Enter first name"
+            error={Boolean(fieldErrors.firstName)}
+            helperText={fieldErrors.firstName || 'Use your real first name'}
+            required
+            autoComplete="given-name"
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6}>
+          <GlassInput
+            name="lastName"
+            label="Last Name *"
+            value={formData.lastName}
+            onChange={handleChange}
+            startIcon={<Person sx={{ color: '#00f2ea' }} />}
+            placeholder="Enter last name"
+            error={Boolean(fieldErrors.lastName)}
+            helperText={fieldErrors.lastName || 'Use your real last name'}
+            required
+            autoComplete="family-name"
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6}>
+          <FormControl
+            error={Boolean(fieldErrors.gender)}
+            fullWidth
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: '16px',
+                color: '#ffffff',
+                '& fieldset': {
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '16px',
+                },
+                '&:hover fieldset': {
+                  borderColor: 'rgba(0, 242, 234, 0.5)',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#00f2ea',
+                  borderWidth: '2px',
+                },
+              },
+              '& .MuiInputLabel-root': {
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontFamily: '"Outfit", sans-serif',
+                '&.Mui-focused': {
+                  color: '#00f2ea',
+                },
+              },
+              '& .MuiSelect-icon': {
+                color: 'rgba(255, 255, 255, 0.5)',
+              },
+            }}
+          >
+            <InputLabel>Gender *</InputLabel>
+            <Select
+              name="gender"
+              value={formData.gender}
+              onChange={handleChange}
+              label="Gender *"
+              startAdornment={<Wc sx={{ color: '#00f2ea', mr: 1 }} />}
+            >
+              <MenuItem value="male">Male</MenuItem>
+              <MenuItem value="female">Female</MenuItem>
+              <MenuItem value="non_binary">Non-Binary</MenuItem>
+              <MenuItem value="prefer_not_to_say">Prefer not to say</MenuItem>
+            </Select>
+            <FormHelperText sx={{ color: fieldErrors.gender ? '#ff0055 !important' : 'rgba(255, 255, 255, 0.5)' }}>
+              {fieldErrors.gender || 'Select the option you are most comfortable with'}
+            </FormHelperText>
+          </FormControl>
+        </Grid>
+
+        <Grid item xs={12} sm={6}>
+          <Box>
+            <Typography
+              sx={{
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontSize: '14px',
+                mb: 1,
+                fontFamily: '"Outfit", sans-serif',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Date of Birth *
+              <WhyAskIcon title="Why we ask: we verify legal age (18+) and apply age-safe platform protections." />
+            </Typography>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: '16px',
+                border: fieldErrors.dateOfBirth ? '1px solid rgba(255, 0, 85, 0.8)' : '1px solid rgba(255, 255, 255, 0.1)',
+                height: '56px',
+                px: 2,
+                overflow: 'hidden',
+                '&:hover': {
+                  borderColor: 'rgba(0, 242, 234, 0.5)',
+                },
+                '&:focus-within': {
+                  borderColor: '#00f2ea',
+                  borderWidth: '2px',
+                },
+              }}
+            >
+              <Cake sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
+              <input
+                name="dateOfBirth"
+                type="date"
+                value={formData.dateOfBirth}
+                onChange={handleChange}
+                autoComplete="bday"
+                min="1940-01-01"
+                max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: '#fff',
+                  fontSize: '16px',
+                  fontFamily: '"Outfit", sans-serif',
+                  height: '100%',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  colorScheme: 'dark',
+                }}
+              />
+            </Box>
+            <Typography sx={{ color: fieldErrors.dateOfBirth ? '#ff0055' : 'rgba(255, 255, 255, 0.5)', fontSize: '12px', mt: 0.75, fontFamily: '"Outfit", sans-serif' }}>
+              {fieldErrors.dateOfBirth || 'You must be 18 or older to join'}
+            </Typography>
+          </Box>
+        </Grid>
+      </Grid>
+    </Box>
+  );
+
+  const renderContactStep = () => (
+    <Box>
+      <SectionHeader
+        icon={<Email sx={{ fontSize: 20 }} />}
+        title="Step 2. Contact Details"
+        subtitle="We use these details for account security and important notifications."
+      />
+
+      <Grid container spacing={2}>
+        <Grid item xs={12} sm={6}>
+          <GlassInput
+            name="email"
+            type="email"
+            label="Email Address *"
+            value={formData.email}
+            onChange={handleChange}
+            startIcon={<Email sx={{ color: '#00f2ea' }} />}
+            placeholder="Enter your email"
+            error={Boolean(fieldErrors.email)}
+            helperText={fieldErrors.email || 'Used for login, password reset, and account alerts'}
+            required
+            autoComplete="email"
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6}>
+          <Box>
+            <Typography
+              sx={{
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontSize: '14px',
+                mb: 1,
+                fontFamily: '"Outfit", sans-serif',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              Phone Number *
+              <WhyAskIcon title="Why we ask: used for security verification, payment status alerts, and urgent booking confirmations." />
+            </Typography>
+
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: '16px',
+                border: fieldErrors.phone ? '1px solid rgba(255, 0, 85, 0.8)' : '1px solid rgba(255, 255, 255, 0.1)',
+                height: '56px',
+                overflow: 'hidden',
+                '&:hover': {
+                  borderColor: 'rgba(0, 242, 234, 0.5)',
+                },
+                '&:focus-within': {
+                  borderColor: '#00f2ea',
+                  borderWidth: '2px',
+                },
+              }}
+            >
+              <Select
+                value={selectedCountry.code}
+                onChange={(event) => {
+                  const country = AFRICAN_COUNTRIES.find((item) => item.code === event.target.value);
+                  if (country) {
+                    setSelectedCountry(country);
+                    appendRegistrationAnalytics('country_code_changed', { selectedCountryCode: country.code });
+                  }
+                }}
+                disabled={detectingLocation}
+                sx={{
+                  minWidth: 98,
+                  height: '100%',
+                  color: '#fff',
+                  '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                  '& .MuiSelect-select': {
+                    py: 0,
+                    pl: 1.5,
+                    pr: 0.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                  },
+                  '& .MuiSelect-icon': { color: 'rgba(255,255,255,0.5)', right: 2 },
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    sx: {
+                      background: '#1a1a1f',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      maxHeight: 300,
+                      '& .MuiMenuItem-root': {
+                        fontFamily: '"Outfit", sans-serif',
+                        color: '#ffffff',
+                        gap: 1,
+                        '&:hover': { background: 'rgba(0, 242, 234, 0.1)' },
+                        '&.Mui-selected': { background: 'rgba(0, 242, 234, 0.2)' },
+                      },
+                    },
+                  },
+                }}
+                renderValue={(value) => {
+                  const country = AFRICAN_COUNTRIES.find((item) => item.code === value);
+                  return (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <span>{country?.flag}</span>
+                      <span style={{ color: '#00f2ea', fontWeight: 600, fontSize: '14px' }}>{country?.phoneCode}</span>
+                    </Box>
+                  );
+                }}
+              >
+                {AFRICAN_COUNTRIES.map((country) => (
+                  <MenuItem key={country.code} value={country.code}>
+                    <span>{country.flag}</span>
+                    <span>{country.name}</span>
+                    <span style={{ color: '#00f2ea', marginLeft: 'auto' }}>{country.phoneCode}</span>
+                  </MenuItem>
+                ))}
+              </Select>
+
+              <Box sx={{ width: '1px', height: '30px', bgcolor: 'rgba(255,255,255,0.15)' }} />
+
+              <input
+                name="phone"
+                type="tel"
+                value={formData.phone}
+                onChange={handleChange}
+                autoComplete="tel-national"
+                placeholder="Enter phone number"
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: '#fff',
+                  fontSize: '16px',
+                  padding: '0 12px',
+                  fontFamily: '"Outfit", sans-serif',
+                  WebkitBoxShadow: '0 0 0 1000px transparent inset',
+                  WebkitTextFillColor: '#fff',
+                }}
+              />
+            </Box>
+
+            <Typography sx={{ color: fieldErrors.phone ? '#ff0055' : 'rgba(255, 255, 255, 0.5)', fontSize: '12px', mt: 0.75, fontFamily: '"Outfit", sans-serif' }}>
+              {fieldErrors.phone || `Enter number without ${selectedCountry.phoneCode}; we add it automatically`}
+            </Typography>
+
+            {detectingLocation ? (
+              <Typography sx={{ color: 'rgba(0, 242, 234, 0.7)', fontSize: '11px', mt: 0.5 }}>
+                Detecting your location...
+              </Typography>
+            ) : null}
+          </Box>
+        </Grid>
+      </Grid>
+    </Box>
+  );
+
+  const renderAccountStep = () => (
+    <Box>
+      <SectionHeader
+        icon={<PersonAdd sx={{ fontSize: 20 }} />}
+        title="Step 3. Account Setup"
+        subtitle="Choose how you want to use Zerohook and secure your account."
+      />
+
+      <Grid container spacing={2}>
+        <Grid item xs={12}>
+          <FormControl
+            error={Boolean(fieldErrors.accountType)}
+            fullWidth
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: '16px',
+                color: '#ffffff',
+                '& fieldset': {
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '16px',
+                },
+                '&:hover fieldset': {
+                  borderColor: 'rgba(0, 242, 234, 0.5)',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#00f2ea',
+                  borderWidth: '2px',
+                },
+              },
+              '& .MuiInputLabel-root': {
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontFamily: '"Outfit", sans-serif',
+                '&.Mui-focused': {
+                  color: '#00f2ea',
+                },
+              },
+              '& .MuiSelect-icon': {
+                color: 'rgba(255, 255, 255, 0.5)',
+              },
+            }}
+          >
+            <InputLabel>Account Type *</InputLabel>
+            <Select
+              name="accountType"
+              value={formData.accountType}
+              onChange={handleChange}
+              label="Account Type *"
+              displayEmpty
+            >
+              <MenuItem value="" disabled>
+                <Typography sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>Select account type</Typography>
+              </MenuItem>
+
+              <MenuItem value="client">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Person sx={{ color: '#00f2ea', fontSize: 20 }} />
+                  <Box>
+                    <Typography sx={{ fontWeight: 600 }}>Clients</Typography>
+                    <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Find hookup girls and boys</Typography>
+                  </Box>
+                </Box>
+              </MenuItem>
+
+              <MenuItem value="provider">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Star sx={{ color: '#ff0055', fontSize: 20 }} />
+                  <Box>
+                    <Typography sx={{ fontWeight: 600 }}>Providers</Typography>
+                    <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Hookup girls and boys</Typography>
+                  </Box>
+                </Box>
+              </MenuItem>
+
+              <MenuItem value="sugar_daddy">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Diamond sx={{ color: '#FFD700', fontSize: 20 }} />
+                  <Box>
+                    <Typography sx={{ fontWeight: 600, color: '#FFD700' }}>Sugar Daddy</Typography>
+                    <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>I am a sugar daddy</Typography>
+                  </Box>
+                </Box>
+              </MenuItem>
+
+              <MenuItem value="sugar_mommy">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Diamond sx={{ color: '#FF69B4', fontSize: 20 }} />
+                  <Box>
+                    <Typography sx={{ fontWeight: 600, color: '#FF69B4' }}>Sugar Mommy</Typography>
+                    <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>I am a sugar mommy</Typography>
+                  </Box>
+                </Box>
+              </MenuItem>
+            </Select>
+            <FormHelperText sx={{ color: fieldErrors.accountType ? '#ff0055 !important' : 'rgba(255, 255, 255, 0.5)' }}>
+              {fieldErrors.accountType || 'Choose the role that describes how you will use Zerohook'}
+            </FormHelperText>
+          </FormControl>
+        </Grid>
+
+        <Collapse in={formData.accountType === 'sugar_daddy' || formData.accountType === 'sugar_mommy'} sx={{ width: '100%' }}>
+          <Grid item xs={12}>
+            <Alert
+              severity="info"
+              icon={<Diamond sx={{ color: '#FFD700' }} />}
+              sx={{
+                background: 'rgba(255, 215, 0, 0.1)',
+                border: '1px solid rgba(255, 215, 0, 0.3)',
+                borderRadius: '12px',
+                '& .MuiAlert-message': {
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontFamily: '"Outfit", sans-serif',
+                },
+              }}
+            >
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#FFD700', mb: 0.5 }}>
+                VVIP Account Benefits
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                Your profile is private by default and only visible to eligible verified users.
+              </Typography>
+            </Alert>
+          </Grid>
+        </Collapse>
+
+        <Grid item xs={12} sm={6}>
+          <GlassInput
+            name="password"
+            label="Password *"
+            type="password"
+            value={formData.password}
+            onChange={handleChange}
+            startIcon={<Lock sx={{ color: '#00f2ea' }} />}
+            placeholder="Min 8 chars, A-Z, a-z, 0-9"
+            error={Boolean(fieldErrors.password)}
+            helperText={fieldErrors.password || 'Use at least 8 characters with uppercase, lowercase, and a number'}
+            required
+            autoComplete="new-password"
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6}>
+          <GlassInput
+            name="confirmPassword"
+            label="Confirm Password *"
+            type="password"
+            value={formData.confirmPassword}
+            onChange={handleChange}
+            startIcon={<Lock sx={{ color: '#00f2ea' }} />}
+            placeholder="Confirm password"
+            error={Boolean(fieldErrors.confirmPassword)}
+            helperText={fieldErrors.confirmPassword || 'Re-enter your password exactly'}
+            required
+            autoComplete="new-password"
+          />
+        </Grid>
+      </Grid>
+    </Box>
+  );
+
+  const renderTermsStep = () => (
+    <Box>
+      <SectionHeader
+        icon={<VerifiedUser sx={{ fontSize: 20 }} />}
+        title="Step 4. Verification & Terms"
+        subtitle="Final confirmations before your account is created."
+      />
+
+      <Grid container spacing={2}>
+        <Grid item xs={12}>
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: '12px',
+              background: 'rgba(0, 242, 234, 0.05)',
+              border: '1px solid rgba(0, 242, 234, 0.2)',
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Checkbox
+                  name="faceVerificationConsent"
+                  checked={formData.faceVerificationConsent}
+                  onChange={handleChange}
+                  sx={{
+                    color: 'rgba(255, 255, 255, 0.5)',
+                    '&.Mui-checked': {
+                      color: '#00f2ea',
+                    },
+                  }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography
+                    sx={{
+                      color: '#ffffff',
+                      fontFamily: '"Outfit", sans-serif',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                    }}
+                  >
+                    <VerifiedUser sx={{ color: '#00f2ea', fontSize: 18 }} />
+                    I consent to face verification (optional)
+                    <WhyAskIcon title="Why we ask: this helps increase trust and unlocks additional safety features. Optional for sign-up." />
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: 'rgba(255, 255, 255, 0.5)',
+                      fontFamily: '"Outfit", sans-serif',
+                      fontSize: '12px',
+                      mt: 0.5,
+                    }}
+                  >
+                    Optional but recommended for faster trust building and verification badges.
+                  </Typography>
+                </Box>
+              }
+            />
+          </Box>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Box
+            sx={{
+              border: fieldErrors.agreeTerms ? '1px solid rgba(255, 0, 85, 0.6)' : '1px solid transparent',
+              borderRadius: '10px',
+              px: 1,
+              py: 0.5,
+              background: fieldErrors.agreeTerms ? 'rgba(255, 0, 85, 0.08)' : 'transparent',
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Checkbox
+                  name="agreeTerms"
+                  checked={formData.agreeTerms}
+                  onChange={handleChange}
+                  sx={{
+                    color: 'rgba(255, 255, 255, 0.5)',
+                    '&.Mui-checked': {
+                      color: '#00f2ea',
+                    },
+                  }}
+                />
+              }
+              label={
+                <Typography
+                  sx={{
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    fontFamily: '"Outfit", sans-serif',
+                    fontSize: '14px',
+                  }}
+                >
+                  I agree to the{' '}
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                    style={{
+                      color: '#00f2ea',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Terms of Service
+                  </a>{' '}
+                  and{' '}
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                    style={{
+                      color: '#00f2ea',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Privacy Policy
+                  </a>
+                </Typography>
+              }
+            />
+            <Typography sx={{ color: fieldErrors.agreeTerms ? '#ff0055' : 'rgba(255, 255, 255, 0.5)', fontSize: '12px', mt: 0.25, ml: 5.5, fontFamily: '"Outfit", sans-serif' }}>
+              {fieldErrors.agreeTerms || 'Required before creating your account'}
+            </Typography>
+          </Box>
+        </Grid>
+      </Grid>
+    </Box>
+  );
+
+  const renderCurrentStep = () => {
+    if (currentStep === 0) {
+      return renderPersonalStep();
+    }
+
+    if (currentStep === 1) {
+      return renderContactStep();
+    }
+
+    if (currentStep === 2) {
+      return renderAccountStep();
+    }
+
+    return renderTermsStep();
+  };
+
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <GlassCard 
+    <Container maxWidth="sm" sx={{ py: { xs: 4, sm: 8 } }}>
+      <GlassCard
         variant="default"
         hoverable={false}
-        sx={{ 
-          p: 4, 
+        sx={{
+          p: { xs: 2.25, sm: 4 },
           borderRadius: 4,
         }}
       >
-        {/* Header */}
-        <Box textAlign="center" mb={4}>
+        <Box textAlign="center" mb={3}>
           <Box
             sx={{
               width: 80,
@@ -294,10 +1397,11 @@ const RegisterPage = () => {
           >
             <PersonAdd sx={{ fontSize: 40, color: '#00f2ea' }} />
           </Box>
-          <Typography 
-            variant="h4" 
-            sx={{ 
-              fontWeight: 800, 
+
+          <Typography
+            variant="h4"
+            sx={{
+              fontWeight: 800,
               fontFamily: '"Outfit", sans-serif',
               background: 'linear-gradient(135deg, #00f2ea, #ff0055)',
               WebkitBackgroundClip: 'text',
@@ -308,22 +1412,101 @@ const RegisterPage = () => {
           >
             Join Zerohook
           </Typography>
-          <Typography 
-            sx={{ 
+
+          <Typography
+            sx={{
               color: 'rgba(255, 255, 255, 0.6)',
               fontFamily: '"Outfit", sans-serif',
             }}
           >
-            Create your account to get started
+            Simple 4-step sign up on desktop and mobile
           </Typography>
         </Box>
 
-        {/* Error Alert */}
-        {(authError || localError) && (
-          <Box 
+        <Box
+          sx={{
+            mb: 3,
+            p: 2,
+            borderRadius: '12px',
+            textAlign: 'left',
+            background: 'rgba(0, 242, 234, 0.06)',
+            border: '1px solid rgba(0, 242, 234, 0.2)',
+          }}
+        >
+          <Typography sx={{ color: '#00f2ea', fontSize: '13px', fontWeight: 700, fontFamily: '"Outfit", sans-serif' }}>
+            Progress: {formProgress}%
+          </Typography>
+
+          <LinearProgress
+            variant="determinate"
+            value={formProgress}
+            sx={{
+              mt: 1,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              '& .MuiLinearProgress-bar': {
+                borderRadius: 4,
+                background: 'linear-gradient(90deg, #00f2ea, #ff0055)',
+              },
+            }}
+          />
+
+          {isMobile ? (
+            <Typography sx={{ color: 'rgba(255, 255, 255, 0.75)', fontSize: '12px', mt: 1, fontFamily: '"Outfit", sans-serif' }}>
+              Step {currentStep + 1} of {totalSteps}: {WIZARD_STEPS[currentStep].title}
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 1, mt: 1.25 }}>
+              {WIZARD_STEPS.map((step, index) => {
+                const active = index === currentStep;
+                const complete = index < currentStep;
+
+                return (
+                  <Box
+                    key={step.id}
+                    onClick={() => handleStepClick(index)}
+                    sx={{
+                      cursor: index <= currentStep ? 'pointer' : 'default',
+                      borderRadius: '10px',
+                      border: active
+                        ? '1px solid rgba(0, 242, 234, 0.6)'
+                        : complete
+                          ? '1px solid rgba(0, 242, 234, 0.3)'
+                          : '1px solid rgba(255, 255, 255, 0.15)',
+                      background: active
+                        ? 'rgba(0, 242, 234, 0.14)'
+                        : complete
+                          ? 'rgba(0, 242, 234, 0.08)'
+                          : 'rgba(255, 255, 255, 0.03)',
+                      py: 1,
+                      px: 0.8,
+                      textAlign: 'center',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <Typography sx={{ color: active ? '#00f2ea' : complete ? 'rgba(0, 242, 234, 0.9)' : 'rgba(255,255,255,0.6)', fontSize: '11px', fontWeight: 700, fontFamily: '"Outfit", sans-serif' }}>
+                      {index + 1}
+                    </Typography>
+                    <Typography sx={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.75)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
+                      {step.shortLabel}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+
+          <Typography sx={{ color: 'rgba(255, 255, 255, 0.55)', fontSize: '12px', mt: 1, fontFamily: '"Outfit", sans-serif' }}>
+            Fields marked * are required. Sensitive fields include inline "Why we ask" tips.
+          </Typography>
+        </Box>
+
+        {(authError || localError) ? (
+          <Box
             ref={errorRef}
-            sx={{ 
-              mb: 3,
+            sx={{
+              mb: 2.5,
               p: 2,
               borderRadius: '12px',
               background: 'rgba(255, 0, 85, 0.1)',
@@ -334,795 +1517,120 @@ const RegisterPage = () => {
               {authError || localError}
             </Typography>
           </Box>
-        )}
+        ) : null}
 
-        {/* Registration Form */}
+        {statusNotice.message ? (
+          <Alert
+            severity={statusNotice.type || 'info'}
+            sx={{
+              mb: 2.5,
+              background: statusNotice.type === 'success' ? 'rgba(0, 242, 234, 0.12)' : 'rgba(0, 242, 234, 0.08)',
+              color: '#ffffff',
+              border: '1px solid rgba(0, 242, 234, 0.2)',
+              '& .MuiAlert-icon': {
+                color: statusNotice.type === 'success' ? '#00f2ea' : 'rgba(0, 242, 234, 0.9)',
+              },
+            }}
+          >
+            {statusNotice.message}
+          </Alert>
+        ) : null}
+
         <Box component="form" onSubmit={handleSubmit} ref={formRef} noValidate>
-          {/* Section 1: Personal Information */}
-          <Box sx={{ mb: 4 }}>
-            <Typography 
-              variant="h6" 
-              sx={{ 
-                color: '#00f2ea',
-                fontFamily: '"Outfit", sans-serif',
-                fontWeight: 700,
-                fontSize: '16px',
-                mb: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
+          {renderCurrentStep()}
+
+          {(authError || localError) ? (
+            <Box
+              ref={bottomErrorRef}
+              sx={{
+                mt: 2,
+                p: 1.5,
+                borderRadius: '12px',
+                background: 'rgba(255, 0, 85, 0.1)',
+                border: '1px solid rgba(255, 0, 85, 0.3)',
               }}
             >
-              <Person sx={{ fontSize: 20 }} />
-              Personal Information
-            </Typography>
-            <Grid container spacing={2}>
-              {/* Name Fields */}
-              <Grid item xs={12} sm={6}>
-                <GlassInput
-                  name="firstName"
-                  label="First Name"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  startIcon={<Person sx={{ color: '#00f2ea' }} />}
-                  placeholder="Enter first name"
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <GlassInput
-                  name="lastName"
-                  label="Last Name"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  startIcon={<Person sx={{ color: '#00f2ea' }} />}
-                  placeholder="Enter last name"
-                />
-              </Grid>
+              <Typography sx={{ color: '#ff0055', fontFamily: '"Outfit", sans-serif', fontSize: '14px', textAlign: 'center' }}>
+                {authError || localError}
+              </Typography>
+            </Box>
+          ) : null}
 
-              {/* Gender Selection */}
-              <Grid item xs={12} sm={6}>
-                <FormControl 
-                  fullWidth
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      backdropFilter: 'blur(8px)',
-                      borderRadius: '16px',
-                      color: '#ffffff',
-                      '& fieldset': {
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        borderRadius: '16px',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: 'rgba(0, 242, 234, 0.5)',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#00f2ea',
-                        borderWidth: '2px',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
-                      color: 'rgba(255, 255, 255, 0.6)',
-                      fontFamily: '"Outfit", sans-serif',
-                      '&.Mui-focused': {
-                        color: '#00f2ea',
-                      },
-                    },
-                    '& .MuiSelect-icon': {
-                      color: 'rgba(255, 255, 255, 0.5)',
-                    },
-                  }}
-                >
-                  <InputLabel>Gender *</InputLabel>
-                  <Select
-                    name="gender"
-                    value={formData.gender}
-                    onChange={handleChange}
-                    label="Gender *"
-                    startAdornment={<Wc sx={{ color: '#00f2ea', mr: 1 }} />}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          background: '#1a1a1f',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          '& .MuiMenuItem-root': {
-                            fontFamily: '"Outfit", sans-serif',
-                            color: '#ffffff',
-                            '&:hover': {
-                              background: 'rgba(0, 242, 234, 0.1)',
-                            },
-                            '&.Mui-selected': {
-                              background: 'rgba(0, 242, 234, 0.2)',
-                              '&:hover': {
-                                background: 'rgba(0, 242, 234, 0.3)',
-                              },
-                            },
-                          },
-                        },
-                      },
-                    }}
-                  >
-                    <MenuItem value="male">Male</MenuItem>
-                    <MenuItem value="female">Female</MenuItem>
-                    <MenuItem value="non_binary">Non-Binary</MenuItem>
-                    <MenuItem value="prefer_not_to_say">Prefer not to say</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {/* Date of Birth */}
-              <Grid item xs={12} sm={6}>
-                <Box>
-                  <Typography 
-                    sx={{ 
-                      color: 'rgba(255, 255, 255, 0.6)', 
-                      fontSize: '14px', 
-                      mb: 1,
-                      fontFamily: '"Outfit", sans-serif'
-                    }}
-                  >
-                    Date of Birth * (Must be 18+)
-                  </Typography>
-                  <Box 
-                    sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      backdropFilter: 'blur(8px)',
-                      borderRadius: '16px',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      height: '56px',
-                      px: 2,
-                      overflow: 'hidden',
-                      '&:hover': {
-                        borderColor: 'rgba(0, 242, 234, 0.5)',
-                      },
-                      '&:focus-within': {
-                        borderColor: '#00f2ea',
-                        borderWidth: '2px',
-                      }
-                    }}
-                  >
-                    <Cake sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
-                    <input
-                      name="dateOfBirth"
-                      type="date"
-                      value={formData.dateOfBirth}
-                      onChange={handleChange}
-                      min="1940-01-01"
-                      max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
-                      placeholder="YYYY-MM-DD"
-                      style={{
-                        flex: 1,
-                        background: 'transparent',
-                        border: 'none',
-                        outline: 'none',
-                        color: '#fff',
-                        fontSize: '16px',
-                        fontFamily: '"Outfit", sans-serif',
-                        height: '100%',
-                        WebkitAppearance: 'none',
-                        MozAppearance: 'none',
-                        colorScheme: 'dark'
-                      }}
-                    />
-                  </Box>
-                </Box>
-              </Grid>
-            </Grid>
-          </Box>
-
-          {/* Section 2: Contact Details */}
-          <Box sx={{ mb: 4 }}>
-            <Typography 
-              variant="h6" 
-              sx={{ 
-                color: '#00f2ea',
-                fontFamily: '"Outfit", sans-serif',
-                fontWeight: 700,
-                fontSize: '16px',
-                mb: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-              }}
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
+              gap: 1.2,
+              mt: 3,
+            }}
+          >
+            <GlassButton
+              type="button"
+              variant="glass"
+              onClick={() => saveDraft('manual')}
+              startIcon={<SaveOutlined sx={{ fontSize: 18 }} />}
+              fullWidth={isMobile}
+              sx={{ minWidth: isMobile ? '100%' : 190 }}
             >
-              <Email sx={{ fontSize: 20 }} />
-              Contact Details
-            </Typography>
-            <Grid container spacing={2}>
-              {/* Email Field */}
-              <Grid item xs={12} sm={6}>
-                <Box>
-                  <Typography 
-                    sx={{ 
-                      color: 'rgba(255, 255, 255, 0.6)', 
-                      fontSize: '14px', 
-                      mb: 1,
-                      fontFamily: '"Outfit", sans-serif'
-                    }}
-                  >
-                    Email Address *
-                  </Typography>
-                  <Box 
-                    sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      backdropFilter: 'blur(8px)',
-                      borderRadius: '16px',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      height: '56px',
-                      px: 2,
-                      overflow: 'hidden',
-                      '&:hover': {
-                        borderColor: 'rgba(0, 242, 234, 0.5)',
-                      },
-                      '&:focus-within': {
-                        borderColor: '#00f2ea',
-                        borderWidth: '2px',
-                      }
-                    }}
-                  >
-                    <Email sx={{ color: '#00f2ea', mr: 1.5, flexShrink: 0 }} />
-                    <input
-                      name="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={handleChange}
-                      autoComplete="off"
-                      placeholder="Enter your email"
-                      style={{
-                        flex: 1,
-                        background: 'transparent',
-                        border: 'none',
-                        outline: 'none',
-                        color: '#fff',
-                        fontSize: '16px',
-                        fontFamily: '"Outfit", sans-serif',
-                        height: '100%',
-                        width: '100%',
-                        WebkitBoxShadow: '0 0 0 1000px rgba(30, 30, 35, 0.8) inset',
-                        WebkitTextFillColor: '#fff'
-                      }}
-                    />
-                  </Box>
-                </Box>
-              </Grid>
+              Save and Continue Later
+            </GlassButton>
 
-              {/* Phone Number Field */}
-              <Grid item xs={12} sm={6}>
-              <Box>
-                <Typography 
-                  sx={{ 
-                    color: 'rgba(255, 255, 255, 0.6)', 
-                    fontSize: '14px', 
-                    mb: 1,
-                    fontFamily: '"Outfit", sans-serif'
-                  }}
-                >
-                  Phone Number *
-                </Typography>
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    backdropFilter: 'blur(8px)',
-                    borderRadius: '16px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    height: '56px',
-                    overflow: 'hidden',
-                    '&:hover': {
-                      borderColor: 'rgba(0, 242, 234, 0.5)',
-                    },
-                    '&:focus-within': {
-                      borderColor: '#00f2ea',
-                      borderWidth: '2px',
-                    }
-                  }}
-                >
-                  {/* Country Code Selector */}
-                  <Select
-                    value={selectedCountry.code}
-                    onChange={(e) => {
-                      const country = AFRICAN_COUNTRIES.find(c => c.code === e.target.value);
-                      if (country) setSelectedCountry(country);
-                    }}
-                    disabled={detectingLocation}
-                    sx={{
-                      minWidth: 100,
-                      height: '100%',
-                      color: '#fff',
-                      '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
-                      '& .MuiSelect-select': { 
-                        py: 0,
-                        pl: 1.5,
-                        pr: 0.5,
-                        display: 'flex',
-                        alignItems: 'center'
-                      },
-                      '& .MuiSelect-icon': { color: 'rgba(255,255,255,0.5)', right: 2 }
-                    }}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          background: '#1a1a1f',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          maxHeight: 300,
-                          '& .MuiMenuItem-root': {
-                            fontFamily: '"Outfit", sans-serif',
-                            color: '#ffffff',
-                            gap: 1,
-                            '&:hover': { background: 'rgba(0, 242, 234, 0.1)' },
-                            '&.Mui-selected': { background: 'rgba(0, 242, 234, 0.2)' },
-                          },
-                        },
-                      },
-                    }}
-                    renderValue={(value) => {
-                      const country = AFRICAN_COUNTRIES.find(c => c.code === value);
-                      return (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <span>{country?.flag}</span>
-                          <span style={{ color: '#00f2ea', fontWeight: 600, fontSize: '14px' }}>{country?.phoneCode}</span>
-                        </Box>
-                      );
-                    }}
-                  >
-                    {AFRICAN_COUNTRIES.map((country) => (
-                      <MenuItem key={country.code} value={country.code}>
-                        <span>{country.flag}</span>
-                        <span>{country.name}</span>
-                        <span style={{ color: '#00f2ea', marginLeft: 'auto' }}>{country.phoneCode}</span>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  
-                  {/* Divider */}
-                  <Box sx={{ width: '1px', height: '30px', bgcolor: 'rgba(255,255,255,0.15)' }} />
-                  
-                  {/* Phone Number Input */}
-                  <input
-                    name="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    autoComplete="off"
-                    placeholder="Enter phone number"
-                    style={{
-                      flex: 1,
-                      background: 'transparent',
-                      border: 'none',
-                      outline: 'none',
-                      color: '#fff',
-                      fontSize: '16px',
-                      padding: '0 12px',
-                      fontFamily: '"Outfit", sans-serif',
-                      WebkitBoxShadow: '0 0 0 1000px transparent inset',
-                      WebkitTextFillColor: '#fff'
-                    }}
-                  />
-                </Box>
-                {detectingLocation && (
-                  <Typography sx={{ color: 'rgba(0, 242, 234, 0.7)', fontSize: '11px', mt: 0.5 }}>
-                    🔍 Detecting your location...
-                  </Typography>
-                )}
-              </Box>
-            </Grid>
-
-            </Grid>
-          </Box>
-
-          {/* Section 3: Account Setup */}
-          <Box sx={{ mb: 4 }}>
-            <Typography 
-              variant="h6" 
-              sx={{ 
-                color: '#00f2ea',
-                fontFamily: '"Outfit", sans-serif',
-                fontWeight: 700,
-                fontSize: '16px',
-                mb: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-              }}
-            >
-              <PersonAdd sx={{ fontSize: 20 }} />
-              Account Setup
-            </Typography>
-            <Grid container spacing={2}>
-              {/* Account Type */}
-              <Grid item xs={12}>
-              <FormControl 
+            {!isLastStep ? (
+              <GlassButton
+                type="button"
+                variant="primary"
+                onClick={handleNextStep}
+                endIcon={<ArrowForward sx={{ fontSize: 18 }} />}
                 fullWidth
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    backdropFilter: 'blur(8px)',
-                    borderRadius: '16px',
-                    color: '#ffffff',
-                    '& fieldset': {
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '16px',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(0, 242, 234, 0.5)',
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: '#00f2ea',
-                      borderWidth: '2px',
-                    },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    fontFamily: '"Outfit", sans-serif',
-                    '&.Mui-focused': {
-                      color: '#00f2ea',
-                    },
-                  },
-                  '& .MuiSelect-icon': {
-                    color: 'rgba(255, 255, 255, 0.5)',
-                  },
-                }}
               >
-                <InputLabel>Account Type</InputLabel>
-                <Select
-                  name="accountType"
-                  value={formData.accountType}
-                  onChange={handleChange}
-                  label="Account Type"
-                  MenuProps={{
-                    PaperProps: {
-                      sx: {
-                        background: '#1a1a1f',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        '& .MuiMenuItem-root': {
-                          fontFamily: '"Outfit", sans-serif',
-                          color: '#ffffff',
-                          '&:hover': {
-                            background: 'rgba(0, 242, 234, 0.1)',
-                          },
-                          '&.Mui-selected': {
-                            background: 'rgba(0, 242, 234, 0.2)',
-                            '&:hover': {
-                              background: 'rgba(0, 242, 234, 0.3)',
-                            },
-                          },
-                        },
-                      },
-                    },
-                  }}
-                >
-                  <MenuItem value="client">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Person sx={{ color: '#00f2ea', fontSize: 20 }} />
-                      <Box>
-                        <Typography sx={{ fontWeight: 600 }}>Client</Typography>
-                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Looking for services</Typography>
-                      </Box>
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="provider">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Star sx={{ color: '#ff0055', fontSize: 20 }} />
-                      <Box>
-                        <Typography sx={{ fontWeight: 600 }}>Provider</Typography>
-                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Offering services</Typography>
-                      </Box>
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="sugar_daddy">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Diamond sx={{ color: '#FFD700', fontSize: 20 }} />
-                      <Box>
-                        <Typography sx={{ fontWeight: 600, color: '#FFD700' }}>Sugar Daddy</Typography>
-                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>VVIP Member - Enhanced privacy</Typography>
-                      </Box>
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="sugar_mommy">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Diamond sx={{ color: '#FF69B4', fontSize: 20 }} />
-                      <Box>
-                        <Typography sx={{ fontWeight: 600, color: '#FF69B4' }}>Sugar Mommy</Typography>
-                        <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>VVIP Member - Enhanced privacy</Typography>
-                      </Box>
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-
-              {/* Sugar Account Info Box */}
-              <Collapse in={formData.accountType === 'sugar_daddy' || formData.accountType === 'sugar_mommy'} sx={{ width: '100%' }}>
-                <Grid item xs={12} sx={{ mt: 1 }}>
-                  <Alert 
-                    severity="info" 
-                    icon={<Diamond sx={{ color: '#FFD700' }} />}
-                    sx={{ 
-                      background: 'rgba(255, 215, 0, 0.1)', 
-                      border: '1px solid rgba(255, 215, 0, 0.3)',
-                      borderRadius: '12px',
-                      '& .MuiAlert-message': {
-                        color: 'rgba(255, 255, 255, 0.9)',
-                        fontFamily: '"Outfit", sans-serif'
-                      }
-                    }}
-                  >
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#FFD700', mb: 0.5 }}>
-                      VVIP Account Benefits
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                      • Your profile is private by default (hidden from providers)<br/>
-                      • You can toggle visibility in settings anytime<br/>
-                      • Only verified providers with special access can view your profile<br/>
-                      • Automatic matching with young, verified providers<br/>
-                      • Provider connections are limited to 1 year for your protection
-                    </Typography>
-                  </Alert>
-                </Grid>
-              </Collapse>
-
-              {/* Password Fields */}
-              <Grid item xs={12} sm={6}>
-              <GlassInput
-                name="password"
-                label="Password"
-                type="password"
-                value={formData.password}
-                onChange={handleChange}
-                startIcon={<Lock sx={{ color: '#00f2ea' }} />}
-                placeholder="Min 8 chars, A-Z, a-z, 0-9"
-              />
-              {/* Password Strength Indicator */}
-              {formData.password && (
-                <Box sx={{ mt: 0.5, px: 1 }}>
-                  <Box sx={{ 
-                    height: 4, 
-                    borderRadius: 2, 
-                    bgcolor: 'rgba(255,255,255,0.1)',
-                    overflow: 'hidden'
-                  }}>
-                    <Box sx={{ 
-                      height: '100%', 
-                      borderRadius: 2,
-                      transition: 'all 0.3s',
-                      width: `${Math.min(100, (
-                        (formData.password.length >= 8 ? 25 : formData.password.length * 3) +
-                        (/[A-Z]/.test(formData.password) ? 25 : 0) +
-                        (/[a-z]/.test(formData.password) ? 25 : 0) +
-                        (/\d/.test(formData.password) ? 25 : 0)
-                      ))}%`,
-                      bgcolor: (() => {
-                        const score = (formData.password.length >= 8 ? 1 : 0) + 
-                          (/[A-Z]/.test(formData.password) ? 1 : 0) + 
-                          (/[a-z]/.test(formData.password) ? 1 : 0) + 
-                          (/\d/.test(formData.password) ? 1 : 0);
-                        if (score <= 1) return '#ff4444';
-                        if (score === 2) return '#ffaa00';
-                        if (score === 3) return '#ffdd00';
-                        return '#00f2ea';
-                      })()
-                    }} />
-                  </Box>
-                  <Typography variant="caption" sx={{ 
-                    color: (() => {
-                      const score = (formData.password.length >= 8 ? 1 : 0) + 
-                        (/[A-Z]/.test(formData.password) ? 1 : 0) + 
-                        (/[a-z]/.test(formData.password) ? 1 : 0) + 
-                        (/\d/.test(formData.password) ? 1 : 0);
-                      if (score <= 1) return '#ff4444';
-                      if (score === 2) return '#ffaa00';
-                      if (score === 3) return '#ffdd00';
-                      return '#00f2ea';
-                    })(),
-                    fontSize: '0.7rem'
-                  }}>
-                    {(() => {
-                      const score = (formData.password.length >= 8 ? 1 : 0) + 
-                        (/[A-Z]/.test(formData.password) ? 1 : 0) + 
-                        (/[a-z]/.test(formData.password) ? 1 : 0) + 
-                        (/\d/.test(formData.password) ? 1 : 0);
-                      if (score <= 1) return 'Weak';
-                      if (score === 2) return 'Fair';
-                      if (score === 3) return 'Good';
-                      return 'Strong';
-                    })()}
-                  </Typography>
-                </Box>
-              )}
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <GlassInput
-                name="confirmPassword"
-                label="Confirm Password"
-                type="password"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                startIcon={<Lock sx={{ color: '#00f2ea' }} />}
-                placeholder="Confirm password"
-              />
-            </Grid>
-
-            </Grid>
+                Continue to {WIZARD_STEPS[currentStep + 1].shortLabel}
+              </GlassButton>
+            ) : (
+              <GlassButton
+                type="submit"
+                variant="primary"
+                loading={loading}
+                glowing
+                fullWidth
+              >
+                {loading ? 'Creating Account...' : 'Create Account'}
+              </GlassButton>
+            )}
           </Box>
 
-          {/* Section 4: Verification & Terms */}
-          <Box sx={{ mb: 3 }}>
-            <Typography 
-              variant="h6" 
-              sx={{ 
-                color: '#00f2ea',
-                fontFamily: '"Outfit", sans-serif',
-                fontWeight: 700,
-                fontSize: '16px',
-                mb: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-              }}
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mt: 1.4,
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
+            <GlassButton
+              type="button"
+              variant="outlined"
+              onClick={handleBackStep}
+              startIcon={<ArrowBack sx={{ fontSize: 18 }} />}
+              disabled={currentStep === 0}
+              sx={{ minWidth: 120 }}
             >
-              <VerifiedUser sx={{ fontSize: 20 }} />
-              Verification & Terms
+              Back
+            </GlassButton>
+
+            <Typography sx={{ color: 'rgba(255, 255, 255, 0.55)', fontSize: '12px', fontFamily: '"Outfit", sans-serif' }}>
+              Step {currentStep + 1} of {totalSteps}
             </Typography>
-            <Grid container spacing={2}>
-              {/* Face Verification Consent */}
-              <Grid item xs={12}>
-                <Box 
-                  sx={{ 
-                    p: 2, 
-                    borderRadius: '12px', 
-                    background: 'rgba(0, 242, 234, 0.05)',
-                    border: '1px solid rgba(0, 242, 234, 0.2)'
-                  }}
-                >
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        name="faceVerificationConsent"
-                        checked={formData.faceVerificationConsent}
-                        onChange={handleChange}
-                        sx={{ 
-                          color: 'rgba(255, 255, 255, 0.5)',
-                          '&.Mui-checked': {
-                            color: '#00f2ea',
-                          },
-                        }}
-                      />
-                    }
-                    label={
-                      <Box>
-                        <Typography 
-                          sx={{ 
-                            color: '#ffffff',
-                            fontFamily: '"Outfit", sans-serif',
-                            fontSize: '14px',
-                            fontWeight: 600,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1
-                          }}
-                        >
-                          <VerifiedUser sx={{ color: '#00f2ea', fontSize: 18 }} />
-                          I consent to face verification
-                        </Typography>
-                        <Typography 
-                          sx={{ 
-                            color: 'rgba(255, 255, 255, 0.5)',
-                            fontFamily: '"Outfit", sans-serif',
-                            fontSize: '12px',
-                            mt: 0.5
-                          }}
-                        >
-                          Face verification helps build trust and unlocks premium features. Your data is securely stored.
-                        </Typography>
-                      </Box>
-                    }
-                  />
-                </Box>
-              </Grid>
 
-              {/* Terms Checkbox */}
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      name="agreeTerms"
-                      checked={formData.agreeTerms}
-                      onChange={handleChange}
-                      sx={{ 
-                        color: 'rgba(255, 255, 255, 0.5)',
-                        '&.Mui-checked': {
-                          color: '#00f2ea',
-                        },
-                      }}
-                    />
-                  }
-                  label={
-                    <Typography 
-                      sx={{ 
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontFamily: '"Outfit", sans-serif',
-                        fontSize: '14px',
-                      }}
-                    >
-                      I agree to the{' '}
-                      <a 
-                        href="/terms" 
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ 
-                          color: '#00f2ea', 
-                          textDecoration: 'none',
-                        }}
-                      >
-                        Terms of Service
-                      </a>{' '}
-                      and{' '}
-                      <a 
-                        href="/privacy" 
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ 
-                          color: '#00f2ea', 
-                          textDecoration: 'none',
-                        }}
-                      >
-                        Privacy Policy
-                      </a>
-                    </Typography>
-                  }
-                />
-              </Grid>
-
-              {/* Error near submit button (so users see it without scrolling up) */}
-              {(authError || localError) && (
-                <Grid item xs={12}>
-                  <Box 
-                    ref={bottomErrorRef}
-                    sx={{ 
-                      p: 2,
-                      borderRadius: '12px',
-                      background: 'rgba(255, 0, 85, 0.1)',
-                      border: '1px solid rgba(255, 0, 85, 0.3)',
-                    }}
-                  >
-                    <Typography sx={{ color: '#ff0055', fontFamily: '"Outfit", sans-serif', fontSize: '14px', textAlign: 'center' }}>
-                      ⚠️ {authError || localError}
-                    </Typography>
-                  </Box>
-                </Grid>
-              )}
-
-              {/* Submit Button */}
-              <Grid item xs={12}>
-                <GlassButton
-                  type="submit"
-                  fullWidth
-                  variant="primary"
-                  loading={loading}
-                  glowing
-                  sx={{ 
-                    py: 2,
-                    fontSize: '16px',
-                  }}
-                >
-                  {loading ? 'Creating Account...' : 'Create Account'}
-                </GlassButton>
-              </Grid>
-            </Grid>
+            <Typography sx={{ color: 'rgba(255, 255, 255, 0.55)', fontSize: '12px', fontFamily: '"Outfit", sans-serif' }}>
+              {lastDraftSavedAt ? `Draft saved ${summarizeDraftTimestamp(lastDraftSavedAt)}` : 'Draft auto-saves as you type'}
+            </Typography>
           </Box>
 
           <Divider sx={{ my: 3, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
-            <Typography 
-              sx={{ 
+            <Typography
+              sx={{
                 color: 'rgba(255, 255, 255, 0.4)',
                 fontFamily: '"Outfit", sans-serif',
                 px: 2,
@@ -1133,17 +1641,17 @@ const RegisterPage = () => {
           </Divider>
 
           <Box textAlign="center">
-            <Typography 
-              sx={{ 
+            <Typography
+              sx={{
                 color: 'rgba(255, 255, 255, 0.6)',
                 fontFamily: '"Outfit", sans-serif',
               }}
             >
               Already have an account?{' '}
-              <Link 
-                to="/login" 
-                style={{ 
-                  color: '#00f2ea', 
+              <Link
+                to="/login"
+                style={{
+                  color: '#00f2ea',
                   textDecoration: 'none',
                   fontWeight: 700,
                 }}
@@ -1159,3 +1667,4 @@ const RegisterPage = () => {
 };
 
 export default RegisterPage;
+

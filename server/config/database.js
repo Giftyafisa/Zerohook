@@ -13,14 +13,82 @@ console.log('   Database:', 'zerohook');
 console.log('   MONGODB_URI set:', !!process.env.MONGODB_URI);
 
 // Redis connection (optional)
-let redisClient = null;
-try {
-  redisClient = Redis.createClient({
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-    retry_strategy: (times) => Math.min(times * 50, 2000)
+const isProduction = (process.env.NODE_ENV || 'development') === 'production';
+const REDIS_CONNECT_TIMEOUT_MS = parseInt(process.env.REDIS_CONNECT_TIMEOUT_MS, 10) || 5000;
+
+const isLocalRedisUrl = (value) => /^redis:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(value || '').trim());
+
+const pickRedisUrl = () => {
+  const candidates = [
+    process.env.REDIS_URL,
+    process.env.REDIS_PRIVATE_URL,
+    process.env.UPSTASH_REDIS_URL,
+    process.env.REDISCLOUD_URL,
+    process.env.KV_URL,
+    process.env.UPSTASH_URL
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+
+  const allowLocalInProd = process.env.REDIS_ALLOW_LOCALHOST_IN_PRODUCTION === 'true';
+
+  const usableCandidate = candidates.find((value) => {
+    if (!isProduction) return true;
+    if (allowLocalInProd) return true;
+    return !isLocalRedisUrl(value);
   });
-} catch (error) {
-  console.log('⚠️  Redis client creation failed, continuing without Redis');
+
+  if (usableCandidate) return usableCandidate;
+  if (!isProduction) return 'redis://localhost:6379';
+  return '';
+};
+
+const rawRedisUrl = pickRedisUrl();
+const redisState = {
+  configured: Boolean(rawRedisUrl),
+  connected: false,
+  lastError: null,
+  lastConnectedAt: null
+};
+
+let redisClient = null;
+if (redisState.configured) {
+  try {
+    const socketConfig = {
+      connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
+      reconnectStrategy: (retries) => Math.min(retries * 100, 3000)
+    };
+
+    // Respect explicit TLS env toggles for providers that require SSL.
+    if (rawRedisUrl.startsWith('rediss://') || process.env.REDIS_TLS === 'true') {
+      socketConfig.tls = true;
+      if (process.env.REDIS_TLS_REJECT_UNAUTHORIZED === 'false') {
+        socketConfig.rejectUnauthorized = false;
+      }
+    }
+
+    redisClient = Redis.createClient({
+      url: rawRedisUrl,
+      socket: socketConfig
+    });
+
+    redisClient.on('ready', () => {
+      redisState.connected = true;
+      redisState.lastError = null;
+      redisState.lastConnectedAt = new Date().toISOString();
+    });
+
+    redisClient.on('end', () => {
+      redisState.connected = false;
+    });
+
+    redisClient.on('error', (error) => {
+      redisState.connected = false;
+      redisState.lastError = error?.message || 'unknown Redis error';
+    });
+  } catch (error) {
+    redisState.connected = false;
+    redisState.lastError = error?.message || 'Redis client creation failed';
+    console.log('⚠️  Redis client creation failed, continuing without Redis');
+  }
 }
 
 // Track database availability
@@ -59,20 +127,54 @@ const connectDB = async () => {
 };
 
 const connectRedis = async () => {
-  if (!redisClient) {
-    console.log('⚠️  Redis is not configured - continuing without it');
+  if (!redisState.configured || !redisClient) {
+    redisState.connected = false;
+    if (!isProduction) {
+      console.log('⚠️  Redis is not configured - continuing without it');
+    }
     return false;
   }
+
+  if (redisClient.isReady) {
+    redisState.connected = true;
+    return true;
+  }
+
   try {
-    await redisClient.connect();
+    if (!redisClient.isOpen) {
+      await Promise.race([
+        redisClient.connect(),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Redis connect timeout')), REDIS_CONNECT_TIMEOUT_MS);
+        })
+      ]);
+    }
+
+    await redisClient.ping();
+    redisState.connected = true;
+    redisState.lastError = null;
+    redisState.lastConnectedAt = new Date().toISOString();
     console.log('✅ Redis connected successfully');
     return true;
   } catch (error) {
+    redisState.connected = false;
+    redisState.lastError = error?.message || 'Redis connection failed';
     console.error('❌ Redis connection failed:', error.message);
     console.log('⚠️  Redis is optional - continuing without it');
     return false;
   }
 };
+
+const isRedisConfigured = () => redisState.configured;
+
+const isRedisAvailable = () => Boolean(redisClient && redisClient.isReady && redisState.connected);
+
+const getRedisStatus = () => ({
+  configured: redisState.configured,
+  connected: isRedisAvailable(),
+  lastError: redisState.lastError,
+  lastConnectedAt: redisState.lastConnectedAt
+});
 
 // Define Mongoose Schemas
 const userSchema = new mongoose.Schema({
@@ -824,6 +926,9 @@ module.exports = {
   redisClient,
   connectDB,
   connectRedis,
+  isRedisConfigured,
+  isRedisAvailable,
+  getRedisStatus,
   query,
   getClient,
   isDatabaseAvailable,

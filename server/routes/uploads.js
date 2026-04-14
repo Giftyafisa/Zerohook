@@ -221,14 +221,53 @@ const getUploadMiddleware = (type = 'profile') => {
   };
 };
 
+const isHttpUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value);
+const isCloudinaryUrl = (value) => typeof value === 'string' && /cloudinary\.com/i.test(value);
+
 // Helper to get file URL (Cloudinary or local)
 const getFileUrl = (file, cloudinaryManager) => {
-  // Cloudinary upload returns path as the full URL
-  if (file.path && file.path.includes('cloudinary.com')) {
-    return file.path;
+  const candidates = [
+    file?.secure_url,
+    file?.url,
+    file?.path,
+    file?.location
+  ];
+
+  const cloudinaryUrl = candidates.find(isCloudinaryUrl);
+  if (cloudinaryUrl) {
+    return cloudinaryUrl;
   }
-  // Local upload
-  return `/uploads/${file.filename}`;
+
+  const absoluteUrl = candidates.find(isHttpUrl);
+  if (absoluteUrl) {
+    return absoluteUrl;
+  }
+
+  if (cloudinaryManager?.isConfigured) {
+    const publicId = file?.public_id || file?.filename;
+    if (typeof publicId === 'string' && publicId.trim()) {
+      try {
+        return cloudinaryManager.cloudinary.url(publicId, { secure: true });
+      } catch (_) {
+        // Fall back to local path below if Cloudinary URL generation fails.
+      }
+    }
+  }
+
+  return `/uploads/${file?.filename || `upload-${Date.now()}`}`;
+};
+
+const requireCloudinaryForProfileUpload = (req, res, next) => {
+  const isProduction = (process.env.NODE_ENV || 'development') === 'production';
+  if (isProduction && !(req.cloudinaryManager && req.cloudinaryManager.isConfigured)) {
+    return res.status(503).json({
+      success: false,
+      error: 'Profile image uploads are temporarily unavailable',
+      message: 'Image storage is unavailable. Please try again later.'
+    });
+  }
+
+  next();
 };
 
 // Chat attachment upload endpoint (image/video/file) - uses Cloudinary if available
@@ -258,7 +297,8 @@ router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimite
         file_size: size,
         mime_type: mimetype,
         upload_type: 'chat_attachment',
-        storage_type: isCloudinary ? 'cloudinary' : 'local'
+        storage_type: isCloudinary ? 'cloudinary' : 'local',
+        cloudinary_public_id: req.file.public_id || (isCloudinary ? req.file.filename : null)
       });
     } catch (logErr) {
       console.warn('Chat attachment log failed:', logErr.message);
@@ -282,7 +322,7 @@ router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimite
 });
 
 // Profile picture upload endpoint - uses Cloudinary if available
-router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLimiter), (req, res, next) => {
+router.post('/profile-picture', authMiddleware, requireCloudinaryForProfileUpload, uploadRateLimit(profileUploadLimiter), (req, res, next) => {
   getUploadMiddleware('profile')(req, res, next);
 }, magicByteValidation, async (req, res) => {
   try {
@@ -339,7 +379,8 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
         file_size: fileSize,
         mime_type: mimeType,
         upload_type: 'profile_picture',
-        storage_type: isCloudinary ? 'cloudinary' : 'local'
+        storage_type: isCloudinary ? 'cloudinary' : 'local',
+        cloudinary_public_id: req.file.public_id || (isCloudinary ? req.file.filename : null)
       });
     } catch (logErr) {
       console.warn('Profile picture log failed:', logErr.message);

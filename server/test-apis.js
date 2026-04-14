@@ -168,7 +168,8 @@ const testCreatePaymentIntent = async (serviceId) => {
       headers: { Authorization: `Bearer ${authToken}` }
     });
     logResult('Create Payment Intent', true, { 
-      hasClientSecret: !!response.data.clientSecret,
+      hasPaymentIntent: !!response.data.paymentIntent,
+      hasReference: !!response.data.paymentIntent?.reference,
       transactionId: response.data.transactionId 
     });
     return response.data.transactionId;

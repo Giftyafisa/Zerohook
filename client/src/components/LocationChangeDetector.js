@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { selectUser } from '../store/slices/authSlice';
 import { calculateDistance } from '../config/locations';
+import apiClient from '../services/apiClient';
 import {
   Dialog,
   DialogTitle,
@@ -42,14 +43,33 @@ const LocationChangeDetector = ({ checkOnMount = true, thresholdKm = 50 }) => {
    */
   const findNearestCity = useCallback(async (lat, lng) => {
     try {
-      const response = await fetch(`/api/geolocation/nearest-city?lat=${lat}&lng=${lng}`);
-      if (response.ok) {
-        const data = await response.json();
+      const { data } = await apiClient.get('/geolocation/nearest-city', {
+        params: { lat, lng },
+      });
+
+      if (data?.success && typeof data.city === 'string') {
+        return data.city;
+      }
+
+      if (typeof data?.city === 'string') {
         return data.city;
       }
     } catch (error) {
-      console.error('Error finding nearest city:', error);
+      // In some deploy/proxy states the endpoint can return HTML. Avoid noisy JSON parse crashes.
+      const responseData = error?.response?.data;
+      const looksLikeHtml = typeof responseData === 'string' && /<!doctype html|<html/i.test(responseData);
+
+      if (looksLikeHtml) {
+        console.warn('Nearest city lookup returned HTML instead of JSON. Skipping city detection for now.');
+        return null;
+      }
+
+      const status = error?.response?.status;
+      if (status && status !== 404) {
+        console.warn('Nearest city lookup failed:', status, error?.message || 'Unknown error');
+      }
     }
+
     return null;
   }, []);
 

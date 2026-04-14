@@ -28,6 +28,33 @@ const debugLog = isDev ? (...args) => console.log(...args) : () => {};
  */
 const normalizeLastMessagePreview = (content = '', messageType = 'text') => formatMessagePreview(content, messageType);
 
+const decodeConversationCursor = (rawCursor) => {
+  if (!rawCursor || typeof rawCursor !== 'string') return null;
+
+  if (mongoose.Types.ObjectId.isValid(rawCursor)) {
+    return {
+      id: new mongoose.Types.ObjectId(rawCursor),
+      updatedAt: null
+    };
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(rawCursor, 'base64url').toString('utf8'));
+    if (!decoded || typeof decoded !== 'object') return null;
+    if (!decoded.id || !mongoose.Types.ObjectId.isValid(decoded.id)) return null;
+
+    const parsedDate = decoded.u ? new Date(decoded.u) : null;
+    const hasValidDate = parsedDate && !Number.isNaN(parsedDate.getTime());
+
+    return {
+      id: new mongoose.Types.ObjectId(decoded.id),
+      updatedAt: hasValidDate ? parsedDate : null
+    };
+  } catch {
+    return null;
+  }
+};
+
 const buildVisibleConversationFilter = (userId) => ({
   status: { $ne: 'deleted' },
   $or: [
@@ -81,9 +108,10 @@ router.get('/unread-count', authMiddleware, async (req, res) => {
       // 1. Find conversations the user is in
       {
         $match: {
+          status: { $ne: 'deleted' },
           $or: [
-            { participant1Id: userObjId },
-            { participant2Id: userObjId }
+            { participant1Id: userObjId, participant1Hidden: { $ne: true } },
+            { participant2Id: userObjId, participant2Hidden: { $ne: true } }
           ]
         }
       },
@@ -140,6 +168,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
     const limitRaw = parseInt(req.query.limit, 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
     const cursor = req.query.cursor ? String(req.query.cursor) : null;
+    const cursorToken = decodeConversationCursor(cursor);
     
     if (!isDatabaseAvailable()) {
       return res.json({ success: true, conversations: [], nextCursor: null, hasMore: false });
@@ -148,17 +177,31 @@ router.get('/conversations', authMiddleware, async (req, res) => {
     // Try to get conversations, return empty array if user doesn't exist or query fails
     let conversations;
     try {
+      const baseVisibilityFilter = buildVisibleConversationFilter(userId);
       const query = {
-        ...buildVisibleConversationFilter(userId)
+        ...baseVisibilityFilter
       };
-      if (cursor && mongoose.Types.ObjectId.isValid(cursor)) {
-        query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+
+      if (cursorToken?.updatedAt && cursorToken?.id) {
+        query.$and = [
+          { $or: baseVisibilityFilter.$or },
+          {
+            $or: [
+              { updatedAt: { $lt: cursorToken.updatedAt } },
+              { updatedAt: cursorToken.updatedAt, _id: { $lt: cursorToken.id } }
+            ]
+          }
+        ];
+        delete query.$or;
+      } else if (cursorToken?.id) {
+        // Legacy fallback for old cursor format (ObjectId only)
+        query._id = { $lt: cursorToken.id };
       }
 
       conversations = await Conversation.find(query)
       .populate('participant1Id', 'username verification_tier profile_data')
       .populate('participant2Id', 'username verification_tier profile_data')
-      .sort({ _id: -1 })
+      .sort({ updatedAt: -1, _id: -1 })
       .limit(limit + 1);
     } catch (dbError) {
       debugLog('Conversations query failed:', dbError.message);
@@ -167,7 +210,15 @@ router.get('/conversations', authMiddleware, async (req, res) => {
 
     const hasMore = conversations.length > limit;
     const pageConversations = hasMore ? conversations.slice(0, limit) : conversations;
-    const nextCursor = hasMore ? pageConversations[pageConversations.length - 1]._id.toString() : null;
+    let nextCursor = null;
+    if (hasMore && pageConversations.length > 0) {
+      const tailConversation = pageConversations[pageConversations.length - 1];
+      const cursorPayload = {
+        u: (tailConversation.updatedAt || tailConversation.createdAt || new Date(0)).toISOString(),
+        id: tailConversation._id.toString()
+      };
+      nextCursor = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
+    }
 
     // Batch-fetch unread counts per conversation in a single aggregation
     let unreadMap = {};

@@ -68,7 +68,7 @@ const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
 const SubscriptionLifecycleManager = require('./services/SubscriptionLifecycleManager');
 const NotificationService = require('./services/NotificationService');
 const mongoose = require('mongoose');
-const { connectDB, connectRedis, User, Conversation, Call } = require('./config/database');
+const { connectDB, connectRedis, User, Conversation, Call, FileUpload } = require('./config/database');
 
 const app = express();
 const server = createServer(app);
@@ -77,6 +77,58 @@ const server = createServer(app);
 const serviceStatus = {
   db: false,
   redis: false
+};
+
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const isCloudinaryUrl = (value) => typeof value === 'string' && /cloudinary\.com/i.test(value);
+
+const normalizeProfileImageCandidate = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  if (typeof value === 'object' && typeof value.url === 'string') {
+    const trimmed = value.url.trim();
+    return trimmed || null;
+  }
+
+  return null;
+};
+
+const extractProfileImageCandidates = (profileData = {}) => {
+  const sources = [];
+
+  if (Array.isArray(profileData.photos)) {
+    sources.push(...profileData.photos);
+  }
+
+  sources.push(
+    profileData.profile_image_url,
+    profileData.profileImageUrl,
+    profileData.profile_image,
+    profileData.profileImage,
+    profileData.profile_picture,
+    profileData.profilePicture,
+    profileData.avatar
+  );
+
+  const candidates = [];
+  for (const source of sources) {
+    const normalized = normalizeProfileImageCandidate(source);
+    if (normalized) {
+      candidates.push(normalized);
+    }
+  }
+
+  return [...new Set(candidates)];
+};
+
+const getCloudinaryProfileImage = (userDoc = {}) => {
+  const profileData = userDoc.profile_data || userDoc.profileData || {};
+  const candidates = extractProfileImageCandidates(profileData);
+  return candidates.find(isCloudinaryUrl) || null;
 };
 
 // Shared CORS origin list — used by both Express and Socket.io
@@ -584,6 +636,10 @@ const initializeRuntimeServices = async () => {
     console.log('✅ Crypto Payment Manager initialized');
   } catch (error) {
     console.error('❌ Crypto Payment Manager initialization failed:', error);
+    if (error && error.code === 'CRYPTO_CUSTODY_CONFIG_ERROR') {
+      console.error('❌ FATAL: Invalid watch_only custody configuration. Refusing startup.');
+      process.exit(1);
+    }
   }
 
   try {
@@ -718,7 +774,89 @@ app.use('/uploads', (req, res, next) => {
   }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(uploadsDir));
+}, express.static(uploadsDir), async (req, res) => {
+  // Migration guard: if local file is missing, try resolving via FileUpload records.
+  let requestedPath = req.path || '';
+  try {
+    const requestedPathRaw = decodeURIComponent(requestedPath);
+    requestedPath = requestedPathRaw.startsWith('/') ? requestedPathRaw : `/${requestedPathRaw}`;
+  } catch (_) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  const requestedFilename = path.basename(requestedPath);
+
+  if (!requestedFilename || requestedFilename === '.' || requestedFilename === '/') {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  if (!serviceStatus.db || mongoose.connection.readyState !== 1) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  try {
+    const escapedFilename = escapeRegex(requestedFilename);
+    const normalizedUploadPath = `/uploads/${requestedFilename}`;
+
+    const uploadRecord = await FileUpload.findOne({
+      $or: [
+        { file_name: requestedFilename },
+        { file_path: requestedPath },
+        { file_path: normalizedUploadPath },
+        { file_path: new RegExp(`${escapedFilename}$`, 'i') }
+      ]
+    })
+      .sort({ created_at: -1 })
+      .select('file_path')
+      .lean();
+
+    const mappedPath = uploadRecord?.file_path;
+    if (mappedPath) {
+      if (/^https?:\/\//i.test(mappedPath)) {
+        return res.redirect(302, mappedPath);
+      }
+
+      const mappedFileName = path.basename(String(mappedPath).split('?')[0]);
+      const localFilePath = path.join(uploadsDir, mappedFileName || requestedFilename);
+      if (fs.existsSync(localFilePath)) {
+        return res.sendFile(localFilePath);
+      }
+    }
+
+    // Secondary fallback: resolve legacy /uploads profile references to Cloudinary URL from user profile data.
+    const filenameRegex = new RegExp(`${escapedFilename}(?:\\?.*)?$`, 'i');
+    const profileMatch = await User.findOne({
+      $or: [
+        { 'profile_data.photos': filenameRegex },
+        { 'profile_data.profilePicture': filenameRegex },
+        { 'profile_data.profile_image': filenameRegex },
+        { 'profile_data.profile_image_url': filenameRegex },
+        { 'profile_data.profile_picture.url': filenameRegex },
+        { 'profile_data.profile_picture': filenameRegex },
+        { 'profileData.photos': filenameRegex },
+        { 'profileData.profilePicture': filenameRegex },
+        { 'profileData.profile_image': filenameRegex },
+        { 'profileData.profile_image_url': filenameRegex },
+        { 'profileData.profile_picture.url': filenameRegex },
+        { 'profileData.profile_picture': filenameRegex }
+      ]
+    })
+      .select('profile_data profileData')
+      .lean();
+
+    const cloudinaryProfileImage = getCloudinaryProfileImage(profileMatch);
+    if (cloudinaryProfileImage) {
+      return res.redirect(302, cloudinaryProfileImage);
+    }
+
+    return res.status(404).json({ error: 'File not found' });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Upload migration fallback failed:', error.message);
+    }
+    return res.status(404).json({ error: 'File not found' });
+  }
+});
 
 // Routes
 app.use('/api/auth', authRoutes);

@@ -51,7 +51,7 @@ const SugarProfilesPage = () => {
     try {
       const { data } = await apiClient.get('/sugar-access/status');
       setAccessStatus(data);
-      setPricing(data.pricing);
+      setPricing(data.effectivePricing || data.pricing);
     } catch (err) {
       console.error('Error fetching access status:', err);
     }
@@ -127,7 +127,7 @@ const SugarProfilesPage = () => {
     
     if (!isProvider) {
       // Non-providers shouldn't access this page
-      navigate('/browse');
+      navigate('/profiles');
       return;
     }
 
@@ -268,6 +268,12 @@ const SugarProfilesPage = () => {
             Purchase access to view {activeTab === 'sugar_daddy' ? 'Sugar Daddy' : 'Sugar Mommy'} profiles.
             Access is valid for 1 year.
           </Typography>
+
+          {accessStatus?.premiumPackage?.eligible && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Premium package discount is active for your sugar-access purchase.
+            </Alert>
+          )}
           
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
             {/* Individual Access */}

@@ -28,6 +28,41 @@ const adminMiddleware = async (req, res, next) => {
   }
 };
 
+const parseBooleanEnv = (value) => {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
+};
+
+const getWithdrawalMultisigPolicy = (withdrawalAmount = 0) => {
+  const enabled = parseBooleanEnv(
+    process.env.WITHDRAWAL_MULTISIG_ENABLED || process.env.MULTISIG_WITHDRAWAL_ENABLED
+  );
+
+  const parsedThreshold = Number(
+    process.env.WITHDRAWAL_MULTISIG_THRESHOLD_USD ||
+    process.env.MULTISIG_WITHDRAWAL_THRESHOLD_USD ||
+    1000
+  );
+  const parsedApprovals = Number(
+    process.env.WITHDRAWAL_MULTISIG_REQUIRED_APPROVALS ||
+    process.env.MULTISIG_WITHDRAWAL_REQUIRED_APPROVALS ||
+    2
+  );
+
+  const thresholdAmount = Number.isFinite(parsedThreshold) && parsedThreshold > 0
+    ? parsedThreshold
+    : 1000;
+  const requiredApprovals = Number.isFinite(parsedApprovals) && parsedApprovals >= 2
+    ? Math.floor(parsedApprovals)
+    : 2;
+
+  return {
+    enabled,
+    thresholdAmount,
+    requiredApprovals,
+    isHighValue: enabled && Number(withdrawalAmount || 0) >= thresholdAmount
+  };
+};
+
 /**
  * @route   GET /api/admin/disputes
  * @desc    Get all open disputes for admin review
@@ -568,7 +603,7 @@ router.get('/revenue', authMiddleware, adminMiddleware, async (req, res) => {
     // 4. Pending user withdrawals (need admin approval)
     const pendingWithdrawals = await Transaction.find({
       type: 'withdrawal',
-      status: 'pending'
+      status: { $in: ['pending', 'awaiting_signature', 'processing'] }
     }).sort({ created_at: -1 }).limit(50);
 
     const pendingWithdrawalTotal = pendingWithdrawals.reduce((sum, tx) => sum + tx.amount, 0);
@@ -641,24 +676,159 @@ router.post('/withdrawals/:id/approve', authMiddleware, adminMiddleware, async (
     const { Transaction } = require('../config/database');
     const { id } = req.params;
     const { txHash, notes } = req.body; // txHash = blockchain transaction hash after admin sends funds
+    const normalizedNotes = typeof notes === 'string' ? notes : '';
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, error: 'Invalid ID format' });
     }
     const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
     
+    const pendingWithdrawal = await Transaction.findOne({ _id: txObjId, type: 'withdrawal', status: 'pending' });
+    if (!pendingWithdrawal) {
+      return res.status(404).json({ success: false, error: 'Pending withdrawal not found' });
+    }
+
+    const multisigPolicy = getWithdrawalMultisigPolicy(pendingWithdrawal.amount);
+    const existingApprovals = Array.isArray(pendingWithdrawal.metadata?.multisigPolicy?.approvals)
+      ? pendingWithdrawal.metadata.multisigPolicy.approvals
+      : [];
+
+    if (multisigPolicy.isHighValue) {
+      const adminAlreadyApproved = existingApprovals.some(
+        (approval) => String(approval.adminId) === String(req.user.userId)
+      );
+
+      if (adminAlreadyApproved) {
+        return res.status(409).json({
+          success: false,
+          error: 'This admin already approved this high-value withdrawal',
+          multisig: {
+            enabled: true,
+            requiredApprovals: multisigPolicy.requiredApprovals,
+            receivedApprovals: existingApprovals.length,
+            remainingApprovals: Math.max(0, multisigPolicy.requiredApprovals - existingApprovals.length),
+            thresholdAmount: multisigPolicy.thresholdAmount
+          }
+        });
+      }
+
+      const updatedApprovals = [
+        ...existingApprovals,
+        {
+          adminId: req.user.userId,
+          approvedAt: new Date().toISOString(),
+          notes: normalizedNotes || null
+        }
+      ];
+      const remainingApprovals = Math.max(0, multisigPolicy.requiredApprovals - updatedApprovals.length);
+      const policyMetadata = {
+        enabled: true,
+        thresholdAmount: multisigPolicy.thresholdAmount,
+        requiredApprovals: multisigPolicy.requiredApprovals,
+        approvals: updatedApprovals
+      };
+
+      pendingWithdrawal.metadata = pendingWithdrawal.metadata || {};
+      pendingWithdrawal.metadata.multisigPolicy = policyMetadata;
+
+      if (remainingApprovals > 0) {
+        const stagedWithdrawal = await Transaction.findOneAndUpdate(
+          { _id: txObjId, type: 'withdrawal', status: 'pending' },
+          {
+            $set: {
+              'metadata.multisigPolicy': policyMetadata,
+              'metadata.adminNotes': normalizedNotes,
+              'metadata.lastApprovedBy': req.user.userId,
+              'metadata.lastApprovedAt': new Date().toISOString()
+            }
+          },
+          { new: true }
+        );
+
+        if (!stagedWithdrawal) {
+          return res.status(409).json({
+            success: false,
+            error: 'Withdrawal approval state changed, refresh and retry'
+          });
+        }
+
+        return res.status(202).json({
+          success: true,
+          message: 'Approval recorded. Additional multisig approvals required.',
+          withdrawal: {
+            id: stagedWithdrawal._id.toString(),
+            amount: stagedWithdrawal.amount,
+            status: stagedWithdrawal.status,
+            destinationAddress: stagedWithdrawal.metadata?.destinationAddress,
+            txHash: stagedWithdrawal.metadata?.txHash || null
+          },
+          multisig: {
+            enabled: true,
+            requiredApprovals: multisigPolicy.requiredApprovals,
+            receivedApprovals: updatedApprovals.length,
+            remainingApprovals,
+            thresholdAmount: multisigPolicy.thresholdAmount
+          }
+        });
+      }
+    }
+
+    let updateDoc;
+    let offlineSigningRequest = null;
+    const metadataSet = {
+      'metadata.approvedBy': req.user.userId,
+      'metadata.approvedAt': new Date().toISOString(),
+      'metadata.adminNotes': normalizedNotes
+    };
+
+    if (pendingWithdrawal.metadata?.multisigPolicy) {
+      metadataSet['metadata.multisigPolicy'] = pendingWithdrawal.metadata.multisigPolicy;
+    }
+
+    if (txHash) {
+      updateDoc = {
+        $set: {
+          status: 'completed',
+          ...metadataSet,
+          'metadata.txHash': txHash,
+          completed_at: new Date()
+        }
+      };
+    } else {
+      const requestedAsset = pendingWithdrawal.metadata?.cryptoSymbol || 'USDT';
+      const requestedAmountCrypto = Number(pendingWithdrawal.metadata?.cryptoAmount || 0);
+      const destinationAddress = pendingWithdrawal.metadata?.destinationAddress;
+
+      if (!req.cryptoPaymentManager) {
+        return res.status(503).json({ success: false, error: 'Crypto payment manager unavailable for offline signing flow' });
+      }
+
+      offlineSigningRequest = req.cryptoPaymentManager.buildOfflineSigningRequest({
+        reference: pendingWithdrawal.reference,
+        assetSymbol: requestedAsset,
+        destinationAddress,
+        amountCrypto: requestedAmountCrypto,
+        metadata: {
+          withdrawalId: pendingWithdrawal._id.toString(),
+          fiatAmount: pendingWithdrawal.amount,
+          fiatCurrency: pendingWithdrawal.currency,
+          requestedBy: pendingWithdrawal.user_id?.toString() || null
+        }
+      });
+
+      updateDoc = {
+        $set: {
+          status: 'awaiting_signature',
+          ...metadataSet,
+          'metadata.txHash': null,
+          'metadata.offlineSigningRequest': offlineSigningRequest
+        }
+      };
+    }
+
     const withdrawal = await Transaction.findOneAndUpdate(
       { _id: txObjId, type: 'withdrawal', status: 'pending' },
-      { 
-        $set: { 
-          status: txHash ? 'completed' : 'processing',
-          'metadata.approvedBy': req.user.userId,
-          'metadata.approvedAt': new Date().toISOString(),
-          'metadata.txHash': txHash || null,
-          'metadata.adminNotes': notes || '',
-          completed_at: txHash ? new Date() : null
-        } 
-      },
+      updateDoc,
       { new: true }
     );
 
@@ -668,19 +838,149 @@ router.post('/withdrawals/:id/approve', authMiddleware, adminMiddleware, async (
 
     res.json({
       success: true,
-      message: txHash ? 'Withdrawal completed and marked with tx hash' : 'Withdrawal approved and being processed',
+      message: txHash
+        ? 'Withdrawal completed and marked with tx hash'
+        : 'Withdrawal approved. Awaiting offline signature and broadcast.',
       withdrawal: {
         id: withdrawal._id.toString(),
         amount: withdrawal.amount,
         status: withdrawal.status,
         destinationAddress: withdrawal.metadata?.destinationAddress,
         txHash: withdrawal.metadata?.txHash
-      }
+      },
+      signingRequest: offlineSigningRequest,
+      multisig: withdrawal.metadata?.multisigPolicy
+        ? {
+            enabled: true,
+            requiredApprovals: withdrawal.metadata.multisigPolicy.requiredApprovals,
+            receivedApprovals: Array.isArray(withdrawal.metadata.multisigPolicy.approvals)
+              ? withdrawal.metadata.multisigPolicy.approvals.length
+              : 0,
+            thresholdAmount: withdrawal.metadata.multisigPolicy.thresholdAmount
+          }
+        : null
     });
 
   } catch (error) {
     console.error('Withdrawal approval error:', error);
     res.status(500).json({ success: false, error: 'Failed to approve withdrawal' });
+  }
+});
+
+/**
+ * @route   GET /api/admin/withdrawals/:id/signing-request
+ * @desc    Retrieve offline signing request payload for an approved withdrawal
+ * @access  Admin only
+ */
+router.get('/withdrawals/:id/signing-request', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction } = require('../config/database');
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid ID format' });
+    }
+
+    const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
+    const withdrawal = await Transaction.findOne({ _id: txObjId, type: 'withdrawal' }).lean();
+    if (!withdrawal) {
+      return res.status(404).json({ success: false, error: 'Withdrawal not found' });
+    }
+
+    const signingRequest = withdrawal.metadata?.offlineSigningRequest || null;
+    if (!signingRequest) {
+      return res.status(404).json({ success: false, error: 'No signing request found for this withdrawal' });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Signing request retrieved',
+      withdrawal: {
+        id: withdrawal._id.toString(),
+        reference: withdrawal.reference,
+        status: withdrawal.status,
+        amount: withdrawal.amount,
+        currency: withdrawal.currency
+      },
+      signingRequest
+    });
+  } catch (error) {
+    console.error('Get signing request error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve signing request' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/withdrawals/:id/submit-signed
+ * @desc    Submit signed/broadcast transaction hash for offline-signed withdrawal completion
+ * @access  Admin only
+ */
+router.post('/withdrawals/:id/submit-signed', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { Transaction } = require('../config/database');
+    const { id } = req.params;
+    const { txHash, signedPayload, signerDevice, notes } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid ID format' });
+    }
+    if (!txHash || typeof txHash !== 'string') {
+      return res.status(400).json({ success: false, error: 'txHash is required' });
+    }
+
+    const txObjId = mongoose.Types.ObjectId.createFromHexString(id);
+    const withdrawal = await Transaction.findOneAndUpdate(
+      {
+        _id: txObjId,
+        type: 'withdrawal',
+        status: { $in: ['awaiting_signature', 'processing', 'pending'] }
+      },
+      {
+        $set: {
+          status: 'completed',
+          completed_at: new Date(),
+          'metadata.txHash': txHash,
+          'metadata.signedSubmission': {
+            submittedBy: req.user.userId,
+            submittedAt: new Date().toISOString(),
+            signerDevice: signerDevice || 'offline_wallet',
+            signedPayload: signedPayload || null,
+            notes: notes || ''
+          }
+        }
+      },
+      { new: true }
+    );
+
+    if (!withdrawal) {
+      return res.status(404).json({ success: false, error: 'Withdrawable transaction not found or already completed' });
+    }
+
+    if (req.io && withdrawal.user_id) {
+      const userId = withdrawal.user_id.toString();
+      req.io.to(`user_${userId}`).emit('withdrawal_completed', {
+        withdrawalId: withdrawal._id.toString(),
+        amount: withdrawal.amount,
+        currency: withdrawal.currency,
+        txHash,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Signed transaction submitted and withdrawal completed',
+      withdrawal: {
+        id: withdrawal._id.toString(),
+        status: withdrawal.status,
+        amount: withdrawal.amount,
+        currency: withdrawal.currency,
+        txHash: withdrawal.metadata?.txHash
+      }
+    });
+  } catch (error) {
+    console.error('Submit signed withdrawal error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to submit signed withdrawal' });
   }
 });
 

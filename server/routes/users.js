@@ -44,6 +44,13 @@ function normalizeBrowseSort(sort, sortBy) {
   }
 }
 
+function normalizeDiscoverySurface(surface) {
+  const requestedSurface = String(surface || 'providers').trim().toLowerCase();
+  if (requestedSurface === 'clients') return 'clients';
+  if (requestedSurface === 'auto') return 'auto';
+  return 'providers';
+}
+
 // In-memory dedup cache for engagement events (prevents socket + REST double-counting)
 let engagementDedup = null; // Lazy-init Map in engagement route
 
@@ -429,11 +436,11 @@ router.put('/profile', authMiddleware, async (req, res) => {
  * Step 5: When nearby providers are exhausted, expand to further ones
  * Step 6: If searching specific profile, NO location limits
  * 
- * USER TYPE ROUTING:
- * - client → sees ONLY providers
- * - provider → sees ONLY clients
- * - sugar_daddy/mommy → sees verified providers
- * - unauthenticated → sees public providers only
+ * DISCOVERY SURFACES:
+ * - default (/profiles): providers only (all viewers)
+ * - provider client discovery (/client-discovery or ?surface=clients): clients only
+ * - sugar_daddy/mommy: provider feed uses sugar preference-aware provider ranking
+ * - unauthenticated: public providers only
  */
 
 // Shared handler for /profiles and /browse routes - MongoDB Native Implementation
@@ -479,6 +486,7 @@ const handleBrowseProfiles = async (req, res) => {
       page = 1,
       limit = 20,
       cursor: cursorParam, // Cursor-based pagination token
+      surface,
       country,
       city,
       minAge,
@@ -573,17 +581,32 @@ const handleBrowseProfiles = async (req, res) => {
     // STEP 4: DETERMINE ACCOUNT TYPE FILTER
     // ============================================
     // accountType can be at top-level OR inside profile_data depending on how it was saved
-    const viewerAccountType = getAccountType(currentUser) || 'client';
-    let accountTypeFilter = 'provider'; // Default: show providers
-    
-    if (viewerAccountType === 'provider') {
-      accountTypeFilter = 'client'; // Providers see clients
-      debugLog('🔍 Provider viewing: showing CLIENTS');
-    } else if (viewerAccountType === 'sugar_daddy' || viewerAccountType === 'sugar_mommy') {
-      accountTypeFilter = 'provider'; // Sugar accounts see providers
-      debugLog(`🔍 Sugar ${viewerAccountType} viewing: showing verified PROVIDERS`);
+    const viewerAccountType = getAccountType(currentUser) || (isAuthenticated ? 'client' : 'anonymous');
+    const discoverySurface = normalizeDiscoverySurface(surface);
+    let accountTypeFilter = 'provider'; // Default ProfileFeed surface: providers only
+
+    if (discoverySurface === 'clients') {
+      if (!isAuthenticated || viewerAccountType !== 'provider') {
+        return res.status(403).json({
+          success: false,
+          error: 'Client discovery is only available to provider accounts',
+          discoverySurface,
+          accountType: viewerAccountType
+        });
+      }
+      accountTypeFilter = 'client';
+      debugLog('🔍 Provider client-discovery surface: showing CLIENTS');
+    } else if (discoverySurface === 'auto') {
+      if (viewerAccountType === 'provider') {
+        accountTypeFilter = 'client';
+        debugLog('🔍 Legacy auto surface (provider): showing CLIENTS');
+      } else {
+        accountTypeFilter = 'provider';
+        debugLog('🔍 Legacy auto surface: showing PROVIDERS');
+      }
     } else {
-      debugLog('🔍 Client/Anonymous viewing: showing PROVIDERS');
+      accountTypeFilter = 'provider';
+      debugLog(`🔍 ${viewerAccountType} on provider-feed surface: showing PROVIDERS`);
     }
 
     // ============================================
@@ -623,7 +646,7 @@ const handleBrowseProfiles = async (req, res) => {
       result = await getSimpleSortedProfiles({
         currentUserId,
         isAuthenticated,
-        viewerAccountType,
+        accountTypeFilter,
         filters,
         sort: sortMode,
         limitNum: pg.limit,
@@ -696,6 +719,8 @@ const handleBrowseProfiles = async (req, res) => {
         authenticated: isAuthenticated,
         filterMode: filter || 'all',
         sortMode,
+        discoverySurface,
+        accountTypeFilter,
         algorithm: 'uber_bolt_style_v1',
         userLocationDetected: !!userLocation,
         userCountry: userLocation?.country || null,
@@ -723,10 +748,10 @@ const handleBrowseProfiles = async (req, res) => {
 /**
  * Helper function for simple sorted queries (non-recommendation)
  */
-async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, viewerAccountType, filters, sort, limitNum, offset }) {
+async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, accountTypeFilter, filters, sort, limitNum, offset }) {
   const mongoose = require('mongoose');
 
-  const queryParts = [buildAccountTypeQuery(viewerAccountType)];
+  const queryParts = [buildAccountTypeQuery(accountTypeFilter || 'provider')];
 
   if (currentUserId && mongoose.Types.ObjectId.isValid(currentUserId)) {
     queryParts.push({ _id: { $ne: new mongoose.Types.ObjectId(currentUserId) } });
@@ -827,6 +852,16 @@ async function getSimpleSortedProfiles({ currentUserId, isAuthenticated, viewerA
 // Register both routes with the same handler — optionalAuth populates req.user without requiring login
 router.get('/profiles', optionalAuthMiddleware, handleBrowseProfiles);
 router.get('/browse', optionalAuthMiddleware, handleBrowseProfiles);
+
+/**
+ * @route   GET /api/users/client-discovery
+ * @desc    Provider-only client discovery surface
+ * @access  Private (Provider accounts)
+ */
+router.get('/client-discovery', authMiddleware, (req, res, next) => {
+  req.query.surface = 'clients';
+  return handleBrowseProfiles(req, res, next);
+});
 
 /**
  * @route   GET /api/users/search

@@ -18,8 +18,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { User, SugarAccessPayment } = require('../config/database');
 const { authMiddleware } = require('./auth');
-const requireSubscription = require('../middleware/requireSubscription');
 const router = express.Router();
+const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 // Sugar access pricing (in NGN)
 const SUGAR_ACCESS_PRICING = {
@@ -40,6 +40,29 @@ const SUGAR_ACCESS_PRICING = {
   }
 };
 
+const PREMIUM_PACKAGE_TIERS = new Set(['premium', 'elite']);
+const PREMIUM_PACKAGE_DISCOUNT_RATE = 0.15;
+
+function calculateSugarAccessPrice(basePricing, userDoc) {
+  const isSubscribed = Boolean(userDoc?.is_subscribed || userDoc?.isSubscribed);
+  const subscriptionTier = String(userDoc?.subscription_tier || userDoc?.subscriptionTier || '').toLowerCase();
+  const premiumPackageEligible = isSubscribed && PREMIUM_PACKAGE_TIERS.has(subscriptionTier);
+
+  const baseAmount = Number(basePricing.price || 0);
+  const discountRate = premiumPackageEligible ? PREMIUM_PACKAGE_DISCOUNT_RATE : 0;
+  const amount = Math.max(1, Math.round(baseAmount * (1 - discountRate)));
+
+  return {
+    amount,
+    baseAmount,
+    currency: basePricing.currency,
+    durationDays: basePricing.duration_days,
+    discountRate,
+    discountAmount: Math.max(0, baseAmount - amount),
+    premiumPackageEligible
+  };
+}
+
 /**
  * @route   GET /api/sugar-access/pricing
  * @desc    Get sugar access pricing information
@@ -49,6 +72,11 @@ router.get('/pricing', (req, res) => {
   res.json({
     success: true,
     pricing: SUGAR_ACCESS_PRICING,
+    premiumPackage: {
+      tiers: Array.from(PREMIUM_PACKAGE_TIERS),
+      discountRate: PREMIUM_PACKAGE_DISCOUNT_RATE,
+      note: 'Premium package members get discounted sugar-access purchases while sugar access remains independent from subscription.'
+    },
     note: 'Access is valid for 1 year from payment date'
   });
 });
@@ -67,7 +95,9 @@ router.get('/status', authMiddleware, async (req, res) => {
     }
 
     // Get user's account type
-    const user = await User.findById(userId).select('profile_data').lean();
+    const user = await User.findById(userId)
+      .select('profile_data is_subscribed isSubscribed subscription_tier subscriptionTier')
+      .lean();
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -118,6 +148,16 @@ router.get('/status', authMiddleware, async (req, res) => {
       }
     });
 
+    const sugarDaddyPricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING.sugar_daddy, user);
+    const sugarMommyPricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING.sugar_mommy, user);
+    const bothPricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING.both, user);
+
+    const effectivePricing = {
+      sugar_daddy: { ...sugarDaddyPricing, price: sugarDaddyPricing.amount },
+      sugar_mommy: { ...sugarMommyPricing, price: sugarMommyPricing.amount },
+      both: { ...bothPricing, price: bothPricing.amount }
+    };
+
     res.json({
       success: true,
       accountType,
@@ -125,7 +165,13 @@ router.get('/status', authMiddleware, async (req, res) => {
       hasSugarDaddyAccess: !!activeAccess.sugar_daddy,
       hasSugarMommyAccess: !!activeAccess.sugar_mommy,
       accessDetails: activeAccess,
-      pricing: SUGAR_ACCESS_PRICING
+      pricing: SUGAR_ACCESS_PRICING,
+      effectivePricing,
+      premiumPackage: {
+        eligible: !!effectivePricing.sugar_daddy.premiumPackageEligible,
+        discountRate: PREMIUM_PACKAGE_DISCOUNT_RATE,
+        tiers: Array.from(PREMIUM_PACKAGE_TIERS)
+      }
     });
 
   } catch (error) {
@@ -141,19 +187,23 @@ router.get('/status', authMiddleware, async (req, res) => {
  * @desc    Initialize a sugar access payment via crypto
  * @access  Private (Providers only)
  */
-router.post('/initialize', authMiddleware, requireSubscription(), async (req, res) => {
+router.post('/initialize', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { accessType, cryptoSymbol = 'USDT' } = req.body;
+    const normalizedSymbol = String(cryptoSymbol || '').toUpperCase();
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
     // Validate cryptoSymbol
-    const validCryptos = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'LTC'];
-    if (!validCryptos.includes(cryptoSymbol)) {
-      return res.status(400).json({ success: false, error: 'Invalid crypto symbol', validCryptos });
+    if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(normalizedSymbol)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid crypto symbol',
+        validCryptos: SUPPORTED_SETTLEMENT_CRYPTOS
+      });
     }
 
     // Validate access type
@@ -164,7 +214,9 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
     }
 
     // Get user's account type
-    const user = await User.findById(userId).select('profile_data email username').lean();
+    const user = await User.findById(userId)
+      .select('profile_data email username is_subscribed isSubscribed subscription_tier subscriptionTier')
+      .lean();
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -191,19 +243,19 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
       });
     }
 
-    // Get pricing
-    const pricing = SUGAR_ACCESS_PRICING[accessType];
+    // Get pricing (independent purchase; premium package tiers get discount)
+    const pricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING[accessType], user);
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + pricing.duration_days);
+    expiresAt.setDate(expiresAt.getDate() + pricing.durationDays);
 
     // Convert fiat to crypto using live rates
-    const conversion = await req.currencyManager.fiatToCrypto(pricing.price, pricing.currency, cryptoSymbol);
+    const conversion = await req.currencyManager.fiatToCrypto(pricing.amount, pricing.currency, normalizedSymbol);
 
     // Create pending payment record
     const payment = await SugarAccessPayment.create({
       providerId: new mongoose.Types.ObjectId(userId),
       accessType,
-      amount: pricing.price,
+      amount: pricing.amount,
       currency: pricing.currency,
       paymentStatus: 'pending',
       accessExpiresAt: expiresAt
@@ -215,14 +267,15 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
     // Create crypto payment invoice
     const invoice = await req.cryptoPaymentManager.createPaymentInvoice({
       cryptoAmount: parseFloat(conversion.cryptoAmount.toFixed(8)),
-      cryptoSymbol,
-      fiatAmount: pricing.price,
+      cryptoSymbol: normalizedSymbol,
+      fiatAmount: pricing.amount,
       fiatCurrency: pricing.currency,
       userId,
       metadata: {
         type: 'sugar_access',
         accessType,
-        paymentId
+        paymentId,
+        premiumDiscountRate: pricing.discountRate
       }
     });
 
@@ -230,21 +283,25 @@ router.post('/initialize', authMiddleware, requireSubscription(), async (req, re
     payment.paymentReference = invoice.reference;
     await payment.save();
 
-    console.log(`🪙 Sugar access crypto payment created: ${invoice.reference} - ${conversion.cryptoAmount} ${cryptoSymbol} for ${accessType}`);
+    console.log(`🪙 Sugar access crypto payment created: ${invoice.reference} - ${conversion.cryptoAmount} ${normalizedSymbol} for ${accessType}`);
 
     res.json({
       success: true,
       paymentId,
       accessType,
-      amount: pricing.price,
+      amount: pricing.amount,
+      baseAmount: pricing.baseAmount,
+      discountAmount: pricing.discountAmount,
+      discountRate: pricing.discountRate,
+      premiumPackageEligible: pricing.premiumPackageEligible,
       currency: pricing.currency,
       expiresAt,
-      durationDays: pricing.duration_days,
+      durationDays: pricing.durationDays,
       paymentData: {
         reference: invoice.reference,
         address: invoice.address,
         cryptoAmount: conversion.cryptoAmount,
-        cryptoSymbol,
+        cryptoSymbol: normalizedSymbol,
         network: invoice.network,
         qrData: invoice.qrData,
         expiresAt: invoice.expiresAt,
@@ -329,12 +386,6 @@ router.post('/verify', authMiddleware, async (req, res) => {
       } catch (verifyError) {
         console.error('Blockchain verification error:', verifyError);
       }
-    }
-
-    // For testing/development, allow manual verification
-    if (!verified && process.env.NODE_ENV === 'development') {
-      console.log('⚠️ Development mode: Auto-verifying sugar access payment');
-      verified = true;
     }
 
     if (verified) {

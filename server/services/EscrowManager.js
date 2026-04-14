@@ -145,6 +145,7 @@ class EscrowManager {
       // Generate reference and completion PIN
       const reference = `ESC_${Date.now()}_${clientId.toString().substring(0, 8)}`;
       const completionPin = this.generateCompletionPin();
+      const initialStatus = paymentMethod === 'crypto' ? 'pending_payment' : 'held';
 
       // Create escrow hold transaction in MongoDB with PIN
       const { Transaction } = require('../config/database');
@@ -157,7 +158,7 @@ class EscrowManager {
         currency: currency,
         payment_method: paymentMethod,
         reference: reference,
-        status: 'held', // Escrow status
+        status: initialStatus, // Wallet payments are held immediately; crypto waits for confirmation.
         type: 'escrow_hold',
         scheduled_time: scheduledTime ? new Date(scheduledTime) : null,
         location_data: locationData || {},
@@ -176,12 +177,14 @@ class EscrowManager {
         id: escrowTransaction._id.toString(),
         transactionId: escrowTransaction._id.toString(),
         reference: reference,
-        status: 'held',
+        status: initialStatus,
         amount: amount,
         currency: currency,
         completionPin: completionPin, // Return PIN to client only
         created: escrowTransaction.created_at,
-        message: 'Share the 6-digit PIN with the provider ONLY after service is completed.'
+        message: paymentMethod === 'crypto'
+          ? 'Complete crypto payment to activate the escrow hold, then share the 6-digit PIN after service completion.'
+          : 'Share the 6-digit PIN with the provider ONLY after service is completed.'
       };
 
     } catch (error) {

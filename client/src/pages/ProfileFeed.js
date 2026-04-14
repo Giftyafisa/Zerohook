@@ -457,7 +457,8 @@ const ProfileCard = React.memo(({
   onClick, 
   isLiked,
   index,
-  onView 
+  onView,
+  canMessage = true
 }) => {
   // Use currency hook for consistent currency symbol based on detected country
   const { symbol: detectedCurrencySymbol } = useCurrency();
@@ -974,8 +975,22 @@ const ProfileCard = React.memo(({
               },
             }}
           >
-            Message
+            {canMessage ? 'Message' : 'Preview Chat'}
           </Button>
+
+          {!canMessage && (
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                textAlign: 'center',
+                mt: 1,
+                color: 'rgba(255,255,255,0.55)'
+              }}
+            >
+              Sign up to unlock full chat and profile actions
+            </Typography>
+          )}
         </CardContent>
       </Card>
     </Fade>
@@ -1132,10 +1147,11 @@ export const SubscriptionPaywall = ({ onSubscribe }) => {
 // MAIN PROFILE FEED COMPONENT
 // ============================================
 
-const ProfileFeed = () => {
+const ProfileFeed = ({ discoverySurface = 'providers' }) => {
   const isMobile = useMediaQuery(useTheme().breakpoints.down('sm'));
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const isClientDiscoverySurface = String(discoverySurface || '').toLowerCase() === 'clients';
 
   // ── extracted hooks ──────────────────────────────
   const {
@@ -1155,7 +1171,7 @@ const ProfileFeed = () => {
     displayedProfiles, loading, loadingMore, error,
     hasMore, searchMetadata, loadMoreRef,
     fetchProfiles, resetProfiles,
-  } = useFeedQuery({ activeFilter, searchQuery, userLocation, locationLoading });
+  } = useFeedQuery({ activeFilter, searchQuery, userLocation, locationLoading, discoverySurface });
 
   // Real-time online status for all displayed profiles (feed context = public)
   const profileIds = useMemo(() => displayedProfiles.map(p => String(p.id)), [displayedProfiles]);
@@ -1204,6 +1220,12 @@ const ProfileFeed = () => {
 
   // Handle message
   const handleMessage = useCallback((profile) => {
+    if (!isAuthenticated) {
+      toast.info('Create an account to unlock chat and full profile access.');
+      navigate('/register', { state: { from: { pathname: '/profiles' } } });
+      return;
+    }
+
     const avatar = resolveProfileImage(profile.profileData);
     const recipientId = profile.id || profile._id || profile.userId;
     const recipientName = profile.profileData?.firstName || profile.username || 'User';
@@ -1222,7 +1244,7 @@ const ProfileFeed = () => {
     navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
       state: chatState
     });
-  }, [navigate]);
+  }, [navigate, isAuthenticated]);
 
   // Handle profile click
   const handleProfileClick = useCallback((profile) => {
@@ -1236,7 +1258,7 @@ const ProfileFeed = () => {
   // Contact/Message features require authentication
 
   // Mobile: Use TikTok-style full-screen swipeable feed
-  if (isMobile) {
+  if (isMobile && !isClientDiscoverySurface) {
     return <TikTokProfileFeed />;
   }
 
@@ -1282,7 +1304,7 @@ const ProfileFeed = () => {
               color: '#fff',
             }}
           >
-            Discover
+            {isClientDiscoverySurface ? 'Client Discovery' : 'Discover'}
           </Typography>
           
           {/* Compact Location Chip */}
@@ -1455,6 +1477,7 @@ const ProfileFeed = () => {
                   profile={{ ...profile, isOnline: isUserOnline(profile.id) ?? profile.isOnline, lastSeenLabel: getUserLastSeen(profile.id) ?? profile.lastSeenLabel }}
                   index={index}
                   isLiked={likedProfiles.has(profile.id)}
+                  canMessage={isAuthenticated}
                   onLike={handleLike}
                   onMessage={handleMessage}
                   onClick={handleProfileClick}

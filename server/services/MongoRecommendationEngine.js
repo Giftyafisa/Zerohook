@@ -84,6 +84,136 @@ class MongoRecommendationEngine {
     return deg * (Math.PI / 180);
   }
 
+  getDistanceBucket(distanceKm) {
+    const distance = Number(distanceKm);
+    if (!Number.isFinite(distance) || distance < 0) return 8;
+    if (distance <= 2) return 0;
+    if (distance <= 5) return 1;
+    if (distance <= 10) return 2;
+    if (distance <= 20) return 3;
+    if (distance <= 50) return 4;
+    if (distance <= 100) return 5;
+    if (distance <= 200) return 6;
+    return 7;
+  }
+
+  calculateConversionScore(profile) {
+    const qualityScore = Number(profile?.scoreBreakdown?.quality || 0);
+    const engagementScore = Number(profile?.scoreBreakdown?.engagement || 0);
+    const reputationScore = Number(
+      profile?.reputation_score || profile?.reputationScore || profile?.trustScore || 50
+    );
+
+    return (qualityScore * 0.45) + (engagementScore * 0.35) + (reputationScore * 0.20);
+  }
+
+  calculateSearchIntentScore(profile, searchQuery) {
+    const query = String(searchQuery || '').trim().toLowerCase();
+    if (!query) return 0;
+
+    const profileData = profile.profile_data || profile.profileData || {};
+    const username = String(profile.username || '').toLowerCase();
+    const firstName = String(profileData.firstName || '').toLowerCase();
+    const lastName = String(profileData.lastName || '').toLowerCase();
+    const fullName = `${firstName} ${lastName}`.trim();
+    const bio = String(profileData.bio || '').toLowerCase();
+    const city = String(profileData.location?.city || '').toLowerCase();
+    const country = String(profileData.location?.country || '').toLowerCase();
+
+    let score = 0;
+
+    if (username === query) score += 130;
+    else if (username.startsWith(query)) score += 110;
+    else if (username.includes(query)) score += 80;
+
+    if (fullName === query) score += 120;
+    else if (fullName.startsWith(query)) score += 90;
+    else if (fullName.includes(query)) score += 65;
+
+    if (firstName === query || lastName === query) score += 75;
+    if (city === query) score += 45;
+    else if (city.includes(query)) score += 25;
+    if (country === query) score += 30;
+    if (bio.includes(query)) score += 20;
+
+    const tokens = query.split(/\s+/).filter(Boolean);
+    for (const token of tokens) {
+      if (token.length < 2) continue;
+      if (username.includes(token)) score += 12;
+      if (fullName.includes(token)) score += 10;
+      if (city.includes(token)) score += 6;
+      if (bio.includes(token)) score += 4;
+    }
+
+    return score;
+  }
+
+  applyExplorationBudget(profiles, pageSize = 20) {
+    const safePageSize = Math.max(1, Number(pageSize) || 20);
+    const explorationSlots = Math.min(5, Math.max(1, Math.floor(safePageSize * 0.15)));
+    if (!Array.isArray(profiles) || profiles.length < 10 || explorationSlots <= 0) {
+      return profiles;
+    }
+
+    const candidatePool = profiles
+      .filter((profile) => (
+        profile?.isNewProfile === true &&
+        profile?.sameCountry === true &&
+        profile?.hasProfileImage === true &&
+        profile?.canAppearInFeed !== false &&
+        (profile?.distance == null || profile.distance <= 50)
+      ))
+      .sort((a, b) => {
+        const ageA = Number(a.profileAgeDays || 999);
+        const ageB = Number(b.profileAgeDays || 999);
+        if (ageA !== ageB) return ageA - ageB;
+        return (b.recommendationScore || 0) - (a.recommendationScore || 0);
+      });
+
+    if (candidatePool.length === 0) return profiles;
+
+    const selectedCandidates = candidatePool.slice(0, explorationSlots);
+    const selectedIds = new Set(
+      selectedCandidates.map((profile) => String(profile?._id || profile?.id || ''))
+    );
+
+    const protectedTopCount = Math.min(3, profiles.length);
+    const protectedTop = profiles.slice(0, protectedTopCount);
+    const remainder = profiles.slice(protectedTopCount).filter((profile) => {
+      const id = String(profile?._id || profile?.id || '');
+      return !selectedIds.has(id);
+    });
+
+    if (remainder.length === 0) {
+      return [...protectedTop, ...selectedCandidates];
+    }
+
+    const merged = [...protectedTop];
+    const interval = Math.max(4, Math.floor(remainder.length / (selectedCandidates.length + 1)));
+    let inserted = 0;
+
+    for (let i = 0; i < remainder.length; i++) {
+      const shouldInsert =
+        inserted < selectedCandidates.length &&
+        i > 0 &&
+        i % interval === 0;
+
+      if (shouldInsert) {
+        merged.push(selectedCandidates[inserted]);
+        inserted += 1;
+      }
+
+      merged.push(remainder[i]);
+    }
+
+    while (inserted < selectedCandidates.length) {
+      merged.push(selectedCandidates[inserted]);
+      inserted += 1;
+    }
+
+    return merged;
+  }
+
   /**
    * SERVER-AUTHORITATIVE ENGAGEMENT STATS
    * Batch-fetch real engagement data from Transaction, Conversation, and
@@ -561,6 +691,21 @@ class MongoRecommendationEngine {
       if (a.hasProfileImage && !b.hasProfileImage) return -1;
       if (!a.hasProfileImage && b.hasProfileImage) return 1;
 
+      if (filterMode === 'search') {
+        const intentA = Number(a.searchIntentScore || 0);
+        const intentB = Number(b.searchIntentScore || 0);
+        if (intentA !== intentB) return intentB - intentA;
+
+        if (a.sameCountry && !b.sameCountry) return -1;
+        if (!a.sameCountry && b.sameCountry) return 1;
+
+        const distA = a.distance ?? 9999;
+        const distB = b.distance ?? 9999;
+        if (Math.abs(distA - distB) > 1) return distA - distB;
+
+        return (b.recommendationScore || 0) - (a.recommendationScore || 0);
+      }
+
       // NEARBY mode: distance is the sole sorting factor
       if (filterMode === 'nearby') {
         const distA = a.distance ?? 9999;
@@ -590,15 +735,21 @@ class MongoRecommendationEngine {
       if (a.sameCountry && !b.sameCountry) return -1;
       if (!a.sameCountry && b.sameCountry) return 1;
 
-      // 2. DISTANCE IS PRIMARY (closest first - UBER style)
-      const distA = a.distance ?? 9999;
-      const distB = b.distance ?? 9999;
-      
-      if (Math.abs(distA - distB) > 1) { // If distance difference > 1km
-        return distA - distB; // Closer comes first
+      // 2. Distance bucket stage (0-2km, 2-5km, ...)
+      const bucketA = this.getDistanceBucket(a.distance);
+      const bucketB = this.getDistanceBucket(b.distance);
+      if (bucketA !== bucketB) {
+        return bucketA - bucketB;
       }
 
-      // 3. At similar distances, use recommendation score (quality factors)
+      // 3. Within the same locality bucket, conversion quality wins
+      const conversionA = this.calculateConversionScore(a);
+      const conversionB = this.calculateConversionScore(b);
+      if (Math.abs(conversionA - conversionB) > 0.25) {
+        return conversionB - conversionA;
+      }
+
+      // 4. Final fallback
       return (b.recommendationScore || 0) - (a.recommendationScore || 0);
     });
   }
@@ -625,6 +776,8 @@ class MongoRecommendationEngine {
       debugLog('   Account type filter:', accountTypeFilter);
       debugLog('   Filters:', filters);
 
+      const isSearchQuery = !!(filters.searchQuery && filters.searchQuery.trim());
+
       // Build MongoDB query
       const queryParts = [buildAccountTypeQuery(accountTypeFilter)];
 
@@ -640,8 +793,9 @@ class MongoRecommendationEngine {
         }
       }
 
-      // Apply country filter (UBER-STYLE: prioritize same country)
-      if (filters.country && filters.country !== 'all') {
+      // Apply country/city filters for feed mode only.
+      // Search mode intentionally bypasses hard location limits.
+      if (!isSearchQuery && filters.country && filters.country !== 'all') {
         const escapedCountry = this.escapeRegExp(filters.country);
         queryParts.push({
           $or: [
@@ -652,7 +806,7 @@ class MongoRecommendationEngine {
       }
 
       // Apply city filter
-      if (filters.city) {
+      if (!isSearchQuery && filters.city) {
         const escapedCity = this.escapeRegExp(filters.city);
         queryParts.push({
           $or: [
@@ -725,7 +879,6 @@ class MongoRecommendationEngine {
       // 2) profiles with image/location fields favored
       // 3) then freshness by last_active
       // This trims candidate set before expensive JS scoring.
-      const isSearchQuery = !!(filters.searchQuery && filters.searchQuery.trim());
       const isTightFilter = ['nearby', 'online', 'verified', 'trending'].includes(filters.filterMode);
       const candidateMultiplier = isSearchQuery ? 1.5 : (isTightFilter ? 2 : 3);
       const softPoolCap = isSearchQuery ? 120 : (isTightFilter ? 180 : 300);
@@ -733,6 +886,9 @@ class MongoRecommendationEngine {
       const fetchLimit = Math.min(softPoolCap, Math.max(baseWindow, offset + limit));
 
       const userCountryLower = (userLocation?.country || '').toLowerCase().trim();
+      const preselectSortStage = isSearchQuery
+        ? { $sort: { _hasImage: -1, _hasLocation: -1, _lastActiveSort: -1, _id: -1 } }
+        : { $sort: { _sameCountry: -1, _hasImage: -1, _hasLocation: -1, _lastActiveSort: -1, _id: -1 } };
 
       const preselectPipeline = [
         { $match: mongoQuery },
@@ -791,7 +947,7 @@ class MongoRecommendationEngine {
               : 0
           }
         },
-        { $sort: { _sameCountry: -1, _hasImage: -1, _hasLocation: -1, _lastActiveSort: -1, _id: -1 } },
+        preselectSortStage,
         { $limit: fetchLimit },
         {
           $project: {
@@ -831,7 +987,11 @@ class MongoRecommendationEngine {
       // Normalize and calculate scores for each profile
       let scoredProfiles = profiles.map(profile => {
         const normalized = this.normalizeProfile(profile);
-        return this.calculateProfileScore(normalized, userLocation, null, serverStats);
+        const scored = this.calculateProfileScore(normalized, userLocation, null, serverStats);
+        scored.searchIntentScore = isSearchQuery
+          ? this.calculateSearchIntentScore(scored, filters.searchQuery)
+          : 0;
+        return scored;
       });
 
       // Enforce minimum profile completeness for feed inclusion
@@ -845,7 +1005,13 @@ class MongoRecommendationEngine {
       }
 
       // Apply UBER/BOLT-STYLE SORTING
-      scoredProfiles = this.sortUberBoltStyle(scoredProfiles, filters.filterMode);
+      const effectiveSortMode = isSearchQuery ? 'search' : (filters.filterMode || 'forYou');
+      scoredProfiles = this.sortUberBoltStyle(scoredProfiles, effectiveSortMode);
+
+      // Exploration budget: reserve a few slots for new local providers
+      if (!isSearchQuery) {
+        scoredProfiles = this.applyExplorationBudget(scoredProfiles, limit);
+      }
 
       // Calculate metadata
       const sameCountryCount = scoredProfiles.filter(p => p.sameCountry).length;
@@ -915,6 +1081,8 @@ class MongoRecommendationEngine {
         nextCursor,
         metadata: {
           algorithm: 'uber_bolt_style_v1',
+          sortMode: effectiveSortMode,
+          searchMode: isSearchQuery,
           userLocationDetected: !!userLocation,
           sameCountryCount,
           onlineCount,
@@ -966,9 +1134,23 @@ class MongoRecommendationEngine {
    * Routes to appropriate method automatically
    */
   async getAccountTypeAwareRecommendations(options = {}) {
-    const { userId, viewerAccountType, ...restOptions } = options;
+    const { userId, viewerAccountType } = options;
+    const forcedAccountTypeFilter = typeof options.accountTypeFilter === 'string'
+      ? options.accountTypeFilter.trim().toLowerCase()
+      : null;
 
     debugLog(`🎯 Account-type-aware recommendations for: ${viewerAccountType || 'anonymous'}`);
+
+    if (forcedAccountTypeFilter === 'provider' || forcedAccountTypeFilter === 'client') {
+      if ((viewerAccountType === 'sugar_daddy' || viewerAccountType === 'sugar_mommy') && forcedAccountTypeFilter === 'provider') {
+        return this.getSugarRecommendations(options);
+      }
+
+      return this.getRecommendedProfiles({
+        ...options,
+        accountTypeFilter: forcedAccountTypeFilter
+      });
+    }
 
     if (!userId || !viewerAccountType) {
       // Unauthenticated - show public providers only

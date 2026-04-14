@@ -83,6 +83,8 @@ class SubscriptionLifecycleManager {
               await this.activateSubscription(invoice);
             } else if (invoiceType === 'deposit') {
               await this.confirmDeposit(invoice);
+            } else if (invoiceType === 'escrow') {
+              await this.activateEscrowHold(invoice);
             } else {
               // Unknown type — just mark invoice as confirmed
               await CryptoInvoice.findByIdAndUpdate(invoice._id, { status: 'confirmed' });
@@ -244,6 +246,82 @@ class SubscriptionLifecycleManager {
       console.log(`💰 Deposit confirmed for user ${invoice.userId}: ${tx.currency} ${tx.amount} via background check`);
     } catch (error) {
       console.error('Deposit confirmation error:', error.message);
+    }
+  }
+
+  /**
+   * Activate an escrow hold once its crypto payment is confirmed.
+   * This prevents a stuck pending_payment escrow when user leaves before verify-inline runs.
+   */
+  async activateEscrowHold(invoice) {
+    try {
+      await CryptoInvoice.findByIdAndUpdate(invoice._id, {
+        status: 'confirmed'
+      });
+
+      const escrowId = invoice.metadata?.escrowId;
+      if (!escrowId) {
+        console.warn(`⚠️ Escrow invoice ${invoice._id} missing metadata.escrowId`);
+        return;
+      }
+
+      const tx = await Transaction.findOneAndUpdate(
+        {
+          _id: escrowId,
+          client_id: invoice.userId,
+          status: { $in: ['pending_payment', 'pending'] }
+        },
+        {
+          $set: {
+            status: 'held',
+            confirmed_at: new Date(),
+            'metadata.confirmedBy': 'background_monitor',
+            'metadata.cryptoPaymentStatus': 'confirmed'
+          }
+        },
+        { new: true }
+      );
+
+      if (!tx) {
+        console.log(`ℹ️ Escrow ${escrowId} already active or not found`);
+        return;
+      }
+
+      if (this.io) {
+        this.io.to(`user_${invoice.userId}`).emit('payment_verified', {
+          reference: invoice.reference,
+          status: 'held',
+          amount: tx.amount,
+          currency: tx.currency,
+          type: tx.type,
+          timestamp: new Date().toISOString()
+        });
+
+        if (tx.provider_id) {
+          this.io.to(`user_${tx.provider_id.toString()}`).emit('escrow_created', {
+            escrowId: tx._id.toString(),
+            amount: tx.amount,
+            currency: tx.currency,
+            clientId: tx.client_id?.toString(),
+            message: `Crypto payment confirmed. ${tx.currency}${tx.amount} is now held in escrow.`
+          });
+        }
+      }
+
+      try {
+        await NotificationService.createNotification(invoice.userId, {
+          type: 'payment',
+          title: 'Escrow Activated',
+          message: `Your crypto payment is confirmed. ${tx.currency}${tx.amount} is now held in escrow.`,
+          data: { escrowId: tx._id.toString(), reference: invoice.reference }
+        });
+      } catch (notifErr) {
+        console.warn('Failed to create escrow activation notification:', notifErr.message);
+      }
+
+      console.log(`💼 Escrow activated for user ${invoice.userId}: ${tx.currency} ${tx.amount} via background check`);
+    } catch (error) {
+      console.error('Escrow activation error:', error.message);
     }
   }
 

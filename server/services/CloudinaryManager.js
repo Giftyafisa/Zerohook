@@ -9,19 +9,27 @@ const multer = require('multer');
 
 class CloudinaryManager {
   constructor() {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || '';
+    const apiKey = process.env.CLOUDINARY_API_KEY || '';
+    const apiSecret = process.env.CLOUDINARY_API_SECRET || '';
+
     // Configure Cloudinary with environment variables
     cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
-      api_key: process.env.CLOUDINARY_API_KEY || '',
-      api_secret: process.env.CLOUDINARY_API_SECRET,
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
       secure: true
     });
 
     this.cloudinary = cloudinary;
-    this.isConfigured = !!process.env.CLOUDINARY_API_SECRET;
+    this.isConfigured = Boolean(cloudName && apiKey && apiSecret);
     
     if (!this.isConfigured) {
-      console.log('⚠️  Cloudinary API secret not configured. Image uploads will use local storage fallback.');
+      const missing = [];
+      if (!cloudName) missing.push('CLOUDINARY_CLOUD_NAME');
+      if (!apiKey) missing.push('CLOUDINARY_API_KEY');
+      if (!apiSecret) missing.push('CLOUDINARY_API_SECRET');
+      console.log(`⚠️  Cloudinary not fully configured (${missing.join(', ')} missing). Image uploads will use local storage fallback.`);
     } else {
       console.log('✅ Cloudinary configured successfully');
     }

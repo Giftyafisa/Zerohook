@@ -1,14 +1,32 @@
 const mongoose = require('mongoose');
-const { User, Service, Conversation, Message, isDatabaseAvailable } = require('../config/database');
+const {
+  User,
+  Service,
+  Conversation,
+  Message,
+  redisClient,
+  connectRedis,
+  isDatabaseAvailable,
+  isRedisConfigured,
+  isRedisAvailable,
+  getRedisStatus
+} = require('../config/database');
 
 class SystemHealthService {
   constructor() {
     this.healthStatus = {
       database: false,
       redis: false,
+      redisOptional: true,
       fileSystem: false,
-      services: {}
+      services: {},
+      overall: false,
+      critical: false,
+      warnings: []
     };
+
+    this.redisReconnectCooldownMs = parseInt(process.env.REDIS_HEALTH_RETRY_MS, 10) || 60000;
+    this.lastRedisReconnectAttemptAt = 0;
   }
 
   async checkDatabaseHealth() {
@@ -49,21 +67,49 @@ class SystemHealthService {
   }
 
   async checkRedisHealth() {
+    // Redis is optional in this platform; if not configured, don't mark health as failed.
+    if (!isRedisConfigured()) {
+      this.healthStatus.redis = false;
+      this.healthStatus.redisDetails = {
+        configured: false,
+        connected: false,
+        status: 'disabled'
+      };
+      return false;
+    }
+
     try {
-      // Try to connect to Redis if available
-      const redis = require('redis');
-      const client = redis.createClient({
-        url: process.env.REDIS_URL || 'redis://localhost:6379'
-      });
-      
-      await client.connect();
-      await client.ping();
-      await client.disconnect();
-      
-      this.healthStatus.redis = true;
-      return true;
+      if (!isRedisAvailable()) {
+        const now = Date.now();
+        const canAttemptReconnect = now - this.lastRedisReconnectAttemptAt >= this.redisReconnectCooldownMs;
+        if (canAttemptReconnect) {
+          this.lastRedisReconnectAttemptAt = now;
+          await connectRedis();
+        }
+      }
+
+      if (redisClient?.isReady) {
+        await redisClient.ping();
+      }
+
+      const connected = isRedisAvailable();
+      const redisStatus = getRedisStatus();
+      this.healthStatus.redisDetails = {
+        ...redisStatus,
+        connected,
+        status: connected ? 'connected' : 'unavailable'
+      };
+
+      this.healthStatus.redis = connected;
+      return connected;
     } catch (error) {
-      console.log('Redis not available, continuing without caching');
+      const redisStatus = getRedisStatus();
+      this.healthStatus.redisDetails = {
+        ...redisStatus,
+        connected: false,
+        status: 'unavailable',
+        lastError: error.message
+      };
       this.healthStatus.redis = false;
       return false;
     }
@@ -117,20 +163,31 @@ class SystemHealthService {
 
   async performFullHealthCheck() {
     console.log('🏥 Performing system health check...');
-    
-    const checks = await Promise.all([
+
+    const [databaseHealthy, fileSystemHealthy, redisHealthy, servicesHealthy] = await Promise.all([
       this.checkDatabaseHealth(),
       this.checkFileSystemHealth(),
       this.checkRedisHealth(),
       this.checkServiceHealth()
     ]);
-    
-    const overallHealth = checks.every(check => check === true);
-    
-    this.healthStatus.overall = overallHealth;
+
+    const criticalChecksHealthy = [databaseHealthy, fileSystemHealthy, servicesHealthy].every(Boolean);
+
+    const warnings = [];
+    if (isRedisConfigured() && !redisHealthy) {
+      warnings.push('Redis unavailable; cache-dependent optimizations are disabled.');
+    }
+
+    this.healthStatus.critical = criticalChecksHealthy;
+    this.healthStatus.overall = criticalChecksHealthy;
+    this.healthStatus.warnings = warnings;
     this.healthStatus.lastChecked = new Date().toISOString();
-    
-    console.log(`🏥 Health check completed: ${overallHealth ? '✅ Healthy' : '❌ Issues detected'}`);
+
+    const statusLabel = !criticalChecksHealthy
+      ? '❌ Issues detected'
+      : (warnings.length > 0 ? '⚠️ Healthy (non-critical warnings)' : '✅ Healthy');
+
+    console.log(`🏥 Health check completed: ${statusLabel}`);
     
     return this.healthStatus;
   }
@@ -145,11 +202,18 @@ class SystemHealthService {
 
   async getDetailedStatus() {
     await this.performFullHealthCheck();
+
+    const status = this.healthStatus.critical
+      ? (this.healthStatus.warnings.length > 0 ? 'degraded' : 'healthy')
+      : 'unhealthy';
+
     return {
-      status: this.isHealthy() ? 'healthy' : 'unhealthy',
+      status,
       timestamp: this.healthStatus.lastChecked,
       uptime: process.uptime(),
       environment: process.env.NODE_ENV || 'development',
+      critical: this.healthStatus.critical,
+      warnings: this.healthStatus.warnings,
       components: {
         database: {
           status: this.healthStatus.database ? 'connected' : 'disconnected',
@@ -160,7 +224,9 @@ class SystemHealthService {
           status: this.healthStatus.fileSystem ? 'accessible' : 'inaccessible'
         },
         redis: {
-          status: this.healthStatus.redis ? 'connected' : 'unavailable'
+          status: this.healthStatus.redisDetails?.status || (this.healthStatus.redis ? 'connected' : 'unavailable'),
+          optional: true,
+          details: this.healthStatus.redisDetails || {}
         },
         services: this.healthStatus.services
       }

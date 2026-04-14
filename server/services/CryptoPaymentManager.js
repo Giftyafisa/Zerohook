@@ -9,6 +9,7 @@ const bip39 = require('bip39');
 const ecc = require('tiny-secp256k1');
 const { BIP32Factory } = require('bip32');
 const bip32 = BIP32Factory(ecc);
+const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 /**
  * CryptoPaymentManager - Direct Blockchain Payment System (Fee-Free)
@@ -26,10 +27,15 @@ class CryptoPaymentManager {
     this.initialized = false;
     this.bitcoinNetwork = bitcoin.networks.bitcoin;
     this.ethereumProvider = null;
+    this.custodyMode = 'watch_only';
     
     // HD wallet root keys (derived from master seed in env)
     this.btcRoot = null;
     this.ethRoot = null;
+
+    // Watch-only xpub roots (no private keys on server)
+    this.btcWatchRoot = null;
+    this.ethWatchRoot = null;
     
     // Address derivation index tracked via SystemCounter in MongoDB (persistent across restarts)
     // Payment invoices tracked via CryptoInvoice in MongoDB (persistent across restarts)
@@ -57,6 +63,54 @@ class CryptoPaymentManager {
     };
   }
 
+  createConfigError(message, details = {}) {
+    const error = new Error(message);
+    error.code = 'CRYPTO_CUSTODY_CONFIG_ERROR';
+    error.details = details;
+    return error;
+  }
+
+  validateWatchOnlyConfiguration(configState = {}) {
+    if (this.custodyMode !== 'watch_only') {
+      return;
+    }
+
+    const issues = [];
+    const requiredEnv = {
+      btc: ['CRYPTO_BTC_ACCOUNT_XPUB', 'BTC_ACCOUNT_XPUB'],
+      eth: ['CRYPTO_ETH_ACCOUNT_XPUB', 'ETH_ACCOUNT_XPUB']
+    };
+
+    if (!this.btcWatchRoot) {
+      if (configState.btcXpubProvided) {
+        issues.push(`Invalid BTC xpub. Check ${requiredEnv.btc.join(' or ')}`);
+      } else {
+        issues.push(`Missing BTC xpub. Set ${requiredEnv.btc.join(' or ')}`);
+      }
+    }
+
+    if (!this.ethWatchRoot) {
+      if (configState.ethXpubProvided) {
+        issues.push(`Invalid ETH xpub. Check ${requiredEnv.eth.join(' or ')}`);
+      } else {
+        issues.push(`Missing ETH xpub. Set ${requiredEnv.eth.join(' or ')}`);
+      }
+    }
+
+    if (issues.length > 0) {
+      throw this.createConfigError(
+        `watch_only custody mode requires valid BTC and ETH xpub values: ${issues.join('; ')}`,
+        {
+          custodyMode: this.custodyMode,
+          btcXpubProvided: Boolean(configState.btcXpubProvided),
+          ethXpubProvided: Boolean(configState.ethXpubProvided),
+          btcRootLoaded: Boolean(this.btcWatchRoot),
+          ethRootLoaded: Boolean(this.ethWatchRoot)
+        }
+      );
+    }
+  }
+
   async initialize() {
     try {
       console.log('🪙 Initializing Crypto Payment Manager (Direct Blockchain)...');
@@ -70,9 +124,47 @@ class CryptoPaymentManager {
         console.log('  ⚡ Bitcoin mainnet mode');
       }
 
+      // Custody mode
+      this.custodyMode = (process.env.CRYPTO_CUSTODY_MODE || 'watch_only').toLowerCase();
+      console.log(`  🔐 Custody mode: ${this.custodyMode}`);
+
+      // Load watch-only xpub roots (preferred for self-custody)
+      const btcAccountXpub = process.env.CRYPTO_BTC_ACCOUNT_XPUB || process.env.BTC_ACCOUNT_XPUB;
+      const configState = {
+        btcXpubProvided: Boolean(btcAccountXpub),
+        ethXpubProvided: false
+      };
+      if (btcAccountXpub) {
+        try {
+          this.btcWatchRoot = bip32.fromBase58(btcAccountXpub, this.bitcoinNetwork);
+          console.log('  ✅ BTC xpub watch-only root loaded');
+        } catch (xpubError) {
+          console.log('  ❌ BTC xpub load failed:', xpubError.message);
+        }
+      }
+
+      const ethAccountXpub = process.env.CRYPTO_ETH_ACCOUNT_XPUB || process.env.ETH_ACCOUNT_XPUB;
+      configState.ethXpubProvided = Boolean(ethAccountXpub);
+      if (ethAccountXpub) {
+        try {
+          // ETH xpub may be serialized with mainnet xpub or testnet tpub prefixes.
+          // Try both to avoid unnecessary startup failures for valid account roots.
+          try {
+            this.ethWatchRoot = bip32.fromBase58(ethAccountXpub, bitcoin.networks.bitcoin);
+          } catch {
+            this.ethWatchRoot = bip32.fromBase58(ethAccountXpub, bitcoin.networks.testnet);
+          }
+          console.log('  ✅ ETH xpub watch-only root loaded');
+        } catch (xpubError) {
+          console.log('  ❌ ETH xpub load failed:', xpubError.message);
+        }
+      }
+
+      this.validateWatchOnlyConfiguration(configState);
+
       // Initialize HD wallet from master seed
       const masterSeed = process.env.CRYPTO_MASTER_SEED;
-      if (masterSeed) {
+      if (masterSeed && this.custodyMode !== 'watch_only') {
         try {
           const seed = bip39.mnemonicToSeedSync(masterSeed);
           const root = bip32.fromSeed(seed, this.bitcoinNetwork);
@@ -85,10 +177,14 @@ class CryptoPaymentManager {
           this.ethRoot = root.derivePath("m/44'/60'/0'/0");
           console.log('  ✅ ETH HD wallet initialized');
         } catch (hdError) {
-          console.log('  ⚠️ HD wallet init failed, using random addresses:', hdError.message);
+          console.log('  ❌ HD wallet init failed. Recoverable address generation is disabled:', hdError.message);
         }
       } else {
-        console.log('  ⚠️ CRYPTO_MASTER_SEED not set - using random address generation');
+        if (this.custodyMode === 'watch_only') {
+          console.log('  ✅ Watch-only mode active (server private keys disabled)');
+        } else {
+          console.log('  ❌ CRYPTO_MASTER_SEED not set - recoverable address generation is disabled');
+        }
       }
 
       // Initialize Ethereum provider (for ETH/ERC-20 verification)
@@ -117,6 +213,10 @@ class CryptoPaymentManager {
       console.log('✅ Crypto Payment Manager initialized (Direct Blockchain - Fee Free)');
       return true;
     } catch (error) {
+      if (error && error.code === 'CRYPTO_CUSTODY_CONFIG_ERROR') {
+        console.error('❌ Crypto Payment Manager configuration error:', error.message);
+        throw error;
+      }
       console.error('❌ Crypto Payment Manager initialization failed:', error);
       // Still mark as initialized for graceful degradation
       this.initialized = true;
@@ -135,6 +235,16 @@ class CryptoPaymentManager {
    */
   generateBTCAddress(derivationIndex) {
     try {
+      if (this.btcWatchRoot) {
+        // Watch-only derivation from account xpub (receive chain /0/index)
+        const child = this.btcWatchRoot.derive(0).derive(derivationIndex);
+        const { address } = bitcoin.payments.p2wpkh({
+          pubkey: Buffer.from(child.publicKey),
+          network: this.bitcoinNetwork
+        });
+        return { address, index: derivationIndex, method: 'xpub_watch_only' };
+      }
+
       if (this.btcRoot) {
         // HD wallet derivation (deterministic, recoverable)
         const child = this.btcRoot.derive(0).derive(derivationIndex);
@@ -145,13 +255,7 @@ class CryptoPaymentManager {
         return { address, index: derivationIndex, method: 'hd_wallet' };
       }
 
-      // Fallback: random keypair from random bytes (bitcoinjs-lib v6 compatible)
-      const randomPrivKey = crypto.randomBytes(32);
-      const { address } = bitcoin.payments.p2wpkh({
-        pubkey: Buffer.from(ecc.pointFromScalar(randomPrivKey)),
-        network: this.bitcoinNetwork
-      });
-      return { address, method: 'random' };
+      throw new Error('Recoverable BTC wallet not initialized. Set CRYPTO_MASTER_SEED.');
     } catch (error) {
       console.error('BTC address generation failed:', error);
       throw new Error('Failed to generate Bitcoin payment address');
@@ -163,6 +267,13 @@ class CryptoPaymentManager {
    */
   generateETHAddress(derivationIndex) {
     try {
+      if (this.ethWatchRoot) {
+        // Watch-only derivation from account xpub (m/44'/60'/0'/0/index)
+        const child = this.ethWatchRoot.derive(derivationIndex);
+        const address = ethers.computeAddress('0x' + Buffer.from(child.publicKey).toString('hex'));
+        return { address, index: derivationIndex, method: 'xpub_watch_only' };
+      }
+
       if (this.ethRoot) {
         // HD wallet derivation
         const child = this.ethRoot.derive(derivationIndex);
@@ -172,9 +283,7 @@ class CryptoPaymentManager {
         return { address: wallet.address, index: derivationIndex, method: 'hd_wallet' };
       }
 
-      // Fallback: random wallet
-      const wallet = ethers.Wallet.createRandom();
-      return { address: wallet.address, privateKey: wallet.privateKey, method: 'random' };
+      throw new Error('Recoverable ETH wallet not initialized. Set CRYPTO_MASTER_SEED.');
     } catch (error) {
       console.error('ETH address generation failed:', error);
       throw new Error('Failed to generate Ethereum payment address');
@@ -217,19 +326,27 @@ class CryptoPaymentManager {
       } = paymentData;
 
       const symbol = cryptoSymbol.toUpperCase();
+      if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(symbol)) {
+        throw new Error(`Unsupported cryptocurrency: ${symbol}`);
+      }
+
+      // Require receive derivation roots for each chain.
+      if ((symbol === 'BTC' && !(this.btcWatchRoot || this.btcRoot)) ||
+          (['ETH', 'USDT', 'USDC'].includes(symbol) && !(this.ethWatchRoot || this.ethRoot))) {
+        throw new Error('Receive derivation not initialized. Configure xpub (watch-only) or seed before creating invoices.');
+      }
+
       const derivIndex = await this.getNextDerivationIndex();
       let addressData;
 
       // Generate address based on crypto type
       switch (symbol) {
         case 'BTC':
-        case 'LTC': // LTC uses similar address scheme
           addressData = this.generateBTCAddress(derivIndex);
           break;
         case 'ETH':
         case 'USDT':
         case 'USDC':
-        case 'BNB': // BNB on BSC uses ETH-compatible addresses
           addressData = this.generateETHAddress(derivIndex);
           break;
         default:
@@ -560,10 +677,7 @@ class CryptoPaymentManager {
       BTC: this.bitcoinNetwork === bitcoin.networks.testnet ? 'Bitcoin Testnet' : 'Bitcoin Mainnet',
       ETH: 'Ethereum Mainnet',
       USDT: 'Ethereum (ERC-20)',
-      USDC: 'Ethereum (ERC-20)',
-      BNB: 'BNB Smart Chain',
-      SOL: 'Solana',
-      LTC: 'Litecoin'
+      USDC: 'Ethereum (ERC-20)'
     };
     return networks[symbol] || symbol;
   }
@@ -577,8 +691,6 @@ class CryptoPaymentManager {
         return `bitcoin:${address}?amount=${amount}`;
       case 'ETH':
         return `ethereum:${address}?value=${ethers.parseEther(amount.toString())}`;
-      case 'LTC':
-        return `litecoin:${address}?amount=${amount}`;
       default:
         return address;
     }
@@ -592,11 +704,75 @@ class CryptoPaymentManager {
       { symbol: 'BTC', name: 'Bitcoin', network: 'Bitcoin', decimals: 8, logo: '₿' },
       { symbol: 'ETH', name: 'Ethereum', network: 'Ethereum', decimals: 18, logo: 'Ξ' },
       { symbol: 'USDT', name: 'Tether', network: 'Ethereum (ERC-20)', decimals: 6, logo: '₮' },
-      { symbol: 'USDC', name: 'USD Coin', network: 'Ethereum (ERC-20)', decimals: 6, logo: '💵' },
-      { symbol: 'BNB', name: 'BNB', network: 'BSC', decimals: 18, logo: '🟡' },
-      { symbol: 'SOL', name: 'Solana', network: 'Solana', decimals: 9, logo: '◎' },
-      { symbol: 'LTC', name: 'Litecoin', network: 'Litecoin', decimals: 8, logo: 'Ł' }
+      { symbol: 'USDC', name: 'USD Coin', network: 'Ethereum (ERC-20)', decimals: 6, logo: '💵' }
     ];
+  }
+
+  /**
+   * Return custody configuration status for diagnostics/admin views.
+   */
+  getCustodyStatus() {
+    return {
+      mode: this.custodyMode,
+      watchOnly: this.custodyMode === 'watch_only',
+      receiveDerivation: {
+        BTC: Boolean(this.btcWatchRoot || this.btcRoot),
+        ETH: Boolean(this.ethWatchRoot || this.ethRoot),
+        USDT: Boolean(this.ethWatchRoot || this.ethRoot),
+        USDC: Boolean(this.ethWatchRoot || this.ethRoot)
+      },
+      walletMode: {
+        btc: this.btcWatchRoot ? 'xpub_watch_only' : this.btcRoot ? 'seed_signing' : 'unavailable',
+        eth: this.ethWatchRoot ? 'xpub_watch_only' : this.ethRoot ? 'seed_signing' : 'unavailable'
+      }
+    };
+  }
+
+  /**
+   * Build a deterministic offline signing request payload for withdrawals.
+   * The server does not sign; a hardware/offline wallet signs and broadcasts.
+   */
+  buildOfflineSigningRequest({ reference, assetSymbol, destinationAddress, amountCrypto, network = 'mainnet', metadata = {} }) {
+    const symbol = String(assetSymbol || '').toUpperCase();
+    if (!SUPPORTED_SETTLEMENT_CRYPTOS.includes(symbol)) {
+      throw new Error(`Unsupported asset for offline signing request: ${symbol}`);
+    }
+    if (!destinationAddress || typeof destinationAddress !== 'string') {
+      throw new Error('Destination address is required for signing request');
+    }
+    if (!Number.isFinite(Number(amountCrypto)) || Number(amountCrypto) <= 0) {
+      throw new Error('Valid crypto amount is required for signing request');
+    }
+
+    const now = Date.now();
+    const requestId = `SIGNREQ_${symbol}_${now}_${crypto.randomBytes(4).toString('hex')}`;
+    const payload = {
+      version: '1',
+      type: 'withdrawal',
+      requestId,
+      reference,
+      asset: symbol,
+      network,
+      to: destinationAddress,
+      amount: Number(amountCrypto),
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + (30 * 60 * 1000)).toISOString(),
+      nonce: crypto.randomBytes(12).toString('hex'),
+      metadata
+    };
+
+    const digest = crypto
+      .createHash('sha256')
+      .update(JSON.stringify(payload))
+      .digest('hex');
+
+    return {
+      requestId,
+      digest,
+      algorithm: 'sha256',
+      payload,
+      instructions: 'Sign this payload on your offline device/hardware wallet, broadcast externally, then submit txHash back to the platform.'
+    };
   }
 
   /**

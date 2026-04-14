@@ -281,6 +281,7 @@ const ChatSystem = ({
   const [loading, setLoading] = useState(true);
   const [startingConversation, setStartingConversation] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
@@ -1879,15 +1880,23 @@ const ChatSystem = ({
           </Box>
           <Typography sx={styles.listTitle}>Inbox</Typography>
           <IconButton 
-            onClick={() => {/* Could open search overlay */}}
+            onClick={() => {
+              setShowSearch((prev) => {
+                const next = !prev;
+                if (!next) {
+                  setSearchQuery('');
+                }
+                return next;
+              });
+            }}
             sx={{ color: '#fff', p: 0.5 }}
           >
             <SearchIcon sx={{ fontSize: 24 }} />
           </IconButton>
         </Box>
 
-        {/* Search - Hidden by default, TikTok uses overlay */}
-        <Box sx={{ ...styles.searchContainer, display: searchQuery ? 'block' : 'none' }}>
+        {/* Search */}
+        <Box sx={{ ...styles.searchContainer, display: showSearch ? 'block' : 'none' }}>
           <TextField
             fullWidth
             placeholder="Search conversations..."
@@ -1903,11 +1912,17 @@ const ChatSystem = ({
                   <SearchIcon sx={{ color: 'rgba(255,255,255,0.4)' }} />
                 </InputAdornment>
               ),
-              endAdornment: searchQuery && (
+              endAdornment: (searchQuery || showSearch) && (
                 <InputAdornment position="end">
                   <IconButton
                     size="small"
-                    onClick={() => setSearchQuery('')}
+                    onClick={() => {
+                      if (searchQuery) {
+                        setSearchQuery('');
+                      } else {
+                        setShowSearch(false);
+                      }
+                    }}
                     aria-label="Clear search"
                     sx={{ 
                       color: 'rgba(255,255,255,0.5)',
@@ -1916,7 +1931,7 @@ const ChatSystem = ({
                       '&:hover': { color: '#fff' }
                     }}
                   >
-                    <ClearIcon fontSize="small" />
+                    {searchQuery ? <ClearIcon fontSize="small" /> : <CloseIcon fontSize="small" />}
                   </IconButton>
                 </InputAdornment>
               )

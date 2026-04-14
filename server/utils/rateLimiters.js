@@ -8,30 +8,41 @@ const { redisClient } = require('../config/database');
 function createDistributedLimiter({ points, duration, keyPrefix }) {
   const memoryLimiter = new RateLimiterMemory({ points, duration, keyPrefix: `${keyPrefix}:mem` });
 
-  const canUseRedis = Boolean(
+  const canUseRedis = () => Boolean(
     redisClient &&
     typeof redisClient.isReady !== 'undefined' &&
     redisClient.isReady
   );
 
-  const limiter = canUseRedis
-    ? new RateLimiterRedis({
-      storeClient: redisClient,
-      points,
-      duration,
-      keyPrefix,
-      // Avoid process crash if redis hiccups; we'll fallback below.
-      insuranceLimiter: memoryLimiter,
-    })
-    : memoryLimiter;
+  let redisLimiter = null;
+
+  const getLimiter = () => {
+    if (!canUseRedis()) {
+      return memoryLimiter;
+    }
+
+    if (!redisLimiter) {
+      redisLimiter = new RateLimiterRedis({
+        storeClient: redisClient,
+        points,
+        duration,
+        keyPrefix,
+        // Avoid process crash if redis hiccups; we'll fallback below.
+        insuranceLimiter: memoryLimiter,
+      });
+    }
+
+    return redisLimiter;
+  };
 
   return {
     async consume(key, pointsToConsume = 1) {
+      const limiter = getLimiter();
       try {
         return await limiter.consume(key, pointsToConsume);
       } catch (err) {
         // If redis-backed limiter failed for infra reasons, fall back to memory.
-        if (canUseRedis && err && !Object.prototype.hasOwnProperty.call(err, 'msBeforeNext')) {
+        if (canUseRedis() && err && !Object.prototype.hasOwnProperty.call(err, 'msBeforeNext')) {
           return memoryLimiter.consume(key, pointsToConsume);
         }
         throw err;

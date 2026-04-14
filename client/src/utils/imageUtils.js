@@ -16,6 +16,60 @@ const normalizeImageSource = (value) => {
   return null;
 };
 
+const isHttpUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value);
+
+const isCloudinaryAsset = (value) =>
+  typeof value === 'string' && value.includes('cloudinary.com');
+
+const isUploadPath = (value) => {
+  if (typeof value !== 'string') return false;
+  return value.startsWith('/uploads/')
+    || value.startsWith('uploads/')
+    || /\/uploads\//i.test(value);
+};
+
+const collectImageCandidates = (profileData) => {
+  const sources = [];
+
+  if (Array.isArray(profileData.photos) && profileData.photos.length > 0) {
+    sources.push(...profileData.photos);
+  }
+
+  sources.push(
+    profileData.profile_image_url,
+    profileData.profileImageUrl,
+    profileData.profile_image,
+    profileData.profileImage,
+    profileData.profile_picture,
+    profileData.profilePicture
+  );
+
+  const candidates = [];
+  for (const source of sources) {
+    const imagePath = normalizeImageSource(source);
+    if (imagePath) {
+      candidates.push(imagePath);
+    }
+  }
+
+  return [...new Set(candidates)];
+};
+
+const selectPreferredImagePath = (candidates) => {
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+  const cloudinaryUrl = candidates.find(isCloudinaryAsset);
+  if (cloudinaryUrl) return cloudinaryUrl;
+
+  const externalNonUploadUrl = candidates.find((value) => isHttpUrl(value) && !isUploadPath(value));
+  if (externalNonUploadUrl) return externalNonUploadUrl;
+
+  const uploadPath = candidates.find(isUploadPath);
+  if (uploadPath) return uploadPath;
+
+  return candidates[0] || null;
+};
+
 /**
  * Resolves profile image from multiple possible storage formats
  * Handles: photos[], profile_picture{}, profilePicture string
@@ -25,22 +79,8 @@ const normalizeImageSource = (value) => {
 export const resolveProfileImage = (profileData) => {
   if (!profileData) return null;
 
-  const imageSources = [
-    Array.isArray(profileData.photos) && profileData.photos.length > 0 ? profileData.photos[0] : null,
-    profileData.profile_image_url,
-    profileData.profileImageUrl,
-    profileData.profile_image,
-    profileData.profileImage,
-    profileData.profile_picture,
-    profileData.profilePicture,
-  ];
-
-  for (const source of imageSources) {
-    const imagePath = normalizeImageSource(source);
-    if (imagePath) {
-      return getUploadUrl(imagePath);
-    }
-  }
+  const imagePath = selectPreferredImagePath(collectImageCandidates(profileData));
+  if (imagePath) return getUploadUrl(imagePath);
   
   // No image available
   return null;
@@ -55,22 +95,8 @@ export const resolveProfileImage = (profileData) => {
 export const extractProfileImagePath = (profileData) => {
   if (!profileData) return null;
 
-  const imageSources = [
-    Array.isArray(profileData.photos) && profileData.photos.length > 0 ? profileData.photos[0] : null,
-    profileData.profile_image_url,
-    profileData.profileImageUrl,
-    profileData.profile_image,
-    profileData.profileImage,
-    profileData.profile_picture,
-    profileData.profilePicture,
-  ];
-
-  for (const source of imageSources) {
-    const imagePath = normalizeImageSource(source);
-    if (imagePath) {
-      return imagePath;
-    }
-  }
+  const imagePath = selectPreferredImagePath(collectImageCandidates(profileData));
+  if (imagePath) return imagePath;
   
   return null;
 };

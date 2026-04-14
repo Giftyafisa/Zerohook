@@ -36,6 +36,11 @@ import {
   ArrowBack,
   ArrowForward,
   SaveOutlined,
+  RestartAlt,
+  CheckCircleOutline,
+  AdminPanelSettings,
+  Refresh,
+  DeleteOutline,
 } from '@mui/icons-material';
 import { GlassCard, GlassButton, GlassInput } from '../components/ui';
 import apiClient from '../services/apiClient';
@@ -83,6 +88,42 @@ const WIZARD_STEPS = [
   },
 ];
 
+const ACCOUNT_TYPE_LABELS = {
+  client: 'Clients',
+  provider: 'Providers',
+  sugar_daddy: 'Sugar Daddy',
+  sugar_mommy: 'Sugar Mommy',
+};
+
+const FIELD_LABEL_MAP = {
+  firstName: 'First Name',
+  lastName: 'Last Name',
+  gender: 'Gender',
+  dateOfBirth: 'Date of Birth',
+  email: 'Email',
+  phone: 'Phone Number',
+  accountType: 'Account Type',
+  password: 'Password',
+  confirmPassword: 'Confirm Password',
+  agreeTerms: 'Terms Agreement',
+};
+
+const EMPTY_DEBUG_SUMMARY = {
+  stepViews: 0,
+  submitAttempts: 0,
+  completed: 0,
+  abandoned: 0,
+};
+
+const EMPTY_REGISTRATION_DEBUG_STATS = {
+  eventCount: 0,
+  lastUpdated: '',
+  desktopTopFields: [],
+  mobileTopFields: [],
+  desktopSummary: { ...EMPTY_DEBUG_SUMMARY },
+  mobileSummary: { ...EMPTY_DEBUG_SUMMARY },
+};
+
 const VALIDATION_ORDER = [
   'firstName',
   'lastName',
@@ -114,6 +155,7 @@ const RegisterPage = () => {
   const location = useLocation();
   const dispatch = useDispatch();
   const { loading, error: authError } = useSelector((state) => state.auth);
+  const authUser = useSelector((state) => state.auth.user);
   const isMobile = useMediaQuery('(max-width:600px)');
 
   const [formData, setFormData] = useState({
@@ -136,6 +178,7 @@ const RegisterPage = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [statusNotice, setStatusNotice] = useState({ type: 'info', message: '' });
   const [lastDraftSavedAt, setLastDraftSavedAt] = useState('');
+  const [registrationDebugStats, setRegistrationDebugStats] = useState(EMPTY_REGISTRATION_DEBUG_STATS);
 
   const formRef = useRef(null);
   const errorRef = useRef(null);
@@ -152,6 +195,36 @@ const RegisterPage = () => {
 
   const totalSteps = WIZARD_STEPS.length;
   const isLastStep = currentStep === totalSteps - 1;
+
+  const isAdminUser = useMemo(() => {
+    if (
+      authUser?.is_admin === true
+      || authUser?.role === 'admin'
+      || authUser?.isAdmin === true
+      || authUser?.profile_data?.accountType === 'admin'
+    ) {
+      return true;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || token.split('.').length < 2) {
+        return false;
+      }
+
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload?.isAdmin === true || payload?.role === 'admin' || payload?.is_admin === true;
+    } catch (_) {
+      return false;
+    }
+  }, [authUser]);
+
+  const registrationDebugEnabled = useMemo(() => {
+    const params = new URLSearchParams(location.search || '');
+    return params.get('registrationDebug') === '1';
+  }, [location.search]);
+
+  const showRegistrationDebugPanel = isAdminUser && registrationDebugEnabled;
 
   const completionChecks = useMemo(() => ([
     Boolean(formData.firstName.trim()),
@@ -245,11 +318,86 @@ const RegisterPage = () => {
     }
   }, []);
 
+  const summarizeViewportEvents = useCallback((events, viewport) => {
+    const scopedEvents = events.filter((event) => event?.viewport === viewport);
+    const countUniqueSessions = (eventName) => {
+      const uniqueSessions = new Set(
+        scopedEvents
+          .filter((event) => event?.eventName === eventName)
+          .map((event) => event?.sessionId)
+          .filter(Boolean)
+      );
+
+      return uniqueSessions.size;
+    };
+
+    return {
+      stepViews: countUniqueSessions('step_viewed'),
+      submitAttempts: countUniqueSessions('registration_submit_attempt'),
+      completed: countUniqueSessions('registration_completed'),
+      abandoned: countUniqueSessions('registration_abandoned'),
+    };
+  }, []);
+
+  const loadRegistrationDebugStats = useCallback(() => {
+    try {
+      const rawAnalytics = localStorage.getItem(REGISTRATION_ANALYTICS_STORAGE_KEY);
+      if (!rawAnalytics) {
+        setRegistrationDebugStats(EMPTY_REGISTRATION_DEBUG_STATS);
+        return;
+      }
+
+      const parsed = JSON.parse(rawAnalytics);
+      const events = Array.isArray(parsed?.events) ? parsed.events : [];
+      const fieldDropoff = parsed?.fieldDropoff || { desktop: {}, mobile: {} };
+
+      const mapTopFields = (fieldCounts) => {
+        return Object.entries(fieldCounts || {})
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([field, count]) => ({
+            field,
+            label: FIELD_LABEL_MAP[field] || field,
+            count,
+          }));
+      };
+
+      setRegistrationDebugStats({
+        eventCount: events.length,
+        lastUpdated: parsed?.lastUpdated || '',
+        desktopTopFields: mapTopFields(fieldDropoff.desktop),
+        mobileTopFields: mapTopFields(fieldDropoff.mobile),
+        desktopSummary: summarizeViewportEvents(events, 'desktop'),
+        mobileSummary: summarizeViewportEvents(events, 'mobile'),
+      });
+    } catch (error) {
+      console.debug('Failed to load registration debug stats:', error);
+      setRegistrationDebugStats(EMPTY_REGISTRATION_DEBUG_STATS);
+    }
+  }, [summarizeViewportEvents]);
+
+  const clearRegistrationDebugStats = () => {
+    localStorage.removeItem(REGISTRATION_ANALYTICS_STORAGE_KEY);
+    setRegistrationDebugStats(EMPTY_REGISTRATION_DEBUG_STATS);
+    setStatusNotice({
+      type: 'info',
+      message: 'Local registration analytics cleared for this browser.',
+    });
+  };
+
   useEffect(() => {
     appendRegistrationAnalytics('step_viewed', {
       stepName: WIZARD_STEPS[currentStep]?.title || 'Unknown step',
     });
   }, [appendRegistrationAnalytics, currentStep]);
+
+  useEffect(() => {
+    if (!showRegistrationDebugPanel) {
+      return;
+    }
+
+    loadRegistrationDebugStats();
+  }, [loadRegistrationDebugStats, showRegistrationDebugPanel]);
 
   useEffect(() => {
     const detectCountry = async () => {
@@ -422,6 +570,27 @@ const RegisterPage = () => {
     return errors;
   };
 
+  const validationSnapshot = getValidationErrors();
+
+  const stepCompletion = useMemo(() => {
+    return WIZARD_STEPS.map((step) => {
+      const completedCount = step.requiredFields.reduce((count, fieldName) => (
+        validationSnapshot[fieldName] ? count : count + 1
+      ), 0);
+
+      return {
+        id: step.id,
+        completedCount,
+        totalCount: step.requiredFields.length,
+      };
+    });
+  }, [validationSnapshot]);
+
+  const currentStepCompletion = stepCompletion[currentStep] || {
+    completedCount: 0,
+    totalCount: WIZARD_STEPS[currentStep]?.requiredFields.length || 0,
+  };
+
   const validateStep = (stepIndex) => {
     const stepDefinition = WIZARD_STEPS.find((step) => step.id === stepIndex);
     if (!stepDefinition) {
@@ -558,6 +727,15 @@ const RegisterPage = () => {
   const clearDraft = () => {
     localStorage.removeItem(REGISTRATION_DRAFT_STORAGE_KEY);
     setLastDraftSavedAt('');
+  };
+
+  const handleClearSavedDraft = () => {
+    clearDraft();
+    appendRegistrationAnalytics('draft_cleared', { source: 'manual' });
+    setStatusNotice({
+      type: 'info',
+      message: 'Saved draft removed from this device.',
+    });
   };
 
   const handleChange = (event) => {
@@ -1234,6 +1412,58 @@ const RegisterPage = () => {
             sx={{
               p: 2,
               borderRadius: '12px',
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+            }}
+          >
+            <Typography sx={{ color: '#00f2ea', fontFamily: '"Outfit", sans-serif', fontSize: '13px', fontWeight: 700, mb: 1 }}>
+              Review before creating account
+            </Typography>
+
+            <Typography sx={{ color: 'rgba(255,255,255,0.82)', fontFamily: '"Outfit", sans-serif', fontSize: '13px' }}>
+              Name: {`${formData.firstName || '-'} ${formData.lastName || ''}`.trim() || '-'}
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.82)', fontFamily: '"Outfit", sans-serif', fontSize: '13px' }}>
+              Email: {formData.email || '-'}
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.82)', fontFamily: '"Outfit", sans-serif', fontSize: '13px' }}>
+              Phone: {formData.phone ? `${selectedCountry.phoneCode}${formData.phone.replace(/^0+/, '')}` : '-'}
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.82)', fontFamily: '"Outfit", sans-serif', fontSize: '13px' }}>
+              Account type: {ACCOUNT_TYPE_LABELS[formData.accountType] || 'Not selected'}
+            </Typography>
+
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.25 }}>
+              <Typography
+                role="button"
+                onClick={() => handleStepClick(0)}
+                sx={{ color: '#00f2ea', fontSize: '12px', fontFamily: '"Outfit", sans-serif', cursor: 'pointer' }}
+              >
+                Edit personal
+              </Typography>
+              <Typography
+                role="button"
+                onClick={() => handleStepClick(1)}
+                sx={{ color: '#00f2ea', fontSize: '12px', fontFamily: '"Outfit", sans-serif', cursor: 'pointer' }}
+              >
+                Edit contact
+              </Typography>
+              <Typography
+                role="button"
+                onClick={() => handleStepClick(2)}
+                sx={{ color: '#00f2ea', fontSize: '12px', fontFamily: '"Outfit", sans-serif', cursor: 'pointer' }}
+              >
+                Edit account setup
+              </Typography>
+            </Box>
+          </Box>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: '12px',
               background: 'rgba(0, 242, 234, 0.05)',
               border: '1px solid rgba(0, 242, 234, 0.2)',
             }}
@@ -1461,6 +1691,8 @@ const RegisterPage = () => {
               {WIZARD_STEPS.map((step, index) => {
                 const active = index === currentStep;
                 const complete = index < currentStep;
+                const completion = stepCompletion[index] || { completedCount: 0, totalCount: step.requiredFields.length };
+                const isComplete = completion.completedCount === completion.totalCount;
 
                 return (
                   <Box
@@ -1491,6 +1723,12 @@ const RegisterPage = () => {
                     <Typography sx={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.75)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
                       {step.shortLabel}
                     </Typography>
+                    <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontFamily: '"Outfit", sans-serif' }}>
+                      {completion.completedCount}/{completion.totalCount}
+                    </Typography>
+                    {isComplete ? (
+                      <CheckCircleOutline sx={{ fontSize: 14, color: '#00f2ea', mt: 0.2 }} />
+                    ) : null}
                   </Box>
                 );
               })}
@@ -1498,7 +1736,10 @@ const RegisterPage = () => {
           )}
 
           <Typography sx={{ color: 'rgba(255, 255, 255, 0.55)', fontSize: '12px', mt: 1, fontFamily: '"Outfit", sans-serif' }}>
-            Fields marked * are required. Sensitive fields include inline "Why we ask" tips.
+            Current step completion: {currentStepCompletion.completedCount}/{currentStepCompletion.totalCount}. Fields marked * are required.
+          </Typography>
+          <Typography sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '11px', mt: 0.4, fontFamily: '"Outfit", sans-serif' }}>
+            Sensitive fields include inline "Why we ask" tips. You can safely pause and continue later from this device.
           </Typography>
         </Box>
 
@@ -1534,6 +1775,126 @@ const RegisterPage = () => {
           >
             {statusNotice.message}
           </Alert>
+        ) : null}
+
+        {isAdminUser && !registrationDebugEnabled ? (
+          <Alert
+            severity="info"
+            sx={{
+              mb: 2.5,
+              background: 'rgba(255, 255, 255, 0.06)',
+              color: '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+            }}
+          >
+            Admin tip: add <strong>?registrationDebug=1</strong> to this page URL to open local registration drop-off stats.
+          </Alert>
+        ) : null}
+
+        {showRegistrationDebugPanel ? (
+          <Box
+            sx={{
+              mb: 2.5,
+              p: 2,
+              borderRadius: '12px',
+              background: 'rgba(255, 196, 0, 0.08)',
+              border: '1px solid rgba(255, 196, 0, 0.35)',
+            }}
+          >
+            <Typography
+              sx={{
+                color: '#ffd24d',
+                fontFamily: '"Outfit", sans-serif',
+                fontSize: '14px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.75,
+              }}
+            >
+              <AdminPanelSettings sx={{ fontSize: 18 }} />
+              Admin Registration Debug (Local Browser)
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '12px', fontFamily: '"Outfit", sans-serif', mt: 0.5 }}>
+              Event records: {registrationDebugStats.eventCount} {registrationDebugStats.lastUpdated ? `| Last update: ${summarizeDraftTimestamp(registrationDebugStats.lastUpdated)}` : ''}
+            </Typography>
+
+            <Grid container spacing={1.5} sx={{ mt: 0.8 }}>
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ p: 1.25, borderRadius: '10px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)' }}>
+                  <Typography sx={{ color: '#ffffff', fontWeight: 700, fontSize: '12px', fontFamily: '"Outfit", sans-serif', mb: 0.4 }}>
+                    Desktop
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
+                    Sessions viewed: {registrationDebugStats.desktopSummary.stepViews} | Submit attempts: {registrationDebugStats.desktopSummary.submitAttempts}
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '11px', fontFamily: '"Outfit", sans-serif', mb: 0.75 }}>
+                    Completed: {registrationDebugStats.desktopSummary.completed} | Abandoned: {registrationDebugStats.desktopSummary.abandoned}
+                  </Typography>
+                  {registrationDebugStats.desktopTopFields.length > 0 ? registrationDebugStats.desktopTopFields.map((item, index) => (
+                    <Typography key={`desktop-${item.field}`} sx={{ color: 'rgba(255,255,255,0.82)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
+                      {index + 1}. {item.label}: {item.count}
+                    </Typography>
+                  )) : (
+                    <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
+                      No desktop validation failures tracked yet.
+                    </Typography>
+                  )}
+                </Box>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Box sx={{ p: 1.25, borderRadius: '10px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.03)' }}>
+                  <Typography sx={{ color: '#ffffff', fontWeight: 700, fontSize: '12px', fontFamily: '"Outfit", sans-serif', mb: 0.4 }}>
+                    Mobile
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
+                    Sessions viewed: {registrationDebugStats.mobileSummary.stepViews} | Submit attempts: {registrationDebugStats.mobileSummary.submitAttempts}
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '11px', fontFamily: '"Outfit", sans-serif', mb: 0.75 }}>
+                    Completed: {registrationDebugStats.mobileSummary.completed} | Abandoned: {registrationDebugStats.mobileSummary.abandoned}
+                  </Typography>
+                  {registrationDebugStats.mobileTopFields.length > 0 ? registrationDebugStats.mobileTopFields.map((item, index) => (
+                    <Typography key={`mobile-${item.field}`} sx={{ color: 'rgba(255,255,255,0.82)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
+                      {index + 1}. {item.label}: {item.count}
+                    </Typography>
+                  )) : (
+                    <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '11px', fontFamily: '"Outfit", sans-serif' }}>
+                      No mobile validation failures tracked yet.
+                    </Typography>
+                  )}
+                </Box>
+              </Grid>
+            </Grid>
+
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
+                gap: 1,
+                mt: 1.2,
+              }}
+            >
+              <GlassButton
+                type="button"
+                variant="outlined"
+                onClick={loadRegistrationDebugStats}
+                startIcon={<Refresh sx={{ fontSize: 17 }} />}
+                fullWidth={isMobile}
+              >
+                Refresh Stats
+              </GlassButton>
+              <GlassButton
+                type="button"
+                variant="glass"
+                onClick={clearRegistrationDebugStats}
+                startIcon={<DeleteOutline sx={{ fontSize: 17 }} />}
+                fullWidth={isMobile}
+              >
+                Clear Local Analytics
+              </GlassButton>
+            </Box>
+          </Box>
         ) : null}
 
         <Box component="form" onSubmit={handleSubmit} ref={formRef} noValidate>
@@ -1574,6 +1935,19 @@ const RegisterPage = () => {
             >
               Save and Continue Later
             </GlassButton>
+
+            {lastDraftSavedAt ? (
+              <GlassButton
+                type="button"
+                variant="outlined"
+                onClick={handleClearSavedDraft}
+                startIcon={<RestartAlt sx={{ fontSize: 18 }} />}
+                fullWidth={isMobile}
+                sx={{ minWidth: isMobile ? '100%' : 170 }}
+              >
+                Clear Saved Draft
+              </GlassButton>
+            ) : null}
 
             {!isLastStep ? (
               <GlassButton

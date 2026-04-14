@@ -16,10 +16,23 @@ const PROD_SERVER_URL = 'https://zerohook-api-f3ss.onrender.com';
 export const API_BASE_URL = process.env.REACT_APP_API_URL ||
   (process.env.NODE_ENV === 'production' ? PROD_API_URL : '/api');
 
+const getOriginFromUrl = (value) => {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch (_) {
+    return null;
+  }
+};
+
+const derivedServerFromApi = getOriginFromUrl(API_BASE_URL);
+
 export const SERVER_URL = process.env.REACT_APP_SOCKET_URL ||
+  derivedServerFromApi ||
   (process.env.NODE_ENV === 'production' ? PROD_SERVER_URL : window.location.origin);
 
 export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL ||
+  derivedServerFromApi ||
   (process.env.NODE_ENV === 'production' ? PROD_SERVER_URL : window.location.origin);
 
 const LEGACY_UPLOAD_HOSTS = new Set(['opue.me', 'www.opue.me']);
@@ -70,6 +83,35 @@ export const WEB_PUSH_VAPID_PUBLIC_KEY =
   process.env.REACT_APP_WEB_PUSH_PUBLIC_KEY ||
   '';
 
+const normalizeUploadPath = (value) => {
+  if (!value || typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  // Preserve full URLs (they may still need host normalization elsewhere).
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  // Handle upload paths missing the leading slash.
+  if (trimmed.startsWith('uploads/')) {
+    return `/${trimmed}`;
+  }
+
+  if (trimmed.startsWith('/uploads/')) {
+    return trimmed;
+  }
+
+  // Preserve rooted non-upload paths as-is.
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+
+  // Bare filename fallback.
+  return `/uploads/${trimmed}`;
+};
+
 /**
  * Get the full URL for uploaded files (profile pictures, service images, etc.)
  * Handles both relative paths (/uploads/...) and full URLs
@@ -77,20 +119,15 @@ export const WEB_PUSH_VAPID_PUBLIC_KEY =
  * @returns {string|null} - Full URL or null if no path provided
  */
 export const getUploadUrl = (path) => {
-  if (!path) return null;
+  const normalizedPath = normalizeUploadPath(path);
+  if (!normalizedPath) return null;
+
   // If it's already a full URL, return as-is unless it points to a legacy uploads host.
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return normalizeLegacyUploadHostUrl(path);
+  if (normalizedPath.startsWith('http://') || normalizedPath.startsWith('https://')) {
+    return normalizeLegacyUploadHostUrl(normalizedPath);
   }
-  // If it's a relative path starting with /uploads, prepend the server URL
-  if (path.startsWith('/uploads')) {
-    return `${SERVER_URL}${path}`;
-  }
-  // If it's just a filename, add /uploads/ prefix
-  if (!path.startsWith('/')) {
-    return `${SERVER_URL}/uploads/${path}`;
-  }
-  return `${SERVER_URL}${path}`;
+
+  return `${SERVER_URL}${normalizedPath}`;
 };
 
 // Service Categories

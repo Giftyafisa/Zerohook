@@ -12,6 +12,8 @@
     "test-system": "node test-system-integration.js",
     "test-complete": "node test-complete-system.js",
     "test-final": "node test-final-integration.js",
+    "derive:xpub": "node scripts/derive-watch-only-xpubs.js",
+    "seed:accra-providers": "node scripts/create-accra-test-providers.js",
     "fix-chat": "node fix-chat-schema.js",
     "backfill:socket-trace-events": "node scripts/backfill-socket-trace-events.js",
     "start-system": "node start-system.js",

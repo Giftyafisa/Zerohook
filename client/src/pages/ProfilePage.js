@@ -40,7 +40,6 @@ import {
   Logout as LogoutIcon,
   Help as HelpIcon,
   Security as SecurityIcon,
-  AccountBalanceWallet as WalletIcon,
   WorkspacePremium as PremiumIcon
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
@@ -291,17 +290,57 @@ const ProfilePage = () => {
     }
   };
 
+  const handleOpenPhotoDialog = (event) => {
+    if (event?.currentTarget && typeof event.currentTarget.blur === 'function') {
+      event.currentTarget.blur();
+    }
+    setPhotoDialog(true);
+  };
+
   const handleUploadPhoto = async () => {
     if (!selectedFile) return;
     setUploadingPhoto(true);
     try {
       const result = await authAPI.uploadProfilePicture(selectedFile);
-      setProfileData(prev => ({ ...prev, profilePicture: result.profilePicture?.url || result.profilePicture }));
+      const uploadedUrl = result?.profilePicture?.url || result?.profilePicture || null;
+
+      if (!uploadedUrl) {
+        throw new Error('Upload response did not include an image URL');
+      }
+
+      setProfileData(prev => ({ ...prev, profilePicture: uploadedUrl }));
+      setEditData(prev => ({ ...prev, profilePicture: uploadedUrl }));
+
+      if (updateUser && user) {
+        const currentProfileData = user.profile_data || user.profileData || {};
+        const currentPictureObject =
+          currentProfileData.profile_picture && typeof currentProfileData.profile_picture === 'object'
+            ? currentProfileData.profile_picture
+            : {};
+
+        const nextProfileData = {
+          ...currentProfileData,
+          photos: [uploadedUrl],
+          profilePicture: uploadedUrl,
+          profile_picture: {
+            ...currentPictureObject,
+            url: uploadedUrl,
+            storageType: result?.profilePicture?.storageType || currentPictureObject.storageType,
+            publicId: result?.profilePicture?.publicId || currentPictureObject.publicId
+          }
+        };
+
+        updateUser({
+          profile_data: nextProfileData,
+          profileData: nextProfileData
+        });
+      }
+
       setSnackbar({ open: true, message: 'Photo updated!', severity: 'success' });
       setPhotoDialog(false);
       setSelectedFile(null);
     } catch (error) {
-      setSnackbar({ open: true, message: 'Upload failed', severity: 'error' });
+      setSnackbar({ open: true, message: error?.message || 'Upload failed', severity: 'error' });
     } finally {
       setUploadingPhoto(false);
     }
@@ -316,6 +355,12 @@ const ProfilePage = () => {
   }
 
   const fullName = `${profileData.firstName} ${profileData.lastName}`.trim() || user?.username || 'User';
+  const currentAccountType =
+    user?.profile_data?.accountType ||
+    user?.profileData?.accountType ||
+    user?.accountType ||
+    user?.account_type ||
+    'client';
   const location = profileData.country
     ? [profileData.country, profileData.region, profileData.city].filter(Boolean).join(', ')
     : 'Location not set';
@@ -339,7 +384,7 @@ const ProfilePage = () => {
             </Avatar>
             <IconButton 
               sx={styles.cameraBtn} 
-              onClick={() => setPhotoDialog(true)}
+              onClick={handleOpenPhotoDialog}
               aria-label="Change profile photo"
               title="Change profile photo"
             >
@@ -770,6 +815,20 @@ const ProfilePage = () => {
           <SettingsIcon sx={{ color: '#ff0055' }} />
           <Typography>Settings</Typography>
         </ButtonBase>
+        {currentAccountType === 'provider' && (
+          <ButtonBase sx={styles.linkCard} onClick={() => navigate('/clients-discovery')} aria-label="Discover clients">
+            <LocationIcon sx={{ color: '#ffa94d' }} />
+            <Typography>Discover Clients</Typography>
+          </ButtonBase>
+        )}
+        <ButtonBase sx={styles.linkCard} onClick={() => navigate('/help')} aria-label="Open help and support">
+          <HelpIcon sx={{ color: '#00f2ea' }} />
+          <Typography>Help</Typography>
+        </ButtonBase>
+        <ButtonBase sx={styles.linkCard} onClick={() => navigate('/privacy-settings')} aria-label="Open privacy settings">
+          <SecurityIcon sx={{ color: '#00f2ea' }} />
+          <Typography>Privacy</Typography>
+        </ButtonBase>
       </Box>
 
       {/* Action Buttons */}
@@ -805,27 +864,6 @@ const ProfilePage = () => {
             Edit Profile
           </Button>
         )}
-      </Box>
-
-      {/* Quick Links Section */}
-      <Typography sx={{ ...styles.sectionTitle, mt: 3 }}>Quick Links</Typography>
-      <Box sx={styles.linksGrid}>
-        <Box sx={styles.linkCard} onClick={() => navigate('/wallet')}>
-          <WalletIcon sx={{ color: '#00f2ea' }} />
-          <Typography>Wallet</Typography>
-        </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/settings')}>
-          <SettingsIcon sx={{ color: '#00f2ea' }} />
-          <Typography>Settings</Typography>
-        </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/help')}>
-          <HelpIcon sx={{ color: '#00f2ea' }} />
-          <Typography>Help</Typography>
-        </Box>
-        <Box sx={styles.linkCard} onClick={() => navigate('/privacy-settings')}>
-          <SecurityIcon sx={{ color: '#00f2ea' }} />
-          <Typography>Privacy</Typography>
-        </Box>
       </Box>
 
       {/* Logout Button */}

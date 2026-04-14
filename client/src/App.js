@@ -63,6 +63,7 @@ const TrustScorePage = lazy(() => import('./pages/TrustScorePage'));
 const AdultServiceBrowse = lazy(() => import('./pages/AdultServiceBrowse'));
 const AdultServiceDetail = lazy(() => import('./pages/AdultServiceDetail'));
 const ProfileFeed = lazy(() => import('./pages/ProfileFeed'));
+const ProviderClientDiscoveryPage = lazy(() => import('./pages/ProviderClientDiscoveryPage'));
 const ProfileDetailPage = lazy(() => import('./pages/ProfileDetailPage'));
 const MessagesPage = lazy(() => import('./pages/MessagesPage'));
 const PrivacySettings = lazy(() => import('./pages/PrivacySettingsNew'));
@@ -262,6 +263,11 @@ function AppContent() {
         <Route path="/adult-services" element={<ErrorBoundary><AdultServiceBrowse /></ErrorBoundary>} />
         <Route path="/adult-services/:id" element={<ErrorBoundary><AdultServiceDetail /></ErrorBoundary>} />
         <Route path="/profiles" element={<ErrorBoundary><ProfileFeed /></ErrorBoundary>} />
+        <Route path="/clients-discovery" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><ProviderClientDiscoveryPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
         <Route path="/profile/:profileId" element={<ErrorBoundary><ProfileDetailPage /></ErrorBoundary>} />
         
         {/* Protected Routes */}

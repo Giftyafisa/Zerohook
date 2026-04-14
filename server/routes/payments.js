@@ -984,7 +984,7 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
       user_id: userObjId 
     });
 
-    if (existingTransaction && existingTransaction.status === 'completed') {
+    if (existingTransaction && ['completed', 'confirmed'].includes(existingTransaction.status)) {
       return res.json({
         success: true,
         status: 'already_verified',
@@ -1001,99 +1001,155 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
       });
     }
 
+    const invoice = await CryptoInvoice.findOne({ reference }).lean();
+    if (invoice?.userId && invoice.userId.toString() !== userId) {
+      return res.status(403).json({ success: false, error: 'Payment reference does not belong to this user' });
+    }
+
     // Verify on blockchain
     const status = await req.cryptoPaymentManager.checkPaymentStatus(reference);
-    
-    if (status.success && status.status === 'confirmed') {
-      const transaction = await Transaction.findOneAndUpdate(
-        { reference, user_id: userObjId },
-        { $set: { status: 'completed', confirmed_at: new Date(), 'metadata.blockchain_verification': status.verification } },
-        { new: true }
-      );
-
-      // ===== AUTO-ACTIVATE SUBSCRIPTION if this payment belongs to one =====
-      let subscriptionActivated = false;
-      try {
-        const invoice = await CryptoInvoice.findOne({ reference }).lean();
-        if (invoice && invoice.metadata && invoice.metadata.type === 'subscription') {
-          // This is a subscription payment — auto-activate it
-          const sub = await Subscription.findOneAndUpdate(
-            { crypto_reference: reference, user_id: userObjId, status: 'pending' },
-            { $set: { status: 'active', activated_at: new Date() } },
-            { new: true }
-          );
-          if (sub) {
-            const sixMonthsFromNow = new Date();
-            sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-            await UserModel.findByIdAndUpdate(userObjId, {
-              is_subscribed: true,
-              subscription_tier: 'premium',
-              subscription_expires_at: sixMonthsFromNow
-            });
-            subscriptionActivated = true;
-            console.log(`✅ Auto-activated subscription for user ${userId} via verify-inline`);
-
-            // Emit subscription update
-            if (req.io) {
-              req.io.to(`user_${userId}`).emit('subscription_updated', {
-                isSubscribed: true,
-                status: 'active',
-                tier: 'premium',
-                timestamp: new Date().toISOString()
-              });
-            }
-          }
-        }
-      } catch (subErr) {
-        console.error('Subscription auto-activation error (non-fatal):', subErr.message);
-      }
-
-      if (req.io && transaction) {
-        req.io.to(`user_${userId}`).emit('payment_verified', {
-          reference,
-          status: 'confirmed',
-          amount: transaction.amount,
-          currency: transaction.currency,
-          type: transaction.type,
-          subscriptionActivated,
-          timestamp: new Date().toISOString()
-        });
-
-        await NotificationService.createAndEmit(req.io, {
-          userId,
-          type: 'payment',
-          title: subscriptionActivated ? 'Subscription Activated' : 'Payment Verified',
-          message: subscriptionActivated 
-            ? 'Your premium subscription is now active!'
-            : `${transaction.currency}${transaction.amount} payment was verified successfully.`,
-          data: {
-            transactionId: transaction._id.toString(),
-            reference,
-            type: transaction.type,
-            status: 'confirmed',
-            subscriptionActivated
-          }
-        });
-      }
-
+    if (!status.success || status.status !== 'confirmed') {
       return res.json({
-        success: true,
-        status: 'confirmed',
-        amount: transaction?.amount,
-        currency: transaction?.currency,
-        subscriptionActivated
+        success: false,
+        status: status.status || 'pending',
+        error: status.error || null,
+        message: status.status === 'expired'
+          ? (status.error || 'Payment invoice has expired')
+          : status.status === 'pending_confirmation'
+            ? 'Payment detected, waiting for network confirmations'
+            : 'Payment not yet confirmed on blockchain'
       });
     }
 
-    res.json({
-      success: false,
-      status: status.status || 'pending',
-      error: status.error || null,
-      message: status.status === 'expired'
-        ? (status.error || 'Payment invoice has expired')
-        : status.status === 'pending_confirmation'
-          ? 'Payment detected, waiting for network confirmations'
-          : 'Payment not yet confirmed on blockchain'
+    let transaction = null;
+    let subscriptionActivated = false;
+    let escrowActivated = false;
+
+    // ===== AUTO-ACTIVATE SUBSCRIPTION if this payment belongs to one =====
+    try {
+      if (invoice && invoice.metadata && invoice.metadata.type === 'subscription') {
+        const sub = await Subscription.findOneAndUpdate(
+          { crypto_reference: reference, user_id: userObjId, status: 'pending' },
+          { $set: { status: 'active', activated_at: new Date() } },
+          { new: true }
+        );
+        if (sub) {
+          const sixMonthsFromNow = new Date();
+          sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+          await UserModel.findByIdAndUpdate(userObjId, {
+            is_subscribed: true,
+            subscription_tier: 'premium',
+            subscription_expires_at: sixMonthsFromNow
+          });
+          subscriptionActivated = true;
+          console.log(`✅ Auto-activated subscription for user ${userId} via verify-inline`);
+
+          if (req.io) {
+            req.io.to(`user_${userId}`).emit('subscription_updated', {
+              isSubscribed: true,
+              status: 'active',
+              tier: 'premium',
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+    } catch (subErr) {
+      console.error('Subscription auto-activation error (non-fatal):', subErr.message);
+    }
+
+    // Escrow crypto flow: activate escrow hold only after payment confirmation.
+    const escrowId = invoice?.metadata?.escrowId;
+    if (escrowId && mongoose.Types.ObjectId.isValid(escrowId)) {
+      transaction = await Transaction.findOneAndUpdate(
+        {
+          _id: escrowId,
+          client_id: userObjId,
+          status: { $in: ['pending_payment', 'pending'] }
+        },
+        {
+          $set: {
+            status: 'held',
+            confirmed_at: new Date(),
+            'metadata.blockchain_verification': status.verification,
+            'metadata.cryptoPaymentStatus': 'confirmed'
+          }
+        },
+        { new: true }
+      );
+      escrowActivated = !!transaction;
+    }
+
+    // Generic flow: match by payment reference for deposit/payment records.
+    if (!transaction) {
+      transaction = await Transaction.findOneAndUpdate(
+        { reference, user_id: userObjId, status: { $nin: ['completed', 'confirmed'] } },
+        {
+          $set: {
+            status: 'completed',
+            confirmed_at: new Date(),
+            'metadata.blockchain_verification': status.verification
+          }
+        },
+        { new: true }
+      );
+    }
+
+    if (!transaction && !subscriptionActivated) {
+      return res.status(404).json({
+        success: false,
+        status: 'confirmed_unlinked',
+        error: 'Payment confirmed on blockchain but no matching local record was found',
+        reference
+      });
+    }
+
+    if (req.io && transaction) {
+      const localStatus = escrowActivated ? 'held' : 'confirmed';
+
+      req.io.to(`user_${userId}`).emit('payment_verified', {
+        reference,
+        status: localStatus,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        type: transaction.type,
+        subscriptionActivated,
+        escrowActivated,
+        timestamp: new Date().toISOString()
+      });
+
+      await NotificationService.createAndEmit(req.io, {
+        userId,
+        type: 'payment',
+        title: subscriptionActivated
+          ? 'Subscription Activated'
+          : escrowActivated
+            ? 'Escrow Activated'
+            : 'Payment Verified',
+        message: subscriptionActivated
+          ? 'Your premium subscription is now active!'
+          : escrowActivated
+            ? `${transaction.currency}${transaction.amount} payment confirmed. Escrow is now active.`
+            : `${transaction.currency}${transaction.amount} payment was verified successfully.`,
+        data: {
+          transactionId: transaction._id.toString(),
+          reference,
+          type: transaction.type,
+          status: localStatus,
+          subscriptionActivated,
+          escrowActivated
+        }
+      });
+    }
+
+    return res.json({
+      success: true,
+      status: 'confirmed',
+      amount: transaction?.amount,
+      currency: transaction?.currency,
+      transactionType: transaction?.type || null,
+      subscriptionActivated,
+      escrowActivated
     });
 
   } catch (error) {
@@ -1109,21 +1165,42 @@ router.post('/verify-inline', authMiddleware, async (req, res) => {
  */
 router.get('/supported-cryptos', (req, res) => {
   try {
-    const cryptos = req.cryptoPaymentManager
+    const managerCryptos = req.cryptoPaymentManager
       ? req.cryptoPaymentManager.getSupportedCryptocurrencies()
       : [
           { symbol: 'BTC', name: 'Bitcoin', network: 'Bitcoin', logo: '₿' },
           { symbol: 'ETH', name: 'Ethereum', network: 'Ethereum', logo: 'Ξ' },
           { symbol: 'USDT', name: 'Tether', network: 'Ethereum (ERC-20)', logo: '₮' },
-          { symbol: 'USDC', name: 'USD Coin', network: 'Ethereum (ERC-20)', logo: '💵' },
-          { symbol: 'BNB', name: 'BNB', network: 'BSC', logo: '🟡' },
-          { symbol: 'SOL', name: 'Solana', network: 'Solana', logo: '◎' },
-          { symbol: 'LTC', name: 'Litecoin', network: 'Litecoin', logo: 'Ł' }
+          { symbol: 'USDC', name: 'USD Coin', network: 'Ethereum (ERC-20)', logo: '💵' }
         ];
+
+    const cryptos = managerCryptos.filter((crypto) => SUPPORTED_SETTLEMENT_CRYPTOS.includes(crypto.symbol));
 
     res.json({ success: true, cryptos });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to get supported cryptos' });
+  }
+});
+
+/**
+ * @route   GET /api/payments/custody-status
+ * @desc    Get custody mode and receive-derivation readiness
+ * @access  Private
+ */
+router.get('/custody-status', authMiddleware, async (req, res) => {
+  try {
+    if (!req.cryptoPaymentManager || typeof req.cryptoPaymentManager.getCustodyStatus !== 'function') {
+      return res.status(503).json({ success: false, error: 'Crypto custody manager unavailable' });
+    }
+
+    return res.json({
+      success: true,
+      data: req.cryptoPaymentManager.getCustodyStatus(),
+      message: 'Custody status retrieved'
+    });
+  } catch (error) {
+    console.error('Get custody status error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to get custody status' });
   }
 });
 

@@ -6,6 +6,7 @@ const { Transaction, User } = require('../config/database');
 const EscrowManager = require('../services/EscrowManager');
 const NotificationService = require('../services/NotificationService');
 const router = express.Router();
+const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 /**
  * @route   POST /api/escrow/create
@@ -20,6 +21,8 @@ router.post('/create', authMiddleware, async (req, res) => {
       paymentMethod = 'wallet', currency: requestedCurrency, cryptoSymbol,
       conversationId, description, duration, specialRequests, contactMethod
     } = req.body;
+    const isCryptoPaymentRequested = paymentMethod === 'crypto';
+    const normalizedCryptoSymbol = String(cryptoSymbol || 'USDT').toUpperCase();
 
     // Validate required fields
     if (!providerId) {
@@ -27,6 +30,12 @@ router.post('/create', authMiddleware, async (req, res) => {
     }
     if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, error: 'Valid amount is required' });
+    }
+    if (isCryptoPaymentRequested && !SUPPORTED_SETTLEMENT_CRYPTOS.includes(normalizedCryptoSymbol)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported crypto for escrow. Allowed: ${SUPPORTED_SETTLEMENT_CRYPTOS.join(', ')}`
+      });
     }
 
     // Get client's country for currency (use requested currency if provided, else detect)
@@ -67,31 +76,75 @@ router.post('/create', authMiddleware, async (req, res) => {
       }
     });
 
+    const isCryptoPayment = isCryptoPaymentRequested;
+
     // Build base response
     const response = {
       success: true,
-      message: 'Escrow created successfully. Share the PIN with provider ONLY after service is complete.',
+      message: isCryptoPayment
+        ? 'Escrow created. Complete crypto payment to activate the hold.'
+        : 'Escrow created successfully. Share the PIN with provider ONLY after service is complete.',
       transaction: escrowResult,
       completionPin: escrowResult.completionPin, // Only sent to client
       riskAssessment
     };
 
-    // If crypto payment requested, generate a payment invoice with wallet address
-    if (paymentMethod === 'crypto' && req.cryptoPaymentManager) {
+    // If crypto payment requested, generate a payment invoice and keep escrow in pending_payment.
+    if (isCryptoPayment) {
+      if (!req.cryptoPaymentManager || !req.currencyManager) {
+        await Transaction.findByIdAndUpdate(escrowResult.id || escrowResult.transactionId, {
+          $set: {
+            status: 'payment_failed',
+            'metadata.cryptoPaymentError': 'Crypto services unavailable'
+          }
+        });
+        return res.status(503).json({
+          success: false,
+          error: 'Crypto payment service unavailable',
+          message: 'Unable to initialize crypto payment right now. Please try again.'
+        });
+      }
+
       try {
-        const symbol = cryptoSymbol || 'USDT';
-        // Convert fiat amount to crypto
-        const cryptoAmount = await req.currencyManager?.fiatToCrypto(amount, currency, symbol);
-        
+        const symbol = normalizedCryptoSymbol;
+        // Convert fiat amount to crypto and always use the numeric conversion output.
+        const conversion = await req.currencyManager.fiatToCrypto(amount, currency, symbol);
+        const exactCryptoAmount = Number(conversion?.cryptoAmount);
+        if (!Number.isFinite(exactCryptoAmount) || exactCryptoAmount <= 0) {
+          throw new Error('Invalid fiat-to-crypto conversion result');
+        }
+
         const invoice = await req.cryptoPaymentManager.createPaymentInvoice({
-          cryptoAmount: cryptoAmount || amount,
+          cryptoAmount: parseFloat(exactCryptoAmount.toFixed(8)),
           cryptoSymbol: symbol,
           fiatAmount: amount,
           fiatCurrency: currency,
           transactionId: escrowResult.id || escrowResult.transactionId,
           userId: clientId,
-          metadata: { escrowId: escrowResult.id || escrowResult.transactionId, conversationId }
+          metadata: {
+            type: 'escrow',
+            escrowId: escrowResult.id || escrowResult.transactionId,
+            conversationId
+          }
         });
+
+        await Transaction.findByIdAndUpdate(escrowResult.id || escrowResult.transactionId, {
+          $set: {
+            status: 'pending_payment',
+            'metadata.cryptoPayment': {
+              reference: invoice.reference,
+              address: invoice.address,
+              cryptoAmount: invoice.cryptoAmount,
+              cryptoSymbol: invoice.cryptoSymbol,
+              status: 'pending'
+            }
+          }
+        });
+
+        response.transaction = {
+          ...escrowResult,
+          status: 'pending_payment'
+        };
 
         // Attach crypto payment details to response for frontend
         response.walletAddress = invoice.address;
@@ -101,29 +154,51 @@ router.post('/create', authMiddleware, async (req, res) => {
         response.expiresAt = invoice.expiresAt;
         response.network = invoice.network;
       } catch (cryptoErr) {
-        console.error('Crypto invoice generation failed, falling back to wallet:', cryptoErr.message);
-        // Don't fail the escrow — it was created. Client can pay from wallet.
-        response.cryptoError = 'Could not generate crypto address. You can pay from your wallet balance instead.';
+        console.error('Crypto invoice generation failed:', cryptoErr.message);
+        await Transaction.findByIdAndUpdate(escrowResult.id || escrowResult.transactionId, {
+          $set: {
+            status: 'payment_failed',
+            'metadata.cryptoPaymentError': cryptoErr.message
+          }
+        });
+        return res.status(502).json({
+          success: false,
+          error: 'Failed to initialize crypto payment for escrow',
+          message: process.env.NODE_ENV === 'development'
+            ? cryptoErr.message
+            : 'Unable to initialize crypto payment. Please try again.'
+        });
       }
     }
 
     // Notify provider via socket (but DON'T send PIN - only client sees PIN)
     if (req.io) {
+      const providerSocketMessage = isCryptoPayment
+        ? `A crypto escrow for ${currency}${amount} was started. Hold activates after payment confirmation.`
+        : `New payment of ${currency}${amount} held for your service! Ask client for completion PIN after service.`;
+
       req.io.to(`user_${providerId}`).emit('escrow_created', {
         escrowId: escrowResult.id || escrowResult.transactionId,
         amount,
         currency,
         clientId,
-        message: `New payment of ${currency}${amount} held for your service! Ask client for completion PIN after service.`
+        message: providerSocketMessage
       });
 
       // Persist notification for provider (survives offline)
       try {
+        const providerNotificationTitle = isCryptoPayment
+          ? 'Crypto Escrow Pending Payment'
+          : 'Payment Held for Your Service';
+        const providerNotificationMessage = isCryptoPayment
+          ? `${currency}${amount} escrow was initiated and is awaiting crypto payment confirmation.`
+          : `${currency}${amount} is being held in escrow. Complete the service and ask for the PIN.`;
+
         await NotificationService.createAndEmit(req.io, {
           userId: providerId,
           type: 'escrow',
-          title: 'Payment Held for Your Service',
-          message: `${currency}${amount} is being held in escrow. Complete the service and ask for the PIN.`,
+          title: providerNotificationTitle,
+          message: providerNotificationMessage,
           data: { escrowId: escrowResult.id || escrowResult.transactionId, amount, currency }
         });
       } catch (e) { console.error('Notification error (escrow created):', e.message); }

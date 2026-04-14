@@ -7,6 +7,8 @@ class PerformanceMetrics {
     this.metricsBuffer = [];
     this.bufferSize = parseInt(process.env.METRICS_BUFFER_SIZE) || 100;
     this.flushInterval = parseInt(process.env.METRICS_FLUSH_INTERVAL_MS) || 30 * 1000; // 30 seconds
+    this.warnThresholdMs = parseInt(process.env.METRICS_RECORD_WARN_THRESHOLD_MS, 10) || 250;
+    this.flushInProgress = false;
     this.flushTimer = null;
     this.startTime = Date.now();
   }
@@ -58,30 +60,12 @@ class PerformanceMetrics {
 
       // Flush buffer if it's full
       if (this.metricsBuffer.length >= this.bufferSize) {
-        await this.flushMetricsBuffer();
-      }
-
-      // Record detailed API log using MongoDB
-      if (isDatabaseAvailable()) {
-        try {
-          await ApiPerformanceLog.create({
-            endpoint,
-            method,
-            user_id: userId,
-            response_time_ms: responseTime,
-            status_code: statusCode,
-            request_size_bytes: requestSize,
-            response_size_bytes: responseSize,
-            ip_address: ipAddress,
-            user_agent: userAgent
-          });
-        } catch (dbError) {
-          // Silently fail - don't break API responses for metrics
-        }
+        // Non-blocking flush to avoid adding latency to API responses.
+        this.flushMetricsBuffer().catch(() => {});
       }
 
       const processingTime = Date.now() - startTime;
-      if (processingTime > 10) { // Log if processing takes more than 10ms
+      if (processingTime > this.warnThresholdMs) {
         console.warn(`⚠️  API metrics recording took ${processingTime}ms for ${endpoint}`);
       }
 
@@ -195,11 +179,12 @@ class PerformanceMetrics {
    * Flush metrics buffer to database
    */
   async flushMetricsBuffer() {
-    if (this.metricsBuffer.length === 0) return;
+    if (this.metricsBuffer.length === 0 || this.flushInProgress) return;
 
+    let metricsToFlush = [];
     try {
-      const metricsToFlush = [...this.metricsBuffer];
-      this.metricsBuffer = [];
+      this.flushInProgress = true;
+      metricsToFlush = this.metricsBuffer.splice(0, this.metricsBuffer.length);
 
       // Process metrics in batches
       const batchSize = 50;
@@ -212,7 +197,9 @@ class PerformanceMetrics {
     } catch (error) {
       console.error('Error flushing metrics buffer:', error);
       // Restore metrics to buffer on error
-      this.metricsBuffer.unshift(...this.metricsBuffer);
+      this.metricsBuffer.unshift(...metricsToFlush);
+    } finally {
+      this.flushInProgress = false;
     }
   }
 
@@ -221,10 +208,24 @@ class PerformanceMetrics {
    */
   async processMetricsBatch(metrics) {
     try {
+      const apiDocs = [];
+
       for (const metric of metrics) {
         switch (metric.type) {
           case 'api_performance':
-            // Already recorded in recordAPIMetrics
+            apiDocs.push({
+              endpoint: metric.data.endpoint,
+              method: metric.data.method,
+              user_id: metric.data.userId,
+              response_time_ms: metric.data.responseTime,
+              status_code: metric.data.statusCode,
+              request_size_bytes: metric.data.requestSize,
+              response_size_bytes: metric.data.responseSize,
+              ip_address: metric.data.ipAddress,
+              user_agent: metric.data.userAgent,
+              created_at: metric.data.timestamp,
+              updated_at: metric.data.timestamp
+            });
             break;
           case 'database_performance':
             // Already recorded in recordDatabaseMetrics
@@ -234,6 +235,14 @@ class PerformanceMetrics {
             break;
           default:
             console.warn(`Unknown metric type: ${metric.type}`);
+        }
+      }
+
+      if (apiDocs.length > 0 && isDatabaseAvailable()) {
+        try {
+          await ApiPerformanceLog.insertMany(apiDocs, { ordered: false });
+        } catch (dbError) {
+          // Silently fail - do not impact request flow
         }
       }
     } catch (error) {

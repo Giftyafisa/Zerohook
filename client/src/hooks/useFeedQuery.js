@@ -22,7 +22,7 @@ const debugError = isDev ? (...args) => console.error(...args) : () => {};
  * @param {object|null} opts.userLocation – location from useLocationBootstrap
  * @param {boolean} opts.locationLoading – still detecting location
  */
-const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading }) => {
+const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading, discoverySurface = 'providers' }) => {
   const { user: currentUser, isAuthenticated } = useAuth();
   const reduxUser    = useSelector(selectUser);
   const { convertFromUSD } = useCurrency();
@@ -63,6 +63,10 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
           filter: activeFilter,
           search: searchQuery,
         });
+
+        if (discoverySurface) {
+          qp.set('surface', String(discoverySurface));
+        }
 
         if (userLocation) {
           if (userLocation.lat != null && userLocation.lng != null &&
@@ -140,13 +144,6 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
             };
           });
 
-        // Keep image-rich profiles above image-less profiles as a client-side guardrail.
-        processed.sort((a, b) => {
-          if (a.hasProfileImage && !b.hasProfileImage) return -1;
-          if (!a.hasProfileImage && b.hasProfileImage) return 1;
-          return (b.recommendationScore || 0) - (a.recommendationScore || 0);
-        });
-
         if (append) setDisplayedProfiles((prev) => [...prev, ...processed]);
         else setDisplayedProfiles(processed);
 
@@ -167,7 +164,7 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
         }
       }
     },
-    [activeFilter, searchQuery, isAuthenticated, currentUser, reduxUser, userLocation, convertPrice],
+    [activeFilter, searchQuery, isAuthenticated, currentUser, reduxUser, userLocation, convertPrice, discoverySurface],
   );
 
   // Cleanup on unmount

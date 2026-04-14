@@ -1,30 +1,30 @@
-<testsuites id="" name="" tests="12" failures="0" skipped="0" errors="0" time="134.81791099999998">
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-14T13:30:54.275Z" hostname="chromium" tests="6" failures="0" skipped="0" time="77.573" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="19.923">
+<testsuites id="" name="" tests="12" failures="0" skipped="0" errors="0" time="86.613961">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-14T14:09:32.388Z" hostname="chromium" tests="6" failures="0" skipped="0" time="35.462" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="11.968">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="6.715">
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.249">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="6.898">
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="4.944">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="20.906">
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="5.563">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="9.622">
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="4.398">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="13.509">
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="4.34">
 </testcase>
 </testsuite>
-<testsuite name="ui-baseline.spec.js" timestamp="2026-04-14T13:30:54.275Z" hostname="Mobile Chrome" tests="6" failures="0" skipped="0" time="29.298" errors="0">
-<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="5.718">
+<testsuite name="ui-baseline.spec.js" timestamp="2026-04-14T14:09:32.388Z" hostname="Mobile Chrome" tests="6" failures="0" skipped="0" time="26.22" errors="0">
+<testcase name="ui-baseline:public-core › public-core:home" classname="ui-baseline.spec.js" time="4.575">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.642">
+<testcase name="ui-baseline:public-core › public-core:login" classname="ui-baseline.spec.js" time="4.102">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="5.351">
+<testcase name="ui-baseline:public-core › public-core:register" classname="ui-baseline.spec.js" time="4.676">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="5.255">
+<testcase name="ui-baseline:public-core › public-core:subscription" classname="ui-baseline.spec.js" time="4.403">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="3.863">
+<testcase name="ui-baseline:public-core › public-core:adult-services" classname="ui-baseline.spec.js" time="4.527">
 </testcase>
-<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="4.469">
+<testcase name="ui-baseline:public-core › public-core:profiles" classname="ui-baseline.spec.js" time="3.937">
 </testcase>
 </testsuite>
 </testsuites>

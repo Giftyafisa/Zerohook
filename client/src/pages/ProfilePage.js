@@ -346,12 +346,14 @@ const ProfilePage = () => {
       setPhotoDialog(false);
       setSelectedFile(null);
     } catch (error) {
+      const debugId = error?.response?.data?.debugId || null;
       const serverMessage =
         error?.response?.data?.message
         || error?.response?.data?.error
         || error?.message
         || 'Upload failed';
-      setSnackbar({ open: true, message: serverMessage, severity: 'error' });
+      const debugSuffix = debugId ? ` (debugId: ${debugId})` : '';
+      setSnackbar({ open: true, message: `${serverMessage}${debugSuffix}`, severity: 'error' });
     } finally {
       setUploadingPhoto(false);
     }

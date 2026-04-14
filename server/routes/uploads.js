@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 const { authMiddleware } = require('./auth');
 const { User, FileUpload } = require('../config/database');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
@@ -223,6 +224,15 @@ const getUploadMiddleware = (type = 'profile') => {
 
 const isHttpUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value);
 const isCloudinaryUrl = (value) => typeof value === 'string' && /cloudinary\.com/i.test(value);
+const createProfileUploadDebugId = () => `pp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const logProfileUploadDebug = (debugId, stage, details = {}) => {
+  try {
+    console.log(`[PROFILE_UPLOAD][${debugId}] ${stage}`, details);
+  } catch {
+    // Avoid throwing from logging in upload hot path
+  }
+};
 
 // Helper to get file URL (Cloudinary or local)
 const getFileUrl = (file, cloudinaryManager) => {
@@ -310,14 +320,76 @@ router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimite
 
 // Profile picture upload endpoint - uses Cloudinary if available
 router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLimiter), (req, res, next) => {
-  getUploadMiddleware('profile')(req, res, next);
+  const debugId = createProfileUploadDebugId();
+  req.profileUploadDebugId = debugId;
+
+  logProfileUploadDebug(debugId, 'multer:start', {
+    userId: req.user?.userId || null,
+    cloudinaryConfigured: Boolean(req.cloudinaryManager?.isConfigured)
+  });
+
+  getUploadMiddleware('profile')(req, res, (uploadErr) => {
+    if (uploadErr) {
+      console.error(`[PROFILE_UPLOAD][${debugId}] multer:error`, {
+        userId: req.user?.userId || null,
+        code: uploadErr.code,
+        name: uploadErr.name,
+        message: uploadErr.message,
+        stack: uploadErr.stack
+      });
+
+      const statusCode = uploadErr.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+      const message = uploadErr.code === 'LIMIT_FILE_SIZE'
+        ? 'File too large. Maximum allowed size is 10MB.'
+        : (uploadErr.message || 'Invalid upload payload');
+
+      return res.status(statusCode).json({
+        success: false,
+        error: 'Profile upload failed',
+        message,
+        debugId
+      });
+    }
+
+    logProfileUploadDebug(debugId, 'multer:done', {
+      hasFile: Boolean(req.file),
+      file: req.file ? {
+        fieldname: req.file.fieldname,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        filename: req.file.filename,
+        public_id: req.file.public_id,
+        path: req.file.path
+      } : null
+    });
+
+    return next();
+  });
 }, magicByteValidation, async (req, res) => {
+  const debugId = req.profileUploadDebugId || createProfileUploadDebugId();
+
   try {
+    logProfileUploadDebug(debugId, 'handler:start', {
+      userId: req.user?.userId || null,
+      hasFile: Boolean(req.file)
+    });
+
     if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No file uploaded' });
+      return res.status(400).json({ success: false, error: 'No file uploaded', debugId });
     }
 
     const userId = req.user.userId;
+    if (!mongoose.Types.ObjectId.isValid(String(userId))) {
+      logProfileUploadDebug(debugId, 'auth:invalid-user-id', { userId });
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid authentication token',
+        message: 'Please sign in again and retry upload.',
+        debugId
+      });
+    }
+
     const fileSize = req.file.size;
     const mimeType = req.file.mimetype;
     
@@ -325,6 +397,14 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
     const publicUrl = getFileUrl(req.file, req.cloudinaryManager);
     const isCloudinary = publicUrl.includes('cloudinary.com');
     const fileName = req.file.filename || req.file.public_id || `profile-${userId}-${Date.now()}`;
+
+    logProfileUploadDebug(debugId, 'url:resolved', {
+      publicUrl,
+      isCloudinary,
+      fileName,
+      mimetype: mimeType,
+      fileSize
+    });
     
     // Determine file type
     const isVideo = mimeType?.startsWith('video/');
@@ -354,8 +434,15 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
     );
 
     if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+      logProfileUploadDebug(debugId, 'db:user-not-found', { userId });
+      return res.status(404).json({ success: false, error: 'User not found', debugId });
     }
+
+    logProfileUploadDebug(debugId, 'db:update-success', {
+      userId,
+      profilePictureUrl: publicUrl,
+      storageType: isCloudinary ? 'cloudinary' : 'local'
+    });
 
     // Log file upload to file_uploads collection
     try {
@@ -378,6 +465,7 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
     res.json({
       success: true,
       message: 'Profile picture updated successfully',
+      debugId,
       profilePicture: {
         url: publicUrl,
         filename: fileName,
@@ -389,9 +477,24 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
     });
 
   } catch (error) {
-    console.error('Profile picture upload error:', error);
+    console.error(`[PROFILE_UPLOAD][${debugId}] handler:error`, {
+      userId: req.user?.userId || null,
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      file: req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        filename: req.file.filename,
+        public_id: req.file.public_id,
+        path: req.file.path
+      } : null
+    });
+
     res.status(500).json({ success: false, error: 'Failed to upload profile picture',
-      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      debugId
     });
   }
 });

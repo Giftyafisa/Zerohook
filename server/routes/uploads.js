@@ -257,19 +257,6 @@ const getFileUrl = (file, cloudinaryManager) => {
   return `/uploads/${file?.filename || `upload-${Date.now()}`}`;
 };
 
-const requireCloudinaryForProfileUpload = (req, res, next) => {
-  const isProduction = (process.env.NODE_ENV || 'development') === 'production';
-  if (isProduction && !(req.cloudinaryManager && req.cloudinaryManager.isConfigured)) {
-    return res.status(503).json({
-      success: false,
-      error: 'Profile image uploads are temporarily unavailable',
-      message: 'Image storage is unavailable. Please try again later.'
-    });
-  }
-
-  next();
-};
-
 // Chat attachment upload endpoint (image/video/file) - uses Cloudinary if available
 router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimiter), (req, res, next) => {
   getUploadMiddleware('chat')(req, res, next);
@@ -322,7 +309,7 @@ router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimite
 });
 
 // Profile picture upload endpoint - uses Cloudinary if available
-router.post('/profile-picture', authMiddleware, requireCloudinaryForProfileUpload, uploadRateLimit(profileUploadLimiter), (req, res, next) => {
+router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLimiter), (req, res, next) => {
   getUploadMiddleware('profile')(req, res, next);
 }, magicByteValidation, async (req, res) => {
   try {

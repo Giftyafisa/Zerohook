@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
-import { selectUser } from '../store/slices/authSlice';
+import { selectIsAuthenticated, selectUser } from '../store/slices/authSlice';
 import { selectUserCountry, selectDetectedCountry } from '../store/slices/countrySlice';
 import apiClient from '../services/apiClient';
 import { LOCATIONS, calculateDistance } from '../config/locations';
@@ -74,6 +74,7 @@ const getGeolocationPermissionState = async () => {
  */
 const useLocationBootstrap = () => {
   const reduxUser      = useSelector(selectUser);
+  const isAuthenticated = useSelector(selectIsAuthenticated);
   const userCountry    = useSelector(selectUserCountry);
   const detectedCountry = useSelector(selectDetectedCountry);
 
@@ -201,10 +202,17 @@ const useLocationBootstrap = () => {
             setUserLocation(gpsLocation);
             setLocationLoading(false);
 
-            // Uber-style: persist GPS location to backend for proximity queries (fire-and-forget)
-            apiClient.post('/geolocation/update-location', {
-              lat: latitude, lng: longitude, accuracy: 'gps', city: gpsLocation.city, country: gpsLocation.country
-            }).catch(() => {});
+            // Persist GPS location only for authenticated users.
+            // Prevents expected 401 noise during unauthenticated browsing.
+            if (isAuthenticated) {
+              apiClient.post('/geolocation/update-location', {
+                lat: latitude,
+                lng: longitude,
+                accuracy: 'gps',
+                city: gpsLocation.city,
+                country: gpsLocation.country
+              }).catch(() => {});
+            }
           },
           async () => {
             clearTimeout(timeout);
@@ -225,7 +233,7 @@ const useLocationBootstrap = () => {
     };
 
     run();
-  }, [reduxUser, userCountry, detectedCountry]);
+  }, [reduxUser, userCountry, detectedCountry, isAuthenticated]);
 
   // ── public setter for LocationPicker callbacks ───
   const setManualLocation = useCallback(

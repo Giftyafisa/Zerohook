@@ -113,11 +113,15 @@ const countrySlice = createSlice({
       .addCase(detectUserCountry.fulfilled, (state, action) => {
         state.loading = false;
         // API returns detectedCountry, not country
-        state.detectedCountry = action.payload.detectedCountry || action.payload.country;
+        const resolvedCountry = action.payload.detectedCountry || action.payload.country;
+        state.detectedCountry = resolvedCountry;
         if (!state.userCountry) {
-          state.userCountry = action.payload.detectedCountry || action.payload.country;
+          state.userCountry = resolvedCountry;
         }
-        console.log('🌍 Country stored in Redux:', state.userCountry);
+        const loggedCountry = state.userCountry && typeof state.userCountry === 'object'
+          ? { ...state.userCountry }
+          : state.userCountry;
+        console.log('🌍 Country stored in Redux:', loggedCountry);
       })
       .addCase(detectUserCountry.rejected, (state, action) => {
         state.loading = false;

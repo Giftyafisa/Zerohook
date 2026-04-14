@@ -80,7 +80,10 @@ const serviceStatus = {
 };
 
 const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const PROFILE_IMAGE_PLACEHOLDER_URL = process.env.PROFILE_IMAGE_PLACEHOLDER_URL ||
+  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop&crop=face&auto=format&q=80';
 const isCloudinaryUrl = (value) => typeof value === 'string' && /cloudinary\.com/i.test(value);
+const isLikelyLegacyProfileImageFilename = (value) => /^profilepicture-/i.test(String(value || ''));
 
 const normalizeProfileImageCandidate = (value) => {
   if (!value) return null;
@@ -785,12 +788,16 @@ app.use('/uploads', (req, res, next) => {
   }
 
   const requestedFilename = path.basename(requestedPath);
+  const isLikelyLegacyProfileImage = isLikelyLegacyProfileImageFilename(requestedFilename);
 
   if (!requestedFilename || requestedFilename === '.' || requestedFilename === '/') {
     return res.status(404).json({ error: 'File not found' });
   }
 
   if (!serviceStatus.db || mongoose.connection.readyState !== 1) {
+    if (isLikelyLegacyProfileImage) {
+      return res.redirect(302, PROFILE_IMAGE_PLACEHOLDER_URL);
+    }
     return res.status(404).json({ error: 'File not found' });
   }
 
@@ -849,11 +856,20 @@ app.use('/uploads', (req, res, next) => {
       return res.redirect(302, cloudinaryProfileImage);
     }
 
+    if (isLikelyLegacyProfileImage) {
+      return res.redirect(302, PROFILE_IMAGE_PLACEHOLDER_URL);
+    }
+
     return res.status(404).json({ error: 'File not found' });
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('Upload migration fallback failed:', error.message);
     }
+
+    if (isLikelyLegacyProfileImage) {
+      return res.redirect(302, PROFILE_IMAGE_PLACEHOLDER_URL);
+    }
+
     return res.status(404).json({ error: 'File not found' });
   }
 });

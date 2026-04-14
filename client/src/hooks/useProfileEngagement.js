@@ -15,6 +15,9 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 
+const isDev = process.env.NODE_ENV === 'development';
+const debugLog = isDev ? (...args) => console.log(...args) : () => {};
+
 // Generate a short unique ID for deduplication
 const generateEventId = () =>
   `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -59,7 +62,7 @@ const useProfileEngagement = (profileId) => {
       isReturnVisit
     };
 
-    console.log(`📊 Started tracking engagement for profile ${profileId} (return visit: ${isReturnVisit})`);
+    debugLog(`📊 Started tracking engagement for profile ${profileId} (return visit: ${isReturnVisit})`);
   }, [profileId]);
 
   /**
@@ -108,7 +111,7 @@ const useProfileEngagement = (profileId) => {
       sendEngagementAPI(engagementData);
     }
 
-    console.log(`📊 Stopped tracking profile ${profileId}:`, {
+    debugLog(`📊 Stopped tracking profile ${profileId}:`, {
       duration: Math.round(viewDuration / 1000) + 's',
       photos: tracking.photoViews,
       scroll: tracking.maxScrollDepth + '%',

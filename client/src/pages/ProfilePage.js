@@ -57,6 +57,7 @@ const ProfilePage = () => {
   const [photoDialog, setPhotoDialog] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
   // Countries, regions, and cities state
@@ -297,6 +298,10 @@ const ProfilePage = () => {
     setPhotoDialog(true);
   };
 
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [profileData.profilePicture]);
+
   const handleUploadPhoto = async () => {
     if (!selectedFile) return;
     setUploadingPhoto(true);
@@ -310,6 +315,7 @@ const ProfilePage = () => {
 
       setProfileData(prev => ({ ...prev, profilePicture: uploadedUrl }));
       setEditData(prev => ({ ...prev, profilePicture: uploadedUrl }));
+      setAvatarLoadFailed(false);
 
       if (updateUser && user) {
         const currentProfileData = user.profile_data || user.profileData || {};
@@ -340,7 +346,12 @@ const ProfilePage = () => {
       setPhotoDialog(false);
       setSelectedFile(null);
     } catch (error) {
-      setSnackbar({ open: true, message: error?.message || 'Upload failed', severity: 'error' });
+      const serverMessage =
+        error?.response?.data?.message
+        || error?.response?.data?.error
+        || error?.message
+        || 'Upload failed';
+      setSnackbar({ open: true, message: serverMessage, severity: 'error' });
     } finally {
       setUploadingPhoto(false);
     }
@@ -364,6 +375,7 @@ const ProfilePage = () => {
   const location = profileData.country
     ? [profileData.country, profileData.region, profileData.city].filter(Boolean).join(', ')
     : 'Location not set';
+  const profileImageSrc = !avatarLoadFailed ? (resolveProfileImage(profileData) || undefined) : undefined;
 
   return (
     <Box sx={styles.container}>
@@ -377,8 +389,11 @@ const ProfilePage = () => {
           {/* Avatar */}
           <Box sx={styles.avatarContainer}>
             <Avatar
-              src={resolveProfileImage(profileData) || undefined}
+              src={profileImageSrc}
               sx={styles.avatar}
+              imgProps={{
+                onError: () => setAvatarLoadFailed(true)
+              }}
             >
               {fullName[0]?.toUpperCase()}
             </Avatar>

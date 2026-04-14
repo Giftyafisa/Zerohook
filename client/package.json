@@ -40,8 +40,8 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "test:e2e": "playwright test",
-    "ui:baseline:check": "playwright test tests/ui-baseline.spec.js --project=chromium --project=\"Mobile Chrome\" --workers=1 --timeout=90000",
-    "ui:baseline:update": "playwright test tests/ui-baseline.spec.js --project=chromium --project=\"Mobile Chrome\" --workers=1 --timeout=90000 --update-snapshots",
+    "ui:baseline:check": "cross-env REACT_APP_UI_BASELINE=1 playwright test tests/ui-baseline.spec.js --project=chromium --project=\"Mobile Chrome\" --workers=1 --timeout=90000",
+    "ui:baseline:update": "cross-env REACT_APP_UI_BASELINE=1 playwright test tests/ui-baseline.spec.js --project=chromium --project=\"Mobile Chrome\" --workers=1 --timeout=90000 --update-snapshots",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug"

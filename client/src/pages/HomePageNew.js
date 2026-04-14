@@ -149,6 +149,7 @@ const HomePage = () => {
   const navigate = useNavigate();
   const currentLocation = useLocation();
   const theme = useTheme();
+  const isUiBaselineMode = process.env.REACT_APP_UI_BASELINE === '1';
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isAuthenticated = useSelector(selectIsAuthenticated);
   const isSubscribed = useSelector(selectIsSubscribed);
@@ -262,7 +263,7 @@ const HomePage = () => {
       )}
 
       {/* Video Showcase - Top of Page */}
-      <VideoShowcase />
+      {!isUiBaselineMode && <VideoShowcase />}
 
       {/* Hero Section */}
       <HeroSection>

@@ -41,7 +41,7 @@ const compactNumberFormatter = new Intl.NumberFormat('en', {
 
 const formatCompactNumber = (value) => compactNumberFormatter.format(Number(value) || 0);
 
-const AnimatedBackground = () => (
+const AnimatedBackground = ({ staticMode = false }) => (
   <Box
     sx={{
       position: 'absolute',
@@ -58,43 +58,74 @@ const AnimatedBackground = () => (
       }}
     />
 
-    <motion.div
-      style={{
-        position: 'absolute',
-        top: '10%',
-        left: '-20%',
-        width: 300,
-        height: 300,
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(0,242,234,0.3) 0%, transparent 70%)',
-        filter: 'blur(40px)',
-      }}
-      animate={{
-        x: [0, 50, 0],
-        y: [0, 30, 0],
-        scale: [1, 1.2, 1],
-      }}
-      transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-    />
+    {staticMode ? (
+      <>
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '10%',
+            left: '-20%',
+            width: 300,
+            height: 300,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(0,242,234,0.3) 0%, transparent 70%)',
+            filter: 'blur(40px)',
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: '20%',
+            right: '-20%',
+            width: 350,
+            height: 350,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(255,0,85,0.25) 0%, transparent 70%)',
+            filter: 'blur(50px)',
+          }}
+        />
+      </>
+    ) : (
+      <>
+        <motion.div
+          style={{
+            position: 'absolute',
+            top: '10%',
+            left: '-20%',
+            width: 300,
+            height: 300,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(0,242,234,0.3) 0%, transparent 70%)',
+            filter: 'blur(40px)',
+          }}
+          animate={{
+            x: [0, 50, 0],
+            y: [0, 30, 0],
+            scale: [1, 1.2, 1],
+          }}
+          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+        />
 
-    <motion.div
-      style={{
-        position: 'absolute',
-        bottom: '20%',
-        right: '-20%',
-        width: 350,
-        height: 350,
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(255,0,85,0.25) 0%, transparent 70%)',
-        filter: 'blur(50px)',
-      }}
-      animate={{
-        x: [0, -40, 0],
-        y: [0, -20, 0],
-        scale: [1, 1.1, 1],
-      }}
-      transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
-    />
+        <motion.div
+          style={{
+            position: 'absolute',
+            bottom: '20%',
+            right: '-20%',
+            width: 350,
+            height: 350,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(255,0,85,0.25) 0%, transparent 70%)',
+            filter: 'blur(50px)',
+          }}
+          animate={{
+            x: [0, -40, 0],
+            y: [0, -20, 0],
+            scale: [1, 1.1, 1],
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </>
+    )}
 
     <Box
       sx={{
@@ -162,7 +193,7 @@ const FeatureCard = ({ icon: Icon, title, description, color }) => (
   </Box>
 );
 
-const FloatingAvatars = () => {
+const FloatingAvatars = ({ staticMode = false }) => {
   const avatars = [
     { top: '15%', left: '8%', delay: 0, size: 40 },
     { top: '25%', right: '10%', delay: 0.5, size: 36 },
@@ -176,6 +207,32 @@ const FloatingAvatars = () => {
         const horizontalPosition = avatar.left
           ? { left: avatar.left }
           : { right: avatar.right };
+
+        if (staticMode) {
+          return (
+            <Box
+              key={i}
+              sx={{
+                position: 'absolute',
+                top: avatar.top,
+                ...horizontalPosition,
+                zIndex: 5,
+              }}
+            >
+              <Avatar
+                sx={{
+                  width: avatar.size,
+                  height: avatar.size,
+                  bgcolor: `hsl(${160 + i * 40}, 70%, 50%)`,
+                  border: '2px solid rgba(255,255,255,0.2)',
+                  fontSize: avatar.size * 0.4,
+                }}
+              >
+                {String.fromCharCode(65 + i)}
+              </Avatar>
+            </Box>
+          );
+        }
 
         return (
           <motion.div
@@ -216,17 +273,18 @@ const FloatingAvatars = () => {
 const MobileHomePage = () => {
   const navigate = useNavigate();
   const isAuthenticated = useSelector(selectIsAuthenticated);
+  const isUiBaselineMode = process.env.REACT_APP_UI_BASELINE === '1';
   const [currentSlide, setCurrentSlide] = useState(0);
   const [infoPage, setInfoPage] = useState(0);
-  const [pulseLoading, setPulseLoading] = useState(true);
+  const [pulseLoading, setPulseLoading] = useState(!isUiBaselineMode);
   const [marketplacePulse, setMarketplacePulse] = useState({
-    onlineUsers: 0,
-    verifiedProfiles: 0,
-    activeListings: 0,
-    completedTransactions: 0,
-    newUsersThisWeek: 0,
+    onlineUsers: 124,
+    verifiedProfiles: 2450,
+    activeListings: 980,
+    completedTransactions: 12800,
+    newUsersThisWeek: 112,
   });
-  const [pulseUpdatedAt, setPulseUpdatedAt] = useState(null);
+  const [pulseUpdatedAt, setPulseUpdatedAt] = useState('2026-01-01T12:00:00.000Z');
 
   const features = [
     { icon: Verified, title: 'Verified Profiles', description: 'ID-verified companions', color: '#00f2ea' },
@@ -269,6 +327,11 @@ const MobileHomePage = () => {
   ];
 
   useEffect(() => {
+    if (isUiBaselineMode) {
+      setPulseLoading(false);
+      return undefined;
+    }
+
     let mounted = true;
 
     const fetchMarketplacePulse = async () => {
@@ -304,21 +367,29 @@ const MobileHomePage = () => {
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [isUiBaselineMode]);
 
   useEffect(() => {
+    if (isUiBaselineMode) {
+      return undefined;
+    }
+
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % features.length);
     }, SLIDE_AUTO_ADVANCE_MS);
     return () => clearInterval(timer);
-  }, [features.length]);
+  }, [features.length, isUiBaselineMode]);
 
   useEffect(() => {
+    if (isUiBaselineMode) {
+      return undefined;
+    }
+
     const timer = setInterval(() => {
       setInfoPage((prev) => (prev + 1) % INFO_PAGES_TOTAL);
     }, INFO_PAGE_AUTO_ADVANCE_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [isUiBaselineMode]);
 
   return (
     <Box
@@ -333,7 +404,7 @@ const MobileHomePage = () => {
         boxSizing: 'border-box',
       }}
     >
-      <VideoShowcase />
+      {!isUiBaselineMode && <VideoShowcase />}
 
       <Box
         sx={{
@@ -341,8 +412,8 @@ const MobileHomePage = () => {
           minHeight: '100vh',
         }}
       >
-        <AnimatedBackground />
-        <FloatingAvatars />
+        <AnimatedBackground staticMode={isUiBaselineMode} />
+        <FloatingAvatars staticMode={isUiBaselineMode} />
 
         <Box
           sx={{
@@ -498,7 +569,9 @@ const MobileHomePage = () => {
               </Box>
 
               <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.62rem', mt: 1, fontFamily: '"Outfit", sans-serif' }}>
-                Updated {pulseUpdatedAt ? new Date(pulseUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'just now'}
+                {isUiBaselineMode
+                  ? 'Updated moments ago'
+                  : `Updated ${pulseUpdatedAt ? new Date(pulseUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'just now'}`}
               </Typography>
             </Box>
           </motion.div>
@@ -846,12 +919,16 @@ const MobileHomePage = () => {
               opacity: 0.5,
             }}
           >
-            <motion.div
-              animate={{ y: [0, 5, 0] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            >
+            {isUiBaselineMode ? (
               <KeyboardArrowDown sx={{ color: '#fff', fontSize: 28 }} />
-            </motion.div>
+            ) : (
+              <motion.div
+                animate={{ y: [0, 5, 0] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              >
+                <KeyboardArrowDown sx={{ color: '#fff', fontSize: 28 }} />
+              </motion.div>
+            )}
           </Box>
         </Box>
       </Box>

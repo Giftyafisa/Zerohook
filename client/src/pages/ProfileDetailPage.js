@@ -12,15 +12,25 @@ import {
   Button,
   IconButton,
   Alert,
-  CircularProgress,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   TextField,
   Tabs,
-  Tab
+  Tab,
+  Tooltip,
+  Stack,
+  Divider,
+  Skeleton,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  useTheme,
+  useMediaQuery
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { toast } from 'react-toastify';
 import {
   LocationOn,
@@ -31,24 +41,61 @@ import {
   Message,
   VideoCall,
   ArrowBack,
-  Work
+  Work,
+  AccessTime,
+  MoreVert,
+  ContentCopy,
+  Flag,
+  Schedule,
+  Cake
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import { useCall } from '../contexts/CallContext';
 import { getDefaultImage } from '../config/images';
 import apiClient from '../services/apiClient';
 import { resolveProfileImage } from '../utils/imageUtils';
 import useCurrency from '../hooks/useCurrency';
 import usePresence from '../hooks/usePresence';
 
+const MAX_CONTACT_MESSAGE_LENGTH = 500;
+
+const CONTACT_MODE_LABELS = {
+  contact_request: 'Message Request',
+  video_call: 'Video Call Request',
+  service_inquiry: 'Service Inquiry'
+};
+
+const CONTACT_MODE_PLACEHOLDERS = {
+  contact_request: "Hi! I would like to connect with you.",
+  video_call: "Hi! I would like to have a video call with you. Are you available?",
+  service_inquiry: "Hi! I'm interested in your services. Can you share details?"
+};
+
+const normalizeList = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+};
+
+const buildLocationLabel = (location) => {
+  const city = String(location?.city || '').trim();
+  const country = String(location?.country || '').trim();
+  if (city && country) return `${city}, ${country}`;
+  if (city) return city;
+  if (country) return country;
+  return 'Location unavailable';
+};
+
 const ProfileDetailPage = () => {
   const { isAuthenticated, user } = useAuth();
+  const { startCall } = useCall();
   const { profileId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // Currency conversion hook - converts USD prices to user's local currency
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const { formatFromUSD, symbol: currencySymbol } = useCurrency();
-  
+
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -59,28 +106,116 @@ const ProfileDetailPage = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState(null);
+  const [actionsAnchorEl, setActionsAnchorEl] = useState(null);
 
-  // Real-time online status via socket (browse context = public visibility)
-  const presenceIds = useMemo(() => profile ? [profile.id || profileId] : [profileId], [profile, profileId]);
+  const profileData = useMemo(() => {
+    return profile?.profile_data || profile?.profileData || {};
+  }, [profile]);
+
+  const resolvedProfileId = useMemo(() => {
+    return profile?.id || profile?._id || profile?.userId || profileId || null;
+  }, [profile, profileId]);
+
+  const resolvedProfileName = useMemo(() => {
+    return profileData?.firstName || profile?.username || 'User';
+  }, [profileData, profile]);
+
+  const locationLabel = useMemo(() => {
+    return buildLocationLabel(profileData.location);
+  }, [profileData.location]);
+
+  const availabilityValues = useMemo(() => {
+    return normalizeList(profileData.availability);
+  }, [profileData.availability]);
+
+  const languageValues = useMemo(() => {
+    return normalizeList(profileData.languages);
+  }, [profileData.languages]);
+
+  const specializationValues = useMemo(() => {
+    return normalizeList(profileData.specializations);
+  }, [profileData.specializations]);
+
+  const serviceCategoryValues = useMemo(() => {
+    return normalizeList(profileData.serviceCategories);
+  }, [profileData.serviceCategories]);
+
+  const hasServiceData = serviceCategoryValues.length > 0 || specializationValues.length > 0;
+
+  const ageLabel = Number(profileData.age) > 0 ? `${profileData.age} years old` : 'Age not specified';
+
+  const startingPriceLabel = profileData.basePrice
+    ? formatFromUSD(profileData.basePrice)
+    : `${currencySymbol}0`;
+
+  const availabilityLabel = availabilityValues.length > 0
+    ? availabilityValues.join(', ')
+    : 'Availability not provided';
+
+  const presenceIds = useMemo(() => {
+    if (profile) return [profile.id || profileId];
+    return [profileId];
+  }, [profile, profileId]);
+
   const presenceSeed = useMemo(() => {
     const id = String(profile?.id || profileId || '');
     if (!id) return {};
     return { [id]: !!(profile?.isOnline || profile?.is_online) };
   }, [profile, profileId]);
-  const { isUserOnline, getUserLastSeen } = usePresence(presenceIds, { context: 'browse', initialStatusMap: presenceSeed });
-  const profileOnline = isUserOnline(profile?.id || profileId) ?? profile?.isOnline ?? profile?.is_online ?? false;
-  // Real-time lastSeenLabel (e.g. "5m ago") — falls back to static API value
-  const profileLastSeenLabel = getUserLastSeen(profile?.id || profileId) ?? profile?.lastSeenLabel ?? profile?.last_seen_label ?? null;
 
-  // Check connection status with the profile user
+  const { isUserOnline, getUserLastSeen } = usePresence(presenceIds, {
+    context: 'browse',
+    initialStatusMap: presenceSeed
+  });
+
+  const profileOnline = isUserOnline(profile?.id || profileId)
+    ?? profile?.isOnline
+    ?? profile?.is_online
+    ?? false;
+
+  const profileLastSeenLabel = getUserLastSeen(profile?.id || profileId)
+    ?? profile?.lastSeenLabel
+    ?? profile?.last_seen_label
+    ?? null;
+
+  const isConnectionAccepted = connectionStatus?.exists && connectionStatus.status === 'accepted';
+  const isConnectionPending = connectionStatus?.exists && connectionStatus.status !== 'accepted';
+
+  const connectionStatusLabel = isConnectionAccepted
+    ? 'Connected'
+    : isConnectionPending
+      ? 'Request Pending'
+      : 'Not Connected';
+
+  const getVerificationColor = (tier) => {
+    switch (tier) {
+      case 4: return '#FFD700';
+      case 3: return '#9C27B0';
+      case 2: return '#2196F3';
+      case 1: return '#4CAF50';
+      default: return '#757575';
+    }
+  };
+
+  const getVerificationLabel = (tier) => {
+    switch (tier) {
+      case 4: return 'Elite';
+      case 3: return 'Pro';
+      case 2: return 'Advanced';
+      case 1: return 'Basic';
+      default: return 'Unverified';
+    }
+  };
+
   const checkConnectionStatus = useCallback(async () => {
-    if (!isAuthenticated || !user || !profile) return;
-    
+    const targetUserId = profile?.id || profile?._id || profile?.userId;
+    if (!isAuthenticated || !user || !targetUserId) return;
+
     try {
-      const response = await apiClient.get(`/connections/check-status/${profile.id}`);
+      const response = await apiClient.get(`/connections/check-status/${targetUserId}`);
       setConnectionStatus(response.data);
-    } catch (error) {
-      console.error('Error checking connection status:', error);
+    } catch (requestError) {
+      console.error('Error checking connection status:', requestError);
     }
   }, [isAuthenticated, user, profile]);
 
@@ -94,25 +229,24 @@ const ProfileDetailPage = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // CRITICAL: Prevent users from viewing their own profile
+
       if (isAuthenticated && user && String(user.id) === String(profileId)) {
         setError('You cannot view your own profile in the marketplace. Use your dashboard instead.');
         setLoading(false);
         return;
       }
-      
+
       const response = await apiClient.get(`/users/${profileId}`);
       const data = response.data;
-      
+
       if (!data.user) {
         throw new Error('Invalid response format: missing user data');
       }
-      
+
       setProfile(data.user);
-    } catch (error) {
-      console.error('Error fetching profile details:', error);
-      setError(error.message || 'Failed to fetch profile details');
+    } catch (requestError) {
+      console.error('Error fetching profile details:', requestError);
+      setError(requestError.message || 'Failed to fetch profile details');
     } finally {
       setLoading(false);
     }
@@ -124,108 +258,214 @@ const ProfileDetailPage = () => {
     }
   }, [profileId, fetchProfileDetails]);
 
-  const handleContact = () => {
-    const avatar = resolveProfileImage(profile?.profile_data || profile?.profileData);
-    const recipientId = profile?.id || profile?._id || profile?.userId;
-    const recipientName = profile?.profile_data?.firstName || profile?.profileData?.firstName || profile?.username || 'User';
-    if (!recipientId) {
+  const redirectToLogin = useCallback(() => {
+    navigate('/login', {
+      state: {
+        from: {
+          pathname: location.pathname,
+          search: location.search,
+          hash: location.hash
+        }
+      }
+    });
+  }, [navigate, location.pathname, location.search, location.hash]);
+
+  const openContactDialog = useCallback((type = 'contact_request') => {
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return;
+    }
+
+    setContactType(type);
+    setContactMessage('');
+    setContactDialog(true);
+  }, [isAuthenticated, redirectToLogin]);
+
+  const handleContact = useCallback(() => {
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return;
+    }
+
+    const avatar = resolveProfileImage(profileData);
+    if (!resolvedProfileId) {
       toast.error('Unable to open chat for this profile right now.');
       return;
     }
+
     const chatState = {
-      recipientId,
-      recipientName,
+      recipientId: resolvedProfileId,
+      recipientName: resolvedProfileName,
+      recipientAvatar: avatar,
+      from: location.pathname
+    };
+
+    const chatQuery = new URLSearchParams();
+    chatQuery.set('recipientId', String(resolvedProfileId));
+
+    navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
+      state: chatState
+    });
+  }, [isAuthenticated, redirectToLogin, profileData, resolvedProfileId, resolvedProfileName, location.pathname, navigate]);
+
+  const handleVideoCall = useCallback(() => {
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return;
+    }
+
+    if (!resolvedProfileId) {
+      toast.error('Unable to start a call for this profile right now.');
+      return;
+    }
+
+    const avatar = resolveProfileImage(profileData);
+    const chatState = {
+      recipientId: resolvedProfileId,
+      recipientName: resolvedProfileName,
       recipientAvatar: avatar,
       from: location.pathname
     };
     const chatQuery = new URLSearchParams();
-    chatQuery.set('recipientId', String(recipientId));
+    chatQuery.set('recipientId', String(resolvedProfileId));
+
     navigate(`/chat${chatQuery.toString() ? `?${chatQuery.toString()}` : ''}`, {
       state: chatState
     });
-  };
 
-  const handleOpenContactDialog = () => {
-    if (!isAuthenticated) {
-      navigate('/login', {
-        state: {
-          from: {
-            pathname: location.pathname,
-            search: location.search,
-            hash: location.hash
-          }
-        }
-      });
-      return;
-    }
+    startCall(resolvedProfileId, 'video', resolvedProfileName);
+  }, [isAuthenticated, redirectToLogin, resolvedProfileId, profileData, resolvedProfileName, location.pathname, navigate, startCall]);
 
-    setContactType('contact_request');
-    setContactMessage('');
-    setContactDialog(true);
-  };
-
-  const handleSendContactRequest = async () => {
-    if (!contactMessage.trim()) return;
+  const handleSendContactRequest = useCallback(async () => {
+    if (!contactMessage.trim() || !resolvedProfileId) return;
 
     setSendingMessage(true);
     try {
       await apiClient.post('/connections/contact-request', {
-        toUserId: profile.id,
-        message: contactMessage,
+        toUserId: resolvedProfileId,
+        message: contactMessage.trim(),
         connectionType: contactType
       });
 
-      toast.success('Contact request sent successfully!');
+      toast.success('Contact request sent successfully.');
       setContactDialog(false);
       setContactMessage('');
-      // Refresh connection status
       checkConnectionStatus();
-    } catch (error) {
-      console.error('Send contact request error:', error);
-      const status = error.response?.status;
+    } catch (requestError) {
+      console.error('Send contact request error:', requestError);
+      const status = requestError.response?.status;
       if (status === 409) {
-        toast.info('You are already connected with this user!');
+        toast.info('You are already connected with this user.');
       } else if (status === 403) {
         toast.error('Cannot connect with this user due to blocking.');
       } else if (status === 404) {
         toast.error('User not found. Please try again.');
       } else {
-        toast.error(error.response?.data?.message || 'Failed to send contact request');
+        toast.error(requestError.response?.data?.message || 'Failed to send contact request');
       }
     } finally {
       setSendingMessage(false);
     }
-  };
+  }, [contactMessage, resolvedProfileId, contactType, checkConnectionStatus]);
 
   const handleFavoriteToggle = () => {
-    setIsFavorite(!isFavorite);
+    setIsFavorite((prev) => !prev);
   };
 
-  const getVerificationColor = (tier) => {
-    switch (tier) {
-      case 4: return '#FFD700'; // Elite
-      case 3: return '#9C27B0'; // Pro
-      case 2: return '#2196F3'; // Advanced
-      case 1: return '#4CAF50'; // Basic
-      default: return '#757575';
+  const handleOpenActionsMenu = (event) => {
+    setActionsAnchorEl(event.currentTarget);
+  };
+
+  const handleCloseActionsMenu = () => {
+    setActionsAnchorEl(null);
+  };
+
+  const handleCopyProfileLink = async () => {
+    handleCloseActionsMenu();
+    if (typeof window === 'undefined') return;
+
+    const absoluteUrl = `${window.location.origin}/profile/${profileId}`;
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      toast.success('Profile link copied.');
+    } catch (copyError) {
+      console.error('Copy link failed:', copyError);
+      toast.error('Could not copy the profile link.');
     }
   };
 
-  const getVerificationLabel = (tier) => {
-    switch (tier) {
-      case 4: return 'Elite';
-      case 3: return 'Pro';
-      case 2: return 'Advanced';
-      case 1: return 'Basic';
-      default: return 'Basic';
-    }
+  const handleReportProfile = () => {
+    handleCloseActionsMenu();
+    navigate('/help', {
+      state: {
+        reportTarget: {
+          profileId: resolvedProfileId,
+          username: profile?.username,
+          source: location.pathname
+        }
+      }
+    });
+    toast.info('Describe the issue in Support so our team can review it.');
+  };
+
+  const renderTagSection = (title, values, color = 'default') => {
+    if (values.length === 0) return null;
+
+    return (
+      <Box mb={3}>
+        <Typography
+          variant="subtitle2"
+          fontWeight={700}
+          color="text.secondary"
+          gutterBottom
+          sx={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 1 }}
+        >
+          {title}
+        </Typography>
+        <Box display="flex" gap={1} flexWrap="wrap" mt={1}>
+          {values.map((value) => (
+            <Chip
+              key={`${title}-${value}`}
+              label={value}
+              size="small"
+              color={color}
+              variant={color === 'default' ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 500 }}
+            />
+          ))}
+        </Box>
+      </Box>
+    );
   };
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-        <CircularProgress size={60} />
-      </Box>
+      <Container maxWidth="lg" sx={{ py: { xs: 1, md: 4 } }}>
+        <Skeleton variant="text" width={120} height={36} sx={{ mb: 2 }} />
+
+        <Card elevation={0} sx={{ borderRadius: 4, p: { xs: 2, md: 3 }, mb: 3 }}>
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={4}>
+              <Skeleton variant="rounded" sx={{ width: '100%', pt: '100%', borderRadius: 3 }} />
+            </Grid>
+            <Grid item xs={12} md={8}>
+              <Skeleton variant="text" width="60%" height={52} />
+              <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
+              <Skeleton variant="rounded" width="100%" height={44} sx={{ mb: 2 }} />
+              <Skeleton variant="rounded" width="75%" height={34} sx={{ mb: 3 }} />
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                <Skeleton variant="rounded" width={160} height={46} />
+                <Skeleton variant="rounded" width={160} height={46} />
+              </Stack>
+            </Grid>
+          </Grid>
+        </Card>
+
+        <Card elevation={0} sx={{ borderRadius: 4, p: { xs: 2, md: 3 } }}>
+          <Skeleton variant="text" width={180} height={32} sx={{ mb: 2 }} />
+          <Skeleton variant="rounded" width="100%" height={120} />
+        </Card>
+      </Container>
     );
   }
 
@@ -236,13 +476,14 @@ const ProfileDetailPage = () => {
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
-          <Button
-            variant="contained"
-            onClick={() => navigate('/profiles')}
-            startIcon={<ArrowBack />}
-          >
-            Back to Profiles
-          </Button>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="center">
+            <Button variant="contained" onClick={fetchProfileDetails}>
+              Retry
+            </Button>
+            <Button variant="outlined" onClick={() => navigate('/profiles')} startIcon={<ArrowBack />}>
+              Back to Profiles
+            </Button>
+          </Stack>
         </Box>
       </Container>
     );
@@ -255,11 +496,10 @@ const ProfileDetailPage = () => {
           <Typography variant="h5" gutterBottom>
             Profile Not Found
           </Typography>
-          <Button
-            variant="contained"
-            onClick={() => navigate('/profiles')}
-            startIcon={<ArrowBack />}
-          >
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
+            This profile may have been removed or is no longer available.
+          </Typography>
+          <Button variant="contained" onClick={() => navigate('/profiles')} startIcon={<ArrowBack />}>
             Back to Profiles
           </Button>
         </Box>
@@ -267,50 +507,56 @@ const ProfileDetailPage = () => {
     );
   }
 
-  const profileData = profile.profile_data || {};
-  const isConnectionAccepted = connectionStatus?.exists && connectionStatus.status === 'accepted';
-  const isConnectionPending = connectionStatus?.exists && connectionStatus.status !== 'accepted';
-
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 0.5, sm: 1, md: 4 }, pt: { xs: 0, sm: 0.5, md: 4 } }}>
-      {/* Back Button */}
-      <Button
-        variant="text"
-        onClick={() => navigate('/profiles')}
-        startIcon={<ArrowBack />}
-        sx={{ mb: { xs: 0.5, sm: 1, md: 3 }, color: 'text.secondary', minHeight: 36 }}
+    <Container maxWidth="lg" sx={{ py: { xs: 0.75, sm: 1.5, md: 4 }, pb: { xs: 14, md: 4 } }}>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={{ xs: 1, md: 2.5 }}
       >
-        Back
-      </Button>
+        <Button
+          variant="text"
+          onClick={() => navigate('/profiles')}
+          startIcon={<ArrowBack />}
+          sx={{ color: 'text.secondary', minHeight: 40, px: 1.5 }}
+        >
+          Back to Profiles
+        </Button>
+        <Typography variant="body2" color="text.secondary">
+          Profile Detail
+        </Typography>
+      </Stack>
 
-      {/* Hero Card - Clean & Modern */}
-      <Card 
+      <Card
         elevation={0}
-        sx={{ 
-          bgcolor: 'background.paper',
-          borderRadius: 3,
-          overflow: 'hidden'
+        sx={{
+          bgcolor: alpha(theme.palette.background.paper, 0.94),
+          borderRadius: 4,
+          overflow: 'hidden',
+          border: `1px solid ${alpha(theme.palette.primary.main, 0.22)}`,
+          boxShadow: `0 24px 40px ${alpha(theme.palette.common.black, 0.28)}`
         }}
       >
-        <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-          <Grid container spacing={4}>
-            {/* Profile Image */}
+        <CardContent sx={{ p: { xs: 2.25, md: 3.5 } }}>
+          <Grid container spacing={{ xs: 2.5, md: 3.5 }}>
             <Grid item xs={12} md={4}>
-              <Box 
-                sx={{ 
+              <Box
+                sx={{
                   position: 'relative',
                   width: '100%',
-                  paddingTop: '100%', // 1:1 aspect ratio
+                  paddingTop: '100%',
                   borderRadius: 3,
                   overflow: 'hidden',
-                  bgcolor: 'background.default'
+                  bgcolor: 'background.default',
+                  border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`
                 }}
               >
                 <CardMedia
                   component="img"
                   image={resolveProfileImage(profileData) || getDefaultImage('PROFILE', profileData.gender)}
-                  alt={`${profileData.firstName} ${profileData.lastName}`}
-                  sx={{ 
+                  alt={`${profileData.firstName || 'Profile'} ${profileData.lastName || ''}`.trim()}
+                  sx={{
                     position: 'absolute',
                     top: 0,
                     left: 0,
@@ -318,266 +564,371 @@ const ProfileDetailPage = () => {
                     height: '100%',
                     objectFit: 'cover'
                   }}
-                  onError={(e) => {
-                    e.target.src = getDefaultImage('PROFILE', profileData.gender);
+                  onError={(event) => {
+                    event.target.src = getDefaultImage('PROFILE', profileData.gender);
                   }}
                 />
-                {/* Online Status Badge */}
-                <Box
+
+                <Tooltip title={profileOnline ? 'Online now' : (profileLastSeenLabel || 'Offline')}>
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 12,
+                      right: 12,
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      bgcolor: profileOnline ? 'success.main' : 'grey.500',
+                      border: '3px solid',
+                      borderColor: 'background.paper',
+                      boxShadow: profileOnline ? '0 0 8px rgba(76,175,80,0.65)' : 2
+                    }}
+                  />
+                </Tooltip>
+
+                <Chip
+                  size="small"
+                  icon={<AccessTime sx={{ fontSize: 16 }} />}
+                  label={profileOnline ? 'Online' : (profileLastSeenLabel || 'Offline')}
                   sx={{
                     position: 'absolute',
-                    top: 16,
-                    right: 16,
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    bgcolor: profileOnline ? 'success.main' : 'grey.500',
-                    border: '3px solid',
-                    borderColor: 'background.paper',
-                    boxShadow: profileOnline ? '0 0 8px rgba(76,175,80,0.6)' : 2,
-                    transition: 'background-color 0.3s, box-shadow 0.3s',
+                    left: 12,
+                    bottom: 12,
+                    bgcolor: alpha(theme.palette.background.paper, 0.86),
+                    border: `1px solid ${alpha(theme.palette.primary.main, 0.24)}`,
+                    fontWeight: 600
                   }}
                 />
               </Box>
             </Grid>
 
-            {/* Profile Info */}
             <Grid item xs={12} md={8}>
-              {/* Name & Favorite */}
-              <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-                <Box>
-                  <Typography variant="h4" component="h1" fontWeight={600} gutterBottom>
-                    {profileData.firstName} {profileData.lastName}
+              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1.5}>
+                <Box minWidth={0}>
+                  <Typography
+                    variant="h4"
+                    component="h1"
+                    fontWeight={700}
+                    sx={{
+                      fontSize: { xs: '1.6rem', md: '2.15rem' },
+                      lineHeight: 1.2,
+                      wordBreak: 'break-word'
+                    }}
+                  >
+                    {`${profileData.firstName || ''} ${profileData.lastName || ''}`.trim() || profile.username}
                   </Typography>
-                  <Typography variant="body1" color="text.secondary">
+                  <Typography variant="body1" color="text.secondary" sx={{ mt: 0.25, wordBreak: 'break-all' }}>
                     @{profile.username}
                   </Typography>
                 </Box>
-                <IconButton
-                  onClick={handleFavoriteToggle}
-                  sx={{ color: isFavorite ? 'error.main' : 'text.secondary' }}
-                  aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                >
-                  {isFavorite ? <Favorite /> : <FavoriteBorder />}
-                </IconButton>
-              </Box>
 
-              {/* Consolidated Status Line */}
-              <Box display="flex" gap={1} flexWrap="wrap" alignItems="center" mb={3}>
+                <Stack direction="row" spacing={0.5}>
+                  <Tooltip title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
+                    <IconButton
+                      onClick={handleFavoriteToggle}
+                      sx={{ color: isFavorite ? 'error.main' : 'text.secondary' }}
+                      aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      {isFavorite ? <Favorite /> : <FavoriteBorder />}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="More actions">
+                    <IconButton onClick={handleOpenActionsMenu} aria-label="Open profile actions">
+                      <MoreVert />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Stack>
+
+              <Menu
+                anchorEl={actionsAnchorEl}
+                open={Boolean(actionsAnchorEl)}
+                onClose={handleCloseActionsMenu}
+              >
+                <MenuItem onClick={handleCopyProfileLink}>
+                  <ListItemIcon>
+                    <ContentCopy fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>Copy profile link</ListItemText>
+                </MenuItem>
+                <MenuItem onClick={handleReportProfile}>
+                  <ListItemIcon>
+                    <Flag fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>Report profile</ListItemText>
+                </MenuItem>
+              </Menu>
+
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" mb={2}>
                 <Chip
-                  label={profileOnline ? 'Online now' : (profileLastSeenLabel || 'Offline')}
                   size="small"
-                  sx={{
-                    bgcolor: profileOnline ? 'success.light' : 'grey.200',
-                    color: profileOnline ? 'success.dark' : 'text.secondary',
-                    border: 1,
-                    borderColor: profileOnline ? 'success.main' : 'grey.400',
-                    fontWeight: 600,
-                  }}
+                  label={connectionStatusLabel}
+                  color={isConnectionAccepted ? 'success' : isConnectionPending ? 'warning' : 'default'}
+                  variant={isConnectionAccepted ? 'filled' : 'outlined'}
+                  sx={{ fontWeight: 600 }}
                 />
-                <Chip
-                  icon={<Security sx={{ fontSize: 18 }} />}
-                  label={getVerificationLabel(profile.verification_tier)}
-                  size="small"
-                  sx={{ 
-                    bgcolor: `${getVerificationColor(profile.verification_tier)}20`,
-                    color: getVerificationColor(profile.verification_tier),
-                    borderColor: getVerificationColor(profile.verification_tier),
-                    border: 1,
-                    fontWeight: 500
-                  }}
-                />
-                <Chip
-                  icon={<Star sx={{ fontSize: 18 }} />}
-                  label={`${profile.reputation_score || 0}`}
-                  size="small"
-                  variant="outlined"
-                />
+
+                <Tooltip title="Verification tier based on profile and trust checks">
+                  <Chip
+                    icon={<Security sx={{ fontSize: 18 }} />}
+                    label={getVerificationLabel(profile.verification_tier)}
+                    size="small"
+                    sx={{
+                      bgcolor: `${getVerificationColor(profile.verification_tier)}22`,
+                      color: getVerificationColor(profile.verification_tier),
+                      borderColor: getVerificationColor(profile.verification_tier),
+                      border: 1,
+                      fontWeight: 600
+                    }}
+                  />
+                </Tooltip>
+
+                <Tooltip title="Reputation score based on completed interactions">
+                  <Chip
+                    icon={<Star sx={{ fontSize: 18 }} />}
+                    label={`${profile.reputation_score || 0}`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
+                </Tooltip>
+
                 {profile.is_subscribed && (
                   <Chip
                     label="Premium"
                     size="small"
                     color="primary"
-                    sx={{ fontWeight: 500 }}
+                    sx={{ fontWeight: 600 }}
                   />
                 )}
-              </Box>
+              </Stack>
 
-              {/* Location & Age */}
-              <Box display="flex" alignItems="center" gap={2} mb={2} color="text.secondary">
-                <Box display="flex" alignItems="center" gap={0.5}>
-                  <LocationOn sx={{ fontSize: 20 }} />
-                  <Typography variant="body2">
-                    {profileData.location?.city}, {profileData.location?.country}
-                  </Typography>
-                </Box>
-                <Typography variant="body2">•</Typography>
-                <Typography variant="body2">
-                  {profileData.age} years old
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" mb={2.5}>
+                <Chip
+                  icon={<LocationOn sx={{ fontSize: 18 }} />}
+                  label={locationLabel}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  icon={<Cake sx={{ fontSize: 18 }} />}
+                  label={ageLabel}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip
+                  icon={<Schedule sx={{ fontSize: 18 }} />}
+                  label={availabilityLabel}
+                  size="small"
+                  variant="outlined"
+                />
+              </Stack>
+
+              <Box
+                sx={{
+                  p: 2,
+                  borderRadius: 2,
+                  border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+                  background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.09)}, ${alpha(theme.palette.background.default, 0.55)})`,
+                  mb: 2.5
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                  Starting from
+                </Typography>
+                <Typography
+                  variant="h4"
+                  color="primary"
+                  fontWeight={700}
+                  sx={{ fontSize: { xs: '1.65rem', md: '2rem' }, lineHeight: 1.15, mt: 0.5 }}
+                >
+                  {startingPriceLabel}
                 </Typography>
               </Box>
 
-              {/* Price & Availability - Single Line */}
-              <Box display="flex" alignItems="center" gap={2} mb={3}>
-                <Typography variant="h5" color="primary" fontWeight={600}>
-                  {profileData.basePrice ? formatFromUSD(profileData.basePrice) : `${currencySymbol}0`}
-                </Typography>
-                {profileData.availability && profileData.availability.length > 0 && (
-                  <>
-                    <Typography variant="body2" color="text.secondary">•</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {profileData.availability.join(', ')}
-                    </Typography>
-                  </>
-                )}
-              </Box>
-
-              {/* Action Buttons */}
-              <Box display="flex" gap={2}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} useFlexGap>
                 <Button
                   variant="contained"
                   size="large"
-                  onClick={isConnectionAccepted ? handleContact : handleOpenContactDialog}
+                  onClick={handleContact}
                   startIcon={<Message />}
-                  disabled={isConnectionPending}
-                  sx={{ 
+                  disabled={!resolvedProfileId}
+                  sx={{
                     borderRadius: 2,
                     textTransform: 'none',
-                    fontWeight: 600,
-                    px: 3
+                    fontWeight: 700,
+                    px: 3,
+                    minWidth: 170
                   }}
                 >
-                  {isConnectionAccepted
-                    ? 'Connected' 
-                    : isConnectionPending
-                      ? 'Pending' 
-                      : 'Contact'
+                  {isAuthenticated ? 'Message' : 'Login to Message'}
+                </Button>
+
+                <Tooltip
+                  title={
+                    !isAuthenticated
+                      ? 'Login to start calls'
+                      : profileOnline
+                        ? 'Start a live video call'
+                        : 'User appears offline. You can still try or send a message first.'
                   }
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="large"
-                  startIcon={<VideoCall />}
-                  onClick={() => {
-                    if (window.startVideoCall) {
-                      window.startVideoCall(profile.id);
-                    }
-                  }}
-                  sx={{ 
-                    borderRadius: 2,
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    px: 3
-                  }}
                 >
-                  Video Call
-                </Button>
-              </Box>
+                  <span>
+                    <Button
+                      variant="outlined"
+                      size="large"
+                      startIcon={<VideoCall />}
+                      onClick={handleVideoCall}
+                      disabled={!resolvedProfileId}
+                      sx={{
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        px: 3,
+                        minWidth: 170
+                      }}
+                    >
+                      {isAuthenticated ? 'Video Call' : 'Login to Call'}
+                    </Button>
+                  </span>
+                </Tooltip>
+
+                {!isConnectionAccepted && (
+                  <Button
+                    variant="text"
+                    size="large"
+                    onClick={() => openContactDialog('contact_request')}
+                    disabled={!isAuthenticated || !resolvedProfileId || isConnectionPending}
+                    sx={{
+                      borderRadius: 2,
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      px: 1.25
+                    }}
+                  >
+                    {isConnectionPending ? 'Request Pending' : 'Request Connection'}
+                  </Button>
+                )}
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.25 }}>
+                {isConnectionAccepted
+                  ? 'You are connected. Messaging opens directly in chat.'
+                  : isConnectionPending
+                    ? 'Your connection request is waiting for approval.'
+                    : 'Send a request first if you want to introduce yourself before a direct chat.'}
+              </Typography>
             </Grid>
           </Grid>
         </CardContent>
       </Card>
 
-      {/* Tabs Card - Only Show Populated Sections */}
-      <Card 
+      <Card
         elevation={0}
-        sx={{ 
+        sx={{
           mt: 3,
-          bgcolor: 'background.paper',
-          borderRadius: 3
+          bgcolor: alpha(theme.palette.background.paper, 0.94),
+          borderRadius: 4,
+          border: `1px solid ${alpha(theme.palette.primary.main, 0.16)}`
         }}
       >
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs 
-            value={activeTab} 
-            onChange={(e, newValue) => setActiveTab(newValue)}
-            sx={{ px: 2 }}
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 0.5, md: 2 } }}>
+          <Tabs
+            value={activeTab}
+            onChange={(event, newValue) => setActiveTab(newValue)}
+            variant={isMobile ? 'fullWidth' : 'standard'}
           >
-            <Tab label="About" sx={{ textTransform: 'none', fontWeight: 600 }} />
-            <Tab label="Services" sx={{ textTransform: 'none', fontWeight: 600 }} />
+            <Tab label="About" sx={{ textTransform: 'none', fontWeight: 700 }} />
+            <Tab label="Services" sx={{ textTransform: 'none', fontWeight: 700 }} />
           </Tabs>
         </Box>
 
-        <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-          {/* About Tab */}
+        <CardContent sx={{ p: { xs: 2.5, md: 3.5 } }}>
           {activeTab === 0 && (
             <Box>
-              <Typography variant="body1" color="text.secondary" paragraph sx={{ lineHeight: 1.8, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                {profileData.bio || 'No bio available'}
+              <Typography
+                variant="h6"
+                fontWeight={700}
+                sx={{ mb: 1.25, fontSize: { xs: '1.05rem', md: '1.2rem' } }}
+              >
+                About
               </Typography>
 
-              {profileData.languages && profileData.languages.length > 0 && (
-                <Box mb={3}>
-                  <Typography variant="subtitle2" fontWeight={600} color="text.secondary" gutterBottom sx={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 1 }}>
-                    Languages
-                  </Typography>
-                  <Box display="flex" gap={1} flexWrap="wrap" mt={1}>
-                    {profileData.languages.map((lang, index) => (
-                      <Chip 
-                        key={index} 
-                        label={lang} 
-                        size="small"
-                        sx={{ bgcolor: 'background.default', fontWeight: 500 }}
-                      />
-                    ))}
-                  </Box>
-                </Box>
-              )}
+              <Typography
+                variant="body1"
+                color="text.secondary"
+                paragraph
+                sx={{ lineHeight: 1.8, wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+              >
+                {String(profileData.bio || '').trim() || 'This profile has not added a bio yet.'}
+              </Typography>
 
-              {profileData.specializations && profileData.specializations.length > 0 && (
-                <Box mb={3}>
-                  <Typography variant="subtitle2" fontWeight={600} color="text.secondary" gutterBottom sx={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 1 }}>
-                    Specializations
-                  </Typography>
-                  <Box display="flex" gap={1} flexWrap="wrap" mt={1}>
-                    {profileData.specializations.map((spec, index) => (
-                      <Chip 
-                        key={index} 
-                        label={spec} 
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
-                    ))}
-                  </Box>
-                </Box>
-              )}
+              <Divider sx={{ my: 2 }} />
 
-              {profileData.serviceCategories && profileData.serviceCategories.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle2" fontWeight={600} color="text.secondary" gutterBottom sx={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 1 }}>
-                    Service Categories
-                  </Typography>
-                  <Box display="flex" gap={1} flexWrap="wrap" mt={1}>
-                    {profileData.serviceCategories.map((category, index) => (
-                      <Chip 
-                        key={index} 
-                        label={category} 
-                        size="small"
-                        sx={{ bgcolor: 'background.default', fontWeight: 500 }}
-                      />
-                    ))}
-                  </Box>
-                </Box>
+              {renderTagSection('Languages', languageValues, 'default')}
+              {renderTagSection('Specializations', specializationValues, 'primary')}
+              {renderTagSection('Service Categories', serviceCategoryValues, 'default')}
+
+              {languageValues.length === 0 && specializationValues.length === 0 && serviceCategoryValues.length === 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  Additional profile details have not been shared yet.
+                </Typography>
               )}
             </Box>
           )}
 
-          {/* Services Tab */}
           {activeTab === 1 && (
-            <Box textAlign="center" py={4}>
-              <Work sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="body1" color="text.secondary">
-                Detailed service information coming soon
-              </Typography>
+            <Box>
+              {hasServiceData ? (
+                <>
+                  <Typography
+                    variant="h6"
+                    fontWeight={700}
+                    sx={{ mb: 1.25, fontSize: { xs: '1.05rem', md: '1.2rem' } }}
+                  >
+                    Service Highlights
+                  </Typography>
+
+                  {renderTagSection('Service Categories', serviceCategoryValues, 'default')}
+                  {renderTagSection('Specializations', specializationValues, 'primary')}
+
+                  <Box
+                    sx={{
+                      mt: 1.5,
+                      p: 2,
+                      borderRadius: 2,
+                      border: `1px solid ${alpha(theme.palette.primary.main, 0.16)}`,
+                      bgcolor: alpha(theme.palette.background.default, 0.55)
+                    }}
+                  >
+                    <Typography variant="body2" color="text.secondary">
+                      Discuss pricing, availability, and expectations directly in chat before booking.
+                    </Typography>
+                  </Box>
+                </>
+              ) : (
+                <Box textAlign="center" py={4}>
+                  <Work sx={{ fontSize: 48, color: 'text.disabled', mb: 1.5 }} />
+                  <Typography variant="body1" color="text.secondary" sx={{ mb: 1.5 }}>
+                    Detailed service information has not been added yet.
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    onClick={() => openContactDialog('service_inquiry')}
+                    startIcon={<Message />}
+                    sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
+                  >
+                    Send Service Inquiry
+                  </Button>
+                </Box>
+              )}
             </Box>
           )}
         </CardContent>
       </Card>
 
-      {/* Contact Dialog - Modern & Clean */}
-      <Dialog 
-        open={contactDialog} 
+      <Dialog
+        open={contactDialog}
         onClose={() => setContactDialog(false)}
         maxWidth="sm"
         fullWidth
@@ -589,25 +940,22 @@ const ProfileDetailPage = () => {
         }}
       >
         <DialogTitle sx={{ pb: 1 }}>
-          <Typography variant="h6" fontWeight={600}>
-            Contact {profileData.firstName}
+          <Typography variant="h6" fontWeight={700}>
+            {CONTACT_MODE_LABELS[contactType]} - {resolvedProfileName}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Choose how you'd like to connect
+            Send a clear first message to improve response quality.
           </Typography>
         </DialogTitle>
+
         <DialogContent sx={{ pt: 2 }}>
-          <Box display="flex" gap={1} mb={3}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} mb={2.5}>
             <Button
               variant={contactType === 'contact_request' ? 'contained' : 'outlined'}
               size="small"
               onClick={() => setContactType('contact_request')}
               startIcon={<Message />}
-              sx={{ 
-                flex: 1,
-                borderRadius: 2,
-                textTransform: 'none'
-              }}
+              sx={{ flex: 1, borderRadius: 2, textTransform: 'none' }}
             >
               Message
             </Button>
@@ -616,11 +964,7 @@ const ProfileDetailPage = () => {
               size="small"
               onClick={() => setContactType('video_call')}
               startIcon={<VideoCall />}
-              sx={{ 
-                flex: 1,
-                borderRadius: 2,
-                textTransform: 'none'
-              }}
+              sx={{ flex: 1, borderRadius: 2, textTransform: 'none' }}
             >
               Video Call
             </Button>
@@ -629,67 +973,97 @@ const ProfileDetailPage = () => {
               size="small"
               onClick={() => setContactType('service_inquiry')}
               startIcon={<Work />}
-              sx={{ 
-                flex: 1,
-                borderRadius: 2,
-                textTransform: 'none'
-              }}
+              sx={{ flex: 1, borderRadius: 2, textTransform: 'none' }}
             >
               Service
             </Button>
-          </Box>
-          
+          </Stack>
+
           <TextField
             fullWidth
             multiline
             rows={4}
             label="Your Message"
             value={contactMessage}
-            onChange={(e) => setContactMessage(e.target.value)}
-            placeholder={
-              contactType === 'video_call' 
-                ? "Hi! I would like to have a video call with you. Are you available?"
-                : contactType === 'service_inquiry'
-                ? "Hi! I'm interested in your services. Can you tell me more?"
-                : "Hi! I'd like to connect with you..."
-            }
+            onChange={(event) => setContactMessage(event.target.value)}
+            placeholder={CONTACT_MODE_PLACEHOLDERS[contactType]}
             variant="outlined"
-            sx={{ 
+            autoFocus
+            inputProps={{ maxLength: MAX_CONTACT_MESSAGE_LENGTH }}
+            helperText={`${contactMessage.length}/${MAX_CONTACT_MESSAGE_LENGTH} characters`}
+            sx={{
               '& .MuiOutlinedInput-root': {
                 borderRadius: 2
               }
             }}
           />
         </DialogContent>
+
         <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-          <Button 
+          <Button
             onClick={() => setContactDialog(false)}
-            sx={{ 
-              borderRadius: 2,
-              textTransform: 'none',
-              px: 3
-            }}
+            sx={{ borderRadius: 2, textTransform: 'none', px: 3 }}
           >
             Cancel
           </Button>
-          <Button 
+          <Button
             onClick={handleSendContactRequest}
             variant="contained"
-            disabled={!contactMessage.trim() || sendingMessage}
-            sx={{ 
-              borderRadius: 2,
-              textTransform: 'none',
-              px: 3,
-              fontWeight: 600
-            }}
+            disabled={!contactMessage.trim() || sendingMessage || !resolvedProfileId}
+            sx={{ borderRadius: 2, textTransform: 'none', px: 3, fontWeight: 700 }}
           >
-            {sendingMessage ? 'Sending...' : 'Send'}
+            {sendingMessage ? 'Sending...' : 'Send Request'}
           </Button>
         </DialogActions>
       </Dialog>
+
+      {isMobile && !contactDialog && (
+        <Box
+          sx={{
+            position: 'fixed',
+            left: 12,
+            right: 12,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)',
+            zIndex: 1200
+          }}
+        >
+          <Card
+            elevation={6}
+            sx={{
+              borderRadius: 3,
+              border: `1px solid ${alpha(theme.palette.primary.main, 0.26)}`,
+              bgcolor: alpha(theme.palette.background.paper, 0.96)
+            }}
+          >
+            <CardContent sx={{ p: 1.25 }}>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  startIcon={<Message />}
+                  onClick={handleContact}
+                  disabled={!resolvedProfileId}
+                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                >
+                  Message
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<VideoCall />}
+                  onClick={handleVideoCall}
+                  disabled={!resolvedProfileId}
+                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                >
+                  Call
+                </Button>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Box>
+      )}
     </Container>
   );
 };
 
 export default ProfileDetailPage;
-

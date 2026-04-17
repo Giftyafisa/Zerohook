@@ -4,6 +4,13 @@ const mongoose = require('mongoose');
 const { User, TrustEvent, FraudLog, Transaction } = require('../config/database');
 const router = express.Router();
 
+const normalizeTrustScore = (score) => {
+  const numeric = Number(score || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  const normalized = numeric > 100 ? numeric / 10 : numeric;
+  return Math.round(Math.max(0, Math.min(100, normalized)));
+};
+
 /**
  * @route   GET /api/trust/score
  * @desc    Get trust score for current authenticated user
@@ -18,7 +25,7 @@ router.get('/score', authMiddleware, async (req, res) => {
     }
 
     const user = await User.findById(userId)
-      .select('username verification_tier status reputation_score')
+      .select('username verification_tier status reputation_score trust_score')
       .lean();
 
     if (!user || user.status !== 'active') {
@@ -31,21 +38,42 @@ router.get('/score', authMiddleware, async (req, res) => {
       trustScoreData = await req.trustEngine.calculateTrustScore(userId);
     } else {
       // Fallback calculation
-      const baseScore = user.reputation_score || 75;
+      const rawBaseScore = Number(user.trust_score ?? user.reputation_score ?? 75);
+      const baseScore = Math.max(0, Math.min(100, rawBaseScore > 100 ? rawBaseScore / 10 : rawBaseScore));
       trustScoreData = {
         score: baseScore,
         level: baseScore >= 90 ? 'Elite' : baseScore >= 75 ? 'Pro' : baseScore >= 50 ? 'Advanced' : 'Basic',
         components: {
-          verification: Number(user.verification_tier || 1) >= 3 ? 100 : Number(user.verification_tier || 1) >= 2 ? 70 : 40,
-          transactions: 0,
-          reviews: 0,
-          behavior: 75
+          verification_level: Number(user.verification_tier || 1) / 4,
+          transaction_success: 0.5,
+          response_time: 0.5,
+          dispute_resolution: 0.5,
+          longevity: 0.5
         }
       };
     }
 
     // Ensure score is a clean integer (0-100)
-    const finalScore = Math.round(Math.min(100, Math.max(0, trustScoreData.score || user.reputation_score || 75)));
+    const rawScore = Number(trustScoreData?.score);
+    const fallbackScore = Number(user.trust_score ?? user.reputation_score ?? 75);
+    const normalizedScore = Number.isFinite(rawScore)
+      ? (rawScore > 100 ? rawScore / 10 : rawScore)
+      : (fallbackScore > 100 ? fallbackScore / 10 : fallbackScore);
+    const finalScore = Math.round(Math.min(100, Math.max(0, normalizedScore)));
+
+    const responseComponent = Number(trustScoreData?.components?.response_time);
+    const completionComponent = Number(trustScoreData?.components?.transaction_success);
+    const responseRate = Number.isFinite(responseComponent)
+      ? Math.round(responseComponent <= 1 ? responseComponent * 100 : responseComponent)
+      : null;
+    const completionRate = Number.isFinite(completionComponent)
+      ? Math.round(completionComponent <= 1 ? completionComponent * 100 : completionComponent)
+      : null;
+    const reputationScore = Number(user.reputation_score || 0);
+    const customerSatisfaction = Number.isFinite(reputationScore)
+      ? Number(Math.max(1, Math.min(5, reputationScore / 20)).toFixed(1))
+      : null;
+
     const level = finalScore >= 90 ? 'Elite' : finalScore >= 75 ? 'Pro' : finalScore >= 50 ? 'Advanced' : 'Basic';
 
     res.json({
@@ -56,13 +84,14 @@ router.get('/score', authMiddleware, async (req, res) => {
       level: level,
       nextLevel: getNextLevel(level),
       pointsToNext: getPointsToNext(finalScore),
-      responseRate: 95,
-      completionRate: 98,
-      customerSatisfaction: 4.8,
+      responseRate,
+      completionRate,
+      customerSatisfaction,
       badges: [],
       trustScore: {
         ...trustScoreData,
-        score: finalScore
+        score: finalScore,
+        scale: '0-100'
       }
     });
 
@@ -101,20 +130,31 @@ router.get('/score/:userId', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
     }
 
-    const user = await User.findById(userId).select('username verification_tier status').lean();
+    const user = await User.findById(userId).select('username verification_tier status trust_score').lean();
 
     if (!user || user.status !== 'active') {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     // Calculate trust score
-    const trustScoreData = await req.trustEngine.calculateTrustScore(userId);
+    const trustScoreData = req.trustEngine
+      ? await req.trustEngine.calculateTrustScore(userId)
+      : { score: Number(user.trust_score || 0), components: {}, tier: 'New' };
+
+    const rawScore = Number(trustScoreData?.score);
+    const finalScore = Math.round(
+      Math.min(100, Math.max(0, Number.isFinite(rawScore) ? (rawScore > 100 ? rawScore / 10 : rawScore) : 0))
+    );
 
     res.json({
       success: true,
       username: user.username,
       verificationTier: user.verification_tier,
-      trustScore: trustScoreData
+      trustScore: {
+        ...trustScoreData,
+        score: finalScore,
+        scale: '0-100'
+      }
     });
 
   } catch (error) {
@@ -336,7 +376,7 @@ router.get('/leaderboard', async (req, res) => {
       rank: index + 1,
       username: user.username,
       verification_tier: user.verification_tier,
-      trust_score: user.trust_score,
+      trust_score: normalizeTrustScore(user.trust_score),
       reputation_score: user.reputation_score,
       total_transactions: txCountMap.get(user._id.toString()) || 0
     }));

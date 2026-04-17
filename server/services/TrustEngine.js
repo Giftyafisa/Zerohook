@@ -18,6 +18,7 @@ class TrustEngine {
       longevity: 0.10,
       verification_level: 0.15
     };
+    this.maxTrustScore = 100;
   }
 
   async initialize() {
@@ -150,8 +151,8 @@ class TrustEngine {
       const decayFactor = this.calculateDecayFactor(user.last_active);
       finalScore *= decayFactor;
       
-      // Normalize to 0-1000 scale
-      finalScore = Math.max(0, Math.min(1000, finalScore * 1000));
+      // Normalize to canonical 0-100 trust score scale.
+      finalScore = this.clampTrustScore(finalScore * this.maxTrustScore);
       
       // Update user's trust score
       await User.updateOne(
@@ -270,7 +271,8 @@ class TrustEngine {
           .lean();
 
         if (user) {
-          const nextTrustScore = Math.max(0, Number(user.trust_score || 0) + Number(trustDelta));
+          const currentTrustScore = this.normalizeTrustScore(user.trust_score);
+          const nextTrustScore = this.clampTrustScore(currentTrustScore + Number(trustDelta));
           const nextReputationScore = Math.max(0, Number(user.reputation_score || 0) + Number(reputationDelta));
 
           await User.updateOne(
@@ -356,21 +358,21 @@ class TrustEngine {
       let riskScore = 0;
       
       // Low trust scores (use defaults if not set) - reduced impact
-      const clientTrustScore = client.trust_score || 100;
-      const providerTrustScore = provider.trust_score || 100;
+      const clientTrustScore = this.normalizeTrustScore(client.trust_score ?? 50);
+      const providerTrustScore = this.normalizeTrustScore(provider.trust_score ?? 50);
       
-      if (clientTrustScore < 50) {
+      if (clientTrustScore < 30) {
         riskFactors.push('client_very_low_trust');
         riskScore += 15;
-      } else if (clientTrustScore < 100) {
+      } else if (clientTrustScore < 55) {
         riskFactors.push('client_low_trust');
         riskScore += 5;
       }
       
-      if (providerTrustScore < 50) {
+      if (providerTrustScore < 30) {
         riskFactors.push('provider_very_low_trust');
         riskScore += 10;
-      } else if (providerTrustScore < 100) {
+      } else if (providerTrustScore < 55) {
         riskFactors.push('provider_low_trust');
         riskScore += 5;
       }
@@ -402,7 +404,7 @@ class TrustEngine {
       }
       
       // Very high amount for account history (> $1000 equivalent with low trust)
-      if (amount > 10000 && clientTrustScore < 200) {
+      if (amount > 10000 && clientTrustScore < 60) {
         riskFactors.push('high_amount_for_trust');
         riskScore += 15;
       }
@@ -439,16 +441,32 @@ class TrustEngine {
   }
 
   // Helper methods
+  clampTrustScore(score) {
+    return Math.max(0, Math.min(this.maxTrustScore, Number(score) || 0));
+  }
+
+  normalizeTrustScore(score) {
+    const numericScore = Number(score);
+    if (!Number.isFinite(numericScore)) {
+      return 0;
+    }
+
+    // Backward compatibility for legacy 0-1000 stored values.
+    const normalized = numericScore > this.maxTrustScore ? numericScore / 10 : numericScore;
+    return this.clampTrustScore(normalized);
+  }
+
   calculateDecayFactor(lastActive) {
     const daysSinceActive = (Date.now() - new Date(lastActive).getTime()) / (1000 * 60 * 60 * 24);
     return Math.max(0.5, Math.exp(-daysSinceActive / 30)); // Decay over 30 days
   }
 
   getTrustTier(score) {
-    if (score >= 800) return 'Elite';
-    if (score >= 600) return 'High';
-    if (score >= 400) return 'Medium';
-    if (score >= 200) return 'Low';
+    const normalizedScore = this.normalizeTrustScore(score);
+    if (normalizedScore >= 85) return 'Elite';
+    if (normalizedScore >= 70) return 'High';
+    if (normalizedScore >= 50) return 'Medium';
+    if (normalizedScore >= 30) return 'Low';
     return 'New';
   }
 

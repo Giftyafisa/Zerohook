@@ -4,6 +4,13 @@ const mongoose = require('mongoose');
 const { User, Review, Transaction } = require('../config/database');
 const router = express.Router();
 
+const normalizeTrustScore = (score) => {
+  const numeric = Number(score || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  const normalized = numeric > 100 ? numeric / 10 : numeric;
+  return Math.round(Math.max(0, Math.min(100, normalized)));
+};
+
 /**
  * @route   POST /api/reputation/review
  * @desc    Submit review for completed transaction
@@ -178,9 +185,14 @@ router.get('/:userId', async (req, res, next) => {
       console.warn('Failed to calculate trust score:', error.message);
     }
 
+    const normalizedUser = {
+      ...user,
+      trust_score: normalizeTrustScore(user.trust_score)
+    };
+
     res.json({
       success: true,
-      user,
+      user: normalizedUser,
       reviewStats,
       recentReviews,
       transactionStats,

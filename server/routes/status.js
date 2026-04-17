@@ -14,6 +14,163 @@ let marketplacePulseCache = {
   expiresAt: 0
 };
 
+const getVerificationTier = (user = {}) => {
+  const tier = Number(user.verification_tier ?? user.verificationTier ?? 0);
+  return Number.isFinite(tier) ? tier : 0;
+};
+
+const isAdminUser = (user = {}) => getVerificationTier(user) >= 4;
+
+/**
+ * @route   GET /api/status/feature-flags
+ * @desc    Get runtime feature flags
+ * @access  Private (Admin only)
+ */
+router.get('/feature-flags', authMiddleware, async (req, res) => {
+  try {
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Admin privileges required.',
+        message: 'Access denied'
+      });
+    }
+
+    if (!req.featureFlags || typeof req.featureFlags.snapshot !== 'function') {
+      return res.status(503).json({
+        success: false,
+        error: 'Feature flag service unavailable',
+        message: 'Feature flag service unavailable'
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: req.featureFlags.snapshot(),
+      message: 'Runtime feature flags loaded'
+    });
+  } catch (error) {
+    console.error('Error getting feature flags:', error);
+    return res.status(500).json({
+      success: false,
+      data: null,
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/status/feature-flags/:flagName
+ * @desc    Update a runtime feature flag
+ * @access  Private (Admin only)
+ */
+router.put('/feature-flags/:flagName', authMiddleware, async (req, res) => {
+  try {
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Admin privileges required.',
+        message: 'Access denied'
+      });
+    }
+
+    const { flagName } = req.params;
+    const { enabled } = req.body || {};
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'enabled must be a boolean',
+        message: 'Invalid feature flag payload'
+      });
+    }
+
+    if (!req.featureFlags || typeof req.featureFlags.set !== 'function') {
+      return res.status(503).json({
+        success: false,
+        error: 'Feature flag service unavailable',
+        message: 'Feature flag service unavailable'
+      });
+    }
+
+    const updated = req.featureFlags.set(flagName, enabled, {
+      source: 'status-route'
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        updated,
+        snapshot: req.featureFlags.snapshot()
+      },
+      message: `Feature flag ${flagName} updated`
+    });
+  } catch (error) {
+    const badRequest = error.message && error.message.includes('Unknown feature flag');
+    return res.status(badRequest ? 400 : 500).json({
+      success: false,
+      data: null,
+      message: process.env.NODE_ENV === 'development'
+        ? error.message
+        : (badRequest ? 'Invalid feature flag' : 'Internal server error')
+    });
+  }
+});
+
+/**
+ * @route   POST /api/status/rollback/recommendation
+ * @desc    Enable/disable recommendation rollback mode
+ * @access  Private (Admin only)
+ */
+router.post('/rollback/recommendation', authMiddleware, async (req, res) => {
+  try {
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Admin privileges required.',
+        message: 'Access denied'
+      });
+    }
+
+    if (!req.featureFlags || typeof req.featureFlags.applyRecommendationRollback !== 'function') {
+      return res.status(503).json({
+        success: false,
+        error: 'Feature flag service unavailable',
+        message: 'Feature flag service unavailable'
+      });
+    }
+
+    const payload = req.body || {};
+    let enabled = true;
+
+    if (typeof payload.enabled === 'boolean') {
+      enabled = payload.enabled;
+    } else if (typeof payload.action === 'string') {
+      enabled = payload.action.toLowerCase() !== 'disable';
+    }
+
+    const rollback = req.featureFlags.applyRecommendationRollback(enabled);
+
+    return res.json({
+      success: true,
+      data: {
+        rollback,
+        snapshot: req.featureFlags.snapshot()
+      },
+      message: enabled
+        ? 'Recommendation rollback enabled'
+        : 'Recommendation rollback disabled'
+    });
+  } catch (error) {
+    console.error('Error toggling recommendation rollback:', error);
+    return res.status(500).json({
+      success: false,
+      data: null,
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 /**
  * @route   GET /api/status/marketplace-pulse
  * @desc    Public pulse stats for homepage surfaces

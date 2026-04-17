@@ -11,9 +11,9 @@
  * 
  * ACCESS RULES:
  * - Clients see: providers only (ProfileFeed/ProfileBrowse)
- * - Providers see: clients only (+ sugar profiles with paid access)
+ * - Providers see: providers on default feed (+ explicit client discovery surface)
  * - Sugar accounts see: verified young providers of opposite sex
- * - Sugar profiles: hidden by default, visible only to paid providers
+ * - Sugar profiles: hidden by default, visible only to paid viewers
  */
 
 // Valid account types in the system
@@ -30,31 +30,58 @@ export const SUGAR_TYPES = [ACCOUNT_TYPES.SUGAR_DADDY, ACCOUNT_TYPES.SUGAR_MOMMY
 // All valid account types
 export const ALL_ACCOUNT_TYPES = Object.values(ACCOUNT_TYPES);
 
+const normalizeAccountTypeValue = (value) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+};
+
+export const isSugarProfileVisibleToProviders = (user) => {
+  if (!user) return false;
+
+  const visibilityCandidates = [
+    user.sugarSettings?.visibleToProviders,
+    user.profile_data?.sugarSettings?.visibleToProviders,
+    user.profileData?.sugarSettings?.visibleToProviders,
+    user.sugarVisibility,
+    user.profile_data?.sugarVisibility,
+    user.profileData?.sugarVisibility
+  ];
+
+  for (const candidate of visibilityCandidates) {
+    if (typeof candidate === 'boolean') return candidate;
+    if (typeof candidate === 'string') {
+      const normalized = candidate.trim().toLowerCase();
+      if (normalized === 'visible') return true;
+      if (normalized === 'hidden') return false;
+    }
+  }
+
+  // Privacy-first default.
+  return false;
+};
+
 /**
  * Get account type from user object
  * Handles various data structures (profile_data, profileData, etc.)
  */
 export const getAccountType = (user) => {
   if (!user) return null;
-  
-  // Check profile_data (backend format)
-  if (user.profile_data?.accountType) {
-    return user.profile_data.accountType;
-  }
-  
-  // Check profileData (frontend format)
-  if (user.profileData?.accountType) {
-    return user.profileData.accountType;
-  }
-  
-  // Check direct accountType property
-  if (user.accountType) {
-    return user.accountType;
-  }
-  
-  // Check account_type (snake_case from some queries)
-  if (user.account_type) {
-    return user.account_type;
+
+  const candidateValues = [
+    user.profile_data?.accountType,
+    user.profile_data?.account_type,
+    user.profileData?.accountType,
+    user.profileData?.account_type,
+    user.accountType,
+    user.account_type
+  ];
+
+  for (const candidate of candidateValues) {
+    const normalized = normalizeAccountTypeValue(candidate);
+    if (normalized) {
+      return normalized;
+    }
   }
   
   return null;
@@ -142,7 +169,7 @@ export const getAccountTypeBadgeColor = (accountType) => {
  * 
  * RULES:
  * - Clients → see only providers
- * - Providers → see only clients (sugar requires paid access)
+ * - Providers → see providers on default feed
  * - Sugar Daddy → see verified female providers
  * - Sugar Mommy → see verified male providers
  */
@@ -153,7 +180,7 @@ export const getVisibleAccountTypes = (user) => {
     case ACCOUNT_TYPES.CLIENT:
       return [ACCOUNT_TYPES.PROVIDER];
     case ACCOUNT_TYPES.PROVIDER:
-      return [ACCOUNT_TYPES.CLIENT]; // Sugar access requires payment
+      return [ACCOUNT_TYPES.PROVIDER];
     case ACCOUNT_TYPES.SUGAR_DADDY:
     case ACCOUNT_TYPES.SUGAR_MOMMY:
       return [ACCOUNT_TYPES.PROVIDER]; // Only see providers
@@ -178,17 +205,12 @@ export const canViewProfile = (viewer, target, options = {}) => {
   
   // Sugar profiles have special visibility rules
   if (SUGAR_TYPES.includes(targetType)) {
-    // Only providers with paid sugar access can see sugar profiles
-    if (viewerType !== ACCOUNT_TYPES.PROVIDER) return false;
+    // Only provider accounts with paid sugar access can see sugar profiles.
+    const isEligibleSugarViewer = viewerType === ACCOUNT_TYPES.PROVIDER;
+    if (!isEligibleSugarViewer) return false;
     if (!options.hasSugarAccess) return false;
-    
-    // Check if sugar profile has visibility enabled
-    const targetVisibility = target.profile_data?.sugarVisibility || 
-                            target.profileData?.sugarVisibility || 
-                            'hidden';
-    if (targetVisibility === 'hidden') return false;
-    
-    return true;
+
+    return isSugarProfileVisibleToProviders(target);
   }
   
   // Normal visibility rules
@@ -210,7 +232,7 @@ export const filterProfilesByAccountType = (profiles, viewer, options = {}) => {
 };
 
 /**
- * Check if a provider has paid for sugar profile access
+ * Check if an eligible viewer has paid for sugar profile access
  * This should be verified on the backend, but this is a frontend helper
  */
 export const hasSugarAccessPaid = (user) => {
@@ -244,28 +266,28 @@ export const getSugarGenderPreference = (user) => {
 
 /**
  * Get age preference for sugar accounts
- * By default, sugar accounts prefer young providers (18-30)
+ * By default, sugar accounts prefer young providers (18-25)
  */
 export const getSugarAgePreference = (user) => {
   if (!isSugarAccount(user)) return null;
   
   // Check if user has custom age preference
-  const customMin = user.profile_data?.preferredAgeMin || 
-                    user.profileData?.preferredAgeMin;
-  const customMax = user.profile_data?.preferredAgeMax || 
-                    user.profileData?.preferredAgeMax;
+  const customRange = user.profile_data?.sugarSettings?.preferredAgeRange ||
+                      user.profileData?.sugarSettings?.preferredAgeRange;
+  const customMin = customRange?.min || user.profile_data?.preferredAgeMin || user.profileData?.preferredAgeMin;
+  const customMax = customRange?.max || user.profile_data?.preferredAgeMax || user.profileData?.preferredAgeMax;
   
   if (customMin || customMax) {
     return {
       min: customMin || 18,
-      max: customMax || 30
+      max: customMax || 25
     };
   }
   
   // Default preference for sugar accounts: young providers
   return {
     min: 18,
-    max: 30
+    max: 25
   };
 };
 
@@ -286,6 +308,7 @@ const accountTypeUtils = {
   canViewProfile,
   filterProfilesByAccountType,
   hasSugarAccessPaid,
+  isSugarProfileVisibleToProviders,
   getSugarGenderPreference,
   getSugarAgePreference
 };

@@ -1,9 +1,16 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { Message, Conversation, isDatabaseAvailable } = require('../config/database');
+const {
+  Message,
+  Conversation,
+  User,
+  SugarAccessPayment,
+  isDatabaseAvailable
+} = require('../config/database');
 const { authMiddleware } = require('./auth');
 const { inferMessageType } = require('../utils/inferMessageType');
 const { formatMessagePreview } = require('../utils/messagePreview');
+const { getAccountType, isRolePairAllowed } = require('../utils/accountTypeUtils');
 const { body, validationResult } = require('express-validator');
 const { createDistributedLimiter } = require('../utils/rateLimiters');
 const router = express.Router();
@@ -75,6 +82,112 @@ const checkMessagingLimit = async () => {
     remainingContacts: null,
     requiresSubscription: false,
     unlimited: true
+  };
+};
+
+const ACCOUNT_TYPE_SELECT_FIELDS = 'accountType account_type profile_data profileData';
+const SUGAR_CHAT_TYPES = new Set(['sugar_daddy', 'sugar_mommy']);
+const SUGAR_ACCESS_ELIGIBLE_VIEWERS = new Set(['provider']);
+
+const findUserForAccessCheck = async (userId) => {
+  if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+    return null;
+  }
+
+  return User.findById(userId).select(ACCOUNT_TYPE_SELECT_FIELDS).lean();
+};
+
+const hasActiveSugarAccessForTargetType = async (viewerId, targetAccountType) => {
+  if (!viewerId || !mongoose.Types.ObjectId.isValid(viewerId)) {
+    return false;
+  }
+
+  const normalizedTargetType = String(targetAccountType || '').toLowerCase();
+  if (!SUGAR_CHAT_TYPES.has(normalizedTargetType)) {
+    return false;
+  }
+
+  const acceptedAccessTypes = [normalizedTargetType, 'both'];
+  const activeSugarAccess = await SugarAccessPayment.findOne({
+    providerId: viewerId,
+    paymentStatus: 'completed',
+    accessType: { $in: acceptedAccessTypes },
+    accessExpiresAt: { $gt: new Date() }
+  }).select('_id').lean();
+
+  return !!activeSugarAccess;
+};
+
+const enforceConversationAccessPolicy = async ({ initiatorId, otherUserId }) => {
+  const [initiatorUser, otherUser] = await Promise.all([
+    findUserForAccessCheck(initiatorId),
+    findUserForAccessCheck(otherUserId)
+  ]);
+
+  if (!initiatorUser || !otherUser) {
+    return {
+      allowed: false,
+      status: 404,
+      error: 'User not found'
+    };
+  }
+
+  const initiatorType = getAccountType(initiatorUser) || 'client';
+  const otherType = getAccountType(otherUser) || 'client';
+
+  if (!isRolePairAllowed('chat', initiatorType, otherType)) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Conversation not allowed for this account type pair',
+      data: {
+        initiatorAccountType: initiatorType,
+        targetAccountType: otherType
+      }
+    };
+  }
+
+  const initiatorIsSugar = SUGAR_CHAT_TYPES.has(initiatorType);
+  const targetIsSugar = SUGAR_CHAT_TYPES.has(otherType);
+
+  if (initiatorIsSugar !== targetIsSugar) {
+    const sugarTargetType = initiatorIsSugar ? initiatorType : otherType;
+    const viewerType = initiatorIsSugar ? otherType : initiatorType;
+    const viewerId = initiatorIsSugar ? otherUserId : initiatorId;
+
+    if (!SUGAR_ACCESS_ELIGIBLE_VIEWERS.has(viewerType)) {
+      return {
+        allowed: false,
+        status: 403,
+        error: 'Only provider accounts can interact with sugar profiles',
+        data: {
+          initiatorAccountType: initiatorType,
+          targetAccountType: otherType
+        }
+      };
+    }
+
+    const hasSugarAccess = await hasActiveSugarAccessForTargetType(viewerId, sugarTargetType);
+
+    if (!hasSugarAccess) {
+      return {
+        allowed: false,
+        status: 403,
+        error: 'Paid sugar access required before messaging sugar profiles',
+        data: {
+          requiresPayment: true,
+          requiredAccessType: sugarTargetType,
+          initiatorAccountType: initiatorType,
+          targetAccountType: otherType
+        }
+      };
+    }
+  }
+
+  return {
+    allowed: true,
+    initiatorAccountType: initiatorType,
+    targetAccountType: otherType
   };
 };
 
@@ -220,10 +333,40 @@ router.get('/conversations', authMiddleware, async (req, res) => {
       nextCursor = Buffer.from(JSON.stringify(cursorPayload)).toString('base64url');
     }
 
+    const accessibleConversations = (await Promise.all(
+      pageConversations.map(async (conv) => {
+        const participant1Id = conv.participant1Id?._id
+          ? String(conv.participant1Id._id)
+          : String(conv.participant1Id || '');
+        const participant2Id = conv.participant2Id?._id
+          ? String(conv.participant2Id._id)
+          : String(conv.participant2Id || '');
+
+        const otherUserId = participant1Id === String(userId)
+          ? participant2Id
+          : participant1Id;
+
+        if (!otherUserId) {
+          return null;
+        }
+
+        try {
+          const accessPolicy = await enforceConversationAccessPolicy({
+            initiatorId: userId,
+            otherUserId
+          });
+          return accessPolicy.allowed ? conv : null;
+        } catch (accessError) {
+          debugLog('Conversation policy check failed:', accessError.message);
+          return null;
+        }
+      })
+    )).filter(Boolean);
+
     // Batch-fetch unread counts per conversation in a single aggregation
     let unreadMap = {};
     try {
-      const convIds = pageConversations.map(c => c._id);
+      const convIds = accessibleConversations.map(c => c._id);
       if (convIds.length > 0) {
         const userObjId = new mongoose.Types.ObjectId(userId);
         const unreadAgg = await Message.aggregate([
@@ -244,7 +387,7 @@ router.get('/conversations', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      conversations: pageConversations.map(conv => {
+      conversations: accessibleConversations.map(conv => {
         const isParticipant1 = conv.participant1Id?._id?.toString() === userId;
         const otherParticipant = isParticipant1 ? conv.participant2Id : conv.participant1Id;
         
@@ -311,6 +454,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
 
     // Verify user is part of this conversation
     let isMember = false;
+    let otherUserId = null;
     try {
       // Normalize userId for comparison (handle both string and ObjectId)
       const userIdStr = userId?.toString();
@@ -323,6 +467,7 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
         const p2 = conv.participant2Id?.toString();
         const isParticipant1 = p1 === userIdStr;
         const isParticipant2 = p2 === userIdStr;
+        otherUserId = isParticipant1 ? p2 : (isParticipant2 ? p1 : null);
         const hiddenForUser =
           (isParticipant1 && conv.participant1Hidden === true) ||
           (isParticipant2 && conv.participant2Hidden === true);
@@ -339,6 +484,19 @@ router.get('/messages/:conversationId', authMiddleware, async (req, res) => {
     if (!isMember) {
       debugLog(`⛔ User ${userId} not member of conversation ${conversationId}`);
       return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
+    }
+
+    const accessPolicy = await enforceConversationAccessPolicy({
+      initiatorId: userId,
+      otherUserId
+    });
+    if (!accessPolicy.allowed) {
+      return res.status(accessPolicy.status || 403).json({
+        success: false,
+        error: accessPolicy.error,
+        message: accessPolicy.error,
+        ...(accessPolicy.data || {})
+      });
     }
     
     // Cursor-based pagination for efficient message loading
@@ -444,6 +602,19 @@ router.post('/send', authMiddleware, chatSendRateLimit, [
       return res.status(500).json({ success: false, error: 'Failed to verify conversation access' });
     }
     if (!isMember2) return res.status(403).json({ success: false, error: 'Access denied to this conversation' });
+
+    const accessPolicy = await enforceConversationAccessPolicy({
+      initiatorId: senderId,
+      otherUserId: recipientId
+    });
+    if (!accessPolicy.allowed) {
+      return res.status(accessPolicy.status || 403).json({
+        success: false,
+        error: accessPolicy.error,
+        message: accessPolicy.error,
+        ...(accessPolicy.data || {})
+      });
+    }
 
     // Check if either user has blocked the other
     try {
@@ -586,6 +757,20 @@ router.post('/conversation', authMiddleware, [
     if (userId === otherUserId) {
       return res.status(400).json({ success: false, error: 'Cannot create conversation with yourself' });
     }
+
+    const accessPolicy = await enforceConversationAccessPolicy({
+      initiatorId: userId,
+      otherUserId
+    });
+
+    if (!accessPolicy.allowed) {
+      return res.status(accessPolicy.status || 403).json({
+        success: false,
+        error: accessPolicy.error,
+        message: accessPolicy.error,
+        ...(accessPolicy.data || {})
+      });
+    }
     
     const limitCheck = await checkMessagingLimit();
     
@@ -679,6 +864,20 @@ router.post('/start', authMiddleware, [
     if (userId === otherUserId) {
       return res.status(400).json({ success: false, error: 'Cannot create conversation with yourself' });
     }
+
+    const accessPolicy = await enforceConversationAccessPolicy({
+      initiatorId: userId,
+      otherUserId
+    });
+
+    if (!accessPolicy.allowed) {
+      return res.status(accessPolicy.status || 403).json({
+        success: false,
+        error: accessPolicy.error,
+        message: accessPolicy.error,
+        ...(accessPolicy.data || {})
+      });
+    }
     
     const limitCheck = await checkMessagingLimit();
     
@@ -756,6 +955,24 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
     if (!conversation) {
       return res.status(403).json({ success: false, error: 'Not a participant of this conversation' });
     }
+
+    const otherUserId = conversation.participant1Id?.toString() === userId
+      ? conversation.participant2Id?.toString()
+      : conversation.participant1Id?.toString();
+
+    const accessPolicy = await enforceConversationAccessPolicy({
+      initiatorId: userId,
+      otherUserId
+    });
+
+    if (!accessPolicy.allowed) {
+      return res.status(accessPolicy.status || 403).json({
+        success: false,
+        error: accessPolicy.error,
+        message: accessPolicy.error,
+        ...(accessPolicy.data || {})
+      });
+    }
     
     // Mark unread messages as read
     await Message.updateMany(
@@ -775,10 +992,6 @@ router.post('/read/:conversationId', authMiddleware, async (req, res) => {
         timestamp: new Date().toISOString()
       };
       req.io.to(`conversation_${conversationId}`).emit('message_read', readPayload);
-
-      const otherUserId = conversation.participant1Id?.toString() === userId
-        ? conversation.participant2Id?.toString()
-        : conversation.participant1Id?.toString();
       if (otherUserId) {
         req.io.to(`user_${otherUserId}`).emit('message_read', readPayload);
       }

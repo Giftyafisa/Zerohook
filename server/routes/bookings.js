@@ -1,8 +1,32 @@
 const express = require('express');
 const { authMiddleware } = require('./auth');
 const mongoose = require('mongoose');
-const { Transaction } = require('../config/database');
+const { Transaction, User, SugarAccessPayment } = require('../config/database');
+const { getAccountType, isRolePairAllowed, SUGAR_TYPES } = require('../utils/accountTypeUtils');
 const router = express.Router();
+const SUGAR_BOOKING_VIEWERS = new Set(['provider']);
+
+const hasActiveSugarBookingAccess = async (viewerId, sugarTargetType) => {
+  if (!viewerId || !mongoose.Types.ObjectId.isValid(viewerId)) {
+    return false;
+  }
+
+  const normalizedTargetType = String(sugarTargetType || '').toLowerCase();
+  const requiredAccessTypes = normalizedTargetType === 'sugar_daddy'
+    ? ['sugar_daddy', 'both']
+    : ['sugar_mommy', 'both'];
+
+  const activeAccess = await SugarAccessPayment.findOne({
+    providerId: viewerId,
+    paymentStatus: 'completed',
+    accessType: { $in: requiredAccessTypes },
+    accessExpiresAt: { $gt: new Date() }
+  })
+    .select('_id')
+    .lean();
+
+  return !!activeAccess;
+};
 
 /**
  * @route   GET /api/bookings
@@ -93,6 +117,56 @@ router.post('/', authMiddleware, async (req, res) => {
 
     if (serviceId && !mongoose.Types.ObjectId.isValid(serviceId)) {
       return res.status(400).json({ success: false, error: 'Invalid service ID' });
+    }
+
+    if (String(userId) === String(providerId)) {
+      return res.status(400).json({ success: false, error: 'Cannot create a booking with yourself' });
+    }
+
+    const [requesterUser, providerUser] = await Promise.all([
+      User.findById(userId).select('accountType account_type profile_data profileData').lean(),
+      User.findById(providerId).select('accountType account_type profile_data profileData').lean()
+    ]);
+
+    if (!requesterUser || !providerUser) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const requesterType = getAccountType(requesterUser) || 'client';
+    const targetType = getAccountType(providerUser) || 'client';
+
+    if (!isRolePairAllowed('booking', requesterType, targetType)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Booking not allowed for this account type pair',
+        message: 'Booking not allowed for this account type pair',
+        requesterAccountType: requesterType,
+        targetAccountType: targetType
+      });
+    }
+
+    if (SUGAR_TYPES.includes(targetType)) {
+      if (!SUGAR_BOOKING_VIEWERS.has(requesterType)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only provider accounts can book sugar profiles',
+          requesterAccountType: requesterType,
+          targetAccountType: targetType
+        });
+      }
+
+      const hasSugarAccess = await hasActiveSugarBookingAccess(userId, targetType);
+      if (!hasSugarAccess) {
+        return res.status(403).json({
+          success: false,
+          error: 'Sugar access required',
+          message: 'Active sugar access payment required to book this profile',
+          requiresPayment: true,
+          requiredAccessType: targetType,
+          requesterAccountType: requesterType,
+          targetAccountType: targetType
+        });
+      }
     }
 
     // Validate amount

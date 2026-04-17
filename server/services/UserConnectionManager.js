@@ -1,17 +1,26 @@
 const mongoose = require('mongoose');
-const { User, BlockedUser, Service, Conversation, Message } = require('../config/database');
+const {
+  User,
+  BlockedUser,
+  Service,
+  Conversation,
+  Message,
+  UserConnection,
+  SugarAccessPayment
+} = require('../config/database');
+const { getAccountType, SUGAR_TYPES } = require('../utils/accountTypeUtils');
 const ConversationService = require('./ConversationService');
 const NotificationService = require('./NotificationService');
 
-const userConnectionSchema = new mongoose.Schema({
-  from_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  to_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  connection_type: { type: String, default: 'contact_request' },
-  message: { type: String, default: '' },
-  status: { type: String, default: 'pending' }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-const UserConnection = mongoose.models.UserConnection || mongoose.model('UserConnection', userConnectionSchema);
+const buildActiveConnectionWindowQuery = (now = new Date()) => ({
+  $or: [
+    { connection_expires_at: { $exists: false } },
+    { connection_expires_at: null },
+    { connection_expires_at: { $gt: now } }
+  ]
+});
 
 class UserConnectionManager {
   constructor() {
@@ -20,6 +29,58 @@ class UserConnectionManager {
       CONTACT_REQUEST: 'contact_request',
       VIDEO_CALL: 'video_call',
       SERVICE_INQUIRY: 'service_inquiry'
+    };
+  }
+
+  async resolveSugarConnectionPolicy(fromUser, toUser) {
+    const fromType = getAccountType(fromUser) || 'client';
+    const toType = getAccountType(toUser) || 'client';
+    const eligibleViewerTypes = new Set(['provider']);
+
+    const viewerToSugar = eligibleViewerTypes.has(fromType) && SUGAR_TYPES.includes(toType);
+    const sugarToViewer = eligibleViewerTypes.has(toType) && SUGAR_TYPES.includes(fromType);
+
+    if (!viewerToSugar && !sugarToViewer) {
+      return {
+        connectionPolicy: 'standard',
+        connectionExpiresAt: null,
+        sugarAccessType: null,
+        sugarAccessPaymentId: null
+      };
+    }
+
+    const viewerUser = viewerToSugar ? fromUser : toUser;
+    const sugarUser = viewerToSugar ? toUser : fromUser;
+    const sugarType = getAccountType(sugarUser);
+    const now = new Date();
+
+    const requiredAccessTypes = sugarType === 'sugar_daddy'
+      ? ['sugar_daddy', 'both']
+      : ['sugar_mommy', 'both'];
+
+    const activePayment = await SugarAccessPayment.findOne({
+      providerId: viewerUser._id,
+      paymentStatus: 'completed',
+      accessType: { $in: requiredAccessTypes },
+      accessExpiresAt: { $gt: now }
+    })
+      .sort({ accessExpiresAt: -1 })
+      .select('_id accessType accessExpiresAt')
+      .lean();
+
+    if (!activePayment) {
+      throw new Error('Active sugar access payment required to connect with this VVIP profile');
+    }
+
+    const oneYearFromNow = new Date(Date.now() + ONE_YEAR_MS);
+    const paymentExpiry = new Date(activePayment.accessExpiresAt);
+    const connectionExpiresAt = paymentExpiry < oneYearFromNow ? paymentExpiry : oneYearFromNow;
+
+    return {
+      connectionPolicy: 'sugar_limited',
+      connectionExpiresAt,
+      sugarAccessType: activePayment.accessType,
+      sugarAccessPaymentId: activePayment._id
     };
   }
 
@@ -39,29 +100,54 @@ class UserConnectionManager {
 
       const user1 = new mongoose.Types.ObjectId(userId1);
       const user2 = new mongoose.Types.ObjectId(userId2);
+      const now = new Date();
 
-      const connection = await UserConnection.findOne({
+      const basePairQuery = {
         $or: [
           { from_user_id: user1, to_user_id: user2 },
           { from_user_id: user2, to_user_id: user1 }
         ]
-      }).select('_id status connection_type created_at').lean();
+      };
 
-      if (!connection) {
+      const connection = await UserConnection.findOne({
+        $and: [
+          basePairQuery,
+          buildActiveConnectionWindowQuery(now)
+        ]
+      }).select('_id status connection_type created_at connection_expires_at').lean();
+
+      if (connection) {
+        return {
+          exists: true,
+          status: connection.status,
+          connectionType: connection.connection_type,
+          createdAt: connection.created_at,
+          expiresAt: connection.connection_expires_at || null,
+          connectionId: connection._id.toString()
+        };
+      }
+
+      const historicalConnection = await UserConnection.findOne(basePairQuery)
+        .sort({ updated_at: -1 })
+        .select('_id status connection_type created_at connection_expires_at')
+        .lean();
+
+      if (historicalConnection?.connection_expires_at && new Date(historicalConnection.connection_expires_at) <= now) {
         return {
           exists: false,
-          status: null,
-          connectionType: null,
-          createdAt: null
+          status: 'expired',
+          connectionType: historicalConnection.connection_type,
+          createdAt: historicalConnection.created_at,
+          expiredAt: historicalConnection.connection_expires_at,
+          connectionId: historicalConnection._id.toString()
         };
       }
 
       return {
-        exists: true,
-        status: connection.status,
-        connectionType: connection.connection_type,
-        createdAt: connection.created_at,
-        connectionId: connection._id.toString()
+        exists: false,
+        status: null,
+        connectionType: null,
+        createdAt: null
       };
     } catch (error) {
       console.error('Check connection status error:', error);
@@ -83,7 +169,7 @@ class UserConnectionManager {
 
       // Check if users exist and are not blocked
       const users = await User.find({ _id: { $in: [fromObjId, toObjId] } })
-        .select('_id username verification_tier')
+        .select('_id username verification_tier profile_data profileData accountType account_type')
         .lean();
 
       if (users.length !== 2) {
@@ -98,10 +184,16 @@ class UserConnectionManager {
       }
 
       // Check if already connected
+      const now = new Date();
       const existingConnection = await UserConnection.findOne({
-        $or: [
-          { from_user_id: fromObjId, to_user_id: toObjId },
-          { from_user_id: toObjId, to_user_id: fromObjId }
+        $and: [
+          {
+            $or: [
+              { from_user_id: fromObjId, to_user_id: toObjId },
+              { from_user_id: toObjId, to_user_id: fromObjId }
+            ]
+          },
+          buildActiveConnectionWindowQuery(now)
         ]
       }).select('_id').lean();
 
@@ -121,13 +213,19 @@ class UserConnectionManager {
         throw new Error('Cannot connect with blocked user');
       }
 
+      const connectionPolicy = await this.resolveSugarConnectionPolicy(fromUser, toUser);
+
       // Create connection request
       const connection = await UserConnection.create({
         from_user_id: fromObjId,
         to_user_id: toObjId,
         connection_type: connectionType,
         message,
-        status: 'pending'
+        status: 'pending',
+        connection_policy: connectionPolicy.connectionPolicy,
+        connection_expires_at: connectionPolicy.connectionExpiresAt,
+        sugar_access_type: connectionPolicy.sugarAccessType,
+        sugar_access_payment_id: connectionPolicy.sugarAccessPaymentId
       });
 
       // Create notification for recipient
@@ -172,12 +270,18 @@ class UserConnectionManager {
 
       const connectionObjId = new mongoose.Types.ObjectId(connectionId);
       const userObjId = new mongoose.Types.ObjectId(userId);
+      const now = new Date();
 
       // Get connection details
       const connection = await UserConnection.findOne({
-        _id: connectionObjId,
-        to_user_id: userObjId,
-        status: 'pending'
+        $and: [
+          {
+            _id: connectionObjId,
+            to_user_id: userObjId,
+            status: 'pending'
+          },
+          buildActiveConnectionWindowQuery(now)
+        ]
       })
         .populate('from_user_id', 'username')
         .lean();
@@ -269,9 +373,13 @@ class UserConnectionManager {
       }
 
       const userObjId = new mongoose.Types.ObjectId(userId);
+      const now = new Date();
 
       const connections = await UserConnection.find({
-        $or: [{ from_user_id: userObjId }, { to_user_id: userObjId }]
+        $and: [
+          { $or: [{ from_user_id: userObjId }, { to_user_id: userObjId }] },
+          buildActiveConnectionWindowQuery(now)
+        ]
       })
         .populate('from_user_id', 'username verification_tier profile_data')
         .populate('to_user_id', 'username verification_tier profile_data')
@@ -287,9 +395,11 @@ class UserConnectionManager {
           return {
             id: conn._id.toString(),
             connectionType: conn.connection_type,
+            connectionPolicy: conn.connection_policy || 'standard',
             message: conn.message,
             status: conn.status,
             createdAt: conn.created_at,
+            expiresAt: conn.connection_expires_at || null,
             otherUser: {
               id: otherUser?._id?.toString(),
               username: otherUser?.username,
@@ -410,10 +520,16 @@ class UserConnectionManager {
       }
 
       const userObjId = new mongoose.Types.ObjectId(userId);
+      const now = new Date();
 
       const requests = await UserConnection.find({
-        to_user_id: userObjId,
-        status: 'pending'
+        $and: [
+          {
+            to_user_id: userObjId,
+            status: 'pending'
+          },
+          buildActiveConnectionWindowQuery(now)
+        ]
       })
         .populate('from_user_id', 'username verification_tier profile_data')
         .sort({ created_at: -1 })

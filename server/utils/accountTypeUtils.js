@@ -11,9 +11,9 @@
  * 
  * ACCESS RULES:
  * - Clients see: providers only
- * - Providers see: clients only (+ sugar profiles with paid access)
+ * - Providers see: providers by default (+ dedicated client discovery surface)
  * - Sugar accounts see: verified young providers of opposite sex
- * - Sugar profiles: hidden by default, visible only to paid providers
+ * - Sugar profiles: hidden by default, visible only to paid viewers
  */
 
 // Valid account types in the system
@@ -29,6 +29,35 @@ const SUGAR_TYPES = [ACCOUNT_TYPES.SUGAR_DADDY, ACCOUNT_TYPES.SUGAR_MOMMY];
 
 // All valid account types
 const ALL_ACCOUNT_TYPES = Object.values(ACCOUNT_TYPES);
+
+// Role-pair matrix for direct user interactions.
+// Key = initiator account type, value = list of allowed target account types.
+const INTERACTION_TARGET_MATRIX = Object.freeze({
+  chat: Object.freeze({
+    [ACCOUNT_TYPES.CLIENT]: [
+      ACCOUNT_TYPES.PROVIDER,
+      ACCOUNT_TYPES.SUGAR_DADDY,
+      ACCOUNT_TYPES.SUGAR_MOMMY
+    ],
+    [ACCOUNT_TYPES.PROVIDER]: [
+      ACCOUNT_TYPES.CLIENT,
+      ACCOUNT_TYPES.PROVIDER,
+      ACCOUNT_TYPES.SUGAR_DADDY,
+      ACCOUNT_TYPES.SUGAR_MOMMY
+    ],
+    [ACCOUNT_TYPES.SUGAR_DADDY]: [ACCOUNT_TYPES.PROVIDER, ACCOUNT_TYPES.CLIENT],
+    [ACCOUNT_TYPES.SUGAR_MOMMY]: [ACCOUNT_TYPES.PROVIDER, ACCOUNT_TYPES.CLIENT]
+  }),
+  booking: Object.freeze({
+    [ACCOUNT_TYPES.CLIENT]: [
+      ACCOUNT_TYPES.PROVIDER,
+      ACCOUNT_TYPES.SUGAR_DADDY,
+      ACCOUNT_TYPES.SUGAR_MOMMY
+    ],
+    [ACCOUNT_TYPES.SUGAR_DADDY]: [ACCOUNT_TYPES.PROVIDER],
+    [ACCOUNT_TYPES.SUGAR_MOMMY]: [ACCOUNT_TYPES.PROVIDER]
+  })
+});
 
 const ACCOUNT_TYPE_FIELD_PATHS = [
   'accountType',
@@ -48,7 +77,13 @@ const PROFILE_VISIBILITY_FIELD_PATHS = [
   'profileData.profile_visibility'
 ]
 
-const SUGAR_VISIBILITY_FIELD_PATHS = [
+const SUGAR_VISIBILITY_BOOLEAN_FIELD_PATHS = [
+  'sugarSettings.visibleToProviders',
+  'profile_data.sugarSettings.visibleToProviders',
+  'profileData.sugarSettings.visibleToProviders'
+]
+
+const SUGAR_VISIBILITY_LEGACY_FIELD_PATHS = [
   'sugarVisibility',
   'profile_data.sugarVisibility',
   'profileData.sugarVisibility'
@@ -64,6 +99,12 @@ const normalizeAccountTypeValue = (value) => {
   if (typeof value !== 'string') return null;
 
   const normalized = value.trim().toLowerCase();
+  return normalized || null;
+};
+
+const normalizeInteractionType = (interactionType) => {
+  if (typeof interactionType !== 'string') return null;
+  const normalized = interactionType.trim().toLowerCase();
   return normalized || null;
 };
 
@@ -84,7 +125,7 @@ const buildAnyFieldRegexQuery = (fields, regex) => ({
 });
 
 const buildAnyFieldInQuery = (fields, values) => ({
-  $or: values.flatMap((value) => fields.map((field) => ({ [field]: value })))
+  $or: fields.map((field) => ({ [field]: { $in: values } }))
 });
 
 const buildAllFieldsNinQuery = (fields, values) => ({
@@ -103,6 +144,52 @@ const buildAccountTypeQuery = (accountType) => {
   const normalizedType = normalizeAccountTypeValue(accountType) || ACCOUNT_TYPES.PROVIDER;
 
   return buildAnyFieldQuery(ACCOUNT_TYPE_FIELD_PATHS, normalizedType);
+};
+
+const buildAccountTypeInQuery = (accountTypes = []) => {
+  const normalizedTypes = Array.from(new Set(
+    (Array.isArray(accountTypes) ? accountTypes : [accountTypes])
+      .map(normalizeAccountTypeValue)
+      .filter(Boolean)
+  ));
+
+  if (normalizedTypes.length === 0) {
+    return buildAccountTypeQuery(ACCOUNT_TYPES.PROVIDER);
+  }
+
+  return buildAnyFieldInQuery(ACCOUNT_TYPE_FIELD_PATHS, normalizedTypes);
+};
+
+const buildSugarVisibleToProvidersFilter = () => ({
+  $or: [
+    ...SUGAR_VISIBILITY_BOOLEAN_FIELD_PATHS.map((field) => ({ [field]: true })),
+    ...SUGAR_VISIBILITY_LEGACY_FIELD_PATHS.map((field) => ({ [field]: 'visible' }))
+  ]
+});
+
+const isSugarProfileVisibleToProviders = (user) => {
+  if (!user) return false;
+
+  const visibilityCandidates = [
+    user.sugarSettings?.visibleToProviders,
+    user.profile_data?.sugarSettings?.visibleToProviders,
+    user.profileData?.sugarSettings?.visibleToProviders,
+    user.sugarVisibility,
+    user.profile_data?.sugarVisibility,
+    user.profileData?.sugarVisibility
+  ];
+
+  for (const candidate of visibilityCandidates) {
+    if (typeof candidate === 'boolean') return candidate;
+    if (typeof candidate === 'string') {
+      const normalized = candidate.trim().toLowerCase();
+      if (normalized === 'visible') return true;
+      if (normalized === 'hidden') return false;
+    }
+  }
+
+  // Privacy-first default.
+  return false;
 };
 
 /**
@@ -177,7 +264,7 @@ const isVVIP = isSugarAccount;
  * 
  * RULES:
  * - Clients → see only providers
- * - Providers → see only clients (sugar requires paid access)
+ * - Providers → see providers on default feed
  * - Sugar Daddy → see verified female providers
  * - Sugar Mommy → see verified male providers
  */
@@ -188,7 +275,7 @@ const getVisibleAccountTypes = (user) => {
     case ACCOUNT_TYPES.CLIENT:
       return [ACCOUNT_TYPES.PROVIDER];
     case ACCOUNT_TYPES.PROVIDER:
-      return [ACCOUNT_TYPES.CLIENT]; // Sugar access requires payment
+      return [ACCOUNT_TYPES.PROVIDER];
     case ACCOUNT_TYPES.SUGAR_DADDY:
     case ACCOUNT_TYPES.SUGAR_MOMMY:
       return [ACCOUNT_TYPES.PROVIDER]; // Only see providers
@@ -206,6 +293,7 @@ const getVisibleAccountTypes = (user) => {
  */
 const buildAccountTypeFilter = (viewer, options = {}) => {
   const viewerType = resolveAccountTypeInput(viewer);
+  const discoverySurface = String(options.discoverySurface || '').trim().toLowerCase();
   
   switch (viewerType) {
     case ACCOUNT_TYPES.CLIENT:
@@ -213,8 +301,11 @@ const buildAccountTypeFilter = (viewer, options = {}) => {
       return buildAccountTypeQuery(ACCOUNT_TYPES.PROVIDER);
       
     case ACCOUNT_TYPES.PROVIDER:
-      // Providers see only clients (sugar access handled separately)
-      return buildAccountTypeQuery(ACCOUNT_TYPES.CLIENT);
+      // Providers see providers by default; clients are on explicit discovery surface.
+      if (discoverySurface === 'clients') {
+        return buildAccountTypeQuery(ACCOUNT_TYPES.CLIENT);
+      }
+      return buildAccountTypeQuery(ACCOUNT_TYPES.PROVIDER);
       
     case ACCOUNT_TYPES.SUGAR_DADDY:
       // Sugar daddy sees verified female providers
@@ -245,35 +336,30 @@ const buildAccountTypeFilter = (viewer, options = {}) => {
 /**
  * Build MongoDB query filter for sugar profile visibility
  * 
- * @param {Object} viewer - The user viewing profiles (must be provider)
+ * @param {Object} viewer - The user viewing profiles (must be eligible provider)
  * @param {boolean} hasSugarAccess - Whether viewer has paid for sugar access
  * @returns {Object} MongoDB query filter object
  */
 const buildSugarVisibilityFilter = (viewer, hasSugarAccess = false) => {
   const viewerType = resolveAccountTypeInput(viewer);
+  const isEligibleSugarViewer = viewerType === ACCOUNT_TYPES.PROVIDER;
   
-  // Only providers can see sugar profiles
-  if (viewerType !== ACCOUNT_TYPES.PROVIDER) {
+  // Only eligible provider accounts can see sugar profiles.
+  if (!isEligibleSugarViewer) {
     return buildAllFieldsNinQuery(ACCOUNT_TYPE_FIELD_PATHS, SUGAR_TYPES);
   }
   
-  // Provider without sugar access - exclude sugar profiles
+  // Eligible viewer without sugar access - exclude sugar profiles
   if (!hasSugarAccess) {
     return buildAllFieldsNinQuery(ACCOUNT_TYPE_FIELD_PATHS, SUGAR_TYPES);
   }
   
-  // Provider with sugar access - include visible sugar profiles
-  const sugarVisibilityQuery = {
-    $or: SUGAR_VISIBILITY_FIELD_PATHS.flatMap((field) => ([
-      { [field]: 'visible' },
-      { [field]: { $exists: false } },
-      { [field]: null }
-    ]))
-  };
+  // Eligible viewer with sugar access - include only explicitly visible sugar profiles.
+  const sugarVisibilityQuery = buildSugarVisibleToProvidersFilter();
 
   return {
     $and: [
-      buildAnyFieldInQuery(ACCOUNT_TYPE_FIELD_PATHS, SUGAR_TYPES),
+      buildAccountTypeInQuery(SUGAR_TYPES),
       sugarVisibilityQuery
     ]
   };
@@ -315,26 +401,28 @@ const getSugarGenderPreference = (user) => {
 
 /**
  * Get age preference for sugar accounts
- * By default, sugar accounts prefer young providers (18-30)
+ * By default, sugar accounts prefer young providers (18-25)
  */
 const getSugarAgePreference = (user) => {
   if (!isSugarAccount(user)) return null;
   
   // Check if user has custom age preference
-  const customMin = user.profile_data?.preferredAgeMin;
-  const customMax = user.profile_data?.preferredAgeMax;
+  const customRange = user.profile_data?.sugarSettings?.preferredAgeRange ||
+    user.profileData?.sugarSettings?.preferredAgeRange;
+  const customMin = customRange?.min || user.profile_data?.preferredAgeMin || user.profileData?.preferredAgeMin;
+  const customMax = customRange?.max || user.profile_data?.preferredAgeMax || user.profileData?.preferredAgeMax;
   
   if (customMin || customMax) {
     return {
       min: customMin || 18,
-      max: customMax || 30
+      max: customMax || 25
     };
   }
   
   // Default preference for sugar accounts: young providers
   return {
     min: 18,
-    max: 30
+    max: 25
   };
 };
 
@@ -345,13 +433,56 @@ const isValidAccountType = (accountType) => {
   return ALL_ACCOUNT_TYPES.includes(accountType);
 };
 
+/**
+ * Get allowed target account types for a given interaction and initiator type.
+ *
+ * @param {string} interactionType - e.g. "chat", "booking"
+ * @param {Object|string} initiator - user object or account type string
+ * @returns {Array<string>} allowed target account types
+ */
+const getAllowedInteractionTargets = (interactionType, initiator) => {
+  const normalizedInteraction = normalizeInteractionType(interactionType);
+  const initiatorType = resolveAccountTypeInput(initiator);
+
+  if (!normalizedInteraction || !initiatorType) {
+    return [];
+  }
+
+  const interactionMap = INTERACTION_TARGET_MATRIX[normalizedInteraction] || {};
+  return Array.isArray(interactionMap[initiatorType])
+    ? interactionMap[initiatorType]
+    : [];
+};
+
+/**
+ * Check if a role pair is allowed for a specific interaction type.
+ *
+ * @param {string} interactionType - e.g. "chat", "booking"
+ * @param {Object|string} initiator - user object or account type string
+ * @param {Object|string} target - user object or account type string
+ * @returns {boolean}
+ */
+const isRolePairAllowed = (interactionType, initiator, target) => {
+  const targetType = resolveAccountTypeInput(target);
+  if (!targetType) {
+    return false;
+  }
+
+  const allowedTargets = getAllowedInteractionTargets(interactionType, initiator);
+  return allowedTargets.includes(targetType);
+};
+
 module.exports = {
   ACCOUNT_TYPES,
   SUGAR_TYPES,
   ALL_ACCOUNT_TYPES,
+  INTERACTION_TARGET_MATRIX,
   getAccountType,
   buildAccountTypeQuery,
+  buildAccountTypeInQuery,
   buildPublicVisibilityFilter,
+  buildSugarVisibleToProvidersFilter,
+  isSugarProfileVisibleToProviders,
   isClient,
   isProvider,
   isSugarDaddy,
@@ -363,6 +494,8 @@ module.exports = {
   buildSugarVisibilityClause,
   buildAccountTypeFilter,
   buildSugarVisibilityFilter,
+  getAllowedInteractionTargets,
+  isRolePairAllowed,
   getSugarGenderPreference,
   getSugarAgePreference,
   isValidAccountType

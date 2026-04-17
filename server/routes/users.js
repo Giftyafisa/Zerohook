@@ -3,7 +3,14 @@ const jwt = require('jsonwebtoken');
 const { authMiddleware, optionalAuthMiddleware } = require('./auth');
 const { User, BlockedUser, Conversation, SugarAccessPayment, isDatabaseAvailable } = require('../config/database');
 const MongoRecommendationEngine = require('../services/MongoRecommendationEngine');
-const { getAccountType, buildAccountTypeQuery, buildPublicVisibilityFilter } = require('../utils/accountTypeUtils');
+const {
+  getAccountType,
+  buildAccountTypeQuery,
+  buildAccountTypeInQuery,
+  buildPublicVisibilityFilter,
+  buildSugarVisibleToProvidersFilter,
+  isSugarProfileVisibleToProviders
+} = require('../utils/accountTypeUtils');
 const { safePagination } = require('../utils/routeHelpers');
 const router = express.Router();
 
@@ -51,6 +58,13 @@ function normalizeDiscoverySurface(surface) {
   return 'providers';
 }
 
+function readRuntimeFlag(req, flagName, fallback) {
+  if (!req?.featureFlags || typeof req.featureFlags.isEnabled !== 'function') {
+    return fallback;
+  }
+  return req.featureFlags.isEnabled(flagName, fallback);
+}
+
 // In-memory dedup cache for engagement events (prevents socket + REST double-counting)
 let engagementDedup = null; // Lazy-init Map in engagement route
 
@@ -59,10 +73,154 @@ const ALLOWED_PROFILE_FIELDS = [
   'firstName', 'lastName', 'bio', 'age', 'dateOfBirth', 'gender',
   'location', 'photos', 'services', 'availability', 'specializations',
   'languages', 'basePrice', 'currency', 'contactInfo', 'socialLinks',
-  'preferences', 'bodyType', 'height', 'ethnicity', 'interests',
+  'preferences', 'settings', 'bodyType', 'height', 'ethnicity', 'interests',
   'profilePhoto', 'coverPhoto', 'gallery', 'accountType'
 ];
 const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
+const SUGAR_ACCESS_ELIGIBLE_TYPES = new Set(['provider']);
+const SUGAR_PROFILE_ACCOUNT_TYPES = new Set(['sugar_daddy', 'sugar_mommy']);
+const SUGAR_ACCESS_REQUIREMENTS = Object.freeze({
+  sugar_daddy: ['sugar_daddy', 'both'],
+  sugar_mommy: ['sugar_mommy', 'both']
+});
+const VISITOR_FIELD_VISIBILITY_DEFAULTS = Object.freeze({
+  showPhotos: true,
+  showAge: true,
+  showLocation: true,
+  showContactInfo: false,
+  showVerificationStatus: true,
+  showTrustScore: true,
+  showReviews: true,
+  showPriceOnProfile: true
+});
+
+function resolveVisitorVisibilitySettings(profileData) {
+  if (!profileData || typeof profileData !== 'object') {
+    return VISITOR_FIELD_VISIBILITY_DEFAULTS;
+  }
+
+  const rawSettings = profileData.settings;
+  if (!rawSettings || typeof rawSettings !== 'object' || Array.isArray(rawSettings)) {
+    return VISITOR_FIELD_VISIBILITY_DEFAULTS;
+  }
+
+  return {
+    ...VISITOR_FIELD_VISIBILITY_DEFAULTS,
+    ...rawSettings
+  };
+}
+
+function maskLocationForVisitors(location) {
+  if (!location || typeof location !== 'object' || Array.isArray(location)) {
+    return location;
+  }
+
+  const masked = { ...location };
+  delete masked.coordinates;
+  delete masked.geoPoint;
+  delete masked.lat;
+  delete masked.lng;
+  delete masked.latitude;
+  delete masked.longitude;
+  delete masked.address;
+  delete masked.street;
+  delete masked.postalCode;
+
+  return masked;
+}
+
+function applyVisitorProfileMask(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  const profileData = payload.profile_data || payload.profileData;
+  if (!profileData || typeof profileData !== 'object' || Array.isArray(profileData)) {
+    return payload;
+  }
+
+  const visibility = resolveVisitorVisibilitySettings(profileData);
+  const maskedProfileData = { ...profileData };
+
+  // Never expose internal visibility preferences to visitors.
+  delete maskedProfileData.settings;
+  delete maskedProfileData.sugarSettings;
+
+  if (!visibility.showPhotos) {
+    delete maskedProfileData.photos;
+    delete maskedProfileData.gallery;
+    delete maskedProfileData.profilePhoto;
+    delete maskedProfileData.coverPhoto;
+    delete maskedProfileData.profilePicture;
+    delete maskedProfileData.avatar;
+    delete maskedProfileData.profile_image;
+    delete maskedProfileData.profile_image_url;
+  }
+
+  if (!visibility.showAge) {
+    delete maskedProfileData.age;
+    delete maskedProfileData.dateOfBirth;
+  }
+
+  if (!visibility.showLocation) {
+    delete maskedProfileData.location;
+  } else if (maskedProfileData.location) {
+    maskedProfileData.location = maskLocationForVisitors(maskedProfileData.location);
+  }
+
+  if (!visibility.showContactInfo) {
+    delete maskedProfileData.contactInfo;
+    delete maskedProfileData.socialLinks;
+    delete maskedProfileData.email;
+    delete maskedProfileData.phone;
+    delete maskedProfileData.phoneNumber;
+    delete maskedProfileData.whatsapp;
+  }
+
+  if (!visibility.showPriceOnProfile) {
+    delete maskedProfileData.basePrice;
+    delete maskedProfileData.currency;
+    delete maskedProfileData.price;
+    delete maskedProfileData.priceRange;
+  }
+
+  if (!visibility.showReviews) {
+    delete maskedProfileData.reviews;
+    delete maskedProfileData.reviewCount;
+    delete maskedProfileData.rating;
+    delete maskedProfileData.ratings;
+    delete maskedProfileData.testimonials;
+  }
+
+  if (!visibility.showVerificationStatus) {
+    delete maskedProfileData.verificationStatus;
+    delete maskedProfileData.verificationBadge;
+  }
+
+  if (!visibility.showTrustScore) {
+    delete maskedProfileData.trustScore;
+    delete maskedProfileData.reputationScore;
+  }
+
+  const maskedPayload = {
+    ...payload,
+    profile_data: maskedProfileData,
+    profileData: maskedProfileData
+  };
+
+  if (!visibility.showVerificationStatus) {
+    maskedPayload.verification_tier = null;
+    maskedPayload.verificationTier = null;
+  }
+
+  if (!visibility.showTrustScore) {
+    maskedPayload.reputation_score = null;
+    maskedPayload.reputationScore = null;
+    maskedPayload.trustScore = null;
+  }
+
+  return maskedPayload;
+}
 
 /**
  * Sanitize profile field values to enforce types, lengths, and safe ranges.
@@ -109,7 +267,7 @@ function sanitizeProfileValues(data) {
   }
 
   // Object fields (shallow — keep as-is but limit depth risk by only accepting plain objects)
-  const objectFields = ['location', 'contactInfo', 'socialLinks', 'preferences'];
+  const objectFields = ['location', 'contactInfo', 'socialLinks', 'preferences', 'settings'];
   for (const key of objectFields) {
     if (key in data && typeof data[key] === 'object' && data[key] !== null && !Array.isArray(data[key])) {
       // Stringify+parse to strip prototypes/functions, limit size
@@ -437,7 +595,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
  * Step 6: If searching specific profile, NO location limits
  * 
  * DISCOVERY SURFACES:
- * - default (/profiles): providers only (all viewers)
+ * - default (/profiles): providers only (all viewers, including providers)
  * - provider client discovery (/client-discovery or ?surface=clients): clients only
  * - sugar_daddy/mommy: provider feed uses sugar preference-aware provider ranking
  * - unauthenticated: public providers only
@@ -510,6 +668,13 @@ const handleBrowseProfiles = async (req, res) => {
 
     const pg = safePagination(req.query, 50);
     const sortMode = normalizeBrowseSort(sort, sortBy);
+    const runtimeFlags = {
+      recommendationV2Enabled: readRuntimeFlag(req, 'recommendationV2Enabled', true),
+      recommendationRollbackEnabled: readRuntimeFlag(req, 'recommendationRollbackEnabled', false),
+      dynamicTrustFloorEnabled: readRuntimeFlag(req, 'dynamicTrustFloorEnabled', true),
+      rankingReasonsEnabled: readRuntimeFlag(req, 'rankingReasonsEnabled', true)
+    };
+    const recommendationEngineEnabled = runtimeFlags.recommendationV2Enabled && !runtimeFlags.recommendationRollbackEnabled;
 
     // ============================================
     // STEP 3: DETECT USER LOCATION (UBER/BOLT-STYLE)
@@ -577,12 +742,35 @@ const handleBrowseProfiles = async (req, res) => {
       debugLog(`📍 Location from filter: ${country}`);
     }
 
+    // Priority 5: CountryManager IP fallback (especially useful for visitors)
+    if (!userLocation && req.countryManager) {
+      try {
+        const rawIp = req.headers['x-forwarded-for'] || req.ip || '';
+        const ipAddress = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : req.ip;
+        const detectedCountry = await req.countryManager.detectUserCountry(ipAddress);
+
+        if (detectedCountry?.success && detectedCountry?.country) {
+          userLocation = {
+            country: detectedCountry.country.name || detectedCountry.country.code || null,
+            countryCode: detectedCountry.country.code || null,
+            city: detectedCountry.ipInfo?.city || null,
+            source: detectedCountry.method || 'ip_country_fallback',
+            confidence: detectedCountry.confidence || 'medium'
+          };
+          debugLog(`📍 Location from CountryManager: ${userLocation.country || 'Unknown'} (${userLocation.source})`);
+        }
+      } catch (countryError) {
+        debugLog('⚠️ CountryManager IP fallback failed:', countryError.message);
+      }
+    }
+
     // ============================================
     // STEP 4: DETERMINE ACCOUNT TYPE FILTER
     // ============================================
     // accountType can be at top-level OR inside profile_data depending on how it was saved
     const viewerAccountType = getAccountType(currentUser) || (isAuthenticated ? 'client' : 'anonymous');
-    const discoverySurface = normalizeDiscoverySurface(surface);
+    const requestedDiscoverySurface = normalizeDiscoverySurface(surface);
+    const discoverySurface = requestedDiscoverySurface;
     let accountTypeFilter = 'provider'; // Default ProfileFeed surface: providers only
 
     if (discoverySurface === 'clients') {
@@ -625,8 +813,9 @@ const handleBrowseProfiles = async (req, res) => {
     // STEP 6: USE MONGO RECOMMENDATION ENGINE (UBER/BOLT-STYLE)
     // ============================================
     let result;
+    const recommendationRequested = sortMode === 'recommendation' || !sortMode;
     
-    if (sortMode === 'recommendation' || !sortMode) {
+    if (recommendationRequested && recommendationEngineEnabled) {
       // Use the Uber/Bolt-style algorithm
       debugLog('🎯 Using UBER/BOLT-STYLE recommendation algorithm');
       
@@ -638,17 +827,25 @@ const handleBrowseProfiles = async (req, res) => {
         offset: pg.skip,
         cursor: cursorParam || null,
         filters,
-        accountTypeFilter
+        accountTypeFilter,
+        featureFlags: {
+          dynamicTrustFloorEnabled: runtimeFlags.dynamicTrustFloorEnabled,
+          rankingReasonsEnabled: runtimeFlags.rankingReasonsEnabled
+        }
       });
       
     } else {
       // Use simple MongoDB sort for non-recommendation sorts
+      if (recommendationRequested && !recommendationEngineEnabled) {
+        debugLog('🛟 Recommendation rollback switch active: using simple sort fallback');
+      }
+
       result = await getSimpleSortedProfiles({
         currentUserId,
         isAuthenticated,
         accountTypeFilter,
         filters,
-        sort: sortMode,
+        sort: recommendationRequested ? 'online' : sortMode,
         limitNum: pg.limit,
         offset: pg.skip
       });
@@ -664,7 +861,7 @@ const handleBrowseProfiles = async (req, res) => {
       const isSubscribed = profile.is_subscribed || profile.isSubscribed || false;
       const subscriptionTier = profile.subscription_tier || profile.subscriptionTier || 'free';
 
-      return {
+      const baseProfilePayload = {
         id: profile._id || profile.id,
         username: profile.username,
         profile_data: profileData,
@@ -691,11 +888,21 @@ const handleBrowseProfiles = async (req, res) => {
         distanceEstimated: profile.distanceEstimated,
         sameCountry: profile.sameCountry,
         recommendationScore: profile.recommendationScore,
+        scoreBreakdown: profile.scoreBreakdown || null,
         hasProfileImage: profile.hasProfileImage || false,
         lastSeen: profile.lastSeen,
         lastSeenLabel: profile.lastSeenLabel || profile.lastSeen || null,
-        successRate: profile.successRate
+        successRate: profile.successRate,
+        rankingReasons: Array.isArray(profile.rankingReasons) ? profile.rankingReasons : [],
+        exactSearchMatch: !!profile.exactSearchMatch,
+        trustFloorApplied: profile.trustFloorApplied ?? null
       };
+
+      if (!isAuthenticated) {
+        return applyVisitorProfileMask(baseProfilePayload);
+      }
+
+      return baseProfilePayload;
     });
 
     const totalPages = Math.ceil((result.total || 0) / pg.limit);
@@ -705,8 +912,7 @@ const handleBrowseProfiles = async (req, res) => {
       debugLog(`   Top result: ${enhancedProfiles[0].username} - ${enhancedProfiles[0].distance?.toFixed(1) || '?'}km - Score: ${enhancedProfiles[0].recommendationScore || 'N/A'}`);
     }
 
-    res.json({
-      success: true,
+    const responsePayload = {
       users: enhancedProfiles,
       pagination: {
         page: pg.page,
@@ -717,15 +923,29 @@ const handleBrowseProfiles = async (req, res) => {
       },
       metadata: {
         authenticated: isAuthenticated,
+        viewerAccountType,
         filterMode: filter || 'all',
         sortMode,
         discoverySurface,
         accountTypeFilter,
-        algorithm: 'uber_bolt_style_v1',
+        algorithm: recommendationRequested
+          ? (result?.metadata?.algorithm || (recommendationEngineEnabled ? 'uber_bolt_style_v1' : 'fallback_simple_sort_v1'))
+          : `simple_sort_${sortMode || 'online'}_v1`,
+        recommendationRollbackActive: runtimeFlags.recommendationRollbackEnabled,
+        runtimeFlags,
         userLocationDetected: !!userLocation,
         userCountry: userLocation?.country || null,
+        userLocationSource: userLocation?.source || null,
+        userLocationConfidence: userLocation?.confidence ?? null,
         ...(result.metadata || {})
       }
+    };
+
+    res.json({
+      success: true,
+      message: 'Profiles fetched successfully',
+      data: responsePayload,
+      ...responsePayload
     });
     
   } catch (error) {
@@ -1115,7 +1335,7 @@ router.post('/track-activity', authMiddleware, async (req, res) => {
  * @desc    Get individual user profile by ID (visibility-aware)
  * @access  Public/Private depending on profile visibility setting
  */
-router.get('/:id', optionalAuthMiddleware, async (req, res) => {
+router.get('/:id([0-9a-fA-F]{24})', optionalAuthMiddleware, async (req, res) => {
   try {
     const userId = req.params.id;
     
@@ -1146,6 +1366,61 @@ router.get('/:id', optionalAuthMiddleware, async (req, res) => {
 
     debugLog(`[GET /:id] Found user: ${user.username}, accountType: ${user.accountType}`);
 
+    const requesterId = req.user?.userId || req.user?.id || null;
+    const isSelfRequest = requesterId && String(requesterId) === String(user._id);
+    const targetAccountType = getAccountType(user) || 'client';
+    const isSugarProfile = SUGAR_PROFILE_ACCOUNT_TYPES.has(targetAccountType);
+
+    // Sugar profiles are privacy-first and only visible to paid provider viewers.
+    if (isSugarProfile && !isSelfRequest) {
+      if (!isAuthenticated) {
+        return res.status(403).json({
+          success: false,
+          error: 'Sugar profiles require authenticated paid-viewer access',
+          requiresAuth: true
+        });
+      }
+
+      const requester = requesterId
+        ? await User.findById(requesterId)
+          .select('profile_data profileData accountType account_type')
+          .lean()
+        : null;
+
+      const requesterAccountType = getAccountType(requester) || 'client';
+      if (!SUGAR_ACCESS_ELIGIBLE_TYPES.has(requesterAccountType)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only provider accounts with active sugar access can view sugar profiles'
+        });
+      }
+
+      if (!isSugarProfileVisibleToProviders(user)) {
+        return res.status(403).json({
+          success: false,
+          error: 'This sugar profile is currently hidden from paid viewers'
+        });
+      }
+
+      const requiredAccessTypes = SUGAR_ACCESS_REQUIREMENTS[targetAccountType] || ['both'];
+      const activeSugarAccess = await SugarAccessPayment.findOne({
+        providerId: requesterId,
+        paymentStatus: 'completed',
+        accessType: { $in: requiredAccessTypes },
+        accessExpiresAt: { $gt: new Date() }
+      })
+        .select('_id')
+        .lean();
+
+      if (!activeSugarAccess) {
+        return res.status(403).json({
+          success: false,
+          error: 'Sugar access required to view this profile',
+          requiresPayment: true
+        });
+      }
+    }
+
     // Handle both camelCase and snake_case field names
     const rawProfileData = user.profileData || user.profile_data || {};
     // Sanitize: strip sensitive metadata that should never be exposed to clients
@@ -1160,7 +1435,7 @@ router.get('/:id', optionalAuthMiddleware, async (req, res) => {
     const userResponse = {
       id: user._id,
       username: user.username,
-      accountType: user.accountType,
+      accountType: targetAccountType,
       // Snake case (for backward compat)
       profile_data: profileData,
       verification_tier: verificationTier,
@@ -1194,9 +1469,13 @@ router.get('/:id', optionalAuthMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Profile data incomplete' });
     }
 
+    const responseUser = !isAuthenticated
+      ? applyVisitorProfileMask(userResponse)
+      : userResponse;
+
     res.json({
       success: true,
-      user: userResponse
+      user: responseUser
     });
 
   } catch (error) {
@@ -1267,7 +1546,7 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
 
 /**
  * @route   PUT /api/users/sugar-visibility
- * @desc    Toggle sugar account visibility to providers
+ * @desc    Toggle sugar account visibility to paid viewers
  * @access  Private (Sugar Daddy/Mommy only)
  */
 router.put('/sugar-visibility', authMiddleware, async (req, res) => {
@@ -1275,15 +1554,19 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
     const userId = req.user.userId;
     const { visible } = req.body;
 
+    if (typeof visible !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'visible must be a boolean value' });
+    }
+
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profile_data profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData accountType account_type');
 
     if (!userDoc) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const profileData = userDoc.profile_data || userDoc.profileData || {};
-    const accountType = profileData.accountType;
+    const accountType = getAccountType(userDoc) || 'client';
     
     // Only sugar accounts can toggle visibility
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
@@ -1306,7 +1589,7 @@ router.put('/sugar-visibility', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      message: `Profile visibility ${visible ? 'enabled' : 'disabled'} for providers`,
+      message: `Profile visibility ${visible ? 'enabled' : 'disabled'} for paid viewers`,
       visibleToProviders: visible,
       user: {
         id: updatedUser._id,
@@ -1334,19 +1617,38 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     const { preferredAgeRange, preferredGender } = req.body;
 
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profile_data profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData accountType account_type');
 
     if (!userDoc) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const profileData = userDoc.profile_data || userDoc.profileData || {};
-    const accountType = profileData.accountType;
+    const accountType = getAccountType(userDoc) || 'client';
     
     // Only sugar accounts can update these preferences
     if (accountType !== 'sugar_daddy' && accountType !== 'sugar_mommy') {
       return res.status(403).json({ success: false, error: 'Only Sugar Daddy/Mommy accounts can update these preferences' 
       });
+    }
+
+    if (preferredGender && !['male', 'female', 'any'].includes(String(preferredGender).toLowerCase())) {
+      return res.status(400).json({ success: false, error: 'preferredGender must be one of: male, female, any' });
+    }
+
+    let normalizedPreferredAgeRange = null;
+    if (preferredAgeRange) {
+      const min = parseInt(preferredAgeRange.min, 10);
+      const max = parseInt(preferredAgeRange.max, 10);
+
+      if (Number.isNaN(min) || Number.isNaN(max) || min < 18 || max > 99 || min > max) {
+        return res.status(400).json({
+          success: false,
+          error: 'preferredAgeRange must include valid min/max values between 18 and 99'
+        });
+      }
+
+      normalizedPreferredAgeRange = { min, max };
     }
 
     // Build the update object
@@ -1355,8 +1657,8 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
     
     const updatedSugarSettings = {
       ...currentSugarSettings,
-      ...(preferredAgeRange && { preferredAgeRange }),
-      ...(preferredGender && { preferredGender })
+      ...(normalizedPreferredAgeRange && { preferredAgeRange: normalizedPreferredAgeRange }),
+      ...(preferredGender && { preferredGender: String(preferredGender).toLowerCase() })
     };
 
     // Update the sugarSettings
@@ -1390,30 +1692,33 @@ router.put('/sugar-preferences', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/users/sugar-access-status
- * @desc    Check if a provider has access to view sugar profiles
- * @access  Private (Providers only)
+ * @desc    Check if an eligible user has access to view sugar profiles
+ * @access  Private
  */
 router.get('/sugar-access-status', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
 
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profile_data profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData accountType account_type');
 
     if (!userDoc) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    const profileData = userDoc.profile_data || userDoc.profileData || {};
-    const accountType = profileData.accountType;
+    const accountType = getAccountType(userDoc) || 'client';
     
-    // Only providers need sugar access
-    if (accountType !== 'provider') {
+    const isEligibleSugarViewer = SUGAR_ACCESS_ELIGIBLE_TYPES.has(accountType);
+
+    if (!isEligibleSugarViewer) {
       return res.json({
         success: true,
-        hasSugarDaddyAccess: accountType === 'sugar_daddy' || accountType === 'sugar_mommy' || accountType === 'client',
-        hasSugarMommyAccess: accountType === 'sugar_daddy' || accountType === 'sugar_mommy' || accountType === 'client',
-        message: 'Non-provider accounts do not need sugar access payments'
+        accountType,
+        requiresPayment: false,
+        hasSugarDaddyAccess: false,
+        hasSugarMommyAccess: false,
+        accessRecords: [],
+        message: 'Only provider accounts can purchase sugar access'
       });
     }
 
@@ -1438,9 +1743,13 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
+      accountType,
+      isEligibleSugarViewer,
+      requiresPayment: true,
       ...hasAccess,
       accessRecords: accessRecords.map(r => ({
         access_type: r.accessType,
+        billing_cycle: r.billingCycle || 'monthly',
         access_starts_at: r.accessStartsAt,
         access_expires_at: r.accessExpiresAt,
         payment_status: r.paymentStatus
@@ -1457,8 +1766,8 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/users/sugar-profiles
- * @desc    Get sugar profiles for providers with access
- * @access  Private (Providers with sugar access only)
+ * @desc    Get sugar profiles for eligible paid viewers
+ * @access  Private (Provider with sugar access)
  */
 router.get('/sugar-profiles', authMiddleware, async (req, res) => {
   try {
@@ -1467,18 +1776,17 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     const pg = safePagination(req.query);
 
     // Get user's account type
-    const userDoc = await User.findById(userId).select('profile_data profileData');
+    const userDoc = await User.findById(userId).select('profile_data profileData accountType account_type');
 
     if (!userDoc) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    const profileData = userDoc.profile_data || userDoc.profileData || {};
-    const accountType = profileData.accountType;
+    const accountType = getAccountType(userDoc) || 'client';
+    const isEligibleSugarViewer = SUGAR_ACCESS_ELIGIBLE_TYPES.has(accountType);
     
-    // Only providers can access this endpoint (they need to pay)
-    if (accountType !== 'provider') {
-      return res.status(403).json({ success: false, error: 'Only providers can access sugar profiles' 
+    if (!isEligibleSugarViewer) {
+      return res.status(403).json({ success: false, error: 'Only provider accounts can access sugar profiles' 
       });
     }
 
@@ -1492,7 +1800,9 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     if (accessRecords.length === 0) {
       return res.status(403).json({ success: false, error: 'Sugar access required',
         message: 'You need to purchase sugar access to view these profiles',
-        requiresPayment: true
+        requiresPayment: true,
+        accountType,
+        isEligibleSugarViewer
       });
     }
 
@@ -1517,60 +1827,27 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
       });
     }
 
-    // Fetch sugar profiles that are visible to providers
-    const profiles = await User.find({
+    const sugarProfilesQuery = {
       $and: [
-        {
-          $or: [
-            { 'profile_data.accountType': { $in: accountTypeFilter } },
-            { 'profileData.accountType': { $in: accountTypeFilter } }
-          ]
-        },
-        {
-          $or: [
-            { verification_tier: { $gte: 2 } },
-            { verificationTier: { $gte: 2 } }
-          ]
-        },
-        {
-          $or: [
-            { 'profile_data.sugarSettings.visibleToProviders': true },
-            { 'profileData.sugarSettings.visibleToProviders': true }
-          ]
-        }
+        buildAccountTypeInQuery(accountTypeFilter),
+        buildSugarVisibleToProvidersFilter()
       ]
-    })
+    };
+
+    // Fetch sugar profiles that are visible to paid viewers
+    const profiles = await User.find(sugarProfilesQuery)
     .sort({ last_active: -1 })
     .skip(pg.skip)
     .limit(pg.limit)
     .select('username profile_data profileData verification_tier verificationTier reputation_score reputationScore created_at createdAt last_active lastActive');
 
     // Get total count
-    const total = await User.countDocuments({
-      $and: [
-        {
-          $or: [
-            { 'profile_data.accountType': { $in: accountTypeFilter } },
-            { 'profileData.accountType': { $in: accountTypeFilter } }
-          ]
-        },
-        {
-          $or: [
-            { verification_tier: { $gte: 2 } },
-            { verificationTier: { $gte: 2 } }
-          ]
-        },
-        {
-          $or: [
-            { 'profile_data.sugarSettings.visibleToProviders': true },
-            { 'profileData.sugarSettings.visibleToProviders': true }
-          ]
-        }
-      ]
-    });
+    const total = await User.countDocuments(sugarProfilesQuery);
 
     res.json({
       success: true,
+      accountType,
+      isEligibleSugarViewer,
       profiles: profiles.map(p => ({
         id: p._id,
         username: p.username,

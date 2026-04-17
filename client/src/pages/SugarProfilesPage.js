@@ -26,23 +26,24 @@ import {
 import { GlassCard, GlassButton } from '../components/ui';
 import apiClient from '../services/apiClient';
 import CryptoPayment from '../components/payments/CryptoPayment';
+import { getAccountType } from '../utils/accountTypeUtils';
 
 const SugarProfilesPage = () => {
   const navigate = useNavigate();
   const currentLocation = useLocation();
   const { user, token, isAuthenticated } = useSelector((state) => state.auth);
+  const accountType = getAccountType(user) || 'client';
+  const isEligibleSugarViewer = accountType === 'provider';
   
   const [loading, setLoading] = useState(true);
   const [accessStatus, setAccessStatus] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [activeTab, setActiveTab] = useState('sugar_daddy');
+  const [billingCycle, setBillingCycle] = useState('monthly');
   const [error, setError] = useState(null);
   const [pricing, setPricing] = useState(null);
   const [cryptoPaymentData, setCryptoPaymentData] = useState(null);
   const [showCryptoPayment, setShowCryptoPayment] = useState(false);
-
-  // Check if user is a provider
-  const isProvider = user?.profile_data?.accountType === 'provider';
 
   // Fetch access status
   const fetchAccessStatus = useCallback(async () => {
@@ -51,7 +52,7 @@ const SugarProfilesPage = () => {
     try {
       const { data } = await apiClient.get('/sugar-access/status');
       setAccessStatus(data);
-      setPricing(data.effectivePricing || data.pricing);
+      setPricing(data.effectivePricing || data.pricing || null);
     } catch (err) {
       console.error('Error fetching access status:', err);
     }
@@ -90,7 +91,11 @@ const SugarProfilesPage = () => {
   // Initialize payment via crypto
   const initializePayment = async (accessType) => {
     try {
-      const { data } = await apiClient.post('/sugar-access/initialize', { accessType, cryptoSymbol: 'USDT' });
+      const { data } = await apiClient.post('/sugar-access/initialize', {
+        accessType,
+        billingCycle,
+        cryptoSymbol: 'USDT'
+      });
       if (data.paymentData?.address) {
         setCryptoPaymentData({
           walletAddress: data.paymentData.address,
@@ -125,8 +130,8 @@ const SugarProfilesPage = () => {
       return;
     }
     
-    if (!isProvider) {
-      // Non-providers shouldn't access this page
+    if (!isEligibleSugarViewer) {
+      // Ineligible roles should not access this page.
       navigate('/profiles');
       return;
     }
@@ -134,7 +139,7 @@ const SugarProfilesPage = () => {
     fetchAccessStatus();
   }, [
     isAuthenticated,
-    isProvider,
+    isEligibleSugarViewer,
     navigate,
     fetchAccessStatus,
     currentLocation.pathname,
@@ -153,7 +158,7 @@ const SugarProfilesPage = () => {
   };
 
   // Format currency
-  const formatCurrency = (amount, currency = 'USD') => {
+  const formatCurrency = (amount, currency = 'GHS') => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency
@@ -165,11 +170,15 @@ const SugarProfilesPage = () => {
     ? accessStatus?.hasSugarDaddyAccess 
     : accessStatus?.hasSugarMommyAccess;
 
-  if (!isProvider) {
+  const activeCyclePricing = pricing?.[activeTab]?.[billingCycle] || null;
+  const bundleCyclePricing = pricing?.both?.[billingCycle] || null;
+  const cycleLabel = billingCycle === 'yearly' ? 'Yearly' : 'Monthly';
+
+  if (!isEligibleSugarViewer) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Alert severity="warning">
-          Only providers can access the Sugar Profiles section.
+          Only provider accounts can access the Sugar Profiles section.
         </Alert>
       </Container>
     );
@@ -195,7 +204,7 @@ const SugarProfilesPage = () => {
           </Typography>
         </Box>
         <Typography sx={{ color: 'rgba(255,255,255,0.6)' }}>
-          Connect with VVIP members. Access requires a one-time payment (valid for 1 year).
+          Connect with VVIP members. Sugar access is standalone and can be billed monthly or yearly.
         </Typography>
       </Box>
 
@@ -266,14 +275,23 @@ const SugarProfilesPage = () => {
           </Typography>
           <Typography sx={{ color: 'rgba(255,255,255,0.7)', mb: 3 }}>
             Purchase access to view {activeTab === 'sugar_daddy' ? 'Sugar Daddy' : 'Sugar Mommy'} profiles.
-            Access is valid for 1 year.
+            Access activates automatically after payment confirmation.
           </Typography>
 
-          {accessStatus?.premiumPackage?.eligible && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              Premium package discount is active for your sugar-access purchase.
-            </Alert>
-          )}
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 3 }}>
+            <Chip
+              label="Monthly"
+              onClick={() => setBillingCycle('monthly')}
+              color={billingCycle === 'monthly' ? 'success' : 'default'}
+              sx={{ cursor: 'pointer' }}
+            />
+            <Chip
+              label="Yearly (x10)"
+              onClick={() => setBillingCycle('yearly')}
+              color={billingCycle === 'yearly' ? 'success' : 'default'}
+              sx={{ cursor: 'pointer' }}
+            />
+          </Box>
           
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
             {/* Individual Access */}
@@ -295,10 +313,10 @@ const SugarProfilesPage = () => {
                 {activeTab === 'sugar_daddy' ? 'Sugar Daddy' : 'Sugar Mommy'} Access
               </Typography>
               <Typography variant="h5" sx={{ color: '#00f2ea', fontWeight: 800, my: 1 }}>
-                {formatCurrency(pricing[activeTab]?.price || 50000)}
+                {formatCurrency(activeCyclePricing?.price || 300, activeCyclePricing?.currency || 'GHS')}
               </Typography>
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-                1 Year Access
+                {cycleLabel} Access
               </Typography>
               <GlassButton 
                 variant="primary" 
@@ -348,10 +366,10 @@ const SugarProfilesPage = () => {
                 Both Access
               </Typography>
               <Typography variant="h5" sx={{ color: '#00f2ea', fontWeight: 800, my: 1 }}>
-                {formatCurrency(pricing.both?.price || 80000)}
+                {formatCurrency(bundleCyclePricing?.price || 300, bundleCyclePricing?.currency || 'GHS')}
               </Typography>
-              <Typography variant="body2" sx={{ color: '#4CAF50' }}>
-                Save 20%!
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                {cycleLabel} Access
               </Typography>
               <GlassButton 
                 variant="primary" 
@@ -385,7 +403,7 @@ const SugarProfilesPage = () => {
                 No {activeTab === 'sugar_daddy' ? 'Sugar Daddy' : 'Sugar Mommy'} profiles are currently visible.
               </Typography>
               <Typography sx={{ color: 'rgba(255,255,255,0.5)', mt: 1, fontSize: '14px' }}>
-                VVIP members choose when to make their profiles visible to providers.
+                VVIP members choose when to make their profiles visible to paid viewers.
               </Typography>
             </GlassCard>
           ) : (
@@ -512,7 +530,7 @@ const SugarProfilesPage = () => {
               </Typography>
               {accessStatus.accessDetails?.sugar_daddy?.expiresAt && (
                 <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-                  Expires: {new Date(accessStatus.accessDetails.sugar_daddy.expiresAt).toLocaleDateString()}
+                  Expires: {new Date(accessStatus.accessDetails.sugar_daddy.expiresAt).toLocaleDateString()} ({accessStatus.accessDetails.sugar_daddy.billingCycle || 'monthly'})
                 </Typography>
               )}
             </Box>
@@ -530,7 +548,7 @@ const SugarProfilesPage = () => {
               </Typography>
               {accessStatus.accessDetails?.sugar_mommy?.expiresAt && (
                 <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-                  Expires: {new Date(accessStatus.accessDetails.sugar_mommy.expiresAt).toLocaleDateString()}
+                  Expires: {new Date(accessStatus.accessDetails.sugar_mommy.expiresAt).toLocaleDateString()} ({accessStatus.accessDetails.sugar_mommy.billingCycle || 'monthly'})
                 </Typography>
               )}
             </Box>

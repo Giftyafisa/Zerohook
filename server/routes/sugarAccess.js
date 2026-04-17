@@ -1,15 +1,15 @@
 /**
  * Sugar Access Payment Routes
  * 
- * Handles payments for providers to access Sugar Daddy/Mommy profiles
+ * Handles standalone payments for eligible viewers to access Sugar Daddy/Mommy profiles.
  * This is separate from the regular subscription system.
  * 
- * Providers must pay to:
+ * Eligible viewers (providers) must pay to:
  * - View Sugar Daddy profiles
  * - View Sugar Mommy profiles
- * - Access both (discounted bundle)
+ * - Access both
  * 
- * Access is granted for 1 year from payment date
+ * Access can be monthly or yearly based on selected billing cycle.
  * 
  * All payments use cryptocurrency via CryptoPaymentManager (fee-free).
  */
@@ -17,50 +17,81 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const { User, SugarAccessPayment } = require('../config/database');
+const { getAccountType } = require('../utils/accountTypeUtils');
 const { authMiddleware } = require('./auth');
 const router = express.Router();
 const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
+const ELIGIBLE_SUGAR_ACCESS_VIEWERS = new Set(['provider']);
+const BILLING_CYCLES = ['monthly', 'yearly'];
+const MONTHLY_PRICE_GHS = 300;
+const YEARLY_MULTIPLIER = 10;
 
-// Sugar access pricing (in NGN)
-const SUGAR_ACCESS_PRICING = {
-  sugar_daddy: {
-    price: 50000, // ₦50,000 for Sugar Daddy access
-    currency: 'NGN',
-    duration_days: 365 // 1 year access
+const buildCyclePricing = (monthlyPrice, currency = 'GHS') => ({
+  monthly: {
+    price: monthlyPrice,
+    currency,
+    duration_days: 30
   },
-  sugar_mommy: {
-    price: 50000, // ₦50,000 for Sugar Mommy access
-    currency: 'NGN',
-    duration_days: 365 // 1 year access
-  },
-  both: {
-    price: 80000, // ₦80,000 for both (20% discount)
-    currency: 'NGN',
-    duration_days: 365 // 1 year access
+  yearly: {
+    price: monthlyPrice * YEARLY_MULTIPLIER,
+    currency,
+    duration_days: 365
   }
+});
+
+// Sugar access pricing (standalone; same for eligible provider accounts)
+const SUGAR_ACCESS_PRICING = {
+  sugar_daddy: buildCyclePricing(MONTHLY_PRICE_GHS),
+  sugar_mommy: buildCyclePricing(MONTHLY_PRICE_GHS),
+  both: buildCyclePricing(MONTHLY_PRICE_GHS)
 };
 
-const PREMIUM_PACKAGE_TIERS = new Set(['premium', 'elite']);
-const PREMIUM_PACKAGE_DISCOUNT_RATE = 0.15;
+function resolveSugarAccessPricing(accessType, billingCycle = 'monthly') {
+  const normalizedCycle = String(billingCycle || '').toLowerCase();
+  const accessTypePricing = SUGAR_ACCESS_PRICING[accessType];
+  const cyclePricing = accessTypePricing?.[normalizedCycle];
 
-function calculateSugarAccessPrice(basePricing, userDoc) {
-  const isSubscribed = Boolean(userDoc?.is_subscribed || userDoc?.isSubscribed);
-  const subscriptionTier = String(userDoc?.subscription_tier || userDoc?.subscriptionTier || '').toLowerCase();
-  const premiumPackageEligible = isSubscribed && PREMIUM_PACKAGE_TIERS.has(subscriptionTier);
-
-  const baseAmount = Number(basePricing.price || 0);
-  const discountRate = premiumPackageEligible ? PREMIUM_PACKAGE_DISCOUNT_RATE : 0;
-  const amount = Math.max(1, Math.round(baseAmount * (1 - discountRate)));
+  if (!cyclePricing) {
+    return null;
+  }
 
   return {
-    amount,
-    baseAmount,
-    currency: basePricing.currency,
-    durationDays: basePricing.duration_days,
-    discountRate,
-    discountAmount: Math.max(0, baseAmount - amount),
-    premiumPackageEligible
+    accessType,
+    billingCycle: normalizedCycle,
+    amount: Number(cyclePricing.price || 0),
+    currency: cyclePricing.currency,
+    durationDays: Number(cyclePricing.duration_days || 30)
   };
+}
+
+function buildActiveAccessRecords(accessRecords = []) {
+  const activeAccess = {
+    sugar_daddy: null,
+    sugar_mommy: null
+  };
+
+  accessRecords.forEach((row) => {
+    const baseDetails = {
+      paymentId: row._id.toString(),
+      expiresAt: row.accessExpiresAt,
+      startedAt: row.accessStartsAt,
+      billingCycle: row.billingCycle || 'monthly'
+    };
+
+    if (row.accessType === 'sugar_daddy' || row.accessType === 'both') {
+      if (!activeAccess.sugar_daddy || new Date(row.accessExpiresAt) > new Date(activeAccess.sugar_daddy.expiresAt)) {
+        activeAccess.sugar_daddy = baseDetails;
+      }
+    }
+
+    if (row.accessType === 'sugar_mommy' || row.accessType === 'both') {
+      if (!activeAccess.sugar_mommy || new Date(row.accessExpiresAt) > new Date(activeAccess.sugar_mommy.expiresAt)) {
+        activeAccess.sugar_mommy = baseDetails;
+      }
+    }
+  });
+
+  return activeAccess;
 }
 
 /**
@@ -72,19 +103,16 @@ router.get('/pricing', (req, res) => {
   res.json({
     success: true,
     pricing: SUGAR_ACCESS_PRICING,
-    premiumPackage: {
-      tiers: Array.from(PREMIUM_PACKAGE_TIERS),
-      discountRate: PREMIUM_PACKAGE_DISCOUNT_RATE,
-      note: 'Premium package members get discounted sugar-access purchases while sugar access remains independent from subscription.'
-    },
-    note: 'Access is valid for 1 year from payment date'
+    eligibleAccountTypes: Array.from(ELIGIBLE_SUGAR_ACCESS_VIEWERS),
+    billingCycles: BILLING_CYCLES,
+    note: 'Sugar access is standalone and auto-activates after confirmed payment.'
   });
 });
 
 /**
  * @route   GET /api/sugar-access/status
- * @desc    Check provider's current sugar access status
- * @access  Private (Providers only)
+ * @desc    Check current user's sugar access status
+ * @access  Private (Eligible provider accounts)
  */
 router.get('/status', authMiddleware, async (req, res) => {
   try {
@@ -96,22 +124,26 @@ router.get('/status', authMiddleware, async (req, res) => {
 
     // Get user's account type
     const user = await User.findById(userId)
-      .select('profile_data is_subscribed isSubscribed subscription_tier subscriptionTier')
+      .select('profile_data profileData accountType account_type')
       .lean();
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    const accountType = user.profile_data?.accountType;
+    const accountType = getAccountType(user) || 'client';
+    const eligibleForSugarAccess = ELIGIBLE_SUGAR_ACCESS_VIEWERS.has(accountType);
     
-    // Only providers need to purchase sugar access
-    if (accountType !== 'provider') {
+    if (!eligibleForSugarAccess) {
       return res.json({
         success: true,
         accountType,
+        eligibleForSugarAccess,
         requiresPayment: false,
-        message: 'Your account type does not require sugar access payment'
+        hasSugarDaddyAccess: false,
+        hasSugarMommyAccess: false,
+        pricing: SUGAR_ACCESS_PRICING,
+        message: 'Only provider accounts can purchase sugar access.'
       });
     }
 
@@ -122,56 +154,19 @@ router.get('/status', authMiddleware, async (req, res) => {
       accessExpiresAt: { $gt: new Date() }
     }).sort({ accessExpiresAt: -1 }).lean();
 
-    const activeAccess = {
-      sugar_daddy: null,
-      sugar_mommy: null
-    };
-
-    accessRecords.forEach(row => {
-      if (row.accessType === 'sugar_daddy' || row.accessType === 'both') {
-        if (!activeAccess.sugar_daddy || new Date(row.accessExpiresAt) > new Date(activeAccess.sugar_daddy.expiresAt)) {
-          activeAccess.sugar_daddy = {
-            paymentId: row._id.toString(),
-            expiresAt: row.accessExpiresAt,
-            startedAt: row.accessStartsAt
-          };
-        }
-      }
-      if (row.accessType === 'sugar_mommy' || row.accessType === 'both') {
-        if (!activeAccess.sugar_mommy || new Date(row.accessExpiresAt) > new Date(activeAccess.sugar_mommy.expiresAt)) {
-          activeAccess.sugar_mommy = {
-            paymentId: row._id.toString(),
-            expiresAt: row.accessExpiresAt,
-            startedAt: row.accessStartsAt
-          };
-        }
-      }
-    });
-
-    const sugarDaddyPricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING.sugar_daddy, user);
-    const sugarMommyPricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING.sugar_mommy, user);
-    const bothPricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING.both, user);
-
-    const effectivePricing = {
-      sugar_daddy: { ...sugarDaddyPricing, price: sugarDaddyPricing.amount },
-      sugar_mommy: { ...sugarMommyPricing, price: sugarMommyPricing.amount },
-      both: { ...bothPricing, price: bothPricing.amount }
-    };
+    const activeAccess = buildActiveAccessRecords(accessRecords);
 
     res.json({
       success: true,
       accountType,
+      eligibleForSugarAccess,
       requiresPayment: true,
       hasSugarDaddyAccess: !!activeAccess.sugar_daddy,
       hasSugarMommyAccess: !!activeAccess.sugar_mommy,
       accessDetails: activeAccess,
       pricing: SUGAR_ACCESS_PRICING,
-      effectivePricing,
-      premiumPackage: {
-        eligible: !!effectivePricing.sugar_daddy.premiumPackageEligible,
-        discountRate: PREMIUM_PACKAGE_DISCOUNT_RATE,
-        tiers: Array.from(PREMIUM_PACKAGE_TIERS)
-      }
+      billingCycles: BILLING_CYCLES,
+      autoApproval: true
     });
 
   } catch (error) {
@@ -185,13 +180,14 @@ router.get('/status', authMiddleware, async (req, res) => {
 /**
  * @route   POST /api/sugar-access/initialize
  * @desc    Initialize a sugar access payment via crypto
- * @access  Private (Providers only)
+ * @access  Private (Eligible provider accounts)
  */
 router.post('/initialize', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { accessType, cryptoSymbol = 'USDT' } = req.body;
+    const { accessType, billingCycle = 'monthly', cryptoSymbol = 'USDT' } = req.body;
     const normalizedSymbol = String(cryptoSymbol || '').toUpperCase();
+    const normalizedBillingCycle = String(billingCycle || '').toLowerCase();
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
@@ -213,38 +209,56 @@ router.post('/initialize', authMiddleware, async (req, res) => {
       });
     }
 
+    if (!BILLING_CYCLES.includes(normalizedBillingCycle)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid billing cycle',
+        validBillingCycles: BILLING_CYCLES
+      });
+    }
+
     // Get user's account type
     const user = await User.findById(userId)
-      .select('profile_data email username is_subscribed isSubscribed subscription_tier subscriptionTier')
+      .select('profile_data profileData accountType account_type email username')
       .lean();
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    const accountType = user.profile_data?.accountType;
+    const accountType = getAccountType(user) || 'client';
+    const eligibleForSugarAccess = ELIGIBLE_SUGAR_ACCESS_VIEWERS.has(accountType);
     
-    // Only providers can purchase sugar access
-    if (accountType !== 'provider') {
-      return res.status(403).json({ success: false, error: 'Only providers can purchase sugar access' });
+    if (!eligibleForSugarAccess) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only provider accounts can purchase sugar access'
+      });
     }
 
-    // Check if user already has active access for this type
+    // Check if user already has active access for this type/capability
+    const accessTypeCondition = accessType === 'both'
+      ? { accessType: 'both' }
+      : { $or: [{ accessType }, { accessType: 'both' }] };
+
     const existingAccess = await SugarAccessPayment.findOne({
       providerId: userId,
-      $or: [{ accessType }, { accessType: 'both' }],
+      ...accessTypeCondition,
       paymentStatus: 'completed',
       accessExpiresAt: { $gt: new Date() }
     }).select('_id').lean();
 
-    if (existingAccess && accessType !== 'both') {
+    if (existingAccess) {
       return res.status(400).json({ success: false, error: 'You already have active access for this type',
         existingAccess: true
       });
     }
 
-    // Get pricing (independent purchase; premium package tiers get discount)
-    const pricing = calculateSugarAccessPrice(SUGAR_ACCESS_PRICING[accessType], user);
+    const pricing = resolveSugarAccessPricing(accessType, normalizedBillingCycle);
+    if (!pricing) {
+      return res.status(400).json({ success: false, error: 'Invalid pricing configuration request' });
+    }
+
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + pricing.durationDays);
 
@@ -254,7 +268,9 @@ router.post('/initialize', authMiddleware, async (req, res) => {
     // Create pending payment record
     const payment = await SugarAccessPayment.create({
       providerId: new mongoose.Types.ObjectId(userId),
+      viewerAccountType: accountType,
       accessType,
+      billingCycle: pricing.billingCycle,
       amount: pricing.amount,
       currency: pricing.currency,
       paymentStatus: 'pending',
@@ -274,8 +290,10 @@ router.post('/initialize', authMiddleware, async (req, res) => {
       metadata: {
         type: 'sugar_access',
         accessType,
+        billingCycle: pricing.billingCycle,
+        viewerAccountType: accountType,
         paymentId,
-        premiumDiscountRate: pricing.discountRate
+        autoApproval: true
       }
     });
 
@@ -289,14 +307,12 @@ router.post('/initialize', authMiddleware, async (req, res) => {
       success: true,
       paymentId,
       accessType,
+      billingCycle: pricing.billingCycle,
       amount: pricing.amount,
-      baseAmount: pricing.baseAmount,
-      discountAmount: pricing.discountAmount,
-      discountRate: pricing.discountRate,
-      premiumPackageEligible: pricing.premiumPackageEligible,
       currency: pricing.currency,
       expiresAt,
       durationDays: pricing.durationDays,
+      autoApproval: true,
       paymentData: {
         reference: invoice.reference,
         address: invoice.address,
@@ -361,9 +377,11 @@ router.post('/verify', authMiddleware, async (req, res) => {
     if (payment.paymentStatus === 'completed') {
       return res.json({
         success: true,
-        message: 'Payment already verified',
+        message: 'Payment already verified and access is active',
         accessType: payment.accessType,
-        expiresAt: payment.accessExpiresAt
+        billingCycle: payment.billingCycle || 'monthly',
+        expiresAt: payment.accessExpiresAt,
+        autoApproval: true
       });
     }
 
@@ -398,9 +416,11 @@ router.post('/verify', authMiddleware, async (req, res) => {
 
       res.json({
         success: true,
-        message: 'Payment verified successfully',
+        message: 'Payment verified successfully. Sugar access activated automatically.',
         accessType: payment.accessType,
-        expiresAt: payment.accessExpiresAt
+        billingCycle: payment.billingCycle || 'monthly',
+        expiresAt: payment.accessExpiresAt,
+        autoApproval: true
       });
     } else {
       res.json({
@@ -420,8 +440,8 @@ router.post('/verify', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/sugar-access/history
- * @desc    Get provider's sugar access payment history
- * @access  Private (Providers only)
+ * @desc    Get sugar access payment history for eligible provider accounts
+ * @access  Private
  */
 router.get('/history', authMiddleware, async (req, res) => {
   try {
@@ -429,6 +449,22 @@ router.get('/history', authMiddleware, async (req, res) => {
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, error: 'Invalid user ID' });
+    }
+
+    const user = await User.findById(userId)
+      .select('profile_data profileData accountType account_type')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const accountType = getAccountType(user) || 'client';
+    if (!ELIGIBLE_SUGAR_ACCESS_VIEWERS.has(accountType)) {
+      return res.status(403).json({
+        success: false,
+        error: 'This account type is not eligible for sugar access history'
+      });
     }
 
     const payments = await SugarAccessPayment.find({ providerId: userId })
@@ -439,7 +475,9 @@ router.get('/history', authMiddleware, async (req, res) => {
       success: true,
       payments: payments.map((row) => ({
         id: row._id.toString(),
+        viewer_account_type: row.viewerAccountType,
         access_type: row.accessType,
+        billing_cycle: row.billingCycle || 'monthly',
         amount: row.amount,
         currency: row.currency,
         payment_status: row.paymentStatus,

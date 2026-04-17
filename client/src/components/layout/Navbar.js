@@ -165,9 +165,14 @@ const Navbar = () => {
   };
 
   // Get user's account type for conditional rendering
-  const accountType = user?.profile_data?.accountType || 'client';
+  const accountType =
+    user?.profile_data?.accountType ||
+    user?.profileData?.accountType ||
+    user?.accountType ||
+    user?.account_type ||
+    'client';
   const isProvider = accountType === 'provider';
-  const isClient = accountType === 'client';
+  const canAccessSugarProfiles = isProvider;
   const isSugarDaddy = accountType === 'sugar_daddy';
   const isSugarMommy = accountType === 'sugar_mommy';
   const isSugarAccount = isSugarDaddy || isSugarMommy;
@@ -282,17 +287,15 @@ const Navbar = () => {
         path: '/create-service', 
         icon: <Add /> 
       });
+    }
+
+    if (canAccessSugarProfiles) {
       baseItems.push({ 
         label: 'Sugar Profiles', 
         path: '/sugar-profiles', 
         icon: <Diamond sx={{ color: '#FFD700' }} />,
         special: true
       });
-    }
-
-    // Client-specific items
-    if (isClient) {
-      // Clients can browse services
     }
 
     // Sugar account items are simpler
@@ -415,7 +418,7 @@ const Navbar = () => {
             </GlassMenuItem>
           )}
           {/* Provider-specific: Sugar Profiles (paid access) */}
-          {isProvider && (
+          {canAccessSugarProfiles && (
             <GlassMenuItem
               onClick={() => {
                 navigate('/sugar-profiles');
@@ -611,7 +614,7 @@ const Navbar = () => {
                     </NavButton>
                   )}
                   {/* Provider-specific: Sugar Profiles (paid access) */}
-                  {isProvider && (
+                  {canAccessSugarProfiles && (
                     <NavButton
                       component={Link}
                       to="/sugar-profiles"

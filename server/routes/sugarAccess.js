@@ -4,7 +4,7 @@
  * Handles standalone payments for eligible viewers to access Sugar Daddy/Mommy profiles.
  * This is separate from the regular subscription system.
  * 
- * Eligible viewers (providers) must pay to:
+ * Eligible viewers (clients/providers) must pay to:
  * - View Sugar Daddy profiles
  * - View Sugar Mommy profiles
  * - Access both
@@ -21,7 +21,7 @@ const { getAccountType } = require('../utils/accountTypeUtils');
 const { authMiddleware } = require('./auth');
 const router = express.Router();
 const SUPPORTED_SETTLEMENT_CRYPTOS = ['BTC', 'ETH', 'USDT', 'USDC'];
-const ELIGIBLE_SUGAR_ACCESS_VIEWERS = new Set(['provider']);
+const ELIGIBLE_SUGAR_ACCESS_VIEWERS = new Set(['client', 'provider']);
 const BILLING_CYCLES = ['monthly', 'yearly'];
 const MONTHLY_PRICE_GHS = 300;
 const YEARLY_MULTIPLIER = 10;
@@ -39,7 +39,7 @@ const buildCyclePricing = (monthlyPrice, currency = 'GHS') => ({
   }
 });
 
-// Sugar access pricing (standalone; same for eligible provider accounts)
+// Sugar access pricing (standalone; same for eligible client/provider accounts)
 const SUGAR_ACCESS_PRICING = {
   sugar_daddy: buildCyclePricing(MONTHLY_PRICE_GHS),
   sugar_mommy: buildCyclePricing(MONTHLY_PRICE_GHS),
@@ -112,7 +112,7 @@ router.get('/pricing', (req, res) => {
 /**
  * @route   GET /api/sugar-access/status
  * @desc    Check current user's sugar access status
- * @access  Private (Eligible provider accounts)
+ * @access  Private (Eligible client/provider accounts)
  */
 router.get('/status', authMiddleware, async (req, res) => {
   try {
@@ -143,7 +143,7 @@ router.get('/status', authMiddleware, async (req, res) => {
         hasSugarDaddyAccess: false,
         hasSugarMommyAccess: false,
         pricing: SUGAR_ACCESS_PRICING,
-        message: 'Only provider accounts can purchase sugar access.'
+        message: 'Only client and provider accounts can purchase sugar access.'
       });
     }
 
@@ -180,7 +180,7 @@ router.get('/status', authMiddleware, async (req, res) => {
 /**
  * @route   POST /api/sugar-access/initialize
  * @desc    Initialize a sugar access payment via crypto
- * @access  Private (Eligible provider accounts)
+ * @access  Private (Eligible client/provider accounts)
  */
 router.post('/initialize', authMiddleware, async (req, res) => {
   try {
@@ -232,7 +232,7 @@ router.post('/initialize', authMiddleware, async (req, res) => {
     if (!eligibleForSugarAccess) {
       return res.status(403).json({
         success: false,
-        error: 'Only provider accounts can purchase sugar access'
+        error: 'Only client and provider accounts can purchase sugar access'
       });
     }
 
@@ -440,7 +440,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
 
 /**
  * @route   GET /api/sugar-access/history
- * @desc    Get sugar access payment history for eligible provider accounts
+ * @desc    Get sugar access payment history for eligible client/provider accounts
  * @access  Private
  */
 router.get('/history', authMiddleware, async (req, res) => {

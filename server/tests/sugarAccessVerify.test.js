@@ -33,6 +33,18 @@ const sugarAccessRouter = require('../routes/sugarAccess');
 describe('Sugar Access Route', () => {
   let app;
 
+  const mockFindByIdLeanResult = (doc) => {
+    const lean = jest.fn().mockResolvedValue(doc);
+    const select = jest.fn().mockReturnValue({ lean });
+    mockUserFindById.mockReturnValue({ select });
+  };
+
+  const mockSugarAccessFindOneLeanResult = (doc) => {
+    const lean = jest.fn().mockResolvedValue(doc);
+    const select = jest.fn().mockReturnValue({ lean });
+    mockSugarAccessFindOne.mockReturnValue({ select });
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockCheckPaymentStatus = jest.fn();
@@ -80,8 +92,28 @@ describe('Sugar Access Route', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(response.body.message).toBe('Payment verified successfully');
+    expect(response.body.message).toMatch(/Payment verified successfully/i);
     expect(paymentDoc.paymentStatus).toBe('completed');
     expect(paymentDoc.save).toHaveBeenCalledTimes(1);
+  });
+
+  test('initialize accepts client account type from profileData shape', async () => {
+    mockFindByIdLeanResult({
+      _id: '507f1f77bcf86cd799439011',
+      profileData: { accountType: 'client' },
+      profile_data: {},
+      email: 'client@example.com',
+      username: 'client-user'
+    });
+    mockSugarAccessFindOneLeanResult({ _id: 'existing-access' });
+
+    const response = await request(app)
+      .post('/sugar-access/initialize')
+      .send({ accessType: 'sugar_daddy', cryptoSymbol: 'USDT' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toMatch(/already have active access/i);
+    expect(response.body.existingAccess).toBe(true);
   });
 });

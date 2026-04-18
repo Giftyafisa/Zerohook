@@ -35,7 +35,7 @@ class UserConnectionManager {
   async resolveSugarConnectionPolicy(fromUser, toUser) {
     const fromType = getAccountType(fromUser) || 'client';
     const toType = getAccountType(toUser) || 'client';
-    const eligibleViewerTypes = new Set(['provider']);
+    const eligibleViewerTypes = new Set(['client', 'provider']);
 
     const viewerToSugar = eligibleViewerTypes.has(fromType) && SUGAR_TYPES.includes(toType);
     const sugarToViewer = eligibleViewerTypes.has(toType) && SUGAR_TYPES.includes(fromType);

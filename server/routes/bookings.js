@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const { Transaction, User, SugarAccessPayment } = require('../config/database');
 const { getAccountType, isRolePairAllowed, SUGAR_TYPES } = require('../utils/accountTypeUtils');
 const router = express.Router();
-const SUGAR_BOOKING_VIEWERS = new Set(['provider']);
+const SUGAR_BOOKING_VIEWERS = new Set(['client', 'provider']);
 
 const hasActiveSugarBookingAccess = async (viewerId, sugarTargetType) => {
   if (!viewerId || !mongoose.Types.ObjectId.isValid(viewerId)) {
@@ -149,7 +149,7 @@ router.post('/', authMiddleware, async (req, res) => {
       if (!SUGAR_BOOKING_VIEWERS.has(requesterType)) {
         return res.status(403).json({
           success: false,
-          error: 'Only provider accounts can book sugar profiles',
+          error: 'Only client and provider accounts can book sugar profiles',
           requesterAccountType: requesterType,
           targetAccountType: targetType
         });

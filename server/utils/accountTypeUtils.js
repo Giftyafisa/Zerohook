@@ -336,15 +336,15 @@ const buildAccountTypeFilter = (viewer, options = {}) => {
 /**
  * Build MongoDB query filter for sugar profile visibility
  * 
- * @param {Object} viewer - The user viewing profiles (must be eligible provider)
+ * @param {Object} viewer - The user viewing profiles (must be eligible client/provider)
  * @param {boolean} hasSugarAccess - Whether viewer has paid for sugar access
  * @returns {Object} MongoDB query filter object
  */
 const buildSugarVisibilityFilter = (viewer, hasSugarAccess = false) => {
   const viewerType = resolveAccountTypeInput(viewer);
-  const isEligibleSugarViewer = viewerType === ACCOUNT_TYPES.PROVIDER;
+  const isEligibleSugarViewer = viewerType === ACCOUNT_TYPES.PROVIDER || viewerType === ACCOUNT_TYPES.CLIENT;
   
-  // Only eligible provider accounts can see sugar profiles.
+  // Only eligible client/provider accounts can see sugar profiles.
   if (!isEligibleSugarViewer) {
     return buildAllFieldsNinQuery(ACCOUNT_TYPE_FIELD_PATHS, SUGAR_TYPES);
   }

@@ -87,7 +87,7 @@ const checkMessagingLimit = async () => {
 
 const ACCOUNT_TYPE_SELECT_FIELDS = 'accountType account_type profile_data profileData';
 const SUGAR_CHAT_TYPES = new Set(['sugar_daddy', 'sugar_mommy']);
-const SUGAR_ACCESS_ELIGIBLE_VIEWERS = new Set(['provider']);
+const SUGAR_ACCESS_ELIGIBLE_VIEWERS = new Set(['client', 'provider']);
 
 const findUserForAccessCheck = async (userId) => {
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -159,7 +159,7 @@ const enforceConversationAccessPolicy = async ({ initiatorId, otherUserId }) => 
       return {
         allowed: false,
         status: 403,
-        error: 'Only provider accounts can interact with sugar profiles',
+        error: 'Only client and provider accounts can interact with sugar profiles',
         data: {
           initiatorAccountType: initiatorType,
           targetAccountType: otherType

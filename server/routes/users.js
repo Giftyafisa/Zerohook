@@ -77,7 +77,7 @@ const ALLOWED_PROFILE_FIELDS = [
   'profilePhoto', 'coverPhoto', 'gallery', 'accountType'
 ];
 const VALID_ACCOUNT_TYPES = ['client', 'provider', 'sugar_daddy', 'sugar_mommy'];
-const SUGAR_ACCESS_ELIGIBLE_TYPES = new Set(['provider']);
+const SUGAR_ACCESS_ELIGIBLE_TYPES = new Set(['client', 'provider']);
 const SUGAR_PROFILE_ACCOUNT_TYPES = new Set(['sugar_daddy', 'sugar_mommy']);
 const SUGAR_ACCESS_REQUIREMENTS = Object.freeze({
   sugar_daddy: ['sugar_daddy', 'both'],
@@ -1371,7 +1371,7 @@ router.get('/:id([0-9a-fA-F]{24})', optionalAuthMiddleware, async (req, res) => 
     const targetAccountType = getAccountType(user) || 'client';
     const isSugarProfile = SUGAR_PROFILE_ACCOUNT_TYPES.has(targetAccountType);
 
-    // Sugar profiles are privacy-first and only visible to paid provider viewers.
+    // Sugar profiles are privacy-first and only visible to paid eligible viewers.
     if (isSugarProfile && !isSelfRequest) {
       if (!isAuthenticated) {
         return res.status(403).json({
@@ -1391,7 +1391,7 @@ router.get('/:id([0-9a-fA-F]{24})', optionalAuthMiddleware, async (req, res) => 
       if (!SUGAR_ACCESS_ELIGIBLE_TYPES.has(requesterAccountType)) {
         return res.status(403).json({
           success: false,
-          error: 'Only provider accounts with active sugar access can view sugar profiles'
+          error: 'Only eligible client/provider accounts with active sugar access can view sugar profiles'
         });
       }
 
@@ -1718,7 +1718,7 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
         hasSugarDaddyAccess: false,
         hasSugarMommyAccess: false,
         accessRecords: [],
-        message: 'Only provider accounts can purchase sugar access'
+        message: 'Only client and provider accounts can purchase sugar access'
       });
     }
 
@@ -1767,7 +1767,7 @@ router.get('/sugar-access-status', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/users/sugar-profiles
  * @desc    Get sugar profiles for eligible paid viewers
- * @access  Private (Provider with sugar access)
+ * @access  Private (Eligible client/provider account with sugar access)
  */
 router.get('/sugar-profiles', authMiddleware, async (req, res) => {
   try {
@@ -1786,7 +1786,7 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
     const isEligibleSugarViewer = SUGAR_ACCESS_ELIGIBLE_TYPES.has(accountType);
     
     if (!isEligibleSugarViewer) {
-      return res.status(403).json({ success: false, error: 'Only provider accounts can access sugar profiles' 
+      return res.status(403).json({ success: false, error: 'Only client and provider accounts can access sugar profiles' 
       });
     }
 
@@ -1806,7 +1806,7 @@ router.get('/sugar-profiles', authMiddleware, async (req, res) => {
       });
     }
 
-    // Determine what access types the provider has
+    // Determine what access types the viewer has
     const accessTypes = accessRecords.map(r => r.accessType);
     const hasDaddyAccess = accessTypes.includes('sugar_daddy') || accessTypes.includes('both');
     const hasMommyAccess = accessTypes.includes('sugar_mommy') || accessTypes.includes('both');

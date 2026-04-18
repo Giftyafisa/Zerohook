@@ -209,7 +209,7 @@ describe('Users Profile Access Matrix', () => {
     expect(response.body.requiresAuth).toBe(true);
   });
 
-  test('blocks authenticated client accounts from viewing sugar profiles', async () => {
+  test('blocks authenticated client accounts without active sugar access payment', async () => {
     mockCurrentUserId = IDS.clientViewer;
 
     const response = await request(app)
@@ -217,8 +217,9 @@ describe('Users Profile Access Matrix', () => {
 
     expect(response.status).toBe(403);
     expect(response.body.success).toBe(false);
-    expect(response.body.error).toMatch(/only provider accounts/i);
-    expect(mockSugarAccessFindOne).not.toHaveBeenCalled();
+    expect(response.body.error).toMatch(/sugar access required/i);
+    expect(response.body.requiresPayment).toBe(true);
+    expect(mockSugarAccessFindOne).toHaveBeenCalledTimes(1);
   });
 
   test('blocks providers without active sugar access payment', async () => {
@@ -256,6 +257,24 @@ describe('Users Profile Access Matrix', () => {
     paymentsByProvider.set(IDS.providerViewer, [
       {
         _id: '507f1f77bcf86cd7994391a2',
+        accessType: 'sugar_daddy',
+        accessExpiresAt: new Date(Date.now() + (7 * 24 * 60 * 60 * 1000)).toISOString()
+      }
+    ]);
+
+    const response = await request(app)
+      .get(`/users/${IDS.sugarVisibleTarget}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.user.accountType).toBe('sugar_daddy');
+  });
+
+  test('allows paid clients to view visible sugar profiles', async () => {
+    mockCurrentUserId = IDS.clientViewer;
+    paymentsByProvider.set(IDS.clientViewer, [
+      {
+        _id: '507f1f77bcf86cd7994391a3',
         accessType: 'sugar_daddy',
         accessExpiresAt: new Date(Date.now() + (7 * 24 * 60 * 60 * 1000)).toISOString()
       }

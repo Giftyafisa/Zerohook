@@ -1,0 +1,39 @@
+name: Android PR Gate
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/android/**'
+      - '.github/workflows/android-pr-gate.yml'
+
+concurrency:
+  group: android-pr-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-build-and-test:
+    name: Build And Test Android
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/android
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Ensure gradlew is executable
+        run: chmod +x gradlew
+
+      - name: Compile debug Kotlin sources
+        run: ./gradlew :app:compileDebugKotlin --no-daemon --console=plain
+
+      - name: Run Android debug unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain

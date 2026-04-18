@@ -42,6 +42,7 @@ android {
         }
     }
     val apiBaseUrl: String = localProps.getProperty("API_BASE_URL", "https://zerohook-api-eoyr.onrender.com/api")
+    val apiFallbackBaseUrl: String = localProps.getProperty("API_BASE_URL_FALLBACK", "")
     val socketUrl: String  = localProps.getProperty("SOCKET_URL",   "https://zerohook-api-eoyr.onrender.com")
 
     defaultConfig {
@@ -59,6 +60,7 @@ android {
 
         // Build config fields for API — values come from local.properties or defaults above
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "API_BASE_URL_FALLBACK", "\"$apiFallbackBaseUrl\"")
         buildConfigField("String", "SOCKET_URL",   "\"$socketUrl\"")
     }
 
@@ -67,6 +69,7 @@ android {
             isDebuggable = true
             // Debug can override via local.properties; defaults to same production URL
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            buildConfigField("String", "API_BASE_URL_FALLBACK", "\"$apiFallbackBaseUrl\"")
             buildConfigField("String", "SOCKET_URL",   "\"$socketUrl\"")
         }
         release {
@@ -77,6 +80,7 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+            buildConfigField("String", "API_BASE_URL_FALLBACK", "\"$apiFallbackBaseUrl\"")
             buildConfigField("String", "SOCKET_URL",   "\"$socketUrl\"")
         }
     }
@@ -208,6 +212,7 @@ dependencies {
     
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2023.10.01"))

@@ -161,7 +161,10 @@ const MobileBottomNav = () => {
       
       try {
         const response = await apiClient.get('/chat/unread-count');
-        dispatch(setUnreadMessages(response.data.unreadCount || 0));
+        const unreadCount = response?.data?.unreadCount
+          ?? response?.data?.data?.unreadCount
+          ?? 0;
+        dispatch(setUnreadMessages(Number(unreadCount) || 0));
       } catch (error) {
         console.error('Failed to fetch unread count:', error);
       }

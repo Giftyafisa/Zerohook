@@ -33,7 +33,7 @@ const SugarProfilesPage = () => {
   const currentLocation = useLocation();
   const { user, token, isAuthenticated } = useSelector((state) => state.auth);
   const accountType = getAccountType(user) || 'client';
-  const isEligibleSugarViewer = accountType === 'provider';
+  const isEligibleSugarViewer = accountType === 'provider' || accountType === 'client';
   
   const [loading, setLoading] = useState(true);
   const [accessStatus, setAccessStatus] = useState(null);
@@ -178,7 +178,7 @@ const SugarProfilesPage = () => {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Alert severity="warning">
-          Only provider accounts can access the Sugar Profiles section.
+          Only client and provider accounts can access the Sugar Profiles section.
         </Alert>
       </Container>
     );

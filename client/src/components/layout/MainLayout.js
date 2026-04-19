@@ -89,7 +89,7 @@ const getHeaderConfig = (pathname) => {
 const MainLayout = ({ children, showNavigation = true }) => {
   const theme = useTheme();
   const location = useLocation();
-  const isDesktop = useMediaQuery(theme.breakpoints.up('md')); // >= 900px
+  const isDesktop = useMediaQuery(theme.breakpoints.up('lg')); // >= 1200px
   
   // Get header configuration for current route
   const headerConfig = getHeaderConfig(location.pathname);

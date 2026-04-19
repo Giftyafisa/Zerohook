@@ -87,10 +87,20 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
 
         if (currentRequestId !== requestIdRef.current) return;
 
-        const data = res.data;
-        if (!data.users || !Array.isArray(data.users)) throw new Error('Invalid response');
+        const responseBody = res.data || {};
+        const contractData = responseBody?.data && typeof responseBody.data === 'object'
+          ? responseBody.data
+          : null;
+        const payload = contractData || responseBody;
 
-        const processed = data.users
+        const rawUsers = [
+          payload?.users,
+          payload?.profiles,
+          responseBody?.users,
+          responseBody?.profiles
+        ].find((candidate) => Array.isArray(candidate)) || [];
+
+        const processed = rawUsers
           .filter((u) => {
             if (isAuthenticated && String(currentUser?.id) === String(u.id)) return false;
             if (String(reduxUser?.id) === String(u.id)) return false;
@@ -141,15 +151,20 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
               scoreBreakdown: u.scoreBreakdown || null,
               eloRating: u.eloRating || 1200,
               matchPercentage: u.matchPercentage || null,
+              rankingReasons: Array.isArray(u.rankingReasons) ? u.rankingReasons : [],
+              exactSearchMatch: !!u.exactSearchMatch,
+              trustFloorApplied: u.trustFloorApplied ?? null,
             };
           });
 
         if (append) setDisplayedProfiles((prev) => [...prev, ...processed]);
         else setDisplayedProfiles(processed);
 
-        setHasMore(processed.length === 24);
+        setHasMore(rawUsers.length === 24);
         setPage(pageNum);
-        if (data.metadata) setSearchMetadata(data.metadata);
+        const metadata = payload?.metadata || responseBody?.metadata || null;
+        if (metadata) setSearchMetadata(metadata);
+        else if (pageNum === 1) setSearchMetadata(null);
       } catch (err) {
         // Axios throws CanceledError (not AbortError) when AbortController fires
         if (axios.isCancel(err) || err.name === 'AbortError' || err.name === 'CanceledError') return;
@@ -184,10 +199,9 @@ const useFeedQuery = ({ activeFilter, searchQuery, userLocation, locationLoading
       searchTimerRef.current = setTimeout(() => fetchProfiles(1), 500);
       return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
     }
-    // For filter changes or non-loading location, fetch immediately
-    if (!locationLoading) {
-      fetchProfiles(1);
-    }
+    // Always fetch immediately for non-search changes; location updates trigger
+    // a second refresh once available, but we never block initial hydration.
+    fetchProfiles(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFilter, searchQuery, locationLoading, userLocation]);
 

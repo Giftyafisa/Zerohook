@@ -48,7 +48,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import apiClient from '../services/apiClient';
-import { isSugarAccount } from '../utils/accountTypeUtils';
+import { getAccountType, isSugarAccount } from '../utils/accountTypeUtils';
 import {
   disableBrowserPushSubscription,
   enableBrowserPushSubscription
@@ -283,6 +283,9 @@ const PrivacySettings = () => {
     
     // Sugar Account Visibility (for sugar_daddy/sugar_mommy only)
     sugarVisibility: 'hidden', // 'hidden' or 'visible'
+    sugarPreferredGender: 'any',
+    sugarPreferredAgeMin: 18,
+    sugarPreferredAgeMax: 25,
     
     // Pricing
     showPriceOnProfile: true,
@@ -318,6 +321,8 @@ const PrivacySettings = () => {
   };
 
   const [settings, setSettings] = useState(defaultSettings);
+  const accountType = getAccountType(user) || 'client';
+  const isSugarUser = isSugarAccount(user);
 
   // Load settings from backend on mount
   const loadSettings = useCallback(async () => {
@@ -335,6 +340,13 @@ const PrivacySettings = () => {
       const data = response.data;
       const profileData = data.user?.profile_data || {};
       const userSettings = profileData.settings || {};
+      const sugarSettings = profileData.sugarSettings || {};
+      const preferredAgeRange = sugarSettings.preferredAgeRange || {};
+      const fallbackGender = accountType === 'sugar_daddy'
+        ? 'female'
+        : accountType === 'sugar_mommy'
+          ? 'male'
+          : 'any';
 
       // Merge backend settings with defaults (backend takes precedence)
       setSettings(prev => ({
@@ -343,6 +355,10 @@ const PrivacySettings = () => {
         // Also pull in specific profile fields that might be stored separately
         basePrice: profileData.basePrice || prev.basePrice,
         priceCurrency: profileData.currency || prev.priceCurrency,
+        sugarVisibility: sugarSettings.visibleToProviders === true ? 'visible' : 'hidden',
+        sugarPreferredGender: sugarSettings.preferredGender || userSettings.sugarPreferredGender || fallbackGender,
+        sugarPreferredAgeMin: preferredAgeRange.min ?? userSettings.sugarPreferredAgeMin ?? prev.sugarPreferredAgeMin,
+        sugarPreferredAgeMax: preferredAgeRange.max ?? userSettings.sugarPreferredAgeMax ?? prev.sugarPreferredAgeMax,
       }));
 
     } catch (error) {
@@ -351,7 +367,7 @@ const PrivacySettings = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [token]);
+  }, [token, accountType]);
 
   useEffect(() => {
     loadSettings();
@@ -407,23 +423,67 @@ const PrivacySettings = () => {
       setIsSaving(true);
       setSaveError(null);
 
+      const normalizedAgeMin = Math.max(18, parseInt(settings.sugarPreferredAgeMin, 10) || 18);
+      const normalizedAgeMaxRaw = parseInt(settings.sugarPreferredAgeMax, 10) || 25;
+      const normalizedAgeMax = Math.max(normalizedAgeMin, normalizedAgeMaxRaw);
+      const fallbackGender = accountType === 'sugar_daddy'
+        ? 'female'
+        : accountType === 'sugar_mommy'
+          ? 'male'
+          : 'any';
+      const requestedSugarGender = String(settings.sugarPreferredGender || fallbackGender).toLowerCase();
+      const normalizedSugarGender = ['male', 'female', 'any'].includes(requestedSugarGender)
+        ? requestedSugarGender
+        : 'any';
+
+      const normalizedSettings = {
+        ...settings,
+        sugarPreferredAgeMin: normalizedAgeMin,
+        sugarPreferredAgeMax: normalizedAgeMax,
+        sugarPreferredGender: normalizedSugarGender,
+      };
+
       await apiClient.put('/users/me', {
         profile_data: {
-          settings: settings,
+          settings: normalizedSettings,
           basePrice: settings.basePrice,
           currency: settings.priceCurrency,
         }
       });
+
+      if (isSugarUser) {
+        await apiClient.put('/users/sugar-visibility', {
+          visible: normalizedSettings.sugarVisibility === 'visible'
+        });
+        await apiClient.put('/users/sugar-preferences', {
+          preferredAgeRange: {
+            min: normalizedAgeMin,
+            max: normalizedAgeMax
+          },
+          preferredGender: normalizedSugarGender
+        });
+      }
 
       const currentProfileData = user?.profile_data || user?.profileData || {};
       const updatedProfileData = {
         ...currentProfileData,
         settings: {
           ...(currentProfileData.settings || {}),
-          ...settings
+          ...normalizedSettings
         },
         basePrice: settings.basePrice,
         currency: settings.priceCurrency,
+        ...(isSugarUser ? {
+          sugarSettings: {
+            ...(currentProfileData.sugarSettings || {}),
+            visibleToProviders: normalizedSettings.sugarVisibility === 'visible',
+            preferredGender: normalizedSugarGender,
+            preferredAgeRange: {
+              min: normalizedAgeMin,
+              max: normalizedAgeMax
+            }
+          }
+        } : {})
       };
       dispatch(updateUserAction({ profile_data: updatedProfileData }));
 
@@ -637,7 +697,7 @@ const PrivacySettings = () => {
           />
           
           {/* Sugar Account Visibility - Only shown for sugar_daddy/sugar_mommy accounts */}
-          {isSugarAccount(user) && (
+          {isSugarUser && (
             <Box sx={{ 
               mt: 2, 
               p: 2, 
@@ -662,19 +722,78 @@ const PrivacySettings = () => {
                 fontSize: '12px',
                 mb: 2
               }}>
-                Control whether providers with paid access can see your profile.
+                Control whether paid viewers with sugar access can see your profile.
                 Your profile is hidden by default for maximum privacy.
               </Typography>
               <SettingRow 
                 label="Allow Profile Discovery"
                 description={settings.sugarVisibility === 'visible' 
-                  ? "Providers with paid sugar access can see your profile"
-                  : "Your profile is completely hidden from providers"}
+                  ? "Paid viewers with sugar access can see your profile"
+                  : "Your profile is completely hidden from paid viewers"}
                 checked={settings.sugarVisibility === 'visible'}
                 onChange={() => handleChange('sugarVisibility', 
                   settings.sugarVisibility === 'visible' ? 'hidden' : 'visible'
                 )}
               />
+
+              <Box sx={{ px: 2, pt: 1, pb: 0.5 }}>
+                <Typography sx={{ color: 'rgba(255,255,255,0.72)', fontSize: '13px', mb: 1 }}>
+                  Preferred Provider Gender
+                </Typography>
+                <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                  <Select
+                    value={settings.sugarPreferredGender}
+                    onChange={(e) => handleChange('sugarPreferredGender', e.target.value)}
+                    sx={{
+                      color: '#fff',
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
+                      '& .MuiSvgIcon-root': { color: '#fff' },
+                    }}
+                  >
+                    <MenuItem value="female">Female</MenuItem>
+                    <MenuItem value="male">Male</MenuItem>
+                    <MenuItem value="any">Any</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <Typography sx={{ color: 'rgba(255,255,255,0.72)', fontSize: '13px', mb: 1 }}>
+                  Preferred Provider Age Range
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1.5 }}>
+                  <TextField
+                    size="small"
+                    type="number"
+                    label="Min"
+                    value={settings.sugarPreferredAgeMin}
+                    onChange={(e) => handleChange('sugarPreferredAgeMin', e.target.value)}
+                    inputProps={{ min: 18, max: 99 }}
+                    sx={{
+                      flex: 1,
+                      '& .MuiOutlinedInput-root': {
+                        color: '#fff',
+                        '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+                        '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.5)' }
+                      },
+                    }}
+                  />
+                  <TextField
+                    size="small"
+                    type="number"
+                    label="Max"
+                    value={settings.sugarPreferredAgeMax}
+                    onChange={(e) => handleChange('sugarPreferredAgeMax', e.target.value)}
+                    inputProps={{ min: 18, max: 99 }}
+                    sx={{
+                      flex: 1,
+                      '& .MuiOutlinedInput-root': {
+                        color: '#fff',
+                        '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+                        '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.5)' }
+                      },
+                    }}
+                  />
+                </Box>
+              </Box>
             </Box>
           )}
         </Section>

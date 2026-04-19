@@ -205,8 +205,8 @@ export const canViewProfile = (viewer, target, options = {}) => {
   
   // Sugar profiles have special visibility rules
   if (SUGAR_TYPES.includes(targetType)) {
-    // Only provider accounts with paid sugar access can see sugar profiles.
-    const isEligibleSugarViewer = viewerType === ACCOUNT_TYPES.PROVIDER;
+    // Only client/provider accounts with paid sugar access can see sugar profiles.
+    const isEligibleSugarViewer = viewerType === ACCOUNT_TYPES.PROVIDER || viewerType === ACCOUNT_TYPES.CLIENT;
     if (!isEligibleSugarViewer) return false;
     if (!options.hasSugarAccess) return false;
 

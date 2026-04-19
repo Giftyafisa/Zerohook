@@ -228,17 +228,18 @@ export const SocketProvider = ({ children }) => {
         // Fetch initial unread counts on connect/reconnect so badges are accurate
         apiClient.get('/chat/unread-count')
           .then(res => {
-            if (res.data && typeof res.data.unreadCount === 'number') {
-              dispatch(setUnreadMessages(res.data.unreadCount));
+            const unreadCount = res?.data?.unreadCount ?? res?.data?.data?.unreadCount;
+            if (typeof unreadCount === 'number') {
+              dispatch(setUnreadMessages(unreadCount));
             }
           })
           .catch(() => {}); // Non-critical
         apiClient.get('/notifications')
           .then(res => {
-            const data = res.data;
+            const data = res?.data?.data && typeof res.data.data === 'object' ? res.data.data : res.data;
             if (data && typeof data.unreadCount === 'number') {
               dispatch({ type: 'ui/setUnreadNotifications', payload: data.unreadCount });
-            } else if (data?.notifications) {
+            } else if (Array.isArray(data?.notifications)) {
               // Fallback: count from list
               const unreadCount = data.notifications.filter(n => !n.is_read).length;
               dispatch({ type: 'ui/setUnreadNotifications', payload: unreadCount });

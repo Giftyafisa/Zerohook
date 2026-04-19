@@ -32,6 +32,7 @@ import {
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsAuthenticated, selectIsSubscribed, logout } from '../../store/slices/authSlice';
 import NotificationSystem from '../NotificationSystem';
+import { getAccountType } from '../../utils/accountTypeUtils';
 
 const GlassAppBar = styled(AppBar)({
   background: 'rgba(15, 15, 19, 0.85)',
@@ -165,14 +166,10 @@ const Navbar = () => {
   };
 
   // Get user's account type for conditional rendering
-  const accountType =
-    user?.profile_data?.accountType ||
-    user?.profileData?.accountType ||
-    user?.accountType ||
-    user?.account_type ||
-    'client';
+  const accountType = getAccountType(user) || 'client';
+  const isClient = accountType === 'client';
   const isProvider = accountType === 'provider';
-  const canAccessSugarProfiles = isProvider;
+  const canAccessSugarProfiles = isProvider || isClient;
   const isSugarDaddy = accountType === 'sugar_daddy';
   const isSugarMommy = accountType === 'sugar_mommy';
   const isSugarAccount = isSugarDaddy || isSugarMommy;
@@ -417,7 +414,7 @@ const Navbar = () => {
               </Box>
             </GlassMenuItem>
           )}
-          {/* Provider-specific: Sugar Profiles (paid access) */}
+          {/* Eligible viewer accounts: Sugar Profiles (paid access) */}
           {canAccessSugarProfiles && (
             <GlassMenuItem
               onClick={() => {
@@ -613,7 +610,7 @@ const Navbar = () => {
                       Create Service
                     </NavButton>
                   )}
-                  {/* Provider-specific: Sugar Profiles (paid access) */}
+                  {/* Eligible viewer accounts: Sugar Profiles (paid access) */}
                   {canAccessSugarProfiles && (
                     <NavButton
                       component={Link}
@@ -669,13 +666,17 @@ const Navbar = () => {
                               ? 'rgba(255, 215, 0, 0.15)' 
                               : isProvider 
                                 ? 'rgba(255, 0, 85, 0.15)' 
+                                : isClient
+                                  ? 'rgba(0, 168, 255, 0.15)'
                                 : 'rgba(0, 242, 234, 0.15)',
                             color: isSugarAccount 
                               ? '#FFD700' 
                               : isProvider 
                                 ? '#ff0055' 
+                                : isClient
+                                  ? '#00a8ff'
                                 : '#00f2ea',
-                            border: `1px solid ${isSugarAccount ? 'rgba(255, 215, 0, 0.3)' : isProvider ? 'rgba(255, 0, 85, 0.3)' : 'rgba(0, 242, 234, 0.3)'}`,
+                            border: `1px solid ${isSugarAccount ? 'rgba(255, 215, 0, 0.3)' : isProvider ? 'rgba(255, 0, 85, 0.3)' : isClient ? 'rgba(0, 168, 255, 0.35)' : 'rgba(0, 242, 234, 0.3)'}`,
                             '& .MuiChip-label': {
                               px: 0.75,
                             }

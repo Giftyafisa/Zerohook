@@ -71,6 +71,11 @@ const CryptoPayment = ({
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
   const startTimeRef = useRef(Date.now());
+  const paymentDataRef = useRef(paymentData);
+
+  useEffect(() => {
+    paymentDataRef.current = paymentData;
+  }, [paymentData]);
 
   // Copy to clipboard
   const handleCopy = useCallback(async (text, field) => {
@@ -93,14 +98,15 @@ const CryptoPayment = ({
 
   // Poll for payment confirmation
   const checkPayment = useCallback(async () => {
-    if (!paymentData?.reference) return;
+    const currentPaymentData = paymentDataRef.current;
+    if (!currentPaymentData?.reference) return;
     
     try {
       setStatus('checking');
 
       const payload = verifyPayloadBuilder
-        ? verifyPayloadBuilder(paymentData)
-        : { reference: paymentData.reference };
+        ? verifyPayloadBuilder(currentPaymentData)
+        : { reference: currentPaymentData.reference };
 
       const response = await apiClient.post(verifyEndpoint, payload);
       const data = response.data;
@@ -135,7 +141,7 @@ const CryptoPayment = ({
       }
       return false;
     }
-  }, [paymentData?.reference, onSuccess, verifyEndpoint, verifyPayloadBuilder]);
+  }, [onSuccess, verifyEndpoint, verifyPayloadBuilder]);
 
   // Auto-poll for confirmation
   useEffect(() => {

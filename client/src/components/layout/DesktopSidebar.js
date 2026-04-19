@@ -46,7 +46,7 @@ const GlassSidebar = styled(Box)({
   display: 'flex',
   flexDirection: 'column',
   padding: `${tokens.spacing.xl}px ${tokens.spacing.lg}px`,
-  zIndex: tokens.zIndex.modal,
+  zIndex: tokens.zIndex.drawer,
   overflowY: 'auto',
   
   '&::-webkit-scrollbar': {

@@ -102,7 +102,8 @@ const useLocationBootstrap = () => {
   // ── cascade effect ───────────────────────────────
   useEffect(() => {
     const buildProfileLocation = () => {
-      const location = reduxUser?.profile_data?.location;
+      const profileData = reduxUser?.profile_data || reduxUser?.profileData || {};
+      const location = profileData.location;
       if (!location) return null;
       const coords = location.coordinates || location.coords || {};
       const hasCoords = coords.lat != null && coords.lng != null && !isNaN(coords.lat) && !isNaN(coords.lng);
@@ -168,7 +169,11 @@ const useLocationBootstrap = () => {
       }
 
       // 2. Profile-preferred location
-      const profilePreferred = Boolean(reduxUser?.profile_data?.location?.preferProfileLocation);
+      const profileData = reduxUser?.profile_data || reduxUser?.profileData || {};
+      const profilePreferred = Boolean(
+        profileData?.location?.preferProfileLocation ||
+        profileData?.settings?.preferProfileLocation
+      );
       const profileLoc = buildProfileLocation();
       if (profilePreferred && profileLoc) {
         setUserLocation({ ...profileLoc, source: 'profile-preferred' });

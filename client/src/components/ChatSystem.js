@@ -59,7 +59,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getUploadUrl } from '../config/constants';
 import apiClient from '../services/apiClient';
 import { useDispatch } from 'react-redux';
-import { decrementUnreadMessages } from '../store/slices/uiSlice';
+import { setUnreadMessages } from '../store/slices/uiSlice';
 import { inferMessageTypeFromContent, formatMessagePreview } from '../utils/messageTypeUtils';
 import { traceRealtime } from '../utils/realtimeTrace';
 
@@ -382,6 +382,35 @@ const ChatSystem = ({
       .filter(Boolean))];
   }, [conversations]);
 
+  const syncGlobalUnreadFromConversations = React.useCallback((conversationList = []) => {
+    const unreadTotal = conversationList.reduce(
+      (sum, conv) => sum + Number(conv.unreadCount || 0),
+      0
+    );
+    dispatch(setUnreadMessages(unreadTotal));
+  }, [dispatch]);
+
+  const loadMessages = React.useCallback(async (conversationId) => {
+    try {
+      debugLog('📨 Loading messages for conversation:', conversationId);
+      const response = await apiClient.get(`/chat/messages/${conversationId}`);
+      debugLog('📨 Messages API response:', response.status);
+      const data = response.data;
+      debugLog('💬 Messages data:', data);
+      setMessages(data.messages || []);
+      debugLog('💬 Messages set to state:', data.messages?.length || 0);
+      setConversations((prev) => {
+        const nextConversations = prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c);
+        syncGlobalUnreadFromConversations(nextConversations);
+        return nextConversations;
+      });
+      // Note: markConversationRead is already called by `selectConversation`; no need to call again here.
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+      toast.error('Unable to load messages right now.');
+    }
+  }, [syncGlobalUnreadFromConversations]);
+
   // Track conversation ID separately so room join/leave only fires on actual
   // conversation switches — not on every object-reference change (online status,
   // escrow updates, etc.) which would cause leave+rejoin and lost messages.
@@ -417,7 +446,7 @@ const ChatSystem = ({
         socket.emit('leave_conversation', selectedConversationId);
       }
     };
-  }, [selectedConversationId, socket, isConnected]);
+  }, [selectedConversationId, socket, isConnected, loadMessages]);
 
   // Emit typing_stop when switching conversations or unmounting to avoid stuck indicators
   useEffect(() => {
@@ -515,14 +544,11 @@ const ChatSystem = ({
         if (String(messageData.senderId || '') !== currentUserId) {
           setRemoteTyping(false);
           markConversationRead(messageData.conversationId);
-          // Counteract the global unread increment from SocketContext — the user
-          // is actively viewing this conversation, so it's instantly read.
-          dispatch(decrementUnreadMessages(1));
         }
       }
 
-      setConversations((prev) =>
-        sortConversations(
+      setConversations((prev) => {
+        const nextConversations = sortConversations(
           prev.map((conv) => {
             if (normalizeId(conv.id) !== normalizeId(messageData.conversationId)) return conv;
             conversationFound = true;
@@ -536,8 +562,15 @@ const ChatSystem = ({
               unreadCount: isOwn || isActive ? 0 : (conv.unreadCount || 0) + 1
             };
           })
-        )
-      );
+        );
+
+        const unreadTotal = nextConversations.reduce(
+          (sum, conv) => sum + Number(conv.unreadCount || 0),
+          0
+        );
+        dispatch(setUnreadMessages(unreadTotal));
+        return nextConversations;
+      });
 
       if (!conversationFound) {
         // Fetch latest conversations to include new thread
@@ -813,6 +846,7 @@ const ChatSystem = ({
           sorted = sortConversations(uniqueById);
           return sorted;
         });
+        syncGlobalUnreadFromConversations(sorted);
         setConversationsNextCursor(data.nextCursor || null);
         setConversationsHasMore(!!data.hasMore);
         debugLog('✅ Conversations loaded successfully:', sorted.length, 'conversations');
@@ -823,23 +857,6 @@ const ChatSystem = ({
       toast.error('Unable to load conversations right now.');
     } finally {
       if (!silent) setLoading(false);
-    }
-  };
-
-  const loadMessages = async (conversationId) => {
-    try {
-      debugLog('📨 Loading messages for conversation:', conversationId);
-      const response = await apiClient.get(`/chat/messages/${conversationId}`);
-      debugLog('📨 Messages API response:', response.status);
-      const data = response.data;
-      debugLog('💬 Messages data:', data);
-      setMessages(data.messages || []);
-      debugLog('💬 Messages set to state:', data.messages?.length || 0);
-      setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
-      // Note: markConversationRead is already called by `selectConversation`; no need to call again here.
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-      toast.error('Unable to load messages right now.');
     }
   };
 
@@ -1169,7 +1186,11 @@ const ChatSystem = ({
   const handleDeleteConversationById = async (conversationId) => {
     try {
       await apiClient.delete(`/chat/conversations/${conversationId}`);
-      setConversations(prev => prev.filter(c => c.id !== conversationId));
+      setConversations((prev) => {
+        const nextConversations = prev.filter(c => c.id !== conversationId);
+        syncGlobalUnreadFromConversations(nextConversations);
+        return nextConversations;
+      });
       if (selectedConversation?.id === conversationId) {
         setSelectedConversation(null);
         setShowMobileChat(false);
@@ -1184,9 +1205,13 @@ const ChatSystem = ({
   const handleMarkAsRead = async (conversationId) => {
     try {
       await markConversationRead(conversationId);
-      setConversations(prev => prev.map(c => 
-        c.id === conversationId ? { ...c, unreadCount: 0 } : c
-      ));
+      setConversations((prev) => {
+        const nextConversations = prev.map(c =>
+          c.id === conversationId ? { ...c, unreadCount: 0 } : c
+        );
+        syncGlobalUnreadFromConversations(nextConversations);
+        return nextConversations;
+      });
     } catch (error) {
       console.error('Failed to mark as read:', error);
     }
@@ -1359,7 +1384,6 @@ const ChatSystem = ({
 
   const selectConversation = (conv) => {
     if (!conv) return;
-    const decrementBy = Number(conv.unreadCount || 0);
     const isTargetRecipient = normalizeId(conv.participantId) === normalizeId(targetRecipientId);
     const mergedConv = {
       ...conv,
@@ -1368,13 +1392,12 @@ const ChatSystem = ({
     };
     setSelectedConversation(mergedConv);
     setShowMobileChat(true);
-    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c));
+    setConversations((prev) => {
+      const nextConversations = prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c);
+      syncGlobalUnreadFromConversations(nextConversations);
+      return nextConversations;
+    });
     markConversationRead(conv.id);
-
-    // Keep global unread badge in sync when a thread is opened.
-    if (decrementBy > 0) {
-      dispatch(decrementUnreadMessages(decrementBy));
-    }
   };
 
   const handleBackToList = () => {

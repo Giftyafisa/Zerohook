@@ -123,13 +123,14 @@ export const zIndex = {
   content: 10, // Main content
   cards: 50, // Cards/elevated content
   dropdown: 1000,
-  sticky: 1100,
+  sticky: 1050,
   appBar: 1100, // Mobile header
-  bottomNav: 1100, // Bottom navigation
-  modal: 1200,
-  popover: 1300,
-  tooltip: 1400,
-  toast: 1500, // Toast notifications
+  bottomNav: 1120, // Bottom navigation above content, below drawers/modals
+  drawer: 1200, // Side drawers / desktop navigation rails
+  modal: 1300,
+  popover: 1400,
+  tooltip: 1500,
+  toast: 1600, // Toast notifications
 };
 
 // Breakpoints (mobile-first approach)

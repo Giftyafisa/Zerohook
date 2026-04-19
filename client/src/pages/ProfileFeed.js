@@ -59,12 +59,41 @@ import useLocationBootstrap, { getAllLocations } from '../hooks/useLocationBoots
 import useFeedQuery from '../hooks/useFeedQuery';
 import usePresence from '../hooks/usePresence';
 import TikTokProfileFeed from '../components/TikTokProfileFeed';
+import { getAccountType } from '../utils/accountTypeUtils';
 import tokens from '../theme/tokens';
 
 // Environment-gated debug logger — no logs in production builds
 const isDev = process.env.NODE_ENV === 'development';
 const debugLog = isDev ? (...args) => console.log(...args) : () => {};
 const debugError = isDev ? (...args) => console.error(...args) : () => {};
+
+const RANKING_REASON_LABELS = {
+  exact_match: 'Exact Match',
+  country_match: 'Same Country',
+  very_close: 'Very Close',
+  nearby: 'Nearby',
+  online_now: 'Online Now',
+  verified: 'Verified',
+  high_trust: 'High Trust',
+  high_response: 'High Response',
+  cross_country_fallback: 'Expanded Area',
+  smart_trust_fallback: 'Smart Fallback'
+};
+
+const normalizeRankingReason = (reason) => {
+  if (!reason) return null;
+  if (typeof reason === 'string') {
+    return { key: reason, label: RANKING_REASON_LABELS[reason] || reason };
+  }
+
+  if (typeof reason === 'object') {
+    const key = reason.key || reason.id || 'reason';
+    const label = reason.label || RANKING_REASON_LABELS[key] || key;
+    return { key, label };
+  }
+
+  return null;
+};
 
 // getAllLocations and findNearestCity are now in hooks/useLocationBootstrap.js
 // ============================================
@@ -550,6 +579,9 @@ const ProfileCard = React.memo(({
   const recommendationScore = profile.recommendationScore || 0;
   const scoreBreakdown = profile.scoreBreakdown || {};
   const matchPercentage = Math.round(recommendationScore) || (scoreBreakdown.compatibility ? Math.round(scoreBreakdown.compatibility) : null);
+  const rankingReasons = Array.isArray(profile.rankingReasons)
+    ? profile.rankingReasons.map(normalizeRankingReason).filter(Boolean).slice(0, 3)
+    : [];
 
   // Get profile image using shared utility
   const profileImage = resolveProfileImage(profileData);
@@ -957,6 +989,26 @@ const ProfileCard = React.memo(({
             {bio}
           </Typography>
 
+          {rankingReasons.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5 }}>
+              {rankingReasons.map((reason) => (
+                <Chip
+                  key={`${profile.id}-${reason.key}`}
+                  size="small"
+                  label={reason.label}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    color: 'rgba(255,255,255,0.85)',
+                    bgcolor: 'rgba(0,242,234,0.12)',
+                    border: '1px solid rgba(0,242,234,0.22)'
+                  }}
+                />
+              ))}
+            </Box>
+          )}
+
           {/* Action Button */}
           <Button
             fullWidth
@@ -1150,8 +1202,30 @@ export const SubscriptionPaywall = ({ onSubscribe }) => {
 const ProfileFeed = ({ discoverySurface = 'providers' }) => {
   const isMobile = useMediaQuery(useTheme().breakpoints.down('sm'));
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
-  const isClientDiscoverySurface = String(discoverySurface || '').toLowerCase() === 'clients';
+  const { isAuthenticated, user } = useAuth();
+  const viewerAccountType = getAccountType(user) || (isAuthenticated ? 'client' : 'anonymous');
+  const isProviderViewer = viewerAccountType === 'provider';
+  const normalizedRequestedSurface = String(discoverySurface || 'providers').toLowerCase();
+
+  const defaultSurface = useMemo(() => {
+    if (normalizedRequestedSurface === 'clients') {
+      return isProviderViewer ? 'clients' : 'providers';
+    }
+    if (normalizedRequestedSurface === 'providers') {
+      return 'providers';
+    }
+    return 'providers';
+  }, [normalizedRequestedSurface, isProviderViewer]);
+
+  const [activeDiscoverySurface, setActiveDiscoverySurface] = useState(defaultSurface);
+  const canSwitchDiscoverySurface = isProviderViewer && normalizedRequestedSurface !== 'providers';
+
+  useEffect(() => {
+    setActiveDiscoverySurface(defaultSurface);
+  }, [defaultSurface]);
+
+  const isClientDiscoverySurface = activeDiscoverySurface === 'clients';
+  const discoveryEntityLabel = isClientDiscoverySurface ? 'clients' : 'providers';
 
   // ── extracted hooks ──────────────────────────────
   const {
@@ -1171,7 +1245,13 @@ const ProfileFeed = ({ discoverySurface = 'providers' }) => {
     displayedProfiles, loading, loadingMore, error,
     hasMore, searchMetadata, loadMoreRef,
     fetchProfiles, resetProfiles,
-  } = useFeedQuery({ activeFilter, searchQuery, userLocation, locationLoading, discoverySurface });
+  } = useFeedQuery({
+    activeFilter,
+    searchQuery,
+    userLocation,
+    locationLoading,
+    discoverySurface: activeDiscoverySurface
+  });
 
   // Real-time online status for all displayed profiles (feed context = public)
   const profileIds = useMemo(() => displayedProfiles.map(p => String(p.id)), [displayedProfiles]);
@@ -1207,6 +1287,13 @@ const ProfileFeed = ({ discoverySurface = 'providers' }) => {
     resetProfiles();
     activityTracker.trackFilter('category', filterId);
   }, [_onFilterChange, resetProfiles, activityTracker]);
+
+  const handleDiscoverySurfaceChange = useCallback((nextSurface) => {
+    if (!isProviderViewer || nextSurface === activeDiscoverySurface) return;
+    setActiveDiscoverySurface(nextSurface);
+    resetProfiles();
+    activityTracker.trackFilter('discovery_surface', nextSurface);
+  }, [activeDiscoverySurface, activityTracker, isProviderViewer, resetProfiles]);
 
   // Handle like
   const handleLike = useCallback((profileId) => {
@@ -1304,7 +1391,7 @@ const ProfileFeed = ({ discoverySurface = 'providers' }) => {
               color: '#fff',
             }}
           >
-            {isClientDiscoverySurface ? 'Client Discovery' : 'Discover'}
+            {isClientDiscoverySurface ? 'Discover Clients' : 'Discover Providers'}
           </Typography>
           
           {/* Compact Location Chip */}
@@ -1346,6 +1433,33 @@ const ProfileFeed = ({ discoverySurface = 'providers' }) => {
             />
           )}
         </Box>
+
+        {canSwitchDiscoverySurface && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+            <Chip
+              size="small"
+              label="Find Clients"
+              onClick={() => handleDiscoverySurfaceChange('clients')}
+              sx={{
+                bgcolor: isClientDiscoverySurface ? 'rgba(0,242,234,0.2)' : 'rgba(255,255,255,0.08)',
+                color: isClientDiscoverySurface ? tokens.colors.primary.main : 'rgba(255,255,255,0.72)',
+                border: isClientDiscoverySurface ? '1px solid rgba(0,242,234,0.4)' : '1px solid rgba(255,255,255,0.14)',
+                fontWeight: 700,
+              }}
+            />
+            <Chip
+              size="small"
+              label="Find Providers"
+              onClick={() => handleDiscoverySurfaceChange('providers')}
+              sx={{
+                bgcolor: !isClientDiscoverySurface ? 'rgba(0,242,234,0.2)' : 'rgba(255,255,255,0.08)',
+                color: !isClientDiscoverySurface ? tokens.colors.primary.main : 'rgba(255,255,255,0.72)',
+                border: !isClientDiscoverySurface ? '1px solid rgba(0,242,234,0.4)' : '1px solid rgba(255,255,255,0.14)',
+                fontWeight: 700,
+              }}
+            />
+          </Box>
+        )}
 
         {/* Search Bar - Compact */}
         <TextField
@@ -1429,6 +1543,56 @@ const ProfileFeed = ({ discoverySurface = 'providers' }) => {
 
         {!loading && !error && (
           <>
+            {searchMetadata?.countryFallbackApplied && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 2,
+                  p: 1.5,
+                  bgcolor: 'rgba(255,193,7,0.12)',
+                  border: '1px solid rgba(255,193,7,0.28)',
+                  borderRadius: 2,
+                }}
+              >
+                <LocationOn sx={{ color: tokens.colors.warning, fontSize: 20 }} />
+                <Box>
+                  <Typography variant="body2" sx={{ color: '#fff', fontWeight: 600 }}>
+                    No same-country profiles available right now
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)' }}>
+                    Showing nearby cross-country matches automatically.
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+
+            {searchMetadata?.trustPolicy?.relaxed && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 2,
+                  p: 1.5,
+                  bgcolor: 'rgba(76,175,80,0.12)',
+                  border: '1px solid rgba(76,175,80,0.26)',
+                  borderRadius: 2,
+                }}
+              >
+                <Verified sx={{ color: tokens.colors.success, fontSize: 20 }} />
+                <Box>
+                  <Typography variant="body2" sx={{ color: '#fff', fontWeight: 600 }}>
+                    Trust filtering adapted to local availability
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)' }}>
+                    The system relaxed trust floor from {searchMetadata?.trustPolicy?.requestedFloor}% to {searchMetadata?.trustPolicy?.appliedFloor}% to avoid empty results nearby.
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+
             {/* Radius Expansion Suggestion */}
             {searchMetadata?.suggestedRadiusExpansion && displayedProfiles.length > 0 && displayedProfiles.length < 10 && (
               <Box
@@ -1446,7 +1610,7 @@ const ProfileFeed = ({ discoverySurface = 'providers' }) => {
                 <NearMe sx={{ color: tokens.colors.primary.main, fontSize: 20 }} />
                 <Box sx={{ flex: 1 }}>
                   <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500 }}>
-                    Only {searchMetadata.nearbyCount?.within10km || displayedProfiles.length} providers within 10km
+                    Only {searchMetadata.nearbyCount?.within10km || displayedProfiles.length} {discoveryEntityLabel} within 10km
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
                     {searchMetadata.suggestedRadiusExpansion.message}

@@ -58,7 +58,7 @@ const CreateServicePage = lazy(() => import('./pages/CreateServicePage'));
 const AdultServiceCreate = lazy(() => import('./pages/AdultServiceCreate'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const VerificationPage = lazy(() => import('./pages/VerificationPage'));
-// TransactionsPage removed - route redirects to /wallet (MyMoneyPage)
+// Transactions and wallet surfaces share MyMoneyPage
 const TrustScorePage = lazy(() => import('./pages/TrustScorePage'));
 const AdultServiceBrowse = lazy(() => import('./pages/AdultServiceBrowse'));
 const AdultServiceDetail = lazy(() => import('./pages/AdultServiceDetail'));
@@ -298,7 +298,11 @@ function AppContent() {
             <ErrorBoundary><AdultServiceCreate /></ErrorBoundary>
           </ProtectedRoute>
         } />
-        <Route path="/transactions" element={<Navigate to="/wallet?tab=transactions" replace />} />
+        <Route path="/transactions" element={
+          <ProtectedRoute requireSubscription={false}>
+            <ErrorBoundary><MyMoneyPage /></ErrorBoundary>
+          </ProtectedRoute>
+        } />
         <Route path="/trust-score" element={
           <ProtectedRoute requireSubscription={true}>
             <ErrorBoundary><TrustScorePage /></ErrorBoundary>
@@ -367,7 +371,7 @@ function AppContent() {
           </ProtectedRoute>
         } />
         
-        {/* Sugar Profiles Route - For providers to view VVIP members */}
+        {/* Sugar Profiles Route - For eligible client/provider paid viewers */}
         <Route path="/sugar-profiles" element={
           <ProtectedRoute requireSubscription={false}>
             <ErrorBoundary><SugarProfilesPage /></ErrorBoundary>
@@ -419,6 +423,7 @@ function AppContent() {
         draggable
         pauseOnHover
         theme="colored"
+        style={{ zIndex: 1600 }}
       />
     </MainLayout>
   );

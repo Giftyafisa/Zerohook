@@ -64,6 +64,20 @@ const TRENDING_SUGGESTIONS = [
   'nightlife kumasi',
 ];
 
+const extractProfilesFromResponse = (responseData) => {
+  const nestedPayload = responseData?.data;
+  const payload = nestedPayload && typeof nestedPayload === 'object' && !Array.isArray(nestedPayload)
+    ? nestedPayload
+    : responseData;
+
+  if (Array.isArray(payload?.users)) return payload.users;
+  if (Array.isArray(payload?.profiles)) return payload.profiles;
+  if (Array.isArray(responseData?.users)) return responseData.users;
+  if (Array.isArray(responseData?.profiles)) return responseData.profiles;
+  if (Array.isArray(responseData?.data)) return responseData.data;
+  return [];
+};
+
 // ============================================
 // TIKTOK-STYLE TOP NAVIGATION
 // ============================================
@@ -282,7 +296,7 @@ const SearchOverlay = ({ open, onClose }) => {
 
       const response = await apiClient.get(`/users/browse?${params}`);
       const data = response.data;
-      const profiles = (data.data || data.users || []).map(profile => {
+        const profiles = extractProfilesFromResponse(data).map(profile => {
           const profileData = profile.profile_data || profile.profileData || {};
           const basePrice = profileData.basePrice != null ? parseFloat(profileData.basePrice) : null;
           const converted = basePrice != null ? convertFromUSD(basePrice) : null;
@@ -1239,7 +1253,10 @@ const TikTokProfileFeed = () => {
       if (!response.data) throw new Error('Failed to load profiles');
       
       const data = response.data;
-      let newProfiles = data.data || data.users || [];
+      const payload = data?.data && typeof data.data === 'object' && !Array.isArray(data.data)
+        ? data.data
+        : data;
+      let newProfiles = extractProfilesFromResponse(data);
 
       // Filter out current user
       if (currentUser?.id) {
@@ -1271,7 +1288,12 @@ const TikTokProfileFeed = () => {
         setCurrentIndex(0);
       }
 
-      setHasMore(processedProfiles.length === 10);
+      const totalFromPagination = payload?.pagination?.total;
+      if (typeof totalFromPagination === 'number') {
+        setHasMore(pageNum * 10 < totalFromPagination);
+      } else {
+        setHasMore(processedProfiles.length === 10);
+      }
       setPage(pageNum);
     } catch (err) {
       // Ignore aborted requests (from tab/filter changes)

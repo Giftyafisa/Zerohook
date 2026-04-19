@@ -298,6 +298,14 @@ const ProfilePage = () => {
     setPhotoDialog(true);
   };
 
+  const handleOpenSettings = useCallback(() => {
+    navigate('/settings', {
+      state: {
+        from: '/profile'
+      }
+    });
+  }, [navigate]);
+
   useEffect(() => {
     setAvatarLoadFailed(false);
   }, [profileData.profilePicture]);
@@ -828,7 +836,7 @@ const ProfilePage = () => {
           <VerifiedIcon sx={{ color: '#00ff88' }} />
           <Typography>Verify</Typography>
         </ButtonBase>
-        <ButtonBase sx={styles.linkCard} onClick={() => navigate('/settings')} aria-label="Open settings">
+        <ButtonBase sx={styles.linkCard} onClick={handleOpenSettings} aria-label="Open settings">
           <SettingsIcon sx={{ color: '#ff0055' }} />
           <Typography>Settings</Typography>
         </ButtonBase>
@@ -959,7 +967,7 @@ const styles = {
     minHeight: '100vh',
     background: 'var(--bg-primary, #0f0f13)',
     padding: { xs: '12px', sm: '16px', md: '20px' },
-    paddingBottom: '80px'
+    paddingBottom: 'calc(104px + env(safe-area-inset-bottom, 0px))'
   },
   loadingContainer: {
     minHeight: '100vh',

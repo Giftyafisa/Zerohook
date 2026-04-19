@@ -75,7 +75,8 @@ const MyMoneyPage = () => {
   const timeoutIdsRef = useRef(new Set());
   
   // Tab state - initialize from URL param if present
-  const initialTab = TAB_MAP[searchParams.get('tab')] ?? 0;
+  const pathTab = currentLocation.pathname === '/transactions' ? 'transactions' : null;
+  const initialTab = TAB_MAP[searchParams.get('tab') || pathTab] ?? 0;
   const [activeTab, setActiveTab] = useState(initialTab);
   
   // Loading states

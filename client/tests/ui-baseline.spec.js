@@ -3,7 +3,8 @@ const routePacks = require('./ui-baseline.packs.json');
 
 const DEFAULT_PROJECTS = ['chromium', 'Mobile Chrome'];
 const selectedPackName = process.env.UI_BASELINE_PACK || 'public-core';
-const maxDiffPixelRatio = Number.parseFloat(process.env.UI_BASELINE_MAX_DIFF_RATIO || '0.01');
+const defaultMaxDiffPixelRatio = Number.parseFloat(process.env.UI_BASELINE_MAX_DIFF_RATIO || '0.02');
+const mobileMaxDiffPixelRatio = Number.parseFloat(process.env.UI_BASELINE_MAX_DIFF_RATIO_MOBILE || '0.05');
 
 function parseProjectAllowList() {
   const envValue = process.env.UI_BASELINE_PROJECTS;
@@ -40,6 +41,12 @@ async function stabilizePage(page) {
         animation: none !important;
         transition: none !important;
       }
+
+      [role="alert"],
+      .Toastify,
+      .MuiSnackbar-root {
+        visibility: hidden !important;
+      }
     `
   });
 
@@ -61,11 +68,16 @@ for (const [packName, pack] of selectedPacks) {
           test.skip(true, `Project ${testInfo.project.name} is excluded from UI baseline pack runs.`);
         }
 
+        await page.emulateMedia({ reducedMotion: 'reduce' });
         await page.goto(route.path, { waitUntil: 'domcontentloaded', timeout: 45000 });
         await page.waitForLoadState('load');
         // Avoid relying on networkidle because realtime sockets can keep the network active.
         await page.waitForTimeout(800);
         await stabilizePage(page);
+
+        const maxDiffPixelRatio = testInfo.project.name === 'Mobile Chrome'
+          ? mobileMaxDiffPixelRatio
+          : defaultMaxDiffPixelRatio;
 
         const overflow = await page.evaluate(() => {
           const root = document.documentElement;

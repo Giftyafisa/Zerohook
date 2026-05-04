@@ -1,0 +1,125 @@
+///$tab Variables
+SET ErrorMode = 0;
+SET vSseHost = 'localhost';
+SET vSsePort = '50055';
+SET vSseConnection = 'PyTools';
+
+///$tab SSE-Connectivity-Check
+// ============================================================
+// SSE Smoke Test — Verify connectivity before production use
+// ============================================================
+
+TRACE ===== SSE Connectivity Check =====;
+TRACE Connection: $(vSseConnection) at $(vSseHost):$(vSsePort);
+
+LIB CONNECT TO '$(vSseConnection)';
+
+// Test 1: Prophet with load_script=true returns named columns (ds, yhat, etc.)
+// Prophet kwargs auto-detect pipe or comma delimiter.
+TRACE [Test 1] Prophet smoke test...;
+
+_ProphetSmokeInput:
+LOAD
+    Date(Today() - RecNo()) as ds,
+    Round(Rand() * 100) as y
+AUTOGENERATE 30;
+
+_ProphetSmokeOutput:
+LOAD *
+EXTENSION $(vSseConnection).Prophet(
+    _ProphetSmokeInput{ds, y, 'return=yhat, freq=D, load_script=true'}
+);
+
+LET vSmokeRows = NoOfRows('_ProphetSmokeOutput');
+IF vSmokeRows > 0 THEN
+    TRACE [Test 1] PASS — Prophet returned $(vSmokeRows) rows;
+ELSE
+    TRACE [Test 1] FAIL — Prophet returned no rows;
+END IF
+
+DROP TABLE _ProphetSmokeInput;
+DROP TABLE _ProphetSmokeOutput;
+
+// Test 2: StatsForecast — returns single numeric column. No load_script support.
+// StatsForecast kwargs auto-detect pipe or comma delimiter.
+TRACE [Test 2] StatsForecast test...;
+
+_SFInput:
+LOAD
+    Date(Today() - RecNo()) as ds,
+    Round(Rand() * 100) as y
+AUTOGENERATE 30;
+
+_SFOutput:
+LOAD *
+EXTENSION $(vSseConnection).StatsForecast(
+    _SFInput{ds, y, 'model=AutoARIMA, freq=D, periods=7, return=yhat'}
+);
+
+LET vSFRows = NoOfRows('_SFOutput');
+IF vSFRows > 0 THEN
+    TRACE [Test 2] PASS — StatsForecast returned $(vSFRows) rows;
+ELSE
+    TRACE [Test 2] FAIL — StatsForecast returned no rows (function may not be available);
+END IF
+
+DROP TABLE _SFInput;
+DROP TABLE _SFOutput;
+
+// Test 3: Cluster — HDBSCAN clustering, returns single numeric column (cluster label)
+// Note: pipe '|' separates FEATURES. Kwargs auto-detect pipe or comma.
+TRACE [Test 3] Cluster function test...;
+
+_ClusterInput:
+LOAD
+    RecNo() as ItemID,
+    Rand() * 100 as Feature1,
+    Rand() * 50 as Feature2
+AUTOGENERATE 50;
+
+_ClusterOutput:
+LOAD *
+EXTENSION $(vSseConnection).Cluster(
+    _ClusterInput{ItemID, Feature1 & ';' & Feature2, 'scaler=standard, min_cluster_size=5, debug=true'}
+);
+
+LET vClusterRows = NoOfRows('_ClusterOutput');
+IF vClusterRows > 0 THEN
+    TRACE [Test 3] PASS — Cluster returned $(vClusterRows) rows;
+ELSE
+    TRACE [Test 3] FAIL — Cluster returned no rows (function may not be available);
+END IF
+
+DROP TABLE _ClusterInput;
+DROP TABLE _ClusterOutput;
+
+// Test 4: Firecrawl_Scrape — scrape a single URL, returns string content
+// Firecrawl kwargs auto-detect pipe or comma delimiter.
+// Requires FIRECRAWL_API_KEY configured on the SSE server.
+TRACE [Test 4] Firecrawl_Scrape test...;
+
+_FirecrawlScrapeInput:
+LOAD
+    'https://example.com' as url,
+    'format=markdown, only_main_content=true' as kwargs
+AUTOGENERATE 1;
+
+_FirecrawlScrapeOutput:
+LOAD *
+EXTENSION $(vSseConnection).Firecrawl_Scrape(
+    _FirecrawlScrapeInput{url, kwargs}
+);
+
+LET vFirecrawlRows = NoOfRows('_FirecrawlScrapeOutput');
+IF vFirecrawlRows > 0 THEN
+    TRACE [Test 4] PASS — Firecrawl_Scrape returned $(vFirecrawlRows) rows;
+ELSE
+    TRACE [Test 4] FAIL — Firecrawl_Scrape returned no rows (API key may not be configured);
+END IF
+
+DROP TABLE _FirecrawlScrapeInput;
+DROP TABLE _FirecrawlScrapeOutput;
+
+///$tab Summary
+TRACE ===== SSE Smoke Test Complete =====;
+SET ErrorMode = 1;

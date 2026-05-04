@@ -1,0 +1,95 @@
+///$tab Variables
+// ============================================================
+// ODAG Template App Script
+// ============================================================
+// This app expects to be generated via an ODAG link.
+// It receives selections from the parent app via $(odag_*) bindings
+// and passes them directly to the underlying database via SQL.
+
+// Initialize empty defaults for testing without ODAG
+SET odag_Region = '';
+SET odag_Category = '';
+// For numeric/date fields, it's safer to not initialize string defaults,
+// we will handle them in the WHERE builder.
+
+///$tab Build-WHERE-Clause
+// Build dynamic WHERE clause based on passed selections
+LET vWhere = '1=1';  // Default to everything (safeguard)
+
+// 1. Handle String fields (default binding generates 'A','B')
+IF Len('$(odag_Region)') > 0 THEN
+    LET vWhere = vWhere & ' AND Region IN (' & '$(odag_Region)' & ')';
+END IF
+
+IF Len('$(odag_Category)') > 0 THEN
+    LET vWhere = vWhere & ' AND Category IN (' & '$(odag_Category)' & ')';
+END IF
+
+// 2. Handle Numeric fields (must use active/numeric binding)
+// e.g., CustomerID INT in database
+LET vCustID = '$(odag_active(odag_numeric_value, CustomerID))';
+IF Len(vCustID) > 0 THEN
+    LET vWhere = vWhere & ' AND CustomerID IN (' & vCustID & ')';
+END IF
+
+// 3. Handle Dates (requires database-specific casting)
+// e.g., SQL Server CAST
+LET vOrderDate = '$(odag_OrderDate)';
+IF Len(vOrderDate) > 0 THEN
+    // Convert '2024-01-01','2024-01-02' to CAST('2024-01-01' AS DATE), CAST('2024-01-02' AS DATE)
+    LET vDateCast = 'CAST(' & Replace(vOrderDate, ',', ' AS DATE), CAST(') & ' AS DATE)';
+    LET vWhere = vWhere & ' AND OrderDate IN (' & vDateCast & ')';
+END IF
+
+TRACE [ODAG] Generated WHERE clause: $(vWhere);
+
+///$tab Load-Data
+// Connect to the live database
+LIB CONNECT TO 'Enterprise_DataWarehouse';
+
+// Load detailed transaction data using the dynamic WHERE clause
+FactSales:
+SQL SELECT
+    OrderID,
+    OrderDate,
+    CustomerID,
+    ProductID,
+    Region,
+    Category,
+    Quantity,
+    UnitPrice,
+    Discount,
+    (Quantity * UnitPrice * (1 - Discount)) as SalesAmount
+FROM "SalesDB"."dbo"."Transactions"
+WHERE $(vWhere);
+
+// Load related dimensions (only for the selected customers/products)
+// Notice we use the same ODAG bindings to filter dimensions,
+// OR we use the loaded Fact table to filter the dimensions (much safer for related fields).
+DimCustomer:
+LOAD *;
+SQL SELECT CustomerID, CustomerName, Segment, City, State, ZipCode
+FROM "SalesDB"."dbo"."DimCustomer"
+WHERE CustomerID IN (
+    SELECT DISTINCT CustomerID FROM "SalesDB"."dbo"."Transactions" WHERE $(vWhere)
+);
+
+DimProduct:
+LOAD *;
+SQL SELECT ProductID, ProductName, Brand, Supplier
+FROM "SalesDB"."dbo"."DimProduct"
+WHERE ProductID IN (
+    SELECT DISTINCT ProductID FROM "SalesDB"."dbo"."Transactions" WHERE $(vWhere)
+);
+
+///$tab Disconnect
+DISCONNECT;
+
+// Optional: Log ODAG request metadata for auditing
+_AuditLog:
+LOAD * INLINE [
+    RequestID, GeneratedBy, GeneratedAt, QueryWhereClause, RowCount
+    '$(odag_request_id)', '$(odag_user_id)', '$(=Now())', '$(vWhere)', '$(=NoOfRows('FactSales'))'
+];
+// STORE _AuditLog INTO [lib://Logs/ODAG_History.qvd] (qvd);
+// DROP TABLE _AuditLog;

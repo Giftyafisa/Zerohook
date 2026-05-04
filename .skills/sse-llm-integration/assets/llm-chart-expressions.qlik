@@ -1,0 +1,43 @@
+// ============================================================
+// LLM Chart Expression Examples
+// ============================================================
+// Replace $(vSseConnection) with your analytics connection variable.
+// Replace field names to match your data model.
+
+// --- Quick stockout risk check (Claude Haiku — fast & cheap) ---
+// $(vSseConnection).LLM_Claude_Chat(
+//     'Is this product at risk of stockout? Stock: ' & CurrentStock
+//     & ', Avg Daily Sales: ' & AvgDailySales
+//     & ', Lead Time: ' & LeadTimeDays & ' days. Answer YES or NO.',
+//     'model=haiku, temperature=0'
+// )
+
+// --- Reorder recommendation (Claude Sonnet — balanced) ---
+// $(vSseConnection).LLM_Claude_Chat(
+//     'Product: ' & ProductName
+//     & '. Predicted demand: ' & Round(PredictedDemand, 1) & ' units/day'
+//     & '. Current stock: ' & CurrentStock
+//     & '. Lead time: ' & LeadTimeDays & ' days'
+//     & '. Recommend: reorder point, reorder quantity, and safety stock.',
+//     'model=sonnet, system_prompt=Supply-chain-AI-return-JSON, temperature=0'
+// )
+
+// --- Deep analysis (Claude Opus — best quality) ---
+// $(vSseConnection).LLM_Claude_Chat(
+//     'Perform root cause analysis on why ' & ProductName
+//     & ' had ' & StockoutDays & ' stockout days last quarter.'
+//     & ' Historical data: ' & SalesHistory,
+//     'model=opus, system_prompt=Senior-supply-chain-consultant, max_tokens=4096'
+// )
+
+// --- Sales trend summary (GPT) ---
+// $(vSseConnection).LLM_Chat(
+//     'Summarize this sales trend: ' & Concat(DISTINCT MonthYear & ':' & Sum(Sales), '; '),
+//     'system_prompt=Retail-analyst-be-concise, temperature=0.3'
+// )
+
+// --- Text classification (Haiku — high volume) ---
+// $(vSseConnection).LLM_Claude_Chat(
+//     'Classify this customer feedback into: POSITIVE, NEGATIVE, or NEUTRAL: "' & FeedbackText & '"',
+//     'model=haiku, temperature=0, max_tokens=20'
+// )

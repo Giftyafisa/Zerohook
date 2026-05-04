@@ -106,6 +106,12 @@ router.post('/contact-request', authMiddleware, [
         message: 'Cannot connect with this user due to blocking'
       });
     }
+
+    if (error.message === 'Active sugar access payment required to connect with this VVIP profile') {
+      return res.status(403).json({ success: false, error: 'Sugar access required',
+        message: 'Active sugar access payment required to connect with this VVIP profile'
+      });
+    }
     
     if (error.message === 'One or both users not found') {
       return res.status(404).json({ success: false, error: 'User not found',

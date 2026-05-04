@@ -1,0 +1,127 @@
+{
+  "_inherit": true,
+  "_variables": {
+    "@primary": "#006580",
+    "@secondary": "#0098C3",
+    "@accent": "#E5F2F5",
+    "@textPrimary": "#333333",
+    "@textSecondary": "#666666",
+    "@background": "#F5F5F5",
+    "@white": "#FFFFFF",
+    "@fontFamily": "'Open Sans', sans-serif"
+  },
+  "customProperties": {},
+  "palettes": {
+    "data": [
+      {
+        "name": "Corporate 12",
+        "translation": "Corporate Colors",
+        "propertyValue": "12",
+        "type": "pyramid",
+        "colors": [
+          "@primary",
+          "@secondary",
+          "#4A4A4A",
+          "#7B7B7B",
+          "#B2B2B2",
+          "#E5E5E5",
+          "#1D4E89",
+          "#00B2A9",
+          "#F2A900",
+          "#D9534F",
+          "#8E44AD",
+          "#27AE60"
+        ]
+      }
+    ],
+    "ui": [
+      {
+        "name": "UI Colors",
+        "colors": ["@white", "@textPrimary", "@primary"]
+      }
+    ]
+  },
+  "scales": [
+    {
+      "name": "Corporate Sequential",
+      "translation": "Sequential Blue",
+      "propertyValue": "sg",
+      "type": "gradient",
+      "colors": ["@accent", "@primary"]
+    },
+    {
+      "name": "Corporate Diverging",
+      "translation": "Diverging Red-Blue",
+      "propertyValue": "dg",
+      "type": "gradient",
+      "colors": ["#D9534F", "@white", "@primary"]
+    }
+  ],
+  "color": "@textPrimary",
+  "fontSize": "13px",
+  "fontFamily": "@fontFamily",
+  "backgroundColor": "@background",
+  "dataColors": {
+    "primaryColor": "@primary",
+    "othersColor": "#B2B2B2",
+    "errorColor": "#D9534F",
+    "nullColor": "#E5E5E5"
+  },
+  "object": {
+    "title": {
+      "main": {
+        "color": "@primary",
+        "fontSize": "16px",
+        "fontWeight": "bold"
+      },
+      "subTitle": {
+        "color": "@textSecondary",
+        "fontSize": "13px"
+      },
+      "footer": {
+        "color": "#999999",
+        "fontSize": "11px",
+        "fontStyle": "italic"
+      }
+    },
+    "kpi": {
+      "backgroundColor": "@white",
+      "title": {
+        "main": {
+          "color": "@textSecondary",
+          "fontSize": "14px",
+          "fontWeight": "normal"
+        }
+      },
+      "value": {
+        "color": "@primary",
+        "fontSize": "32px",
+        "fontWeight": "bold"
+      }
+    },
+    "table": {
+      "backgroundColor": "@white",
+      "header": {
+        "color": "@primary",
+        "fontSize": "13px",
+        "fontWeight": "bold"
+      },
+      "content": {
+        "color": "@textPrimary",
+        "fontSize": "13px"
+      },
+      "hover": {
+        "color": "@textPrimary",
+        "backgroundColor": "@accent"
+      }
+    },
+    "filterpane": {
+      "backgroundColor": "@white",
+      "header": {
+        "color": "@primary",
+        "fontSize": "13px",
+        "fontWeight": "bold"
+      }
+    }
+  }
+}

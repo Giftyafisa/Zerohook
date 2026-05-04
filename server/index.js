@@ -50,6 +50,7 @@ const milestoneRoutes = require('./routes/milestone');
 const sugarAccessRoutes = require('./routes/sugarAccess');
 const adminRoutes = require('./routes/admin');
 const contentRoutes = require('./routes/content');
+const createApiContractGuard = require('./middleware/apiContractGuard');
 
 // Import services
 const TrustEngine = require('./services/TrustEngine');
@@ -63,10 +64,12 @@ const ConversationService = require('./services/ConversationService');
 const SystemHealthService = require('./services/SystemHealthService');
 const MongoRecommendationEngine = require('./services/MongoRecommendationEngine');
 const CloudinaryManager = require('./services/CloudinaryManager');
+const R2StorageManager = require('./services/R2StorageManager');
 const RealtimeLocationManager = require('./services/RealtimeLocationManager');
 const TikTokEngagementTracker = require('./services/TikTokEngagementTracker');
 const SubscriptionLifecycleManager = require('./services/SubscriptionLifecycleManager');
 const NotificationService = require('./services/NotificationService');
+const RuntimeFeatureFlags = require('./services/RuntimeFeatureFlags');
 const mongoose = require('mongoose');
 const { connectDB, connectRedis, User, Conversation, Call, FileUpload } = require('./config/database');
 
@@ -504,6 +507,12 @@ app.use(cors({
 const performanceMonitoring = require('./middleware/performanceMonitoring');
 app.use(performanceMonitoring);
 
+const runtimeFeatureFlags = new RuntimeFeatureFlags();
+const apiContractGuard = createApiContractGuard({
+  getEnforcementEnabled: (req) => req.featureFlags?.isEnabled('apiContractEnforcementEnabled', true) ?? true,
+  getStrictModeEnabled: (req) => req.featureFlags?.isEnabled('apiContractStrictModeEnabled', true) ?? true
+});
+
 // Rate limiting - More lenient for development
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 5 * 60 * 1000, // 5 minutes default
@@ -548,6 +557,7 @@ const currencyManager = new CurrencyManager();
 const userConnectionManager = new UserConnectionManager();
 const recommendationEngine = new MongoRecommendationEngine();
 const cloudinaryManager = new CloudinaryManager();
+const r2StorageManager = new R2StorageManager();
 const LocationTrackingService = require('./services/LocationTrackingService');
 const locationTrackingService = new LocationTrackingService();
 const realtimeLocationManager = new RealtimeLocationManager();
@@ -721,11 +731,13 @@ app.use((req, res, next) => {
   req.recommendationEngine = recommendationEngine;
   req.locationTrackingService = locationTrackingService;
   req.cloudinaryManager = cloudinaryManager;
+  req.r2StorageManager = r2StorageManager;
   req.realtimeLocationManager = realtimeLocationManager;
   req.tiktokEngagementTracker = tiktokEngagementTracker;
   req.profileCompletenessService = profileCompletenessService;
   req.locationVerificationService = locationVerificationService;
   req.systemHealth = systemHealth;
+  req.featureFlags = runtimeFeatureFlags;
   req.io = io;
   
   // Add database status to request for debugging
@@ -733,6 +745,8 @@ app.use((req, res, next) => {
   
   next();
 });
+
+app.use(apiContractGuard);
 
 // Short-circuit requests if critical services are unavailable
 app.use((req, res, next) => {
@@ -1184,13 +1198,14 @@ io.on('connection', async (socket) => {
         console.log(`✅ Call accepted by ${socket.username}`);
 
         const callRoomId = getCallRoomId(socket.userId, targetUserId);
-        let resolvedCallId = data.callId;
-        if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
-          try {
-            const updated = await Call.findOneAndUpdate(
+        let callRecord = null;
+        try {
+          if (data?.callId && mongoose.Types.ObjectId.isValid(data.callId)) {
+            callRecord = await Call.findOneAndUpdate(
               {
                 _id: data.callId,
                 target_user_id: socket.userId,
+                caller_id: targetUserId,
                 status: 'calling'
               },
               {
@@ -1201,14 +1216,42 @@ io.on('connection', async (socket) => {
                 }
               },
               { new: true }
-            ).select('_id');
-            if (updated?._id) {
-              resolvedCallId = String(updated._id);
-            }
-          } catch (acceptPersistErr) {
-            console.error('Failed to persist socket call accept:', acceptPersistErr.message);
+            ).select('_id type');
           }
+
+          if (!callRecord) {
+            callRecord = await Call.findOneAndUpdate(
+              {
+                caller_id: targetUserId,
+                target_user_id: socket.userId,
+                status: 'calling'
+              },
+              {
+                $set: {
+                  status: 'connected',
+                  connected_at: new Date(),
+                  updated_at: new Date()
+                }
+              },
+              {
+                new: true,
+                sort: { created_at: -1 }
+              }
+            ).select('_id type');
+          }
+        } catch (acceptPersistErr) {
+          console.error('Failed to persist socket call accept:', acceptPersistErr.message);
         }
+
+        if (!callRecord?._id) {
+          console.warn(`Ignoring accept_call without active ringing call (caller=${targetUserId}, callee=${socket.userId})`);
+          return;
+        }
+
+        const resolvedCallId = String(callRecord._id);
+        const resolvedCallType = String(data.callType || data.type || callRecord.type || 'video').toLowerCase() === 'audio'
+          ? 'audio'
+          : 'video';
         
         // ✅ CRITICAL: Emit call_accepted with clear field semantics so the caller
         // knows exactly which peer accepted and can correctly route WebRTC signaling.
@@ -1222,13 +1265,12 @@ io.on('connection', async (socket) => {
           targetUserId: socket.userId,
           // WHO MADE THE ORIGINAL CALL (for disambiguation)
           callerId: targetUserId,
-          callType: data.callType || data.type || 'video',
-          type: data.callType || data.type || 'video',
+          callType: resolvedCallType,
+          type: resolvedCallType,
           timestamp: new Date().toISOString()
         };
 
         socket.to(`user_${targetUserId}`).emit('call_accepted', payload);
-        socket.to(callRoomId).emit('call_accepted', payload);
 
         // Join call room (normalized)
         socket.join(callRoomId);
@@ -1276,7 +1318,6 @@ io.on('connection', async (socket) => {
           timestamp: new Date().toISOString()
         };
         socket.to(`user_${data.targetUserId}`).emit('call_rejected', rejectedPayload);
-        socket.to(getCallRoomId(socket.userId, data.targetUserId)).emit('call_rejected', rejectedPayload);
         
       } catch (error) {
         console.error('Error handling call rejection:', error);
@@ -1340,12 +1381,7 @@ io.on('connection', async (socket) => {
 
         // Primary: emit to the other user's personal room
         socket.to(`user_${otherUserId}`).emit('call_ended', endPayload);
-
-        // Secondary: also broadcast to the call room as a redundant delivery
-        // path in case the user_${id} room has a stale socket reference.
-        const callRoomId = getCallRoomId(socket.userId, otherUserId);
-        socket.to(callRoomId).emit('call_ended', endPayload);
-        socket.leave(callRoomId);
+        socket.leave(getCallRoomId(socket.userId, otherUserId));
         
       } catch (error) {
         console.error('Error handling call end:', error);
@@ -1390,7 +1426,6 @@ io.on('connection', async (socket) => {
           timestamp: new Date().toISOString()
         };
         socket.to(`user_${data.targetUserId}`).emit('call_cancelled', cancelledPayload);
-        socket.to(getCallRoomId(socket.userId, data.targetUserId)).emit('call_cancelled', cancelledPayload);
         
       } catch (error) {
         console.error('Error handling call cancellation:', error);
@@ -1434,7 +1469,6 @@ io.on('connection', async (socket) => {
           timestamp: new Date().toISOString()
         };
         socket.to(`user_${data.targetUserId}`).emit('call_cancelled', timeoutPayload);
-        socket.to(getCallRoomId(socket.userId, data.targetUserId)).emit('call_cancelled', timeoutPayload);
       } catch (error) {
         console.error('Error handling call timeout:', error);
       }
@@ -1449,7 +1483,6 @@ io.on('connection', async (socket) => {
         if (!targetUserId || targetUserId === String(socket.userId) || !data?.offer) {
           return;
         }
-        const callRoomId = getCallRoomId(socket.userId, targetUserId);
         console.log(`📡 WebRTC offer from ${socket.username} to user ${targetUserId}`);
         const payload = {
           callId: data.callId || null,
@@ -1459,7 +1492,6 @@ io.on('connection', async (socket) => {
           callType: data.callType || 'video'
         };
         socket.to(`user_${targetUserId}`).emit('webrtc_offer', payload);
-        socket.to(callRoomId).emit('webrtc_offer', payload);
       } catch (error) {
         console.error('Error handling WebRTC offer:', error);
       }
@@ -1472,7 +1504,6 @@ io.on('connection', async (socket) => {
         if (!targetUserId || targetUserId === String(socket.userId) || !data?.answer) {
           return;
         }
-        const callRoomId = getCallRoomId(socket.userId, targetUserId);
         console.log(`📡 WebRTC answer from ${socket.username} to user ${targetUserId}`);
         const payload = {
           callId: data.callId || null,
@@ -1480,7 +1511,6 @@ io.on('connection', async (socket) => {
           answererId: socket.userId
         };
         socket.to(`user_${targetUserId}`).emit('webrtc_answer', payload);
-        socket.to(callRoomId).emit('webrtc_answer', payload);
       } catch (error) {
         console.error('Error handling WebRTC answer:', error);
       }
@@ -1493,7 +1523,6 @@ io.on('connection', async (socket) => {
         if (!targetUserId || targetUserId === String(socket.userId) || !data?.candidate) {
           return;
         }
-        const callRoomId = getCallRoomId(socket.userId, targetUserId);
         console.log(`🧊 ICE candidate from ${socket.username} to user ${targetUserId}`);
         const payload = {
           callId: data.callId || null,
@@ -1501,7 +1530,6 @@ io.on('connection', async (socket) => {
           senderId: socket.userId
         };
         socket.to(`user_${targetUserId}`).emit('ice_candidate', payload);
-        socket.to(callRoomId).emit('ice_candidate', payload);
       } catch (error) {
         console.error('Error handling ICE candidate:', error);
       }

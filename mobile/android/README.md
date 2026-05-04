@@ -136,6 +136,17 @@ app/src/main/java/com/zerohook/app/
 ./gradlew lint
 ```
 
+### KSP Collision Recovery Helper (Windows)
+If Gradle fails with `FileAlreadyExistsException` under `app/build/generated/ksp`, run the helper script. It automatically stops daemons, cleans outputs, and retries the original command.
+
+```powershell
+# Compile with auto-recovery
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-gradle-with-ksp-recovery.ps1 -GradleArgs :app:compileDebugKotlin
+
+# Unit tests with auto-recovery
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-gradle-with-ksp-recovery.ps1 -GradleArgs :app:testDebugUnitTest
+```
+
 ## Configuration
 
 ### API Base URL

@@ -21,7 +21,6 @@
         <item name="android:statusBarColor">@color/status_bar</item>
         <item name="android:navigationBarColor">@color/navigation_bar</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         
         <!-- Error colors -->
         <item name="colorError">@color/error</item>

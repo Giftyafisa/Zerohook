@@ -1,0 +1,134 @@
+///$tab Variables
+SET vSseConnection = 'PyTools';
+SET vModelName = 'reorder_model';
+
+///$tab 1-Model-Setup
+// ============================================================
+// Step 1: Configure the Model
+// ============================================================
+// Change estimator, scaler, and execution args to match your use case.
+// See SKILL.md for available estimators and scalers.
+
+Setup:
+LOAD * INLINE [
+    model_name, estimator_args, scaler_args, execution_args
+    $(vModelName), estimator=XGBRegressor|n_estimators=200|learning_rate=0.05|max_depth=8, scaler=RobustScaler, test_size=0.2|random_state=42|debug=true
+];
+
+SetupResult:
+LOAD * EXTENSION $(vSseConnection).sklearn_Setup(Setup{model_name, estimator_args, scaler_args, execution_args});
+DROP TABLE Setup;
+TRACE [ML] Model setup complete;
+
+///$tab 2-Set-Features
+// ============================================================
+// Step 2: Define Feature Columns
+// ============================================================
+// var_type: feature | target | identifier | excluded
+// data_type: int | float | str
+// strategy: none | one_hot_encoding | hashing | text_similarity
+
+Features:
+LOAD * INLINE [
+    model_name, feature_name, var_type, data_type, strategy, strategy_args
+    $(vModelName), AvgDailySales, feature, float, none,
+    $(vModelName), SalesVariance, feature, float, none,
+    $(vModelName), LeadTimeDays, feature, int, none,
+    $(vModelName), Category, feature, str, one_hot_encoding,
+    $(vModelName), DayOfWeek, feature, int, one_hot_encoding,
+    $(vModelName), Month, feature, int, one_hot_encoding,
+    $(vModelName), ReorderQty, target, float, none,
+];
+
+FeaturesResult:
+LOAD * EXTENSION $(vSseConnection).sklearn_Set_Features(Features{model_name, feature_name, var_type, data_type, strategy, strategy_args});
+DROP TABLE Features;
+TRACE [ML] Features defined;
+
+///$tab 3-Train-Model
+// ============================================================
+// Step 3: Train the Model
+// ============================================================
+// Adjust RESIDENT table and fields to match your data model.
+
+TrainingData:
+LOAD
+    '$(vModelName)' as model_name,
+    AvgDailySales,
+    SalesVariance,
+    LeadTimeDays,
+    Category,
+    DayOfWeek,
+    Month,
+    ReorderQty
+RESIDENT FactReorderHistory;
+
+LET vTrainRows = NoOfRows('TrainingData');
+TRACE [ML] Training with $(vTrainRows) rows...;
+LET vTrainStart = Now();
+
+TrainResult:
+LOAD * EXTENSION $(vSseConnection).sklearn_Fit(TrainingData{model_name, AvgDailySales, SalesVariance, LeadTimeDays, Category, DayOfWeek, Month, ReorderQty});
+
+LET vTrainDuration = Interval(Now() - vTrainStart, 'mm:ss');
+TRACE [ML] Training complete in $(vTrainDuration);
+DROP TABLE TrainingData;
+
+///$tab 4-Evaluate
+// ============================================================
+// Step 4: Check Model Metrics
+// ============================================================
+
+MetricsInput:
+LOAD '$(vModelName)' as model_name AUTOGENERATE 1;
+
+Metrics:
+LOAD * EXTENSION $(vSseConnection).sklearn_Get_Metrics(MetricsInput{model_name});
+DROP TABLE MetricsInput;
+TRACE [ML] Review Metrics table (R², MAE, RMSE for regression);
+
+// Feature importances
+ImportInput:
+LOAD '$(vModelName)' as model_name AUTOGENERATE 1;
+
+FeatureImportances:
+LOAD * EXTENSION $(vSseConnection).sklearn_Explain_Importances(ImportInput{model_name});
+DROP TABLE ImportInput;
+TRACE [ML] Feature importances loaded;
+
+///$tab 5-Predict-Chart
+// ============================================================
+// Step 5a: Chart Expression — Predict Reorder Quantity
+// ============================================================
+// Use in a Qlik chart expression:
+//
+// $(vSseConnection).sklearn_Predict(
+//     '$(vModelName)',
+//     AvgDailySales & '|' & SalesVariance & '|' & LeadTimeDays & '|' & Category & '|' & DayOfWeek & '|' & Month
+// )
+
+///$tab 6-Predict-Bulk
+// ============================================================
+// Step 5b: Bulk Predict in Load Script
+// ============================================================
+
+PredictionData:
+LOAD
+    '$(vModelName)' as model_name,
+    ProductID as key,
+    AvgDailySales,
+    SalesVariance,
+    LeadTimeDays,
+    Category,
+    DayOfWeek,
+    Month
+RESIDENT FactCurrentProducts;
+
+LET vPredRows = NoOfRows('PredictionData');
+TRACE [ML] Predicting for $(vPredRows) rows...;
+
+Predictions:
+LOAD * EXTENSION $(vSseConnection).sklearn_Bulk_Predict(PredictionData{model_name, key, AvgDailySales, SalesVariance, LeadTimeDays, Category, DayOfWeek, Month});
+
+DROP TABLE PredictionData;
+TRACE [ML] Predictions complete: $(NoOfRows('Predictions')) rows;

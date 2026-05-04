@@ -1,0 +1,66 @@
+///$tab Variables
+SET vQvdPath = 'lib://QVD';
+SET vSourcePath = 'lib://Source';
+SET vTableName = 'Transactions';
+SET vKeyField = 'TransactionID';
+SET vDateField = 'TransactionDate';
+
+///$tab Incremental-Insert-Only
+// ============================================================
+// Incremental Load: Insert-Only (Append)
+// ============================================================
+// Use for: Logs, events, transactions — records only ever added.
+// Change: Replace vQvdPath, vSourcePath, vTableName, field names.
+
+LET vQvdFile = '$(vQvdPath)/$(vTableName).qvd';
+LET vQvdExists = IF(FileSize('$(vQvdFile)') > 0, 1, 0);
+
+IF vQvdExists = 1 THEN
+    TRACE Incremental mode — loading existing QVD;
+
+    _Existing:
+    LOAD * FROM [$(vQvdFile)] (qvd);
+
+    LET vExistingRows = NoOfRows('_Existing');
+    LET vMaxDate = Peek('$(vDateField)', vExistingRows - 1, '_Existing');
+    TRACE Existing rows: $(vExistingRows) | High-water mark: $(vMaxDate);
+
+    _New:
+    LOAD *
+    FROM [$(vSourcePath)/$(vTableName).csv]
+    (txt, utf8, embedded labels, delimiter is ',')
+    WHERE $(vDateField) > '$(vMaxDate)';
+
+    LET vNewRows = NoOfRows('_New');
+    TRACE New rows: $(vNewRows);
+
+    IF vNewRows > 0 THEN
+        CONCATENATE(_Existing) LOAD * RESIDENT _New;
+        DROP TABLE _New;
+    ELSE
+        DROP TABLE _New;
+        TRACE No new records found;
+    END IF
+
+ELSE
+    TRACE First run — full load from source;
+
+    _Existing:
+    LOAD *
+    FROM [$(vSourcePath)/$(vTableName).csv]
+    (txt, utf8, embedded labels, delimiter is ',');
+
+    LET vNewRows = NoOfRows('_Existing');
+    TRACE Full load: $(vNewRows) rows;
+END IF
+
+// Sort by date field for reliable Peek() on next run
+_Sorted:
+NOCONCATENATE LOAD * RESIDENT _Existing ORDER BY $(vDateField);
+DROP TABLE _Existing;
+
+STORE _Sorted INTO [$(vQvdFile)] (qvd);
+
+LET vFinalRows = NoOfRows('_Sorted');
+TRACE QVD stored: $(vFinalRows) total rows;
+DROP TABLE _Sorted;

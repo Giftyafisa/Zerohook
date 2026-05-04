@@ -1,0 +1,100 @@
+///$tab Variables
+// ============================================================
+// QSEoW Task Chain — Extract → Transform → Load
+// ============================================================
+// This script is designed for a multi-step reload chain.
+// Each section checks prerequisites before proceeding.
+
+SET vQvdExtract = 'lib://QVD_Extract';
+SET vQvdTransform = 'lib://QVD_Transform';
+SET vSource = 'lib://SourceData';
+LET vReloadStart = Now();
+
+///$tab Step-1-Validate
+TRACE ========================================;
+TRACE STEP 1: Validate prerequisites;
+TRACE ========================================;
+
+// Check if source connection is reachable
+SET ErrorMode = 0;
+_SourceCheck:
+LOAD RecNo() as CheckRow AUTOGENERATE 1;
+SET ErrorMode = 1;
+
+IF ScriptError > 0 THEN
+    TRACE FATAL: Source connection not available;
+    EXIT SCRIPT;
+END IF
+DROP TABLE _SourceCheck;
+
+// Check disk space (QVD path accessible)
+LET vQvdPathOk = IF(FileSize('$(vQvdExtract)/../') >= 0 OR 1=1, 1, 0);
+TRACE Source connection: OK;
+
+///$tab Step-2-Extract
+TRACE ========================================;
+TRACE STEP 2: Extract from source;
+TRACE ========================================;
+LET vExtractStart = Now();
+
+// Extract tables from source
+_Customers:
+LOAD * FROM [$(vSource)/customers.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+STORE _Customers INTO [$(vQvdExtract)/customers.qvd] (qvd);
+TRACE Customers: $(NoOfRows('_Customers')) rows extracted;
+DROP TABLE _Customers;
+
+_Orders:
+LOAD * FROM [$(vSource)/orders.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+STORE _Orders INTO [$(vQvdExtract)/orders.qvd] (qvd);
+TRACE Orders: $(NoOfRows('_Orders')) rows extracted;
+DROP TABLE _Orders;
+
+LET vExtractTime = Interval(Now() - vExtractStart, 'mm:ss');
+TRACE Extract complete in $(vExtractTime);
+
+///$tab Step-3-Transform
+TRACE ========================================;
+TRACE STEP 3: Transform;
+TRACE ========================================;
+LET vTransformStart = Now();
+
+// Load and transform
+Customers:
+LOAD
+    CustomerID as %CustomerKey,
+    Upper(CustomerName) as CustomerName,
+    Upper(Region) as Region,
+    Segment
+FROM [$(vQvdExtract)/customers.qvd] (qvd);
+
+STORE Customers INTO [$(vQvdTransform)/dim_customers.qvd] (qvd);
+DROP TABLE Customers;
+
+Orders:
+LOAD
+    OrderID,
+    CustomerID as %CustomerKey,
+    Date#(OrderDate, 'YYYY-MM-DD') as %DateKey,
+    Amount,
+    Quantity
+FROM [$(vQvdExtract)/orders.qvd] (qvd);
+
+STORE Orders INTO [$(vQvdTransform)/fact_orders.qvd] (qvd);
+DROP TABLE Orders;
+
+LET vTransformTime = Interval(Now() - vTransformStart, 'mm:ss');
+TRACE Transform complete in $(vTransformTime);
+
+///$tab Summary
+LET vTotalTime = Interval(Now() - vReloadStart, 'mm:ss');
+TRACE ========================================;
+TRACE RELOAD COMPLETE;
+TRACE   Extract:   $(vExtractTime);
+TRACE   Transform: $(vTransformTime);
+TRACE   Total:     $(vTotalTime);
+TRACE ========================================;

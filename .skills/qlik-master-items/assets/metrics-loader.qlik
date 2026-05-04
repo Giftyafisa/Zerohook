@@ -1,0 +1,59 @@
+///$tab Metrics Loader
+// ============================================================
+// Enterprise Metrics Governance Loader
+// ============================================================
+// Loads variables from an external Excel file to ensure
+// governed, central management of business logic.
+
+// Configuration
+SET vMetricsFile = 'lib://Governance/Enterprise_Metrics.xlsx';
+SET vMetricsTable = 'Sheet1';
+
+// Step 1: Load the metadata
+_Metrics:
+LOAD
+    "Variable Name" as VarName,
+    "Expression" as VarExpr,
+    "Description" as VarDesc,
+    "Format" as VarFormat
+FROM [$(vMetricsFile)]
+(ooxml, embedded labels, table is $(vMetricsTable))
+WHERE Len(Trim("Variable Name")) > 0;
+
+// Step 2: Loop through and create the variables
+LET vMetricCount = NoOfRows('_Metrics');
+TRACE [GOVERNANCE] Loading $(vMetricCount) governed metrics...;
+
+FOR vI = 0 TO vMetricCount - 1
+    // Read values for current row
+    LET vName = Peek('VarName', vI, '_Metrics');
+    LET vExpr = Peek('VarExpr', vI, '_Metrics');
+    LET vDesc = Peek('VarDesc', vI, '_Metrics');
+    
+    // Create the variable dynamically
+    // Using SET to store the literal string expression
+    SET $(vName) = '$(vExpr)';
+    
+    // Optional: Log it for debugging
+    TRACE   Created: $(vName);
+NEXT vI
+
+// Step 3: Cleanup
+DROP TABLE _Metrics;
+LET vI = Null();
+LET vName = Null();
+LET vExpr = Null();
+LET vDesc = Null();
+LET vMetricCount = Null();
+
+TRACE [GOVERNANCE] Metrics loaded successfully.;
+
+// ============================================================
+// EXCEL FILE STRUCTURE EXPECTED:
+// ============================================================
+// Variable Name | Expression                        | Description
+// --------------|-----------------------------------|--------------------
+// vSales        | Sum(SalesAmount)                  | Total Sales
+// vMargin       | Sum(Profit) / Sum(SalesAmount)    | Gross Margin %
+// vSetYTD       | <Year={$(=Max(Year))}, IsYTD={1}> | YTD Set Modifier
+// ============================================================

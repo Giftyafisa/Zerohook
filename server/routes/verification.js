@@ -6,6 +6,13 @@ const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const NotificationService = require('../services/NotificationService');
 
+const normalizeTrustScore = (score) => {
+  const numeric = Number(score || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  const normalized = numeric > 100 ? numeric / 10 : numeric;
+  return Math.round(Math.max(0, Math.min(100, normalized)));
+};
+
 /**
  * @route   POST /api/verification/submit-documents
  * @desc    Submit verification documents
@@ -395,7 +402,7 @@ router.get('/status', authMiddleware, async (req, res) => {
       success: true,
       currentTier: user.verification_tier || 1,
       reputationScore: user.reputation_score || 0,
-      trustScore: user.trust_score || 0,
+      trustScore: normalizeTrustScore(user.trust_score),
       verificationProgress: verificationProgress,
       verificationData: verificationData
     });
@@ -635,7 +642,7 @@ router.get('/full-status', authMiddleware, async (req, res) => {
       success: true,
       currentTier: user.verification_tier || 1,
       reputationScore: user.reputation_score || 0,
-      trustScore: user.trust_score || 0,
+      trustScore: normalizeTrustScore(user.trust_score),
       verificationProgress,
       verificationData,
       // Full verification status

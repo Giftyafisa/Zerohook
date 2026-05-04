@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { User, FraudLog, RefreshToken } = require('../config/database');
+const { User, FraudLog, RefreshToken, UserSession } = require('../config/database');
 const { body, validationResult } = require('express-validator');
 const { RateLimiterMemory } = require('rate-limiter-flexible');
 const router = express.Router();
@@ -27,6 +27,13 @@ function sendSuccess(res, status, data, message) {
 const parsePositiveInt = (value, fallback) => {
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const normalizeTrustScoreValue = (score) => {
+  const numeric = Number(score || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  const normalized = numeric > 100 ? numeric / 10 : numeric;
+  return Math.round(Math.max(0, Math.min(100, normalized)));
 };
 
 const AUTH_RATE_LIMIT_DURATION_SECONDS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_DURATION_SECONDS, 900);
@@ -129,6 +136,31 @@ const clearIdentifierRateLimit = async (req, identifierValue = null) => {
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.warn('Failed to clear auth identifier limiter key:', error.message);
+    }
+  }
+};
+
+const recordFailedLoginTrustEvent = async (req, userId, identifier) => {
+  try {
+    if (!req.trustEngine || typeof req.trustEngine.recordTrustEvent !== 'function') {
+      return;
+    }
+
+    await req.trustEngine.recordTrustEvent(
+      userId,
+      'login_failed',
+      {
+        reason: 'invalid_password',
+        ip: req.ip,
+        user_agent: req.get('User-Agent'),
+        identifier
+      },
+      0,
+      0
+    );
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('Failed to record login_failed trust event:', error.message);
     }
   }
 };
@@ -462,7 +494,7 @@ router.post('/register', rateLimitMiddleware, [
       ...(isSugarAccount && {
         sugarSettings: {
           visibleToProviders: false, // Private by default
-          preferredAgeRange: { min: 18, max: 30 }, // Young providers by default
+          preferredAgeRange: { min: 18, max: 25 }, // Young providers by default
           preferredGender: accountType === 'sugar_daddy' ? 'female' : 'male' // Opposite sex by default
         }
       }),
@@ -512,7 +544,7 @@ router.post('/register', rateLimitMiddleware, [
         email: user.email,
         verificationTier: user.verification_tier,
         reputationScore: user.reputation_score,
-        trustScore: user.trust_score,
+        trustScore: normalizeTrustScoreValue(user.trust_score),
         createdAt: user.created_at,
         profile_data: user.profile_data,
         is_subscribed: false,
@@ -607,6 +639,8 @@ router.post('/login', rateLimitMiddleware, [
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
+      await recordFailedLoginTrustEvent(req, user._id, loginIdentifier);
+
       const legacyMigrationHint = await hasLegacyEncryptedUsers();
       return res.status(401).json({
         success: false,
@@ -679,7 +713,7 @@ router.post('/login', rateLimitMiddleware, [
         email: user.email,
         verificationTier: user.verification_tier,
         reputationScore: user.reputation_score,
-        trustScore: user.trust_score,
+        trustScore: normalizeTrustScoreValue(user.trust_score),
         status: user.status,
         is_subscribed: isSubscribed,
         subscription_tier: subscriptionTier,
@@ -880,6 +914,14 @@ router.post('/refresh', async (req, res) => {
  */
 router.post('/logout', authMiddleware, async (req, res) => {
   try {
+    const now = new Date();
+
+    // Mark socket/login sessions as inactive for this user
+    await UserSession.updateMany(
+      { userId: req.user.userId, isActive: true },
+      { $set: { isActive: false, disconnectedAt: now, lastActivity: now } }
+    );
+
     // Revoke all refresh tokens for this user
     const userId = req.user.userId;
     await RefreshToken.updateMany(
@@ -1013,7 +1055,7 @@ router.get('/me', authMiddleware, async (req, res) => {
         email: user.email,
         verificationTier: user.verification_tier,
         reputationScore: user.reputation_score,
-        trustScore: user.trust_score,
+        trustScore: normalizeTrustScoreValue(user.trust_score),
         is_subscribed: isSubMe,
         subscription_tier: subTierMe,
         subscription_expires_at: user.subscription_expires_at,
@@ -1031,6 +1073,75 @@ router.get('/me', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to get user data',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
+  }
+});
+
+/**
+ * @route   GET /api/auth/login-history
+ * @desc    Get session-level login history for current user
+ * @access  Private
+ */
+router.get('/login-history', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const page = parsePositiveInt(req.query.page, 1);
+    const limit = Math.min(100, parsePositiveInt(req.query.limit, 20));
+    const activeOnly = String(req.query.activeOnly || '').toLowerCase() === 'true';
+    const skip = (page - 1) * limit;
+
+    const filter = { userId };
+    if (activeOnly) {
+      filter.isActive = true;
+    }
+
+    const [sessions, totalCount] = await Promise.all([
+      UserSession.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('sessionToken socketId ipAddress userAgent isActive expiresAt lastActivity createdAt updatedAt disconnectedAt')
+        .lean(),
+      UserSession.countDocuments(filter)
+    ]);
+
+    const formattedSessions = sessions.map((session) => ({
+      id: session._id?.toString(),
+      sessionTokenPreview: typeof session.sessionToken === 'string'
+        ? `${session.sessionToken.slice(0, 8)}...`
+        : null,
+      socketId: session.socketId || null,
+      ipAddress: session.ipAddress || null,
+      userAgent: session.userAgent || null,
+      isActive: Boolean(session.isActive),
+      startedAt: session.createdAt || null,
+      lastActivityAt: session.lastActivity || null,
+      disconnectedAt: session.disconnectedAt || null,
+      expiresAt: session.expiresAt || null,
+      updatedAt: session.updatedAt || null
+    }));
+
+    return sendSuccess(
+      res,
+      200,
+      {
+        sessions: formattedSessions,
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasMore: page * limit < totalCount
+        }
+      },
+      'Login history fetched successfully'
+    );
+  } catch (error) {
+    console.error('Get login history error:', error);
+    return sendError(
+      res,
+      500,
+      process.env.NODE_ENV === 'development' ? error.message : 'Failed to fetch login history'
+    );
   }
 });
 
@@ -1204,6 +1315,11 @@ router.delete('/account', authMiddleware, async (req, res) => {
     await RefreshToken.updateMany(
       { userId: user._id, revoked: false },
       { $set: { revoked: true } }
+    );
+
+    await UserSession.updateMany(
+      { userId: user._id, isActive: true },
+      { $set: { isActive: false, disconnectedAt: new Date() } }
     );
 
     // Clear the httpOnly refresh cookie

@@ -1,0 +1,83 @@
+///$tab Variables
+SET vApiConnection = 'MyRestApi';
+SET vPageSize = 100;
+
+///$tab Paginated-API-Load
+// ============================================================
+// REST API Paginated Load Template
+// ============================================================
+// Adjust vApiConnection, URL, page size, and field names.
+
+LET vOffset = 0;
+LET vHasMore = 1;
+LET vTotalLoaded = 0;
+LET vMaxPages = 100;  // Safety limit
+LET vPage = 0;
+
+LIB CONNECT TO '$(vApiConnection)';
+
+DO WHILE vHasMore = 1
+    LET vPage = vPage + 1;
+    TRACE [API] Loading page $(vPage) (offset=$(vOffset))...;
+    
+    SET ErrorMode = 0;
+    
+    _Page:
+    SQL SELECT
+        "__KEY_root",
+        (SELECT
+            "id",
+            "name",
+            "email",
+            "created_at",
+            "__FK_data"
+        FROM "data" FK "__FK_data")
+    FROM JSON (wrap on) "root" PK "__KEY_root"
+    WITH CONNECTION (
+        URL "https://api.example.com/users?limit=$(vPageSize)&offset=$(vOffset)"
+    );
+    
+    IF ScriptError > 0 THEN
+        TRACE [API] ERROR on page $(vPage): $(ScriptErrorDetails);
+        LET vHasMore = 0;
+    ELSE
+        _PageData:
+        NOCONCATENATE LOAD
+            [id],
+            [name],
+            [email],
+            [created_at]
+        RESIDENT _Page
+        WHERE NOT IsNull([__FK_data]);
+        
+        LET vPageRows = NoOfRows('_PageData');
+        
+        IF vPageRows > 0 THEN
+            IF vPage = 1 THEN
+                RENAME TABLE _PageData TO AllApiData;
+            ELSE
+                CONCATENATE(AllApiData) LOAD * RESIDENT _PageData;
+                DROP TABLE _PageData;
+            END IF
+            
+            LET vTotalLoaded = vTotalLoaded + vPageRows;
+            LET vOffset = vOffset + vPageSize;
+            TRACE [API] Page $(vPage): $(vPageRows) rows (total: $(vTotalLoaded));
+        ELSE
+            DROP TABLE _PageData;
+            LET vHasMore = 0;
+            TRACE [API] Empty page — pagination complete;
+        END IF
+    END IF
+    
+    DROP TABLE _Page;
+    SET ErrorMode = 1;
+    
+    // Safety check
+    IF vPage >= vMaxPages THEN
+        TRACE [API] WARNING: Reached max page limit ($(vMaxPages));
+        LET vHasMore = 0;
+    END IF
+LOOP
+
+TRACE [API] Complete: $(vTotalLoaded) rows across $(vPage) pages;

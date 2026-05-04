@@ -395,7 +395,7 @@ const fileUploadSchema = new mongoose.Schema({
   upload_type: { type: String, required: true },
   status: { type: String, default: 'active' },
   // NEW: Cloudinary/storage tracking fields
-  storage_type: { type: String, enum: ['local', 'cloudinary'], default: 'local' },
+  storage_type: { type: String, enum: ['local', 'cloudinary', 'r2'], default: 'local' },
   cloudinary_public_id: { type: String },
   // NEW: Content post metadata (for TikTok-style posts)
   metadata: {
@@ -511,7 +511,8 @@ const userSessionSchema = new mongoose.Schema({
   userAgent: String,
   isActive: { type: Boolean, default: true },
   expiresAt: { type: Date },
-  lastActivity: { type: Date, default: Date.now }
+  lastActivity: { type: Date, default: Date.now },
+  disconnectedAt: { type: Date }
 }, { timestamps: true });
 
 // Create compound index for userId + socketId to allow upsert operations
@@ -543,8 +544,11 @@ const apiPerformanceLogSchema = new mongoose.Schema({
 
 // Sugar Access Payment Schema
 const sugarAccessPaymentSchema = new mongoose.Schema({
+  // Legacy field name kept for compatibility; stores the sugar-access purchaser ID.
   providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  viewerAccountType: { type: String, enum: ['client', 'provider'] },
   accessType: { type: String, enum: ['sugar_daddy', 'sugar_mommy', 'both'], required: true },
+  billingCycle: { type: String, enum: ['monthly', 'yearly'], default: 'monthly' },
   paymentStatus: { type: String, enum: ['pending', 'completed', 'failed', 'refunded'], default: 'pending' },
   paymentReference: String,
   amount: { type: Number, required: true },
@@ -651,7 +655,7 @@ const contentPostSchema = new mongoose.Schema({
   reported_count: { type: Number, default: 0 },
   reported_by: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   // Storage
-  storage_type: { type: String, default: 'local', enum: ['local', 'cloudinary'] },
+  storage_type: { type: String, default: 'local', enum: ['local', 'cloudinary', 'r2'] },
   cloudinary_public_id: String,
   file_size: Number,
   // Engagement score for algorithm
@@ -789,9 +793,16 @@ const userConnectionSchema = new mongoose.Schema({
   from_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   to_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   connection_type: { type: String, default: 'contact_request' },
+  connection_policy: { type: String, default: 'standard' },
   message: { type: String, default: '' },
-  status: { type: String, default: 'pending' }
+  status: { type: String, default: 'pending' },
+  connection_expires_at: { type: Date, default: null },
+  sugar_access_type: { type: String, default: null },
+  sugar_access_payment_id: { type: mongoose.Schema.Types.ObjectId, ref: 'SugarAccessPayment', default: null }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+userConnectionSchema.index({ from_user_id: 1, to_user_id: 1, connection_expires_at: -1 });
+userConnectionSchema.index({ to_user_id: 1, status: 1, connection_expires_at: -1 });
 
 const UserConnection = mongoose.model('UserConnection', userConnectionSchema);
 

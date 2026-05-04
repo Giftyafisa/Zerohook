@@ -24,7 +24,19 @@ node_modules
 # Archive/legacy folder
 /server/legacy/
 /server/backup/
-Zerohook/
+/Zerohook/
+
+# Keep Android app source files trackable
+!/mobile/android/app/src/main/java/
+!/mobile/android/app/src/main/java/**
+
+# Android generated/build artifacts
+/mobile/android/.gradle/
+/mobile/android/.kotlin/
+/mobile/android/.idea/
+/mobile/android/local.properties
+/mobile/android/captures/
+/mobile/android/**/build/
 
 # Claude Code temp files
 tmpclaude-*

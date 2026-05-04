@@ -7,11 +7,6 @@ const { createDistributedLimiter } = require('../utils/rateLimiters');
 const NotificationService = require('../services/NotificationService');
 const router = express.Router();
 
-const getCallRoomId = (userId1, userId2) => {
-  const sorted = [String(userId1), String(userId2)].sort();
-  return `call_${sorted[0]}_${sorted[1]}`;
-};
-
 const normalizeCallType = (rawType) => (String(rawType || '').toLowerCase() === 'audio' ? 'audio' : 'video');
 
 const buildIncomingCallPayload = ({ callId, callerId, targetUserId, callerName, callType, timestamp }) => {
@@ -239,7 +234,6 @@ router.post('/accept', authMiddleware, [
     };
 
     req.io.to(`user_${callerId}`).emit('call_accepted', acceptedPayload);
-    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_accepted', acceptedPayload);
 
     res.json({
       success: true,
@@ -312,7 +306,6 @@ router.post('/reject', authMiddleware, [
     };
 
     req.io.to(`user_${callerId}`).emit('call_rejected', rejectedPayload);
-    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_rejected', rejectedPayload);
 
     res.json({
       success: true,
@@ -394,7 +387,6 @@ router.post('/end', authMiddleware, [
     };
 
     req.io.to(`user_${otherUserId}`).emit('call_ended', endPayload);
-    req.io.to(getCallRoomId(callerId, targetId)).emit('call_ended', endPayload);
 
     res.json({
       success: true,
@@ -464,7 +456,6 @@ router.post('/cancel', authMiddleware, [
     };
 
     req.io.to(`user_${targetUserId}`).emit('call_cancelled', cancelPayload);
-    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_cancelled', cancelPayload);
 
     res.json({
       success: true,
@@ -532,7 +523,6 @@ router.post('/timeout', authMiddleware, [
     };
 
     req.io.to(`user_${targetUserId}`).emit('call_cancelled', timeoutPayload);
-    req.io.to(getCallRoomId(callerId, targetUserId)).emit('call_cancelled', timeoutPayload);
 
     res.json({
       success: true,

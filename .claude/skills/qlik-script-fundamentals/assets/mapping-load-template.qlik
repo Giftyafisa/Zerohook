@@ -1,0 +1,44 @@
+///$tab Variables
+SET vDataPath = 'lib://DataFiles';
+
+///$tab Mapping Tables
+// Mapping tables are memory-efficient lookups (key → value).
+// They are automatically dropped after the script finishes.
+// Use ApplyMap() to perform the lookup during a LOAD.
+
+RegionMap:
+MAPPING LOAD
+    RegionCode,
+    RegionName
+FROM [$(vDataPath)/regions.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+CategoryMap:
+MAPPING LOAD
+    CategoryID,
+    CategoryName
+FROM [$(vDataPath)/categories.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+StatusMap:
+MAPPING LOAD * INLINE [
+    StatusCode, StatusLabel
+    A, Active
+    I, Inactive
+    P, Pending
+    C, Closed
+];
+
+///$tab Apply Mappings
+Orders:
+LOAD
+    OrderID,
+    CustomerID,
+    ApplyMap('RegionMap', RegionCode, 'Unknown Region') as Region,
+    ApplyMap('CategoryMap', CategoryCode, 'Uncategorized') as Category,
+    ApplyMap('StatusMap', StatusCode, 'Unknown') as Status,
+    Amount
+FROM [$(vDataPath)/orders.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+TRACE Loaded $(NoOfRows('Orders')) orders with mapped fields;

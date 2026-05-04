@@ -1,0 +1,63 @@
+///$tab Section-Access
+// ============================================================
+// Section Access — Row-Level Security Template
+// ============================================================
+// CRITICAL: Always keep at least one ADMIN row with your own USERID.
+// All Section Access field values are automatically uppercased by Qlik.
+// Always use Upper() on your input data to ensure matching.
+
+SECTION ACCESS;
+
+// --- Option A: Inline table (simple, for development/testing) ---
+LOAD * INLINE [
+    ACCESS, USERID, REGION
+    ADMIN, ADMIN@COMPANY.COM, *
+    USER, ALICE@COMPANY.COM, NORTH
+    USER, BOB@COMPANY.COM, SOUTH
+    USER, CHARLIE@COMPANY.COM, NORTH
+    USER, CHARLIE@COMPANY.COM, SOUTH
+];
+
+// --- Option B: From file (production) ---
+// Uncomment and adjust:
+//
+// LOAD
+//     Upper(ACCESS) as ACCESS,
+//     Upper(USERID) as USERID,
+//     Upper(REGION) as REGION
+// FROM [lib://Security/access_control.xlsx]
+// (ooxml, embedded labels, table is Sheet1);
+//
+// // Always add admin fallback
+// LOAD * INLINE [
+//     ACCESS, USERID, REGION
+//     ADMIN, ADMIN@COMPANY.COM, *
+// ];
+
+SECTION APPLICATION;
+
+///$tab Data-Load
+// ============================================================
+// Normal Data Loading
+// ============================================================
+// IMPORTANT: The reduction field (REGION) must be uppercased
+// in the data model to match Section Access.
+
+Customers:
+LOAD
+    CustomerID,
+    CustomerName,
+    Upper(Region) as REGION,
+    Segment
+FROM [lib://Data/customers.qvd] (qvd);
+
+Orders:
+LOAD
+    OrderID,
+    CustomerID,
+    Upper(Region) as REGION,
+    OrderDate,
+    Amount
+FROM [lib://Data/orders.qvd] (qvd);
+
+TRACE Section Access + data load complete;

@@ -1,0 +1,33 @@
+// ============================================================
+// Prophet Chart Expression Examples
+// ============================================================
+// Replace $(vSseConnection) with your analytics connection variable.
+// Replace field names and aggregations to match your data model.
+
+// --- Basic 30-day demand forecast ---
+// $(vSseConnection).Prophet(OrderDate, Sum(Quantity), 'freq=D, periods=30, return=yhat')
+
+// --- Actuals + forecast in one series ---
+// $(vSseConnection).Prophet(OrderDate, Sum(Quantity), 'freq=D, periods=30, return=y_then_yhat')
+
+// --- Weekly forecast with upper/lower bounds ---
+// $(vSseConnection).Prophet(WeekStart, Sum(Revenue), 'freq=W, periods=12, return=yhat, interval_width=0.95')
+// $(vSseConnection).Prophet(WeekStart, Sum(Revenue), 'freq=W, periods=12, return=yhat_upper, interval_width=0.95')
+// $(vSseConnection).Prophet(WeekStart, Sum(Revenue), 'freq=W, periods=12, return=yhat_lower, interval_width=0.95')
+
+// --- Monthly forecast with log transform ---
+// $(vSseConnection).Prophet(MonthStart, Sum(Units), 'freq=MS, periods=6, return=yhat, take_log=true')
+
+// --- Forecast with holidays ---
+// $(vSseConnection).Prophet_Holidays(OrderDate, Sum(Quantity), HolidayName, 'freq=D, periods=30, return=yhat')
+
+// --- Multivariate (with promotions + temperature) ---
+// $(vSseConnection).Prophet_Multivariate(
+//     OrderDate, Sum(Quantity), HolidayName,
+//     IsPromotion & '|' & Temperature,
+//     'prior_scale=10, mode=additive',
+//     'freq=D, periods=30, return=yhat'
+// )
+
+// --- Trend component only ---
+// $(vSseConnection).Prophet(OrderDate, Sum(Quantity), 'freq=D, periods=30, return=trend')

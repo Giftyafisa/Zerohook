@@ -1,0 +1,71 @@
+///$tab Variables
+SET DateFormat='YYYY-MM-DD';
+SET TimestampFormat='YYYY-MM-DD hh:mm:ss';
+SET vDataPath = 'lib://DataFiles';
+
+LET vToday = Today();
+LET vYearStart = YearStart(Today());
+LET vMonthStart = MonthStart(Today());
+
+///$tab Date Parsing Examples
+// CRITICAL: Always use Date#() to parse date strings.
+// Date() only FORMATS an already-numeric date.
+// Date#() PARSES a string INTO a date.
+
+DateExamples:
+LOAD
+    // Parse various date formats
+    Date#(IsoDate, 'YYYY-MM-DD') as DateFromISO,
+    Date#(UsDate, 'MM/DD/YYYY') as DateFromUS,
+    Date#(EuDate, 'DD.MM.YYYY') as DateFromEU,
+    Date#(YearMonth, 'YYYYMM') as DateFromYearMonth,
+
+    // Parse timestamps
+    Timestamp#(TsField, 'YYYY-MM-DD hh:mm:ss') as ParsedTimestamp,
+    Timestamp#(TsMs, 'YYYY-MM-DD hh:mm:ss.fff') as ParsedTimestampMs,
+
+    // Format for display (parse first, then format)
+    Date(Date#(IsoDate, 'YYYY-MM-DD'), 'DD MMM YYYY') as DisplayDate,
+    Date(Date#(IsoDate, 'YYYY-MM-DD'), 'YYYY-Q') as YearQuarter
+
+FROM [$(vDataPath)/dates.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+///$tab Master Calendar
+// Generate a continuous calendar from min to max date in your data.
+// This ensures no gaps in time-series charts.
+
+LET vMinDate = Peek('MinDate', 0, 'DateRange');
+LET vMaxDate = Peek('MaxDate', 0, 'DateRange');
+
+// First, find the date range from your fact table
+DateRange:
+LOAD
+    Min(OrderDate) as MinDate,
+    Max(OrderDate) as MaxDate
+RESIDENT FactOrders;
+
+LET vMinDate = Peek('MinDate', 0, 'DateRange');
+LET vMaxDate = Peek('MaxDate', 0, 'DateRange');
+DROP TABLE DateRange;
+
+// Generate the calendar
+MasterCalendar:
+LOAD
+    TempDate as OrderDate,
+    Year(TempDate) as Year,
+    Month(TempDate) as Month,
+    Day(TempDate) as Day,
+    WeekDay(TempDate) as WeekDay,
+    Week(TempDate) as Week,
+    Date(MonthStart(TempDate), 'YYYY-MM') as YearMonth,
+    'Q' & Ceil(Month(TempDate) / 3) as Quarter,
+    Year(TempDate) & '-Q' & Ceil(Month(TempDate) / 3) as YearQuarter,
+    If(WeekDay(TempDate) >= 5, 'Weekend', 'Weekday') as DayType
+;
+LOAD
+    Date($(vMinDate) + IterNo() - 1) as TempDate
+AUTOGENERATE 1
+WHILE $(vMinDate) + IterNo() - 1 <= $(vMaxDate);
+
+TRACE Master calendar generated: $(NoOfRows('MasterCalendar')) days;

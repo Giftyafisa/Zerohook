@@ -1,0 +1,70 @@
+///$tab Variables
+SET vQvdPath = 'lib://QVD_Transform';
+
+///$tab Collect-Keys
+// Collect all unique dimension key combinations from fact tables.
+// Adjust field names and QVD paths to match your model.
+
+_AllKeys:
+LOAD DISTINCT
+    ProductID,
+    DateKey,
+    RegionKey
+FROM [$(vQvdPath)/sales.qvd] (qvd);
+
+CONCATENATE(_AllKeys)
+LOAD DISTINCT
+    ProductID,
+    DateKey,
+    RegionKey
+FROM [$(vQvdPath)/budget.qvd] (qvd);
+
+TRACE Unique key combinations: $(NoOfRows('_AllKeys'));
+
+///$tab Link-Table
+LinkTable:
+LOAD DISTINCT
+    ProductID & '|' & DateKey & '|' & RegionKey as %LinkKey,
+    ProductID as %ProductKey,
+    DateKey as %DateKey,
+    RegionKey as %RegionKey
+RESIDENT _AllKeys;
+
+DROP TABLE _AllKeys;
+TRACE Link table rows: $(NoOfRows('LinkTable'));
+
+///$tab Load-Facts
+// Each fact table uses ONLY %LinkKey + its own measures.
+// No dimension keys in fact tables — they go through LinkTable.
+
+FactSales:
+LOAD
+    ProductID & '|' & DateKey & '|' & RegionKey as %LinkKey,
+    SalesAmount,
+    Quantity,
+    Discount
+FROM [$(vQvdPath)/sales.qvd] (qvd);
+
+FactBudget:
+LOAD
+    ProductID & '|' & DateKey & '|' & RegionKey as %LinkKey,
+    BudgetAmount
+FROM [$(vQvdPath)/budget.qvd] (qvd);
+
+///$tab Load-Dimensions
+DimProduct:
+LOAD
+    ProductID as %ProductKey,
+    ProductName,
+    Category,
+    SubCategory
+FROM [$(vQvdPath)/products.qvd] (qvd);
+
+DimRegion:
+LOAD
+    RegionKey as %RegionKey,
+    RegionName,
+    Country
+FROM [$(vQvdPath)/regions.qvd] (qvd);
+
+// MasterCalendar links via %DateKey (see master-calendar.qlik)

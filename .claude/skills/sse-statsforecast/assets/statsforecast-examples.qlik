@@ -1,0 +1,48 @@
+// ============================================================
+// StatsForecast Examples — Nixtla Statistical Forecasting
+// ============================================================
+// Replace <AAI> with your SSE connection name (e.g. PyTools).
+// Kwargs support both pipe (|) and comma (,) delimiters.
+
+// --- 1. General-purpose (AutoARIMA) ---
+// Best for: demand planning, sales forecasting, trend analysis
+// <AAI>.StatsForecast(OrderDate, Sum(Quantity), 'model=AutoARIMA, freq=MS, periods=12, return=yhat')
+// <AAI>.StatsForecast(OrderDate, Sum(Quantity), 'model=AutoARIMA, freq=MS, periods=12, return=y_then_yhat')
+
+// --- 2. Exponential Smoothing (AutoETS) ---
+// Best for: data with clear trend and/or seasonality
+// <AAI>.StatsForecast(OrderDate, Sum(Revenue), 'model=AutoETS, freq=MS, periods=6, return=yhat')
+
+// --- 3. Fast seasonal (AutoTheta) ---
+// Best for: quick seasonal forecasts, benchmarking
+// <AAI>.StatsForecast(OrderDate, Sum(UnitsSold), 'model=AutoTheta, freq=MS, periods=12, return=y_then_yhat')
+
+// --- 4. Multiple Seasonality (MSTL) ---
+// Best for: data with daily + weekly patterns. REQUIRES season_length!
+// <AAI>.StatsForecast(SalesDate, Sum(DailySales), 'model=MSTL, freq=D, periods=30, season_length=7, return=yhat')
+
+// --- 5. Intermittent Demand — Stock Reorder ---
+// CrostonSBA (recommended default):
+// <AAI>.StatsForecast(OrderDate, Sum(OrderQty), 'model=CrostonSBA, freq=W, periods=8, return=y_then_yhat')
+// IMAPA (robust):
+// <AAI>.StatsForecast(OrderDate, Sum(OrderQty), 'model=IMAPA, freq=MS, periods=6, return=yhat')
+// TSB (handles obsolescence):
+// <AAI>.StatsForecast(OrderDate, Sum(OrderQty), 'model=TSB, freq=W, periods=12, return=y_then_yhat')
+
+// --- 6. Baseline models ---
+// Seasonal Naive:
+// <AAI>.StatsForecast(OrderDate, Sum(Sales), 'model=SeasonalNaive, freq=MS, periods=12, season_length=12, return=yhat')
+// Naive:
+// <AAI>.StatsForecast(OrderDate, Sum(Sales), 'model=Naive, freq=MS, periods=6, return=yhat')
+// Historic Average:
+// <AAI>.StatsForecast(OrderDate, Sum(Sales), 'model=HistoricAverage, freq=MS, periods=12, return=yhat')
+
+// --- 7. Confidence intervals ---
+// <AAI>.StatsForecast(OrderDate, Sum(Quantity), 'model=AutoARIMA, freq=MS, periods=12, return=yhat_upper, level=95')
+// <AAI>.StatsForecast(OrderDate, Sum(Quantity), 'model=AutoARIMA, freq=MS, periods=12, return=yhat_lower, level=95')
+
+// --- 8. Log transform for multiplicative growth ---
+// <AAI>.StatsForecast(OrderDate, Sum(Revenue), 'model=AutoARIMA, freq=MS, periods=12, return=yhat, take_log=true')
+
+// --- 9. Debug mode ---
+// <AAI>.StatsForecast(OrderDate, Sum(Qty), 'model=AutoARIMA, freq=MS, periods=12, return=yhat, debug=true')

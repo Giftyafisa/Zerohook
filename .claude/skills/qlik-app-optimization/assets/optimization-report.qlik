@@ -1,0 +1,114 @@
+///$tab Optimization-Report
+// ============================================================
+// App Optimization Report
+// ============================================================
+// Add this tab to the end of any script to generate a
+// comprehensive optimization report in the reload log.
+// Remove before production deployment (or keep for monitoring).
+
+LET vReportStart = Now();
+LET vTotalRows = 0;
+LET vTotalFields = 0;
+LET vTotalEstMB = 0;
+LET vTableCount = NoOfTables();
+
+TRACE;
+TRACE ╔══════════════════════════════════════════╗;
+TRACE ║        APP OPTIMIZATION REPORT           ║;
+TRACE ╠══════════════════════════════════════════╣;
+TRACE ║ Tables: $(vTableCount);
+TRACE ╚══════════════════════════════════════════╝;
+TRACE;
+
+// --- Table Summary ---
+TRACE TABLE SUMMARY:;
+TRACE ──────────────────────────────────────────;
+
+FOR vT = 0 TO vTableCount - 1
+    LET vTName = TableName(vT);
+    LET vTRows = NoOfRows('$(vTName)');
+    LET vTFields = NoOfFields('$(vTName)');
+    LET vEstMB = Round((vTRows * vTFields * 20) / 1048576, 0.1);
+    LET vTotalRows = vTotalRows + vTRows;
+    LET vTotalFields = vTotalFields + vTFields;
+    LET vTotalEstMB = vTotalEstMB + vEstMB;
+    TRACE   $(vTName): $(vTRows) rows × $(vTFields) fields (~$(vEstMB) MB);
+NEXT vT
+
+TRACE ──────────────────────────────────────────;
+TRACE   TOTAL: $(vTotalRows) rows | $(vTotalFields) fields | ~$(vTotalEstMB) MB est.;
+TRACE;
+
+// --- High Cardinality Fields (Memory Hogs) ---
+TRACE HIGH CARDINALITY FIELDS (candidates for Autonumber or removal):;
+TRACE ──────────────────────────────────────────;
+
+LET vHighCardCount = 0;
+FOR vT = 0 TO vTableCount - 1
+    LET vTName = TableName(vT);
+    LET vTRows = NoOfRows('$(vTName)');
+    
+    IF vTRows > 0 THEN
+        FOR vF = 1 TO NoOfFields('$(vTName)')
+            LET vFName = FieldName(vF, '$(vTName)');
+            LET vCard = FieldValueCount('$(vFName)');
+            LET vCardPct = Round(vCard / vTRows * 100, 0.1);
+            
+            // Flag fields with >50% unique values AND >1000 unique values
+            IF vCardPct > 50 AND vCard > 1000 THEN
+                LET vHighCardCount = vHighCardCount + 1;
+                TRACE   ⚠ $(vTName).$(vFName): $(vCard) unique ($(vCardPct)%);
+            END IF
+        NEXT vF
+    END IF
+NEXT vT
+
+IF vHighCardCount = 0 THEN
+    TRACE   (none found);
+END IF
+TRACE;
+
+// --- Potential Issues ---
+TRACE POTENTIAL ISSUES:;
+TRACE ──────────────────────────────────────────;
+
+LET vIssueCount = 0;
+
+// Check for synthetic keys
+FOR vT = 0 TO vTableCount - 1
+    LET vTName = TableName(vT);
+    IF WildMatch('$(vTName)', '$Syn*') THEN
+        LET vIssueCount = vIssueCount + 1;
+        TRACE   ⚠ SYNTHETIC KEY: $(vTName) — resolve by qualifying or renaming fields;
+    END IF
+NEXT vT
+
+// Check for very wide tables (>30 fields)
+FOR vT = 0 TO vTableCount - 1
+    LET vTName = TableName(vT);
+    LET vTFields = NoOfFields('$(vTName)');
+    IF vTFields > 30 THEN
+        LET vIssueCount = vIssueCount + 1;
+        TRACE   ⚠ WIDE TABLE: $(vTName) has $(vTFields) fields — consider removing unused fields;
+    END IF
+NEXT vT
+
+// Check for very small tables (<10 rows) that could be mapping tables
+FOR vT = 0 TO vTableCount - 1
+    LET vTName = TableName(vT);
+    LET vTRows = NoOfRows('$(vTName)');
+    IF vTRows < 10 AND NOT WildMatch('$(vTName)', '_*', '$*') THEN
+        LET vIssueCount = vIssueCount + 1;
+        TRACE   ℹ TINY TABLE: $(vTName) has $(vTRows) rows — could this be a mapping table instead?;
+    END IF
+NEXT vT
+
+IF vIssueCount = 0 THEN
+    TRACE   ✓ No issues detected;
+END IF
+
+TRACE;
+TRACE ╔══════════════════════════════════════════╗;
+TRACE ║ Report generated: $(=Timestamp(Now(),'YYYY-MM-DD hh:mm:ss'));
+TRACE ║ Issues found: $(vIssueCount);
+TRACE ╚══════════════════════════════════════════╝;

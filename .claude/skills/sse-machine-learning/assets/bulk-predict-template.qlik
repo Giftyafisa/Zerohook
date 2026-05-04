@@ -1,0 +1,37 @@
+///$tab Variables
+SET vSseConnection = 'PyTools';
+SET vModelName = 'reorder_model';
+
+///$tab Bulk-Predict
+// ============================================================
+// Bulk Predict — Use an Already-Trained Model
+// ============================================================
+// This template assumes the model has already been trained.
+// Change the model name, field names, and source table.
+
+PredictionData:
+LOAD
+    '$(vModelName)' as model_name,
+    ProductID as key,
+    AvgDailySales,
+    SalesVariance,
+    LeadTimeDays,
+    Category,
+    DayOfWeek,
+    Month
+RESIDENT FactCurrentProducts;
+
+LET vPredRows = NoOfRows('PredictionData');
+TRACE Scoring $(vPredRows) rows with model $(vModelName)...;
+LET vPredStart = Now();
+
+Predictions:
+LOAD *
+EXTENSION $(vSseConnection).sklearn_Bulk_Predict(
+    PredictionData{model_name, key, AvgDailySales, SalesVariance, LeadTimeDays, Category, DayOfWeek, Month}
+);
+
+LET vPredDuration = Interval(Now() - vPredStart, 'mm:ss');
+TRACE Predictions complete in $(vPredDuration): $(NoOfRows('Predictions')) rows;
+
+DROP TABLE PredictionData;

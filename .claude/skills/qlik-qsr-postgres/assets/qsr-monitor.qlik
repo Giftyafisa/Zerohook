@@ -1,0 +1,105 @@
+///$tab Load QSR Audit Data
+// ============================================================
+// Qlik Sense Repository Database Monitor (PostgreSQL)
+// ============================================================
+// Connect to the internal QSR database to audit apps, tasks, and users.
+// Note: Requires a configured PostgreSQL connection (e.g., 'QSR_DB')
+
+LIB CONNECT TO 'QSR_DB';
+
+// 1. Load Application Metadata
+Apps:
+LOAD
+    AppID,
+    AppName,
+    Published,
+    Date(PublishTime) as PublishDate,
+    FileSizeMB,
+    OwnerID,
+    UserDirectory,
+    StreamName,
+    LastReloadTime
+;
+SQL SELECT 
+    a."ID" as "AppID",
+    a."Name" as "AppName",
+    a."Published",
+    a."PublishTime",
+    a."FileSize" / 1048576 as "FileSizeMB",
+    u."UserId" as "OwnerID",
+    u."UserDirectory",
+    s."Name" as "StreamName",
+    a."LastReloadTime"
+FROM "Apps" a
+LEFT JOIN "Users" u ON a."Owner_ID" = u."ID"
+LEFT JOIN "Streams" s ON a."Stream_ID" = s."ID"
+WHERE a."Deleted" = false;
+
+// 2. Load Task Execution History (Last 30 Days)
+TaskHistory:
+LOAD
+    TaskName,
+    AppName,
+    StartTime,
+    StopTime,
+    Duration,
+    StatusMessage,
+    Details,
+    // Add flags for analysis
+    If(StatusMessage = 'Fail', 1, 0) as IsFailure,
+    If(StatusMessage = 'Success', 1, 0) as IsSuccess
+;
+SQL SELECT 
+    t."Name" as "TaskName",
+    a."Name" as "AppName",
+    e."StartTime",
+    e."StopTime",
+    e."Duration",
+    CASE e."Status"
+        WHEN 0 THEN 'NeverStarted'
+        WHEN 1 THEN 'Triggered'
+        WHEN 2 THEN 'Started'
+        WHEN 3 THEN 'Queued'
+        WHEN 4 THEN 'AbortInitiated'
+        WHEN 5 THEN 'Aborting'
+        WHEN 6 THEN 'Aborted'
+        WHEN 7 THEN 'Success'
+        WHEN 8 THEN 'Fail'
+        WHEN 9 THEN 'Skipped'
+        WHEN 10 THEN 'Retry'
+        WHEN 11 THEN 'Error'
+        WHEN 12 THEN 'Reset'
+    END as "StatusMessage",
+    e."Details"
+FROM "ExecutionResults" e
+JOIN "ReloadTasks" t ON e."ReloadTask_ID" = t."ID"
+JOIN "Apps" a ON t."App_ID" = a."ID"
+WHERE e."StartTime" >= NOW() - INTERVAL '30 days';
+
+// 3. Load User Details (Including Inactive)
+Users:
+LOAD
+    UserID,
+    UserDirectory,
+    UserName,
+    Inactive,
+    Created,
+    LastModified
+;
+SQL SELECT 
+    "ID" as "UserID",
+    "UserDirectory",
+    "UserId" as "UserName",
+    "Inactive",
+    "CreatedDate" as "Created",
+    "ModifiedDate" as "LastModified"
+FROM "Users"
+WHERE "Deleted" = false;
+
+DISCONNECT;
+
+// Data Model Linkage
+// Qlik's associative engine automatically links tables if field names match.
+// To link Apps to TaskHistory, we already have 'AppName'.
+// To link Apps to Users, we might want to map 'OwnerID' to 'UserName'.
+// If they don't match exactly, use RENAME FIELD or an intermediate mapping table.

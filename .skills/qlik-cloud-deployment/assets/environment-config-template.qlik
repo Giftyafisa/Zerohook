@@ -1,0 +1,49 @@
+///$tab Variables
+// ============================================================
+// Environment Configuration Template
+// ============================================================
+// Change vEnvironment to switch between DEV/TEST/PROD.
+// All connection paths are mapped per environment.
+
+SET vEnvironment = 'DEV';  // DEV | TEST | PROD
+
+///$tab Environment-Mapping
+IF '$(vEnvironment)' = 'PROD' THEN
+    SET vDataPath = 'lib://PROD_DataFiles';
+    SET vQvdExtract = 'lib://PROD_QVD_Extract';
+    SET vQvdTransform = 'lib://PROD_QVD_Transform';
+    SET vSecurityPath = 'lib://PROD_Security';
+    SET vLogPath = 'lib://PROD_Logs';
+    SET vSseConnection = 'PROD_PyTools';
+    TRACE Environment: PRODUCTION;
+ELSEIF '$(vEnvironment)' = 'TEST' THEN
+    SET vDataPath = 'lib://TEST_DataFiles';
+    SET vQvdExtract = 'lib://TEST_QVD_Extract';
+    SET vQvdTransform = 'lib://TEST_QVD_Transform';
+    SET vSecurityPath = 'lib://TEST_Security';
+    SET vLogPath = 'lib://TEST_Logs';
+    SET vSseConnection = 'TEST_PyTools';
+    TRACE Environment: TEST;
+ELSE
+    SET vDataPath = 'lib://DEV_DataFiles';
+    SET vQvdExtract = 'lib://DEV_QVD_Extract';
+    SET vQvdTransform = 'lib://DEV_QVD_Transform';
+    SET vSecurityPath = 'lib://DEV_Security';
+    SET vLogPath = 'lib://DEV_Logs';
+    SET vSseConnection = 'DEV_PyTools';
+    TRACE Environment: DEVELOPMENT;
+END IF
+
+LET vReloadTimestamp = Now();
+TRACE Reload started: $(vReloadTimestamp);
+
+///$tab Data-Load
+// Use environment variables throughout your script:
+//
+// LOAD * FROM [$(vDataPath)/customers.csv]
+// (txt, utf8, embedded labels, delimiter is ',');
+//
+// STORE MyTable INTO [$(vQvdTransform)/my_table.qvd] (qvd);
+//
+// LOAD * FROM [$(vSecurityPath)/access_control.xlsx]
+// (ooxml, embedded labels, table is Sheet1);

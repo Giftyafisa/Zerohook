@@ -13,7 +13,7 @@
  * 
  * USER TYPE ROUTING:
  * - client → sees ONLY providers
- * - provider → sees ONLY clients
+ * - provider → sees providers by default (clients on explicit discovery surface)
  * - sugar_daddy/mommy → sees verified providers (with paid access for providers)
  * - unauthenticated → sees public providers only
  * 
@@ -146,6 +146,165 @@ class MongoRecommendationEngine {
     }
 
     return score;
+  }
+
+  isExactSearchMatch(profile, searchQuery) {
+    const query = String(searchQuery || '').trim().toLowerCase();
+    if (!query) return false;
+
+    const profileData = profile.profile_data || profile.profileData || {};
+    const username = String(profile.username || '').toLowerCase();
+    const firstName = String(profileData.firstName || '').toLowerCase();
+    const lastName = String(profileData.lastName || '').toLowerCase();
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    return (
+      username === query ||
+      fullName === query ||
+      firstName === query ||
+      lastName === query
+    );
+  }
+
+  getTrustScore(profile) {
+    const trustScore = Number(
+      profile?.trustScore ||
+      profile?.reputation_score ||
+      profile?.reputationScore ||
+      50
+    );
+
+    return Math.max(0, Math.min(100, trustScore));
+  }
+
+  applyDynamicTrustFloor(sortedProfiles, options = {}) {
+    if (!Array.isArray(sortedProfiles) || sortedProfiles.length === 0) {
+      return {
+        profiles: Array.isArray(sortedProfiles) ? sortedProfiles : [],
+        requestedFloor: 0,
+        appliedFloor: 0,
+        relaxed: false,
+        topWindowSize: 0
+      };
+    }
+
+    const {
+      requestedFloor = 55,
+      topWindowSize = 12,
+      minimumQualifiedRatio = 0.65,
+      isSearchQuery = false
+    } = options;
+
+    if (isSearchQuery) {
+      return {
+        profiles: sortedProfiles,
+        requestedFloor: 0,
+        appliedFloor: 0,
+        relaxed: false,
+        topWindowSize: 0
+      };
+    }
+
+    const safeRequestedFloor = Math.max(0, Math.min(100, Number(requestedFloor) || 0));
+    const windowSize = Math.max(1, Math.min(Number(topWindowSize) || 12, sortedProfiles.length));
+    const minimumQualified = Math.max(3, Math.min(windowSize, Math.ceil(windowSize * minimumQualifiedRatio)));
+
+    const topWindow = sortedProfiles.slice(0, windowSize);
+    const tail = sortedProfiles.slice(windowSize);
+
+    const collectQualified = (floor) => {
+      const qualified = [];
+      const fallback = [];
+
+      for (const profile of topWindow) {
+        const trustScore = this.getTrustScore(profile);
+        if (trustScore >= floor) {
+          qualified.push(profile);
+        } else {
+          fallback.push(profile);
+        }
+      }
+
+      return { qualified, fallback };
+    };
+
+    let appliedFloor = safeRequestedFloor;
+    let { qualified, fallback } = collectQualified(appliedFloor);
+
+    while (appliedFloor > 0 && qualified.length < minimumQualified) {
+      appliedFloor = Math.max(0, appliedFloor - 10);
+      ({ qualified, fallback } = collectQualified(appliedFloor));
+    }
+
+    const rebuiltTopWindow = [...qualified, ...fallback]
+      .slice(0, windowSize)
+      .map((profile, index) => ({
+        ...profile,
+        trustScore: this.getTrustScore(profile),
+        trustFloorApplied: appliedFloor,
+        trustFloorPosition: index + 1
+      }));
+
+    return {
+      profiles: [...rebuiltTopWindow, ...tail],
+      requestedFloor: safeRequestedFloor,
+      appliedFloor,
+      relaxed: appliedFloor < safeRequestedFloor,
+      topWindowSize: windowSize
+    };
+  }
+
+  deriveRankingReasons(profile, context = {}) {
+    const reasons = [];
+    const distance = Number(profile?.distance);
+    const trustScore = this.getTrustScore(profile);
+    const verificationTier = Number(profile?.verification_tier || profile?.verificationTier || 0);
+    const engagementScore = Number(profile?.scoreBreakdown?.engagement || 0);
+
+    if (profile?.exactSearchMatch) {
+      reasons.push({ key: 'exact_match', label: 'Exact Match' });
+    }
+
+    if (profile?.sameCountry === true) {
+      reasons.push({ key: 'country_match', label: 'Same Country' });
+    }
+
+    if (Number.isFinite(distance)) {
+      if (distance <= 2) {
+        reasons.push({ key: 'very_close', label: 'Very Close' });
+      } else if (distance <= 10) {
+        reasons.push({ key: 'nearby', label: 'Nearby' });
+      }
+    }
+
+    if (profile?.isOnline) {
+      reasons.push({ key: 'online_now', label: 'Online Now' });
+    }
+
+    if (verificationTier >= 2) {
+      reasons.push({ key: 'verified', label: 'Verified' });
+    }
+
+    if (trustScore >= 80) {
+      reasons.push({ key: 'high_trust', label: 'High Trust' });
+    }
+
+    if (engagementScore >= 75) {
+      reasons.push({ key: 'high_response', label: 'High Response' });
+    }
+
+    if (context.countryFallbackApplied && profile?.sameCountry === false) {
+      reasons.push({ key: 'cross_country_fallback', label: 'Expanded Area' });
+    }
+
+    if (
+      context.trustPolicy?.relaxed &&
+      trustScore < (context.trustPolicy?.requestedFloor || 0)
+    ) {
+      reasons.push({ key: 'smart_trust_fallback', label: 'Smart Local Fallback' });
+    }
+
+    return reasons.slice(0, 5);
   }
 
   applyExplorationBudget(profiles, pageSize = 20) {
@@ -692,12 +851,15 @@ class MongoRecommendationEngine {
       if (!a.hasProfileImage && b.hasProfileImage) return 1;
 
       if (filterMode === 'search') {
-        const intentA = Number(a.searchIntentScore || 0);
-        const intentB = Number(b.searchIntentScore || 0);
-        if (intentA !== intentB) return intentB - intentA;
+        if (a.exactSearchMatch && !b.exactSearchMatch) return -1;
+        if (!a.exactSearchMatch && b.exactSearchMatch) return 1;
 
         if (a.sameCountry && !b.sameCountry) return -1;
         if (!a.sameCountry && b.sameCountry) return 1;
+
+        const intentA = Number(a.searchIntentScore || 0);
+        const intentB = Number(b.searchIntentScore || 0);
+        if (intentA !== intentB) return intentB - intentA;
 
         const distA = a.distance ?? 9999;
         const distB = b.distance ?? 9999;
@@ -767,7 +929,8 @@ class MongoRecommendationEngine {
       offset = 0,
       cursor = null, // Base64 cursor for cursor-based pagination
       filters = {},
-      accountTypeFilter = 'provider' // Default: show providers
+      accountTypeFilter = 'provider', // Default: show providers
+      featureFlags = {}
     } = options;
 
     try {
@@ -777,6 +940,10 @@ class MongoRecommendationEngine {
       debugLog('   Filters:', filters);
 
       const isSearchQuery = !!(filters.searchQuery && filters.searchQuery.trim());
+      const recommendationFlags = {
+        dynamicTrustFloorEnabled: featureFlags.dynamicTrustFloorEnabled !== false,
+        rankingReasonsEnabled: featureFlags.rankingReasonsEnabled !== false
+      };
 
       // Build MongoDB query
       const queryParts = [buildAccountTypeQuery(accountTypeFilter)];
@@ -866,8 +1033,14 @@ class MongoRecommendationEngine {
             { username: new RegExp(searchTerm, 'i') },
             { 'profile_data.firstName': new RegExp(searchTerm, 'i') },
             { 'profileData.firstName': new RegExp(searchTerm, 'i') },
+            { 'profile_data.lastName': new RegExp(searchTerm, 'i') },
+            { 'profileData.lastName': new RegExp(searchTerm, 'i') },
             { 'profile_data.bio': new RegExp(searchTerm, 'i') },
-            { 'profileData.bio': new RegExp(searchTerm, 'i') }
+            { 'profileData.bio': new RegExp(searchTerm, 'i') },
+            { 'profile_data.location.city': new RegExp(searchTerm, 'i') },
+            { 'profileData.location.city': new RegExp(searchTerm, 'i') },
+            { 'profile_data.location.country': new RegExp(searchTerm, 'i') },
+            { 'profileData.location.country': new RegExp(searchTerm, 'i') }
           ]
         });
       }
@@ -886,9 +1059,7 @@ class MongoRecommendationEngine {
       const fetchLimit = Math.min(softPoolCap, Math.max(baseWindow, offset + limit));
 
       const userCountryLower = (userLocation?.country || '').toLowerCase().trim();
-      const preselectSortStage = isSearchQuery
-        ? { $sort: { _hasImage: -1, _hasLocation: -1, _lastActiveSort: -1, _id: -1 } }
-        : { $sort: { _sameCountry: -1, _hasImage: -1, _hasLocation: -1, _lastActiveSort: -1, _id: -1 } };
+      const preselectSortStage = { $sort: { _sameCountry: -1, _hasImage: -1, _hasLocation: -1, _lastActiveSort: -1, _id: -1 } };
 
       const preselectPipeline = [
         { $match: mongoQuery },
@@ -988,6 +1159,9 @@ class MongoRecommendationEngine {
       let scoredProfiles = profiles.map(profile => {
         const normalized = this.normalizeProfile(profile);
         const scored = this.calculateProfileScore(normalized, userLocation, null, serverStats);
+        scored.exactSearchMatch = isSearchQuery
+          ? this.isExactSearchMatch(scored, filters.searchQuery)
+          : false;
         scored.searchIntentScore = isSearchQuery
           ? this.calculateSearchIntentScore(scored, filters.searchQuery)
           : 0;
@@ -1013,6 +1187,33 @@ class MongoRecommendationEngine {
         scoredProfiles = this.applyExplorationBudget(scoredProfiles, limit);
       }
 
+      const sameCountrySupply = scoredProfiles.filter((p) => p.sameCountry === true).length;
+      const nearbySupplyWithin10km = scoredProfiles.filter((p) => p.sameCountry === true && p.distance != null && p.distance <= 10).length;
+
+      let requestedTrustFloor = 35;
+      if (nearbySupplyWithin10km >= Math.max(3, Math.floor(limit * 0.4))) {
+        requestedTrustFloor = 60;
+      } else if (sameCountrySupply >= Math.max(5, limit)) {
+        requestedTrustFloor = 50;
+      }
+
+      let trustPolicy = {
+        profiles: scoredProfiles,
+        requestedFloor: 0,
+        appliedFloor: 0,
+        relaxed: false,
+        topWindowSize: 0
+      };
+
+      if (recommendationFlags.dynamicTrustFloorEnabled) {
+        trustPolicy = this.applyDynamicTrustFloor(scoredProfiles, {
+          requestedFloor: requestedTrustFloor,
+          topWindowSize: Math.max(limit, 12),
+          isSearchQuery
+        });
+        scoredProfiles = trustPolicy.profiles;
+      }
+
       // Calculate metadata
       const sameCountryCount = scoredProfiles.filter(p => p.sameCountry).length;
       const onlineCount = scoredProfiles.filter(p => p.isOnline).length;
@@ -1022,6 +1223,25 @@ class MongoRecommendationEngine {
         within25km: scoredProfiles.filter(p => p.sameCountry && p.distance != null && p.distance <= 25).length,
         within50km: scoredProfiles.filter(p => p.sameCountry && p.distance != null && p.distance <= 50).length
       };
+      const countryFallbackApplied = Boolean(userCountryLower && sameCountryCount === 0 && scoredProfiles.length > 0);
+      const suggestedRadiusExpansion = !isSearchQuery && sameCountryCount > 0 && nearbyCount.within10km < Math.max(3, Math.floor(limit * 0.4))
+        ? {
+          message: 'Expanded beyond your closest radius to keep strong matches visible.',
+          fromKm: 10,
+          toKm: 25
+        }
+        : null;
+
+      scoredProfiles = scoredProfiles.map((profile) => ({
+        ...profile,
+        rankingReasons: recommendationFlags.rankingReasonsEnabled
+          ? this.deriveRankingReasons(profile, {
+            isSearchQuery,
+            countryFallbackApplied,
+            trustPolicy
+          })
+          : []
+      }));
 
       // Log sorting results
       debugLog(`📊 Recommendation Stats:`);
@@ -1043,7 +1263,6 @@ class MongoRecommendationEngine {
       if (cursor) {
         try {
           const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-          const cursorScore = decoded.s;
           const cursorId = decoded.id;
           // Find the first profile after the cursor position
           startIndex = scoredProfiles.findIndex((p, idx) => {
@@ -1081,12 +1300,22 @@ class MongoRecommendationEngine {
         nextCursor,
         metadata: {
           algorithm: 'uber_bolt_style_v1',
+          locationStrategy: 'country_first_distance_degrade',
           sortMode: effectiveSortMode,
           searchMode: isSearchQuery,
           userLocationDetected: !!userLocation,
           sameCountryCount,
           onlineCount,
           nearbyCount,
+          countryFallbackApplied,
+          suggestedRadiusExpansion,
+          featureFlags: recommendationFlags,
+          trustPolicy: {
+            requestedFloor: trustPolicy.requestedFloor,
+            appliedFloor: trustPolicy.appliedFloor,
+            relaxed: trustPolicy.relaxed,
+            topWindowSize: trustPolicy.topWindowSize
+          },
           topScore: paginatedProfiles[0]?.recommendationScore || 0
         }
       };
@@ -1169,10 +1398,18 @@ class MongoRecommendationEngine {
         });
       
       case 'provider':
-        // Providers see only clients
+        // Providers see providers by default.
+        if (String(options.discoverySurface || '').toLowerCase() === 'clients') {
+          return this.getRecommendedProfiles({
+            ...options,
+            accountTypeFilter: 'client'
+          });
+        }
+
+        // Default provider browse surface remains providers.
         return this.getRecommendedProfiles({
           ...options,
-          accountTypeFilter: 'client'
+          accountTypeFilter: 'provider'
         });
       
       case 'sugar_daddy':
@@ -1210,20 +1447,15 @@ class MongoRecommendationEngine {
       // Default preferences for sugar accounts
       const preferredGender = sugarSettings.preferredGender || 
         (viewerAccountType === 'sugar_daddy' ? 'female' : 'male');
-      const preferredAgeRange = sugarSettings.preferredAgeRange || { min: 18, max: 30 };
+      const preferredAgeRange = sugarSettings.preferredAgeRange || { min: 18, max: 25 };
 
       debugLog(`👑 Sugar recommendations - Gender: ${preferredGender}, Age: ${preferredAgeRange.min}-${preferredAgeRange.max}`);
 
-      // Build query for verified providers
+      // Build query for provider accounts.
+      // "Well verified" for sugar matching is now based on active standalone sugar access.
       const mongoQuery = {
         $and: [
-          buildAccountTypeQuery('provider'),
-          {
-            $or: [
-              { verification_tier: { $gte: 2 } },
-              { verificationTier: { $gte: 2 } }
-            ]
-          }
+          buildAccountTypeQuery('provider')
         ]
       };
 
@@ -1251,6 +1483,18 @@ class MongoRecommendationEngine {
         .limit(200)
         .lean();
 
+      const qualifiedAccessRecords = await SugarAccessPayment.find({
+        providerId: { $in: profiles.map((profile) => profile._id) },
+        paymentStatus: 'completed',
+        accessExpiresAt: { $gt: new Date() }
+      })
+        .select('providerId')
+        .lean();
+
+      const qualifiedProviderIds = new Set(
+        qualifiedAccessRecords.map((record) => String(record.providerId))
+      );
+
       // Batch-fetch server-authoritative engagement stats for sugar profiles
       const sugarProfileIds = profiles.map(p => p._id);
       const sugarServerStats = await this.batchFetchEngagementStats(sugarProfileIds);
@@ -1260,6 +1504,11 @@ class MongoRecommendationEngine {
         .map(profile => {
           const normalized = this.normalizeProfile(profile);
           const profileData = normalized.profile_data || {};
+          const normalizedProfileId = String(normalized._id || normalized.id || '');
+
+          if (!qualifiedProviderIds.has(normalizedProfileId)) {
+            return null;
+          }
           
           // Check age
           const age = parseInt(profileData.age) || 25;
@@ -1289,7 +1538,8 @@ class MongoRecommendationEngine {
         metadata: {
           forSugarAccount: true,
           preferredGender,
-          preferredAgeRange
+          preferredAgeRange,
+          qualifiedProviderCount: qualifiedProviderIds.size
         }
       };
 

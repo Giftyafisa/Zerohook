@@ -1,0 +1,27 @@
+///$tab Variables
+// ============================================================
+// SSE Connection Configuration
+// ============================================================
+// Update these variables to match your environment.
+// The connection name must match the Analytics Connection in QMC.
+
+SET vSseConnection = 'PyTools';      // Analytics connection name
+SET vSseHost = 'localhost';           // SSE server hostname/IP
+SET vSsePort = '50055';               // SSE gRPC port
+
+// Model configuration
+SET vModelName = 'my_model';          // sklearn model name (persisted across reloads)
+
+// Forecast configuration
+SET vForecastFreq = 'MS';             // D=Daily, W=Weekly, MS=Monthly
+SET vForecastPeriods = '12';          // Number of periods to forecast
+SET vForecastReturn = 'yhat';         // yhat, y_then_yhat, all
+
+// LLM configuration
+SET vLlmModel = 'sonnet';            // haiku (fast/cheap), sonnet (balanced), opus (best)
+SET vLlmTemperature = '0';           // 0 = deterministic, 0.7 = creative
+SET vLlmMaxTokens = '1024';          // Max response length
+
+///$tab Connect
+LIB CONNECT TO '$(vSseConnection)';
+TRACE Connected to SSE: $(vSseConnection) at $(vSseHost):$(vSsePort);

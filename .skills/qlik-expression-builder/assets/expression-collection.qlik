@@ -1,0 +1,87 @@
+// ============================================================
+// Qlik Expression Collection — Ready-to-Use Patterns
+// ============================================================
+// Copy and adapt these expressions for your charts.
+// Replace field names to match your data model.
+
+// === SALES & REVENUE ===
+
+// Total Revenue
+// Sum(Sales)
+
+// Revenue Growth YoY %
+// (Sum({<Year={$(=Max(Year))}>} Sales) - Sum({<Year={$(=Max(Year)-1)}>} Sales))
+// / Sum({<Year={$(=Max(Year)-1)}>} Sales)
+
+// Average Order Value
+// Sum(Sales) / Count(DISTINCT OrderID)
+
+// Gross Margin %
+// (Sum(Sales) - Sum(Cost)) / Sum(Sales)
+
+// === COMPARATIVE PERIODS ===
+
+// YTD Sales (using flag from master calendar)
+// Sum({<IsYTD={1}>} Sales)
+
+// Prior YTD Sales
+// Sum({<IsPrevYTD={1}>} Sales)
+
+// YTD Growth %
+// (Sum({<IsYTD={1}>} Sales) - Sum({<IsPrevYTD={1}>} Sales))
+// / Sum({<IsPrevYTD={1}>} Sales)
+
+// Rolling 12 Months
+// Sum({<IsLast12Months={1}>} Sales)
+
+// Same Month Last Year
+// Sum({<Year={$(=Year(Today())-1)}, MonthNum={$(=Month(Today()))}>} Sales)
+
+// === SET ANALYSIS ===
+
+// Ignore a specific selection (Region)
+// Sum({<Region=>} Sales)
+
+// Fixed year regardless of selection
+// Sum({1<Year={2024}>} Sales)
+
+// Wildcard product search
+// Sum({<ProductName={"*Widget*"}>} Sales)
+
+// Top 10 products by sales
+// Sum({<ProductName={"=Rank(Sum(Sales))<=10"}>} Sales)
+
+// === RANKING ===
+
+// Rank (1 = highest)
+// Rank(Sum(Sales))
+
+// Running total
+// RangeSum(Above(Sum(Sales), 0, RowNo()))
+
+// Cumulative % (Pareto)
+// RangeSum(Above(Sum(Sales), 0, RowNo())) / Sum(TOTAL Sales)
+
+// === FORMATTING ===
+
+// Smart number (K/M)
+// If(Sum(Sales) >= 1000000,
+//     Num(Sum(Sales)/1000000, '#,##0.0') & 'M',
+//     If(Sum(Sales) >= 1000,
+//         Num(Sum(Sales)/1000, '#,##0.0') & 'K',
+//         Num(Sum(Sales), '#,##0')))
+
+// Trend arrow
+// If(Sum(Sales) > Sum({<Year={$(=Max(Year)-1)}>} Sales), '▲', '▼')
+// & ' ' & Num(Sum(Sales), '#,##0')
+
+// === COLOR EXPRESSIONS ===
+
+// Traffic light (green/amber/red)
+// If(Sum(Sales)/Sum(Target) >= 1, RGB(0,128,0),
+//    If(Sum(Sales)/Sum(Target) >= 0.8, RGB(255,165,0),
+//       RGB(255,0,0)))
+
+// YoY trend color
+// If(Sum(Sales) > Sum({<Year={$(=Max(Year)-1)}>} Sales),
+//     RGB(46,139,87), RGB(220,20,60))

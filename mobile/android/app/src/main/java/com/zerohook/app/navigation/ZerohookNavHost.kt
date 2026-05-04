@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -299,16 +300,16 @@ fun ZerohookNavHost(
                         NavigationBarItem(
                             selected = currentRoute == Routes.BROWSE,
                             onClick = { navigateToMainRoute(Routes.BROWSE) },
-                            icon = { Icon(Icons.Default.Home, contentDescription = "Browse") },
-                            label = { Text("Browse") },
+                            icon = { Icon(Icons.Default.Home, contentDescription = "Browse", modifier = Modifier.size(20.dp)) },
+                            label = { Text("Browse", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = navItemColors
                         )
 
                         NavigationBarItem(
                             selected = currentRoute == Routes.SERVICES,
                             onClick = { navigateToMainRoute(Routes.SERVICES) },
-                            icon = { Icon(Icons.Default.Favorite, contentDescription = "Services") },
-                            label = { Text("Services") },
+                            icon = { Icon(Icons.Default.Favorite, contentDescription = "Services", modifier = Modifier.size(20.dp)) },
+                            label = { Text("Services", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = navItemColors
                         )
 
@@ -327,31 +328,31 @@ fun ZerohookNavHost(
                                                     contentDescription = "Unread messages: $totalUnread"
                                                 }
                                             ) {
-                                                Text(if (totalUnread > 99) "99+" else "$totalUnread")
+                                                Text(if (totalUnread > 99) "99+" else "$totalUnread", style = MaterialTheme.typography.labelSmall)
                                             }
                                         }
                                     }
                                 ) {
-                                    Icon(Icons.Default.Chat, contentDescription = "Messages")
+                                    Icon(Icons.Default.Chat, contentDescription = "Messages", modifier = Modifier.size(20.dp))
                                 }
                             },
-                            label = { Text("Messages") },
+                            label = { Text("Messages", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = navItemColors
                         )
 
                         NavigationBarItem(
                             selected = currentRoute == Routes.WALLET,
                             onClick = { navigateToMainRoute(Routes.WALLET) },
-                            icon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = "Wallet") },
-                            label = { Text("Wallet") },
+                            icon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = "Wallet", modifier = Modifier.size(20.dp)) },
+                            label = { Text("Wallet", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = navItemColors
                         )
 
                         NavigationBarItem(
                             selected = currentRoute == Routes.ACCOUNT,
                             onClick = { navigateToMainRoute(Routes.ACCOUNT) },
-                            icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
-                            label = { Text("Profile") },
+                            icon = { Icon(Icons.Default.Person, contentDescription = "Profile", modifier = Modifier.size(20.dp)) },
+                            label = { Text("Profile", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = navItemColors
                         )
                     }

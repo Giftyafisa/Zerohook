@@ -1,0 +1,59 @@
+///$tab Variables
+SET vSseConnection = 'PyTools';
+
+///$tab Prophet-Demand-Forecast
+// ============================================================
+// Prophet Demand Forecasting — Load Script Pattern
+// ============================================================
+
+// Step 1: Prepare source data (one row per date, one aggregated measure)
+DemandData:
+LOAD
+    OrderDate,
+    Sum(Quantity) as DailyDemand
+RESIDENT FactOrders
+GROUP BY OrderDate;
+
+LET vInputRows = NoOfRows('DemandData');
+TRACE Prophet input: $(vInputRows) rows;
+
+// Step 2: Run Prophet forecast
+LET vForecastStart = Now();
+
+ForecastResults:
+LOAD *
+EXTENSION $(vSseConnection).Prophet(
+    DemandData{OrderDate, DailyDemand, 'freq=D, periods=30, return=all, load_script=true'}
+);
+
+LET vDuration = Interval(Now() - vForecastStart, 'mm:ss');
+LET vOutputRows = NoOfRows('ForecastResults');
+TRACE Prophet complete in $(vDuration): $(vOutputRows) rows returned;
+
+DROP TABLE DemandData;
+
+///$tab Prophet-With-Holidays
+// ============================================================
+// Prophet with Holiday Calendar — Load Script Pattern
+// ============================================================
+
+// Uncomment and modify to use:
+
+// DemandWithHolidays:
+// LOAD
+//     OrderDate,
+//     Sum(Quantity) as DailyDemand,
+//     If(IsHoliday = 1, HolidayName, '') as HolidayName
+// RESIDENT FactOrders
+// GROUP BY OrderDate, If(IsHoliday = 1, HolidayName, '');
+//
+// ForecastWithHolidays:
+// LOAD *
+// EXTENSION $(vSseConnection).Prophet_Holidays(
+//     DemandWithHolidays{OrderDate, DailyDemand, HolidayName, 'freq=D, periods=30, return=all, load_script=true'}
+// );
+//
+// DROP TABLE DemandWithHolidays;
+
+///$tab Summary
+TRACE Prophet forecast pipeline complete;

@@ -1,0 +1,62 @@
+///$tab Main
+SET ThousandSep=',';
+SET DecimalSep='.';
+SET MoneyThousandSep=',';
+SET MoneyDecimalSep='.';
+SET MoneyFormat='$#,##0.00;-$#,##0.00';
+SET TimeFormat='hh:mm:ss';
+SET DateFormat='YYYY-MM-DD';
+SET TimestampFormat='YYYY-MM-DD hh:mm:ss[.fff]';
+SET FirstWeekDay=0;
+SET BrokenWeeks=1;
+SET ReferenceDay=0;
+SET FirstMonthOfYear=1;
+SET CollationLocale='en-US';
+
+///$tab Variables
+LET vToday = Today();
+LET vReloadTime = Now();
+SET vDataPath = 'lib://DataFiles';
+
+///$tab Data Load
+TRACE ===== Starting data load =====;
+
+Customers:
+LOAD
+    CustomerID,
+    CustomerName,
+    Region,
+    Segment
+FROM [$(vDataPath)/customers.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+TRACE Loaded $(NoOfRows('Customers')) customers;
+
+Orders:
+LOAD
+    OrderID,
+    CustomerID,
+    Date#(OrderDate, 'YYYY-MM-DD') as OrderDate,
+    ProductID,
+    Quantity,
+    UnitPrice,
+    Quantity * UnitPrice as LineTotal
+FROM [$(vDataPath)/orders.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+TRACE Loaded $(NoOfRows('Orders')) orders;
+
+Products:
+LOAD
+    ProductID,
+    ProductName,
+    Category,
+    SubCategory
+FROM [$(vDataPath)/products.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+TRACE Loaded $(NoOfRows('Products')) products;
+
+///$tab Cleanup
+TRACE ===== Data load complete =====;
+TRACE Reload finished at $(vReloadTime);

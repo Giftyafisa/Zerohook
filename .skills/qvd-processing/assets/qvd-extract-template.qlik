@@ -1,0 +1,51 @@
+///$tab Variables
+SET vSourcePath = 'lib://SourceData';
+SET vQvdExtractPath = 'lib://QVD_Extract';
+LET vExtractTime = Now();
+
+///$tab Extract-Customers
+TRACE Extracting customers...;
+
+_RawCustomers:
+LOAD
+    *,
+    '$(vExtractTime)' as _ExtractTimestamp
+FROM [$(vSourcePath)/customers.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+STORE _RawCustomers INTO [$(vQvdExtractPath)/customers_raw.qvd] (qvd);
+TRACE Stored $(NoOfRows('_RawCustomers')) customers;
+DROP TABLE _RawCustomers;
+
+///$tab Extract-Orders
+TRACE Extracting orders...;
+
+_RawOrders:
+LOAD
+    *,
+    '$(vExtractTime)' as _ExtractTimestamp
+FROM [$(vSourcePath)/orders.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+STORE _RawOrders INTO [$(vQvdExtractPath)/orders_raw.qvd] (qvd);
+TRACE Stored $(NoOfRows('_RawOrders')) orders;
+DROP TABLE _RawOrders;
+
+///$tab Extract-Products
+TRACE Extracting products...;
+
+_RawProducts:
+LOAD
+    *,
+    '$(vExtractTime)' as _ExtractTimestamp
+FROM [$(vSourcePath)/products.csv]
+(txt, utf8, embedded labels, delimiter is ',');
+
+STORE _RawProducts INTO [$(vQvdExtractPath)/products_raw.qvd] (qvd);
+TRACE Stored $(NoOfRows('_RawProducts')) products;
+DROP TABLE _RawProducts;
+
+///$tab Summary
+TRACE ========================================;
+TRACE Extract complete at $(vExtractTime);
+TRACE ========================================;

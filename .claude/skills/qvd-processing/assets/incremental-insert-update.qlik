@@ -1,0 +1,90 @@
+///$tab Variables
+SET vQvdPath = 'lib://QVD';
+SET vSourcePath = 'lib://Source';
+SET vTableName = 'Orders';
+SET vKeyField = 'OrderID';
+SET vModifiedField = 'ModifiedDate';
+
+///$tab Incremental-Insert-Update
+// ============================================================
+// Incremental Load: Insert + Update
+// ============================================================
+// Use for: Orders, customer records — records added or modified, never deleted.
+// Change: Replace vQvdPath, vSourcePath, vTableName, field names.
+
+LET vQvdFile = '$(vQvdPath)/$(vTableName).qvd';
+LET vQvdExists = IF(FileSize('$(vQvdFile)') > 0, 1, 0);
+
+IF vQvdExists = 1 THEN
+    TRACE Incremental mode — loading existing QVD;
+
+    _QVD:
+    LOAD * FROM [$(vQvdFile)] (qvd);
+
+    LET vQvdRows = NoOfRows('_QVD');
+    LET vMaxMod = Peek('$(vModifiedField)', vQvdRows - 1, '_QVD');
+    TRACE QVD rows: $(vQvdRows) | High-water mark: $(vMaxMod);
+
+    // Load new + modified records from source
+    _Changed:
+    LOAD *
+    FROM [$(vSourcePath)/$(vTableName).csv]
+    (txt, utf8, embedded labels, delimiter is ',')
+    WHERE $(vModifiedField) > '$(vMaxMod)';
+
+    LET vChangedRows = NoOfRows('_Changed');
+    TRACE Changed/new rows: $(vChangedRows);
+
+    IF vChangedRows > 0 THEN
+        // Build key table of changed records
+        _ChangedKeys:
+        LOAD DISTINCT $(vKeyField) as _ChangedKey RESIDENT _Changed;
+
+        // Keep only records NOT in the changed set
+        _Unchanged:
+        NOCONCATENATE LOAD * RESIDENT _QVD
+        WHERE NOT EXISTS(_ChangedKey, $(vKeyField));
+        DROP TABLE _QVD;
+        DROP TABLE _ChangedKeys;
+
+        LET vKeptRows = NoOfRows('_Unchanged');
+        TRACE Kept unchanged: $(vKeptRows);
+
+        // Merge unchanged + changed
+        CONCATENATE(_Unchanged) LOAD * RESIDENT _Changed;
+        DROP TABLE _Changed;
+
+        // Sort for reliable Peek() on next run
+        _Sorted:
+        NOCONCATENATE LOAD * RESIDENT _Unchanged ORDER BY $(vModifiedField);
+        DROP TABLE _Unchanged;
+
+        STORE _Sorted INTO [$(vQvdFile)] (qvd);
+
+        LET vFinalRows = NoOfRows('_Sorted');
+        TRACE QVD stored: $(vFinalRows) total rows;
+        DROP TABLE _Sorted;
+    ELSE
+        DROP TABLE _Changed;
+        DROP TABLE _QVD;
+        TRACE No changes detected;
+    END IF
+
+ELSE
+    TRACE First run — full load from source;
+
+    _Full:
+    LOAD *
+    FROM [$(vSourcePath)/$(vTableName).csv]
+    (txt, utf8, embedded labels, delimiter is ',');
+
+    _Sorted:
+    NOCONCATENATE LOAD * RESIDENT _Full ORDER BY $(vModifiedField);
+    DROP TABLE _Full;
+
+    STORE _Sorted INTO [$(vQvdFile)] (qvd);
+
+    LET vFinalRows = NoOfRows('_Sorted');
+    TRACE Full load stored: $(vFinalRows) rows;
+    DROP TABLE _Sorted;
+END IF

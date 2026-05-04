@@ -1,0 +1,116 @@
+// ============================================================
+// Data Quality Check Library
+// ============================================================
+// Include: $(MUST_INCLUDE=[lib://Scripts/quality-check-library.qvs]);
+
+// --- Check null count in a field ---
+SUB CheckNulls(vTableName, vFieldName, vMaxNullPct)
+    _NC:
+    LOAD
+        Count(If(IsNull([$(vFieldName)]) OR Len(Trim([$(vFieldName)])) = 0, 1)) as NullCount,
+        Count(*) as Total
+    RESIDENT [$(vTableName)];
+    
+    LET vNulls = Peek('NullCount', 0, '_NC');
+    LET vTotal = Peek('Total', 0, '_NC');
+    LET vPct = If(vTotal > 0, Round(vNulls / vTotal * 100, 0.1), 0);
+    DROP TABLE _NC;
+    
+    IF vPct > $(vMaxNullPct) THEN
+        TRACE [QUALITY FAIL] $(vTableName).$(vFieldName): $(vNulls) nulls ($(vPct)% > max $(vMaxNullPct)%);
+        LET vQualityErrors = vQualityErrors + 1;
+    ELSE
+        TRACE [QUALITY OK] $(vTableName).$(vFieldName): $(vPct)% null;
+    END IF
+END SUB
+
+// --- Check for duplicate keys ---
+SUB CheckDuplicates(vTableName, vKeyField)
+    _DC:
+    LOAD
+        Count([$(vKeyField)]) - Count(DISTINCT [$(vKeyField)]) as DupCount
+    RESIDENT [$(vTableName)];
+    
+    LET vDups = Peek('DupCount', 0, '_DC');
+    DROP TABLE _DC;
+    
+    IF vDups > 0 THEN
+        TRACE [QUALITY FAIL] $(vTableName).$(vKeyField): $(vDups) duplicate values;
+        LET vQualityErrors = vQualityErrors + 1;
+    ELSE
+        TRACE [QUALITY OK] $(vTableName).$(vKeyField): no duplicates;
+    END IF
+END SUB
+
+// --- Check referential integrity ---
+SUB CheckFK(vFactTable, vFkField, vDimTable, vPkField)
+    _FK: LOAD DISTINCT [$(vFkField)] as _FK RESIDENT [$(vFactTable)];
+    _PK: LOAD DISTINCT [$(vPkField)] as _PK RESIDENT [$(vDimTable)];
+    
+    _Orphans:
+    NOCONCATENATE LOAD _FK RESIDENT _FK WHERE NOT Exists(_PK, _FK);
+    
+    LET vOrphans = NoOfRows('_Orphans');
+    DROP TABLES _FK, _PK, _Orphans;
+    
+    IF vOrphans > 0 THEN
+        TRACE [QUALITY FAIL] $(vFactTable).$(vFkField) → $(vDimTable).$(vPkField): $(vOrphans) orphans;
+        LET vQualityErrors = vQualityErrors + 1;
+    ELSE
+        TRACE [QUALITY OK] $(vFactTable).$(vFkField) → $(vDimTable).$(vPkField): intact;
+    END IF
+END SUB
+
+// --- Check minimum row count ---
+SUB CheckMinRows(vTableName, vMinRows)
+    LET vRows = NoOfRows('$(vTableName)');
+    IF vRows < $(vMinRows) THEN
+        TRACE [QUALITY FAIL] $(vTableName): $(vRows) rows (minimum: $(vMinRows));
+        LET vQualityErrors = vQualityErrors + 1;
+    ELSE
+        TRACE [QUALITY OK] $(vTableName): $(vRows) rows;
+    END IF
+END SUB
+
+// --- Check data freshness ---
+SUB CheckFreshness(vTableName, vDateField, vMaxAgeDays)
+    _Fresh:
+    LOAD Max([$(vDateField)]) as Latest RESIDENT [$(vTableName)];
+    LET vAge = Floor(Today() - Peek('Latest', 0, '_Fresh'));
+    DROP TABLE _Fresh;
+    
+    IF vAge > $(vMaxAgeDays) THEN
+        TRACE [QUALITY FAIL] $(vTableName).$(vDateField): $(vAge) days old (max: $(vMaxAgeDays));
+        LET vQualityErrors = vQualityErrors + 1;
+    ELSE
+        TRACE [QUALITY OK] $(vTableName).$(vDateField): $(vAge) days old;
+    END IF
+END SUB
+
+// --- Quality Gate: call after all checks ---
+SUB QualityGate()
+    TRACE ========================================;
+    IF vQualityErrors > 0 THEN
+        TRACE [QUALITY GATE] FAILED: $(vQualityErrors) issues found;
+        TRACE [QUALITY GATE] Aborting reload;
+        TRACE ========================================;
+        EXIT SCRIPT;
+    ELSE
+        TRACE [QUALITY GATE] PASSED: all checks OK;
+        TRACE ========================================;
+    END IF
+END SUB
+
+// ============================================================
+// USAGE EXAMPLE:
+// ============================================================
+// LET vQualityErrors = 0;
+//
+// CALL CheckMinRows('Orders', 1000);
+// CALL CheckNulls('Orders', 'CustomerID', 1);
+// CALL CheckDuplicates('Orders', 'OrderID');
+// CALL CheckFK('Orders', 'CustomerID', 'Customers', 'CustomerID');
+// CALL CheckFreshness('Orders', 'OrderDate', 7);
+//
+// CALL QualityGate();
+// ============================================================

@@ -12,11 +12,9 @@ Algorithm Clarification: The recommendation algorithm should work in TWO scenari
 
 For local users (like you in Accra): Show nearby providers first, then factor in quality, ratings, etc.
 For visitors/searchers from other countries: Show profiles based on ALL criteria (not just location) - quality, ratings, success rate, activity, etc. - across the entire platform
-My Questions:
-For the test user: Should I create a completely new test provider profile, or should I find an existing user and convert them to a provider?
 
 For the algorithm:
-
+Example,
 When a user from Nigeria visits, should they see:
 Option A: Nigerian providers first, then other countries?
 Option B: Best-rated providers globally, with location as just one factor?

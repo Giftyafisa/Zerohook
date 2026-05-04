@@ -1,0 +1,72 @@
+///$tab Variables
+SET vSseConnection = 'PyTools';
+
+///$tab LLM-Bulk-Recommendations
+// ============================================================
+// Bulk LLM Recommendations — Claude
+// ============================================================
+
+// Step 1: Prepare prompts from your data model
+ClaudePrompts:
+LOAD
+    ProductID as key,
+    'Given: Product=' & ProductName
+        & ', Category=' & Category
+        & ', AvgDailySales=' & Round(Avg(DailySales), 0.1)
+        & ', LeadTimeDays=' & LeadTimeDays
+        & ', CurrentStock=' & CurrentStock
+        & ', SafetyStockDays=' & SafetyDays
+        & '. Calculate the optimal reorder point and economic order quantity.'
+        as prompt,
+    'model=sonnet, system_prompt=Inventory-optimization-AI-return-JSON, temperature=0.2, max_tokens=500'
+        as kwargs
+RESIDENT DimProducts;
+
+LET vPromptCount = NoOfRows('ClaudePrompts');
+TRACE [LLM] Sending $(vPromptCount) prompts to Claude...;
+LET vLlmStart = Now();
+
+// Step 2: Call Claude in bulk
+ClaudeResults:
+LOAD key, prompt, response
+EXTENSION $(vSseConnection).LLM_Claude_Chat_Bulk(ClaudePrompts{key, prompt, kwargs});
+
+LET vLlmDuration = Interval(Now() - vLlmStart, 'mm:ss');
+TRACE [LLM] Complete in $(vLlmDuration): $(NoOfRows('ClaudeResults')) responses;
+
+DROP TABLE ClaudePrompts;
+
+///$tab Parse-JSON-Results
+// ============================================================
+// Parse JSON Responses
+// ============================================================
+
+LLM_Recommendations:
+LOAD
+    key as ProductID,
+    If(Len(response) > 0 AND SubStringCount(response, '"reorder_point"') > 0,
+        Num(TextBetween(response, '"reorder_point": ', ',')),
+        Null()
+    ) as ReorderPoint,
+    If(Len(response) > 0 AND SubStringCount(response, '"eoq"') > 0,
+        Num(TextBetween(response, '"eoq": ', ',')),
+        Null()
+    ) as EOQ,
+    If(Len(response) > 0 AND SubStringCount(response, '"reasoning"') > 0,
+        TextBetween(response, '"reasoning": "', '"'),
+        'No response'
+    ) as Reasoning,
+    response as RawResponse
+RESIDENT ClaudeResults;
+
+DROP TABLE ClaudeResults;
+TRACE [LLM] Parsed $(NoOfRows('LLM_Recommendations')) recommendations;
+
+///$tab Cache-Results
+// ============================================================
+// Cache Results in QVD (Avoid Re-Processing)
+// ============================================================
+
+// Store results to avoid re-running LLM calls for unchanged products
+STORE LLM_Recommendations INTO [lib://QVD/llm_recommendations.qvd] (qvd);
+TRACE [LLM] Results cached to QVD;

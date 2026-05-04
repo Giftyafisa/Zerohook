@@ -1,0 +1,105 @@
+///$tab Variables
+SET vQvdPath = 'lib://QVD';
+SET vSourcePath = 'lib://Source';
+SET vTableName = 'Products';
+SET vKeyField = 'ProductID';
+SET vModifiedField = 'ModifiedDate';
+
+///$tab Incremental-Insert-Update-Delete
+// ============================================================
+// Incremental Load: Insert + Update + Delete
+// ============================================================
+// Use for: Active records that can be added, modified, or removed.
+// Examples: Employee roster, live product catalog, active inventory.
+// Change: Replace vQvdPath, vSourcePath, vTableName, field names.
+
+LET vQvdFile = '$(vQvdPath)/$(vTableName).qvd';
+LET vQvdExists = IF(FileSize('$(vQvdFile)') > 0, 1, 0);
+
+IF vQvdExists = 1 THEN
+    TRACE Incremental mode (insert+update+delete);
+
+    // Step 1: Get ALL current keys from source (lightweight)
+    _SourceKeys:
+    LOAD DISTINCT $(vKeyField) as _SourceKey
+    FROM [$(vSourcePath)/$(vTableName).csv]
+    (txt, utf8, embedded labels, delimiter is ',');
+
+    LET vSourceKeyCount = NoOfRows('_SourceKeys');
+    TRACE Source has $(vSourceKeyCount) active records;
+
+    // Step 2: Load existing QVD
+    _QVD:
+    LOAD * FROM [$(vQvdFile)] (qvd);
+
+    LET vQvdRows = NoOfRows('_QVD');
+    LET vMaxMod = Peek('$(vModifiedField)', vQvdRows - 1, '_QVD');
+    TRACE QVD rows: $(vQvdRows) | High-water mark: $(vMaxMod);
+
+    // Step 3: Load changed records from source
+    _Changed:
+    LOAD *
+    FROM [$(vSourcePath)/$(vTableName).csv]
+    (txt, utf8, embedded labels, delimiter is ',')
+    WHERE $(vModifiedField) > '$(vMaxMod)';
+
+    LET vChangedRows = NoOfRows('_Changed');
+
+    _ChangedKeys:
+    LOAD DISTINCT $(vKeyField) as _ChangedKey RESIDENT _Changed;
+
+    // Step 4: Keep QVD records that:
+    //   a) Still exist in source (not deleted)
+    //   b) Are NOT in the changed set (not updated)
+    _Surviving:
+    NOCONCATENATE LOAD * RESIDENT _QVD
+    WHERE EXISTS(_SourceKey, $(vKeyField))
+      AND NOT EXISTS(_ChangedKey, $(vKeyField));
+    DROP TABLE _QVD;
+
+    LET vSurvivingRows = NoOfRows('_Surviving');
+    LET vDeletedRows = vQvdRows - vSurvivingRows - vChangedRows;
+
+    // Step 5: Merge surviving + changed
+    CONCATENATE(_Surviving) LOAD * RESIDENT _Changed;
+    DROP TABLE _Changed;
+    DROP TABLE _ChangedKeys;
+    DROP TABLE _SourceKeys;
+
+    // Sort for reliable Peek() on next run
+    _Sorted:
+    NOCONCATENATE LOAD * RESIDENT _Surviving ORDER BY $(vModifiedField);
+    DROP TABLE _Surviving;
+
+    STORE _Sorted INTO [$(vQvdFile)] (qvd);
+
+    LET vFinalRows = NoOfRows('_Sorted');
+    DROP TABLE _Sorted;
+
+    TRACE ========================================;
+    TRACE Incremental Load Summary;
+    TRACE   Before:    $(vQvdRows) rows;
+    TRACE   Changed:   $(vChangedRows) rows;
+    TRACE   Deleted:   $(vDeletedRows) rows;
+    TRACE   Surviving: $(vSurvivingRows) rows;
+    TRACE   After:     $(vFinalRows) rows;
+    TRACE ========================================;
+
+ELSE
+    TRACE First run — full load from source;
+
+    _Full:
+    LOAD *
+    FROM [$(vSourcePath)/$(vTableName).csv]
+    (txt, utf8, embedded labels, delimiter is ',');
+
+    _Sorted:
+    NOCONCATENATE LOAD * RESIDENT _Full ORDER BY $(vModifiedField);
+    DROP TABLE _Full;
+
+    STORE _Sorted INTO [$(vQvdFile)] (qvd);
+
+    LET vFinalRows = NoOfRows('_Sorted');
+    TRACE Full load stored: $(vFinalRows) rows;
+    DROP TABLE _Sorted;
+END IF

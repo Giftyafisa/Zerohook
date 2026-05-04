@@ -1,0 +1,43 @@
+// ============================================================
+// Environment Connection Mapper
+// ============================================================
+// Automatically maps QlikView local paths to Qlik Sense / Cloud lib:// paths.
+
+// Detect environment based on ComputerName
+LET vComputerName = Upper(ComputerName());
+LET vIsCloud = If(WildMatch(vComputerName, '*QLIKCLOUD*') OR Len(vComputerName) = 0, 1, 0);
+LET vIsOnPrem = If(WildMatch(vComputerName, 'PROD-QLIK*'), 1, 0);
+
+IF vIsCloud = 1 THEN
+    TRACE [ENV] Environment detected: Qlik Cloud;
+    
+    // Qlik Cloud Shared/Managed Spaces
+    SET vDataPath = 'lib://Cloud_DataSpace_Source';
+    SET vQvdPath = 'lib://Cloud_DataSpace_QVDs';
+    SET vSqlConn = 'lib://Cloud_PostgreSQL_Prod';
+    
+ELSEIF vIsOnPrem = 1 THEN
+    TRACE [ENV] Environment detected: Qlik Sense Enterprise (On-Premise);
+    
+    // QSEoW Connections
+    SET vDataPath = 'lib://OnPrem_Source_Data';
+    SET vQvdPath = 'lib://OnPrem_QVD_Store';
+    SET vSqlConn = 'lib://OnPrem_PostgreSQL_Prod';
+    
+ELSE
+    TRACE [ENV] Environment detected: QlikView / Desktop (Local);
+    
+    // Local / Legacy Paths
+    SET vDataPath = 'C:\Data\Source';
+    SET vQvdPath = 'C:\Data\QVDs';
+    SET vSqlConn = 'OLEDB CONNECT TO [Provider=SQLOLEDB;Data Source=localhost;]';
+END IF
+
+// Usage example:
+// LOAD * FROM [$(vDataPath)/orders.csv] (txt, utf8, embedded labels, delimiter is ',');
+//
+// IF vIsCloud = 0 AND vIsOnPrem = 0 THEN
+//     $(vSqlConn); // Execute OLEDB string locally
+// ELSE
+//     LIB CONNECT TO '$(vSqlConn)'; // Qlik Sense library connection
+// END IF

@@ -144,7 +144,7 @@
         {
           "title": "ui-baseline:public-core",
           "file": "ui-baseline.spec.js",
-          "line": 57,
+          "line": 64,
           "column": 8,
           "specs": [
             {
@@ -163,12 +163,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 31294,
+                      "duration": 9251,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:46:28.186Z",
+                      "startTime": "2026-04-19T14:20:10.477Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -178,7 +178,7 @@
               ],
               "id": "af1796aed854675f90aa-d153aa3a57b15d05d352",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -197,12 +197,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 7565,
+                      "duration": 4810,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:47:00.825Z",
+                      "startTime": "2026-04-19T14:20:19.922Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -212,7 +212,7 @@
               ],
               "id": "af1796aed854675f90aa-c8f493dca583db6b6cd8",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -231,12 +231,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 11274,
+                      "duration": 5722,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:47:08.461Z",
+                      "startTime": "2026-04-19T14:20:24.760Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -246,7 +246,7 @@
               ],
               "id": "af1796aed854675f90aa-f3ab12225f40a1b2d170",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -265,12 +265,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6667,
+                      "duration": 6377,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:47:19.774Z",
+                      "startTime": "2026-04-19T14:20:30.501Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -280,7 +280,7 @@
               ],
               "id": "af1796aed854675f90aa-c0b667946a7be1b926cf",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -299,12 +299,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 13048,
+                      "duration": 5020,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:47:26.496Z",
+                      "startTime": "2026-04-19T14:20:36.904Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -314,7 +314,7 @@
               ],
               "id": "af1796aed854675f90aa-ba7bec650958484f158d",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -333,12 +333,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 12434,
+                      "duration": 5529,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:47:39.619Z",
+                      "startTime": "2026-04-19T14:20:41.953Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -348,7 +348,7 @@
               ],
               "id": "af1796aed854675f90aa-422e7c0dc2752ccd37e9",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -367,12 +367,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 12263,
+                      "duration": 5546,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:47:55.950Z",
+                      "startTime": "2026-04-19T14:20:50.112Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -382,7 +382,7 @@
               ],
               "id": "af1796aed854675f90aa-9d7e4cce68599522db1e",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -401,12 +401,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5447,
+                      "duration": 8723,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:48:08.527Z",
+                      "startTime": "2026-04-19T14:20:55.944Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -416,7 +416,7 @@
               ],
               "id": "af1796aed854675f90aa-471e87a34ee37c0349f3",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -435,12 +435,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6695,
+                      "duration": 5174,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:48:14.006Z",
+                      "startTime": "2026-04-19T14:21:04.703Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -450,7 +450,7 @@
               ],
               "id": "af1796aed854675f90aa-d46aeb1062ef4ebaa803",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -469,12 +469,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 5877,
+                      "duration": 6627,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:48:20.722Z",
+                      "startTime": "2026-04-19T14:21:09.903Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -484,7 +484,7 @@
               ],
               "id": "af1796aed854675f90aa-81c1f4cdc8d768c7a74c",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -503,12 +503,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6127,
+                      "duration": 7030,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:48:26.633Z",
+                      "startTime": "2026-04-19T14:21:16.557Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -518,7 +518,7 @@
               ],
               "id": "af1796aed854675f90aa-d0a2837b75bb6d18eebe",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             },
             {
@@ -537,12 +537,12 @@
                       "workerIndex": 1,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 10210,
+                      "duration": 4880,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-04-16T20:48:32.797Z",
+                      "startTime": "2026-04-19T14:21:23.608Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -552,7 +552,7 @@
               ],
               "id": "af1796aed854675f90aa-37589022b6ac1c1484a3",
               "file": "ui-baseline.spec.js",
-              "line": 59,
+              "line": 66,
               "column": 7
             }
           ]
@@ -562,8 +562,8 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-04-16T20:45:36.072Z",
-    "duration": 190927.6,
+    "startTime": "2026-04-19T14:19:53.568Z",
+    "duration": 95535.299,
     "expected": 12,
     "skipped": 0,
     "unexpected": 0,

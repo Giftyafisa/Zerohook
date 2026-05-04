@@ -1,0 +1,42 @@
+///$tab QSEoW Log Parser
+// ============================================================
+// QSEoW Flat File Log Parser
+// ============================================================
+// Parse the archived Engine Audit logs to track which users 
+// are opening which apps and how much memory they consume.
+
+SET vLogPath = 'lib://ArchivedLogs/ServerNode1/Engine/Audit/';
+
+// Qlik Sense logs are tab-separated (.txt)
+// They have a standard header row.
+
+EngineAuditLogs:
+LOAD
+    "Timestamp" as LogTime,
+    "Severity",
+    "Description",
+    "User",
+    "AppId",
+    "AppName",
+    "ObjectId",
+    "ObjectName",
+    "ActiveDocs",
+    "Calls",
+    "Selections",
+    "BytesReceived",
+    "BytesSent"
+FROM [$(vLogPath)*_Audit.txt]
+(txt, utf8, embedded labels, delimiter is '\t', msq)
+WHERE "Description" = 'Open app' OR "Description" = 'ExportData';
+
+// Clean up usernames (e.g., remove 'UserDirectory\')
+LEFT JOIN (EngineAuditLogs)
+LOAD
+    "User",
+    SubField("User", '\', 2) as CleanUserName
+RESIDENT EngineAuditLogs;
+
+// Example Usage in UI:
+// - Count(AppId) by CleanUserName -> "Who is using the system most?"
+// - Sum(BytesSent) by AppName -> "Which app is sending the most data?"
+// - Filter: Description = 'ExportData' -> "Who is exporting to Excel?"

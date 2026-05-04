@@ -10,6 +10,36 @@
 				":app:assembleAndroidTest"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "android-compile-with-ksp-recovery",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				".\\scripts\\run-gradle-with-ksp-recovery.ps1",
+				"-GradleArgs",
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "android-unit-tests-with-ksp-recovery",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				".\\scripts\\run-gradle-with-ksp-recovery.ps1",
+				"-GradleArgs",
+				":app:testDebugUnitTest"
+			],
+			"isBackground": false
 		}
 	]
 }

@@ -1,0 +1,52 @@
+///$tab Qualify-Example
+// ============================================================
+// QUALIFY / UNQUALIFY Example
+// ============================================================
+// Use when loading many tables that share common field names
+// (e.g., from a database where every table has ID, Name, CreatedDate).
+//
+// QUALIFY prefixes field names with the table name.
+// UNQUALIFY exempts specific fields from qualifying (your keys).
+
+// Turn on qualifying for ALL fields
+QUALIFY *;
+
+// Exempt key fields — these must remain shared to link tables
+UNQUALIFY %CustomerKey, %ProductKey, %DateKey, %OrderKey;
+
+///$tab Load-With-Qualify
+Customers:
+LOAD
+    CustomerID as %CustomerKey,
+    Name,           // Becomes: Customers.Name
+    Region,         // Becomes: Customers.Region
+    CreatedDate,    // Becomes: Customers.CreatedDate
+    Status          // Becomes: Customers.Status
+FROM [lib://QVD/customers.qvd] (qvd);
+
+Products:
+LOAD
+    ProductID as %ProductKey,
+    Name,           // Becomes: Products.Name (no conflict with Customers.Name)
+    Region,         // Becomes: Products.Region
+    CreatedDate,    // Becomes: Products.CreatedDate
+    Status          // Becomes: Products.Status
+FROM [lib://QVD/products.qvd] (qvd);
+
+Orders:
+LOAD
+    OrderID as %OrderKey,
+    CustomerID as %CustomerKey,
+    ProductID as %ProductKey,
+    Date#(OrderDate, 'YYYY-MM-DD') as %DateKey,
+    Amount,         // Becomes: Orders.Amount
+    Status,         // Becomes: Orders.Status
+    CreatedDate     // Becomes: Orders.CreatedDate
+FROM [lib://QVD/orders.qvd] (qvd);
+
+///$tab Reset-Qualify
+// IMPORTANT: Always reset after your qualified loads
+UNQUALIFY *;
+
+// Any tables loaded after this point will NOT be qualified
+TRACE Qualify/Unqualify complete;

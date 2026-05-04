@@ -1,0 +1,44 @@
+// ==========================================
+// AGGR() Expression Templates
+// ==========================================
+// Copy and paste these snippets into your Qlik Sense expressions.
+// Replace the field names (Sales, CustomerID, OrderDate) with your own.
+
+// 1. Average of Sums
+// Calculates the average total sales per customer.
+// NODISTINCT ensures customers with identical total sales are counted correctly.
+Avg( Aggr( NODISTINCT Sum(Sales), CustomerID ) )
+
+// 2. Max of Counts
+// Finds the day with the highest number of orders.
+Max( Aggr( NODISTINCT Count(OrderID), OrderDate ) )
+
+// 3. Dynamic Top N Filtering
+// Sums sales only for the Top 10 Customers.
+Sum(
+  If(
+    Aggr( Rank( Sum(Sales) ), CustomerID ) <= 10,
+    Sales
+  )
+)
+
+// 4. Cohort Grouping (Calculated Dimension)
+// Groups customers into buckets based on their lifetime sales.
+=If( Aggr(Sum(Sales), CustomerID) >= 10000, 'High Value',
+  If( Aggr(Sum(Sales), CustomerID) >= 5000, 'Medium Value',
+  'Low Value' )
+)
+
+// 5. Dimensional Scope Preservation
+// Max daily sales per Region. 
+// Use this when the chart's dimension is 'Region' so the virtual table splits correctly.
+Max( Aggr( Sum(Sales), Region, OrderDate ) )
+
+// 6. First Sorted Value (Finding the "Best" Item)
+// Get the name of the Product that had the highest sales.
+FirstSortedValue( ProductName, -Aggr(Sum(Sales), ProductName) )
+
+// 7. Aggr with Set Analysis
+// Average of Sums, but only considering orders from 2024.
+// Note: The set analysis must be inside the inner aggregation function.
+Avg( Aggr( NODISTINCT Sum({<Year={2024}>} Sales), CustomerID ) )

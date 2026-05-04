@@ -9,9 +9,28 @@ const multer = require('multer');
 
 class CloudinaryManager {
   constructor() {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || '';
-    const apiKey = process.env.CLOUDINARY_API_KEY || '';
-    const apiSecret = process.env.CLOUDINARY_API_SECRET || '';
+    const normalizeEnvValue = (value) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return '';
+
+      const normalized = trimmed.toLowerCase();
+      if (
+        normalized === 'your_cloud_name'
+        || normalized === 'your_api_key'
+        || normalized === 'your_api_secret'
+        || normalized === 'your cloud name'
+        || normalized === 'your api key'
+        || normalized === 'your api secret'
+        || normalized.startsWith('your_')
+      ) {
+        return '';
+      }
+
+      return trimmed;
+    };
+    const cloudName = normalizeEnvValue(process.env.CLOUDINARY_CLOUD_NAME);
+    const apiKey = normalizeEnvValue(process.env.CLOUDINARY_API_KEY);
+    const apiSecret = normalizeEnvValue(process.env.CLOUDINARY_API_SECRET);
 
     // Configure Cloudinary with environment variables
     cloudinary.config({
@@ -227,8 +246,29 @@ class CloudinaryManager {
         bytes: result.bytes
       };
     } catch (error) {
-      console.error('Cloudinary upload error:', error);
-      return { success: false, error: error.message };
+      const errorMessage = error?.message || 'Cloudinary upload failed';
+      const errorCode = error?.http_code || error?.code || null;
+      const errorName = error?.name || 'CloudinaryError';
+
+      console.error('Cloudinary upload error:', {
+        code: errorCode,
+        name: errorName,
+        message: errorMessage
+      });
+
+      // If credentials are invalid, disable Cloudinary for this runtime to avoid repeated failures.
+      if (/invalid signature/i.test(errorMessage) || /invalid api key/i.test(errorMessage) || errorCode === 401) {
+        this.isConfigured = false;
+        this.lastCredentialError = errorMessage;
+        console.error('Cloudinary disabled for current runtime due to authentication/signature failure.');
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        code: errorCode,
+        name: errorName
+      };
     }
   }
 

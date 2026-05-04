@@ -1,0 +1,61 @@
+///$tab Variables
+// ============================================================
+// Qlik Application Automation (Webhook Trigger)
+// ============================================================
+// Triggers a Qlik Automation from within the load script.
+// Useful for alerting on row counts, data quality failures,
+// or chaining tasks across different tenants/systems.
+
+// Configure your Automation Webhook URL and Token here:
+SET vWebhookUrl = 'https://your-tenant.qlikcloud.com/api/v1/automations/YOUR_AUTOMATION_ID/actions/execute';
+SET vXExecutionToken = 'YOUR_EXECUTION_TOKEN';
+
+///$tab Trigger-Automation
+// ============================================================
+// Example: Send an alert if data quality check fails
+// ============================================================
+
+LET vRowsLoaded = NoOfRows('FactSales');
+LET vErrorCount = 0; // Assume this was calculated during load
+
+IF vErrorCount > 0 THEN
+    TRACE [ALERT] Data quality errors found. Triggering Automation...;
+    
+    // Create the JSON payload to send to the automation
+    // The automation must be configured to expect these inputs
+    LET vPayload = '{ "status": "failed", "app": "' & DocumentName() & '", "errors": ' & vErrorCount & ', "rows": ' & vRowsLoaded & ' }';
+    
+    // Create a temporary REST connection to trigger the webhook
+    // We use WITH CONNECTION to override the URL, headers, and body dynamically
+    
+    // Note: You must have a dummy REST connection named 'Generic_REST_POST' 
+    // configured in your space to use this pattern.
+    LIB CONNECT TO 'Generic_REST_POST';
+    
+    SET ErrorMode = 0; // Don't fail the reload if the webhook fails
+    
+    _WebhookResponse:
+    SQL SELECT *
+    FROM JSON (wrap on) "root"
+    WITH CONNECTION (
+        URL "$(vWebhookUrl)",
+        METHOD "POST",
+        HTTPHEADER "X-Execution-Token" "$(vXExecutionToken)",
+        HTTPHEADER "Content-Type" "application/json",
+        BODY "$(vPayload)"
+    );
+    
+    IF ScriptError > 0 THEN
+        TRACE [ALERT] Failed to trigger automation: $(ScriptErrorDetails);
+    ELSE
+        TRACE [ALERT] Automation triggered successfully.;
+    END IF
+    
+    SET ErrorMode = 1;
+    DROP TABLE _WebhookResponse;
+    
+    // Optional: Abort the reload since quality failed
+    // EXIT SCRIPT;
+ELSE
+    TRACE [ALERT] Quality checks passed. No alert needed.;
+END IF

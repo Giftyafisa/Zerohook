@@ -359,15 +359,16 @@ private fun FeedProfilePage(
             )
         }
 
+        // Stronger gradient overlay to guarantee text contrast over bright images
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.15f),
-                            Color.Black.copy(alpha = 0.35f),
-                            Color.Black.copy(alpha = 0.85f)
+                            Color.Black.copy(alpha = 0.25f),
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.95f)
                         )
                     )
                 )
@@ -398,12 +399,13 @@ private fun FeedProfilePage(
             )
         }
 
+        // Info column at bottom. Add extra bottom padding so primary CTA sits above system nav
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 20.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 96.dp)
         ) {
             Text(
                 text = profile.displayName,
@@ -419,9 +421,9 @@ private fun FeedProfilePage(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.LocationOn,
-                    contentDescription = null,
+                    contentDescription = "Location",
                     tint = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
                 Text(
                     text = "${profile.city}, ${profile.country}",
@@ -463,7 +465,7 @@ private fun FeedProfilePage(
 
             Text(
                 text = profile.bio,
-                color = Color.White.copy(alpha = 0.92f),
+                color = Color.White.copy(alpha = 0.95f),
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
@@ -471,10 +473,14 @@ private fun FeedProfilePage(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Make primary CTA full-width and ensure it respects navigation inset
             Button(
                 onClick = onMessageClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
                 shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
@@ -482,8 +488,8 @@ private fun FeedProfilePage(
             ) {
                 Icon(
                     imageVector = Icons.Default.ChatBubble,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    contentDescription = "Message",
+                    modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Message ${profile.displayName}")
@@ -502,18 +508,18 @@ private fun ActionBubble(
         Surface(
             shape = CircleShape,
             color = Color.Black.copy(alpha = 0.42f),
-            modifier = Modifier.size(44.dp)
+            modifier = Modifier.size(56.dp)
         ) {
             IconButton(onClick = onClick) {
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = label,
             color = Color.White,
@@ -532,11 +538,11 @@ private fun InfoMetric(
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            contentDescription = "Metric: $value",
             tint = valueColor,
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(18.dp)
         )
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = value,
             color = valueColor,

@@ -1,0 +1,55 @@
+///$tab Variables
+// ============================================================
+// GeoAnalytics Distance and Area Template
+// ============================================================
+// Calculates straight-line distance between two points (e.g., Store to Customer)
+// Group points into spatial bins (Density hexbin grid)
+
+///$tab Spatial Operations
+// 1. Create Points
+_Locations:
+LOAD
+    OrderID,
+    CustomerID,
+    Lat as CustomerLat,
+    Lng as CustomerLng,
+    GeoMakePoint(Lat, Lng) as CustomerLocation,  // MUST be Lat, then Lng
+    
+    StoreID,
+    StoreLat,
+    StoreLng,
+    GeoMakePoint(StoreLat, StoreLng) as StoreLocation
+FROM [lib://Data/OrdersWithLatLong.csv] (txt, utf8, embedded labels, delimiter is ',');
+
+// 2. Distance Calculation
+// Calculate distance in kilometers
+// Distance is straight-line (Haversine formula), not driving distance
+FactSpatial:
+LOAD
+    OrderID,
+    CustomerID,
+    CustomerLocation,
+    StoreID,
+    StoreLocation,
+    
+    // Calculate Distance (meters to KM)
+    GeoDistance(
+        GeoMakePoint(CustomerLat, CustomerLng),
+        GeoMakePoint(StoreLat, StoreLng)
+    ) / 1000 as DistanceKM,
+    
+    // 3. Spatial Binning (Grid)
+    // Groups points into roughly 5km x 5km bins for density mapping
+    // Increase 0.05 for larger bins, decrease for smaller
+    GeoGetBoundingBox(GeoMakePoint(CustomerLat, CustomerLng), 0.05) as CustomerGridBin
+    
+RESIDENT _Locations;
+
+// Clean up
+DROP TABLE _Locations;
+
+// Usage in UI:
+// - Map Point Layer: Location = CustomerLocation
+// - Map Density Layer: Location = CustomerLocation
+// - Histogram: Dimension = DistanceKM (use Class(DistanceKM, 5) for 5km buckets)
+// - Map Area Layer: Location = CustomerGridBin (for grid heatmap)

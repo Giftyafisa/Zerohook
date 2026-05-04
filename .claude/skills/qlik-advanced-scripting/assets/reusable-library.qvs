@@ -1,0 +1,89 @@
+// ============================================================
+// Reusable Subroutine Library
+// ============================================================
+// Include in your script: $(MUST_INCLUDE=[lib://Scripts/reusable-library.qvs]);
+
+// --- Logging ---
+SUB Log(vLevel, vComponent, vMessage)
+    LET vLogTime = Timestamp(Now(), 'YYYY-MM-DD hh:mm:ss.fff');
+    TRACE [$(vLogTime)] [$(vLevel)] [$(vComponent)] $(vMessage);
+END SUB
+
+// --- Safe Table Drop ---
+SUB DropIfExists(vTableName)
+    IF NOT IsNull(TableNumber('$(vTableName)')) THEN
+        DROP TABLE [$(vTableName)];
+    END IF
+END SUB
+
+// --- Load QVD with Logging ---
+SUB LoadQvd(vTableName, vQvdPath)
+    LET vLoadStart = Now();
+    
+    [$(vTableName)]:
+    LOAD * FROM [$(vQvdPath)] (qvd);
+    
+    LET vLoadDuration = Interval(Now() - vLoadStart, 'mm:ss.ff');
+    CALL Log('INFO', 'LoadQvd', '$(vTableName): $(NoOfRows(''$(vTableName)'')) rows in $(vLoadDuration)');
+END SUB
+
+// --- Store QVD with Logging ---
+SUB StoreQvd(vTableName, vQvdPath)
+    STORE [$(vTableName)] INTO [$(vQvdPath)] (qvd);
+    CALL Log('INFO', 'StoreQvd', '$(vTableName): $(NoOfRows(''$(vTableName)'')) rows stored');
+END SUB
+
+// --- Safe Load with Fallback ---
+SUB SafeLoad(vTableName, vPrimaryPath, vFallbackPath)
+    SET ErrorMode = 0;
+    
+    [$(vTableName)]:
+    LOAD * FROM [$(vPrimaryPath)];
+    
+    IF ScriptError > 0 THEN
+        CALL Log('WARN', 'SafeLoad', '$(vTableName) primary failed: $(ScriptErrorDetails)');
+        
+        IF Len('$(vFallbackPath)') > 0 AND FileSize('$(vFallbackPath)') > 0 THEN
+            [$(vTableName)]:
+            LOAD * FROM [$(vFallbackPath)] (qvd);
+            CALL Log('INFO', 'SafeLoad', '$(vTableName) loaded from fallback');
+        ELSE
+            CALL Log('ERROR', 'SafeLoad', '$(vTableName) FAILED — no fallback available');
+        END IF
+    ELSE
+        CALL Log('INFO', 'SafeLoad', '$(vTableName): $(NoOfRows(''$(vTableName)'')) rows');
+    END IF
+    
+    SET ErrorMode = 1;
+END SUB
+
+// --- Validate Table ---
+SUB ValidateTable(vTableName, vMinRows)
+    IF IsNull(TableNumber('$(vTableName)')) THEN
+        CALL Log('ERROR', 'Validate', '$(vTableName) does not exist');
+    ELSE
+        LET vRows = NoOfRows('$(vTableName)');
+        IF vRows < $(vMinRows) THEN
+            CALL Log('WARN', 'Validate', '$(vTableName): $(vRows) rows (expected >= $(vMinRows))');
+        ELSE
+            CALL Log('INFO', 'Validate', '$(vTableName): $(vRows) rows OK');
+        END IF
+    END IF
+END SUB
+
+// --- Reload Summary ---
+SUB PrintReloadSummary()
+    TRACE ========================================;
+    TRACE RELOAD SUMMARY;
+    TRACE ========================================;
+    LET vTableCount = NoOfTables();
+    FOR vT = 0 TO vTableCount - 1
+        LET vTName = TableName(vT);
+        LET vTRows = NoOfRows('$(vTName)');
+        LET vTFields = NoOfFields('$(vTName)');
+        TRACE   $(vTName): $(vTRows) rows, $(vTFields) fields;
+    NEXT vT
+    TRACE ========================================;
+    TRACE Tables: $(vTableCount) | Completed: $(Timestamp(Now(), 'YYYY-MM-DD hh:mm:ss'));
+    TRACE ========================================;
+END SUB

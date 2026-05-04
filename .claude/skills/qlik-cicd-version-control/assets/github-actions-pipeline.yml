@@ -1,0 +1,78 @@
+name: Qlik App Deployment Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  QLIK_TENANT_URL: ${{ secrets.QLIK_TENANT_URL }}
+  QLIK_API_KEY: ${{ secrets.QLIK_API_KEY }}
+  DEV_SPACE_ID: ${{ secrets.DEV_SPACE_ID }}
+  PROD_SPACE_ID: ${{ secrets.PROD_SPACE_ID }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Qlik-CLI
+        run: |
+          wget https://github.com/qlik-oss/qlik-cli/releases/download/v2.17.0/qlik-Linux-x86_64.tar.gz
+          tar -xzf qlik-Linux-x86_64.tar.gz
+          sudo mv qlik /usr/local/bin/
+
+      - name: Authenticate Qlik-CLI
+        run: |
+          # The QLIK_TENANT_URL and QLIK_API_KEY environment variables are automatically
+          # read by qlik-cli. We don't need to run `qlik context init`.
+
+      - name: Build QVF from Source
+        run: |
+          # Build a new app in the DEV space from the source directory
+          NEW_APP_ID=$(qlik app build --dir ./src --spaceId $DEV_SPACE_ID --name "CI_Test_Build" -q)
+          echo "APP_ID=$NEW_APP_ID" >> $GITHUB_ENV
+
+      - name: Trigger Reload
+        run: |
+          RELOAD_ID=$(qlik reload create --appId ${{ env.APP_ID }} -q)
+          echo "Triggered reload: $RELOAD_ID"
+          
+          # Poll for reload status
+          for i in {1..30}; do
+            STATUS=$(qlik reload get $RELOAD_ID --json | jq -r '.status')
+            if [ "$STATUS" = "SUCCEEDED" ]; then
+              echo "Reload successful"
+              exit 0
+            elif [ "$STATUS" = "FAILED" ]; then
+              echo "Reload failed"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Reload timed out"
+          exit 1
+
+  deploy-to-prod:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Qlik-CLI
+        run: |
+          wget https://github.com/qlik-oss/qlik-cli/releases/download/v2.17.0/qlik-Linux-x86_64.tar.gz
+          tar -xzf qlik-Linux-x86_64.tar.gz
+          sudo mv qlik /usr/local/bin/
+
+      - name: Deploy App
+        run: |
+          # Rebuild the app in the PROD space (or build in DEV and publish to PROD)
+          NEW_APP_ID=$(qlik app build --dir ./src --spaceId $PROD_SPACE_ID --name "Production App" -q)
+          echo "Deployed to PROD with App ID: $NEW_APP_ID"
+
+          # Optional: Trigger production reload
+          qlik reload create --appId $NEW_APP_ID

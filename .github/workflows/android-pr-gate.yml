@@ -35,5 +35,11 @@ jobs:
       - name: Compile debug Kotlin sources
         run: ./gradlew :app:compileDebugKotlin --no-daemon --console=plain
 
+      - name: Run Android lint (debug)
+        run: ./gradlew :app:lintDebug --no-daemon --console=plain
+
+      - name: Assemble Android debug build
+        run: ./gradlew :app:assembleDebug --no-daemon --console=plain
+
       - name: Run Android debug unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain

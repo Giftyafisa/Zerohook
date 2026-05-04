@@ -1,0 +1,72 @@
+///$tab Variables
+SET DateFormat='YYYY-MM-DD';
+SET vFiscalYearStartMonth = 1;  // Change to 4 for April, 7 for July, etc.
+
+///$tab Date-Range
+// Find the date range from your fact table
+// Change 'FactSales' and '%DateKey' to match your model
+_DateRange:
+LOAD
+    Min(%DateKey) as MinDate,
+    Max(%DateKey) as MaxDate
+RESIDENT FactSales;
+
+LET vMinDate = Peek('MinDate', 0, '_DateRange');
+LET vMaxDate = Peek('MaxDate', 0, '_DateRange');
+DROP TABLE _DateRange;
+
+TRACE Calendar range: $(vMinDate) to $(vMaxDate);
+
+///$tab Master-Calendar
+MasterCalendar:
+LOAD
+    TempDate as %DateKey,
+
+    // === Year ===
+    Year(TempDate) as Year,
+
+    // === Quarter ===
+    'Q' & Ceil(Month(TempDate) / 3) as Quarter,
+    Year(TempDate) & '-Q' & Ceil(Month(TempDate) / 3) as YearQuarter,
+
+    // === Month ===
+    Dual(Month(TempDate), Num(Month(TempDate))) as Month,
+    Num(Month(TempDate)) as MonthNum,
+    Date(MonthStart(TempDate), 'YYYY-MM') as YearMonth,
+
+    // === Week ===
+    Week(TempDate) as WeekNum,
+    Year(TempDate) & '-W' & Num(Week(TempDate), '00') as YearWeek,
+    Date(WeekStart(TempDate), 'YYYY-MM-DD') as WeekStart,
+
+    // === Day ===
+    Day(TempDate) as DayOfMonth,
+    WeekDay(TempDate) as WeekDayNum,
+    Dual(Text(Date(TempDate, 'WWW')), WeekDay(TempDate)) as WeekDay,
+    DayNumberOfYear(TempDate) as DayOfYear,
+
+    // === Day Type ===
+    If(WeekDay(TempDate) >= 5, 'Weekend', 'Weekday') as DayType,
+    If(Month(TempDate) <= 6, 'H1', 'H2') as HalfYear,
+
+    // === Relative Date Flags ===
+    If(TempDate = Today(), 1, 0) as IsToday,
+    If(TempDate >= MonthStart(Today()) AND TempDate <= Today(), 1, 0) as IsMTD,
+    If(TempDate >= YearStart(Today()) AND TempDate <= Today(), 1, 0) as IsYTD,
+    If(TempDate >= Today() - 7 AND TempDate <= Today(), 1, 0) as IsLast7Days,
+    If(TempDate >= Today() - 30 AND TempDate <= Today(), 1, 0) as IsLast30Days,
+    If(TempDate >= Today() - 365 AND TempDate <= Today(), 1, 0) as IsLast12Months,
+
+    // === Fiscal Year (adjust vFiscalYearStartMonth) ===
+    If(Month(TempDate) >= $(vFiscalYearStartMonth),
+        'FY' & Year(TempDate) & '/' & Right(Year(TempDate) + 1, 2),
+        'FY' & (Year(TempDate) - 1) & '/' & Right(Year(TempDate), 2)
+    ) as FiscalYear,
+    'FQ' & Ceil(Mod(Month(TempDate) - $(vFiscalYearStartMonth) + 12, 12) / 3 + 0.01) as FiscalQuarter
+;
+LOAD
+    Date($(vMinDate) + IterNo() - 1) as TempDate
+AUTOGENERATE 1
+WHILE $(vMinDate) + IterNo() - 1 <= $(vMaxDate);
+
+TRACE Master calendar: $(NoOfRows('MasterCalendar')) days;

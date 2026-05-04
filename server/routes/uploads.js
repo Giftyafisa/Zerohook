@@ -89,6 +89,56 @@ const MAGIC_BYTES = {
 
 /**
  * Validate file content by reading first bytes and comparing to known magic numbers.
+ * @param {Buffer} buf - First bytes buffer
+ * @param {string} mimetype - Declared MIME type
+ * @returns {boolean} true if valid or unknown type
+ */
+function validateMagicBytesFromBuffer(buf, mimetype) {
+  const mime = (mimetype || '').toLowerCase();
+
+  // JPEG: FF D8 FF
+  if (mime === 'image/jpeg') {
+    return buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+  }
+  // PNG: 89 50 4E 47
+  if (mime === 'image/png') {
+    return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+  }
+  // GIF: GIF87a or GIF89a
+  if (mime === 'image/gif') {
+    const sig = buf.slice(0, 6).toString('ascii');
+    return sig === 'GIF87a' || sig === 'GIF89a';
+  }
+  // WebP: RIFF....WEBP
+  if (mime === 'image/webp') {
+    return buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP';
+  }
+  // MP4/MOV: ....ftyp at offset 4
+  if (mime === 'video/mp4' || mime === 'video/quicktime') {
+    return buf.slice(4, 8).toString('ascii') === 'ftyp';
+  }
+  // AVI: RIFF
+  if (mime === 'video/x-msvideo') {
+    return buf.slice(0, 4).toString('ascii') === 'RIFF';
+  }
+  // WebM/MKV: 1A 45 DF A3
+  if (mime === 'video/webm' || mime === 'video/x-matroska') {
+    return buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3;
+  }
+  // FLV: FLV
+  if (mime === 'video/x-flv') {
+    return buf.slice(0, 3).toString('ascii') === 'FLV';
+  }
+  // WMV: 30 26 B2 75
+  if (mime === 'video/x-ms-wmv') {
+    return buf[0] === 0x30 && buf[1] === 0x26 && buf[2] === 0xB2 && buf[3] === 0x75;
+  }
+  // Unknown MIME — allow (the extension+MIME filter already passed)
+  return true;
+}
+
+/**
+ * Validate file content by reading first bytes and comparing to known magic numbers.
  * @param {string} filePath - Path to the uploaded file on disk
  * @param {string} mimetype - Declared MIME type
  * @returns {Promise<boolean>} true if valid or unknown type, false if spoofed
@@ -99,48 +149,7 @@ async function validateMagicBytes(filePath, mimetype) {
     const buf = Buffer.alloc(12);
     await fd.read(buf, 0, 12, 0);
     await fd.close();
-
-    const mime = (mimetype || '').toLowerCase();
-
-    // JPEG: FF D8 FF
-    if (mime === 'image/jpeg') {
-      return buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
-    }
-    // PNG: 89 50 4E 47
-    if (mime === 'image/png') {
-      return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
-    }
-    // GIF: GIF87a or GIF89a
-    if (mime === 'image/gif') {
-      const sig = buf.slice(0, 6).toString('ascii');
-      return sig === 'GIF87a' || sig === 'GIF89a';
-    }
-    // WebP: RIFF....WEBP
-    if (mime === 'image/webp') {
-      return buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP';
-    }
-    // MP4/MOV: ....ftyp at offset 4
-    if (mime === 'video/mp4' || mime === 'video/quicktime') {
-      return buf.slice(4, 8).toString('ascii') === 'ftyp';
-    }
-    // AVI: RIFF
-    if (mime === 'video/x-msvideo') {
-      return buf.slice(0, 4).toString('ascii') === 'RIFF';
-    }
-    // WebM/MKV: 1A 45 DF A3
-    if (mime === 'video/webm' || mime === 'video/x-matroska') {
-      return buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3;
-    }
-    // FLV: FLV
-    if (mime === 'video/x-flv') {
-      return buf.slice(0, 3).toString('ascii') === 'FLV';
-    }
-    // WMV: 30 26 B2 75
-    if (mime === 'video/x-ms-wmv') {
-      return buf[0] === 0x30 && buf[1] === 0x26 && buf[2] === 0xB2 && buf[3] === 0x75;
-    }
-    // Unknown MIME — allow (the extension+MIME filter already passed)
-    return true;
+    return validateMagicBytesFromBuffer(buf, mimetype);
   } catch {
     // If we can't read the file, reject it
     return false;
@@ -158,12 +167,19 @@ function magicByteValidation(req, res, next) {
   if (req.files && Array.isArray(req.files)) filesToValidate.push(...req.files);
   
   if (filesToValidate.length === 0) return next();
-  
-  // Filter to only local files (Cloudinary handles its own validation)
-  const localFiles = filesToValidate.filter(f => f.path && !f.path.includes('cloudinary.com'));
-  if (localFiles.length === 0) return next();
-  
-  Promise.all(localFiles.map(f => validateMagicBytes(f.path, f.mimetype).then(valid => ({ file: f, valid }))))
+
+  Promise.all(filesToValidate.map((f) => {
+    if (Buffer.isBuffer(f.buffer) && f.buffer.length > 0) {
+      const header = f.buffer.length > 12 ? f.buffer.subarray(0, 12) : f.buffer;
+      return Promise.resolve({ file: f, valid: validateMagicBytesFromBuffer(header, f.mimetype) });
+    }
+
+    if (f.path && !f.path.includes('cloudinary.com')) {
+      return validateMagicBytes(f.path, f.mimetype).then((valid) => ({ file: f, valid }));
+    }
+
+    return Promise.resolve({ file: f, valid: true });
+  }))
     .then(results => {
       const spoofed = results.filter(r => !r.valid);
       if (spoofed.length > 0) {
@@ -220,6 +236,19 @@ const getUploadMiddleware = (type = 'profile') => {
     
     return upload.single(type === 'profile' ? 'profilePicture' : (type === 'chat' ? 'file' : 'media'))(req, res, next);
   };
+};
+
+// Profile uploads are parsed in memory and sent directly to Cloudinary (no disk persistence).
+const getProfileUploadMiddleware = () => {
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024
+    },
+    fileFilter: fileFilter
+  });
+
+  return upload.single('profilePicture');
 };
 
 const isHttpUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value);
@@ -318,17 +347,19 @@ router.post('/chat-attachment', authMiddleware, uploadRateLimit(chatUploadLimite
   }
 });
 
-// Profile picture upload endpoint - uses Cloudinary if available
+// Profile picture upload endpoint - stores in R2 and returns Cloudflare-optimized URL
 router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLimiter), (req, res, next) => {
   const debugId = createProfileUploadDebugId();
   req.profileUploadDebugId = debugId;
 
   logProfileUploadDebug(debugId, 'multer:start', {
     userId: req.user?.userId || null,
-    cloudinaryConfigured: Boolean(req.cloudinaryManager?.isConfigured)
+    r2Configured: Boolean(req.r2StorageManager?.isConfigured),
+    cloudinaryConfigured: Boolean(req.cloudinaryManager?.isConfigured),
+    storageStrategy: 'memory_r2_cloudflare_optimized'
   });
 
-  getUploadMiddleware('profile')(req, res, (uploadErr) => {
+  getProfileUploadMiddleware()(req, res, (uploadErr) => {
     if (uploadErr) {
       console.error(`[PROFILE_UPLOAD][${debugId}] multer:error`, {
         userId: req.user?.userId || null,
@@ -358,6 +389,7 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
         originalname: req.file.originalname,
         mimetype: req.file.mimetype,
         size: req.file.size,
+        bufferBytes: Buffer.isBuffer(req.file.buffer) ? req.file.buffer.length : 0,
         filename: req.file.filename,
         public_id: req.file.public_id,
         path: req.file.path
@@ -392,15 +424,87 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
 
     const fileSize = req.file.size;
     const mimeType = req.file.mimetype;
-    
-    // Get URL - Cloudinary path is the full URL, local is relative
-    const publicUrl = getFileUrl(req.file, req.cloudinaryManager);
-    const isCloudinary = publicUrl.includes('cloudinary.com');
-    const fileName = req.file.filename || req.file.public_id || `profile-${userId}-${Date.now()}`;
+
+    if (!req.r2StorageManager || !req.r2StorageManager.isConfigured) {
+      logProfileUploadDebug(debugId, 'r2:unavailable', {
+        reason: 'R2 not configured'
+      });
+      return res.status(503).json({
+        success: false,
+        error: 'Profile upload failed',
+        message: 'R2 storage is unavailable. Please contact support or retry after configuration is fixed.',
+        debugId
+      });
+    }
+
+    if (!Buffer.isBuffer(req.file.buffer) || req.file.buffer.length === 0) {
+      logProfileUploadDebug(debugId, 'buffer:missing', {
+        hasBuffer: Boolean(req.file.buffer),
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Profile upload failed',
+        message: 'Uploaded file buffer is empty. Please select the file again and retry.',
+        debugId
+      });
+    }
+
+    logProfileUploadDebug(debugId, 'r2:upload-attempt', {
+      source: 'buffer',
+      bufferSize: req.file.buffer.length,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      optimizationMode: req.r2StorageManager.getImageOptimizationMode()
+    });
+
+    const r2Result = await req.r2StorageManager.uploadProfileImage(req.file.buffer, {
+      userId,
+      mimeType: req.file.mimetype,
+      originalName: req.file.originalname,
+      width: 800,
+      height: 800,
+      fit: 'cover',
+      quality: 85,
+      format: 'auto'
+    });
+
+    if (!r2Result?.success || !r2Result?.url) {
+      logProfileUploadDebug(debugId, 'r2:upload-failed', {
+        error: r2Result?.error || 'unknown r2 upload error',
+        code: r2Result?.code || null,
+        name: r2Result?.name || null
+      });
+
+      return res.status(503).json({
+        success: false,
+        error: 'Profile upload failed',
+        message: r2Result?.error || 'R2 upload failed. Please retry later.',
+        debugId
+      });
+    }
+
+    const publicUrl = r2Result.url;
+    const sourceUrl = r2Result.originalUrl || publicUrl;
+    const optimizationType = r2Result.optimizationType || 'none';
+    const r2ObjectKey = r2Result.key || null;
+
+    logProfileUploadDebug(debugId, 'r2:upload-success', {
+      publicUrl,
+      sourceUrl,
+      objectKey: r2ObjectKey,
+      optimizationType
+    });
+
+    const fileName = req.file.originalname || path.basename(r2ObjectKey || '') || `profile-${userId}-${Date.now()}`;
 
     logProfileUploadDebug(debugId, 'url:resolved', {
       publicUrl,
-      isCloudinary,
+      sourceUrl,
+      storageType: 'r2',
+      optimizationType,
+      objectKey: r2ObjectKey,
       fileName,
       mimetype: mimeType,
       fileSize
@@ -413,12 +517,15 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
     // Update user's profile_data with new profile picture using MongoDB
     const profilePictureData = { 
       url: publicUrl, 
+      sourceUrl,
       filename: fileName, 
       fileSize, 
       mimeType, 
       fileType,
-      storageType: isCloudinary ? 'cloudinary' : 'local',
-      publicId: req.file.public_id || null
+      storageType: 'r2',
+      objectKey: r2ObjectKey,
+      optimizationType,
+      publicId: null
     };
     
     const user = await User.findByIdAndUpdate(
@@ -441,7 +548,7 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
     logProfileUploadDebug(debugId, 'db:update-success', {
       userId,
       profilePictureUrl: publicUrl,
-      storageType: isCloudinary ? 'cloudinary' : 'local'
+      storageType: 'r2'
     });
 
     // Log file upload to file_uploads collection
@@ -453,14 +560,19 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
         file_size: fileSize,
         mime_type: mimeType,
         upload_type: 'profile_picture',
-        storage_type: isCloudinary ? 'cloudinary' : 'local',
-        cloudinary_public_id: req.file.public_id || (isCloudinary ? req.file.filename : null)
+        storage_type: 'r2',
+        cloudinary_public_id: null,
+        metadata: {
+          sourceUrl,
+          objectKey: r2ObjectKey,
+          optimizationType
+        }
       });
     } catch (logErr) {
       console.warn('Profile picture log failed:', logErr.message);
     }
 
-    console.log(`✅ Profile picture uploaded for user ${userId}: ${publicUrl} (${isCloudinary ? 'Cloudinary' : 'Local'})`);
+    console.log(`✅ Profile picture uploaded for user ${userId}: ${publicUrl} (R2 + ${optimizationType})`);
 
     res.json({
       success: true,
@@ -468,11 +580,15 @@ router.post('/profile-picture', authMiddleware, uploadRateLimit(profileUploadLim
       debugId,
       profilePicture: {
         url: publicUrl,
+        sourceUrl,
         filename: fileName,
         fileSize,
         mimeType,
         fileType,
-        storageType: isCloudinary ? 'cloudinary' : 'local'
+        storageType: 'r2',
+        objectKey: r2ObjectKey,
+        optimizationType,
+        publicId: null
       }
     });
 
